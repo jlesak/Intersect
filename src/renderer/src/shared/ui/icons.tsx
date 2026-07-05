@@ -1,0 +1,94 @@
+import type { SVGProps } from 'react'
+
+const base = (props: SVGProps<SVGSVGElement>): SVGProps<SVGSVGElement> => ({
+  width: 15,
+  height: 15,
+  viewBox: '0 0 16 16',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  ...props
+})
+
+export const IconPlus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M8 3v10M3 8h10" />
+  </svg>
+)
+
+export const IconClose = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </svg>
+)
+
+export const IconFolder = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />
+  </svg>
+)
+
+export const IconTrash = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 4.5h10M6.5 4.5V3.5h3v1M5 4.5l.5 8h5l.5-8" />
+  </svg>
+)
+
+export const IconPencil = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M11 2.5l2.5 2.5M3 13l1-3.5L11 2.5 13.5 5 6.5 12 3 13z" />
+  </svg>
+)
+
+export const IconChevronLeft = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M10 3.5L5.5 8l4.5 4.5" />
+  </svg>
+)
+
+export const IconChevronRight = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6 3.5L10.5 8 6 12.5" />
+  </svg>
+)
+
+export const IconShell = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 5.5L6.5 8 4 10.5M8 10.5h4" />
+  </svg>
+)
+
+export const IconClaude = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M8 2.5l1.4 3.6L13 7.5l-3.6 1.4L8 12.5 6.6 8.9 3 7.5l3.6-1.4z" />
+  </svg>
+)
+
+export const IconLayoutSingle = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1" />
+  </svg>
+)
+
+export const IconLayoutColumns = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1" />
+    <path d="M8 3v10" />
+  </svg>
+)
+
+export const IconLayoutRows = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1" />
+    <path d="M2.5 8h11" />
+  </svg>
+)
+
+export const IconLayoutGrid = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1" />
+    <path d="M8 3v10M2.5 8h11" />
+  </svg>
+)

@@ -44,8 +44,9 @@ beforeEach(() => {
 })
 
 async function hydrateWith(tabs: Tab[], ws: Workspace = workspace()) {
+  mocked.workspaceState.mockResolvedValue({ workspaces: [ws], selectedWorkspaceId: ws.id })
   mocked.listByWorkspace.mockResolvedValue(tabs)
-  await useTabsStore.getState().hydrate(ws)
+  await useTabsStore.getState().hydrate(ws.id)
 }
 
 describe('tabsStore', () => {

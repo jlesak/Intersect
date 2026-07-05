@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Layout, Preset, Tab, Workspace } from '@common/domain'
+import type { Layout, Preset, Tab } from '@common/domain'
 import { reconcilePanes } from '@common/layout'
 import * as api from './ipc'
 
@@ -13,7 +13,7 @@ interface TabsState {
   order: string[]
   layout: Layout
   activeTabId: string | null
-  hydrate(workspace: Workspace): Promise<void>
+  hydrate(workspaceId: string): Promise<void>
   clear(): void
   createTab(preset: Preset): Promise<Tab | null>
   renameTab(id: string, title: string): Promise<void>
@@ -44,21 +44,27 @@ const EMPTY = {
 export const useTabsStore = create<TabsState>()((set, get) => ({
   ...EMPTY,
 
-  async hydrate(workspace) {
-    set({
-      status: 'loading',
-      error: null,
-      workspaceId: workspace.id,
-      layout: workspace.layout,
-      activeTabId: workspace.activeTabId,
-      byId: {},
-      order: []
-    })
+  async hydrate(workspaceId) {
+    set({ ...EMPTY, status: 'loading', workspaceId })
     try {
-      const tabs = await api.listByWorkspace(workspace.id)
+      // Seed layout/activeTab from the workspace's freshest persisted state, then load its tabs.
+      const { workspaces } = await api.workspaceState()
+      const ws = workspaces.find((w) => w.id === workspaceId)
+      if (!ws) {
+        set({ ...EMPTY })
+        return
+      }
+      const tabs = await api.listByWorkspace(workspaceId)
       const byId: Record<string, Tab> = {}
       for (const t of tabs) byId[t.id] = t
-      set({ status: 'ready', byId, order: tabs.map((t) => t.id) })
+      set({
+        status: 'ready',
+        workspaceId,
+        layout: ws.layout,
+        activeTabId: ws.activeTabId,
+        byId,
+        order: tabs.map((t) => t.id)
+      })
     } catch (e) {
       set({ status: 'error', error: message(e) })
     }

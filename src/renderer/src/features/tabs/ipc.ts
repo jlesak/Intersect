@@ -1,10 +1,12 @@
-import type { Layout, Preset, Tab, Workspace } from '@common/domain'
+import type { BootState, Layout, Preset, Tab, Workspace } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // The tabs slice owns the selected workspace's terminal view, so it touches both the tabs
 // channels and the workspace layout channel (layout persists on the workspace row).
 export const listByWorkspace = (workspaceId: string): Promise<Tab[]> =>
   ipc().tabs.listByWorkspace(workspaceId)
+// Fetched at hydrate time so the view always seeds from the workspace's freshest layout/activeTab.
+export const workspaceState = (): Promise<BootState> => ipc().workspaces.getState()
 export const create = (workspaceId: string, preset: Preset): Promise<Tab> =>
   ipc().tabs.create(workspaceId, preset)
 export const rename = (id: string, title: string): Promise<Tab> => ipc().tabs.rename(id, title)

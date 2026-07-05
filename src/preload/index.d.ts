@@ -1,8 +1,9 @@
-export {}
+import type { IpcApi } from '@common/ipc'
 
 declare global {
   interface Window {
-    // Replaced with the typed IpcApi surface when the IPC layer lands.
-    jarvis: unknown
+    jarvis: IpcApi
   }
 }
+
+export {}
