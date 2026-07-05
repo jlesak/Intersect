@@ -28,10 +28,9 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
     },
 
     async create(folderPath, name) {
+      // Creating a workspace switches to it - the user just added it to use it.
       const ws = d.workspaces.create(folderPath, name)
-      if (d.appState.get(SELECTED_WORKSPACE_KEY) === null) {
-        d.appState.set(SELECTED_WORKSPACE_KEY, ws.id)
-      }
+      d.appState.set(SELECTED_WORKSPACE_KEY, ws.id)
       return ws
     },
 

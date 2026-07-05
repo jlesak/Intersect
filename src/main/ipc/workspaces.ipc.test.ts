@@ -28,10 +28,10 @@ describe('workspace handlers', () => {
     expect(state.selectedWorkspaceId).toBe(a.id)
   })
 
-  test('the first created workspace becomes selected; later ones do not steal selection', async () => {
-    const a = await ws.create('/a')
-    await ws.create('/b')
-    expect((await ws.getState()).selectedWorkspaceId).toBe(a.id)
+  test('creating a workspace selects it', async () => {
+    await ws.create('/a')
+    const b = await ws.create('/b')
+    expect((await ws.getState()).selectedWorkspaceId).toBe(b.id)
   })
 
   test('create defaults the name to the folder basename', async () => {
