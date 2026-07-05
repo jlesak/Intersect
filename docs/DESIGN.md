@@ -601,6 +601,25 @@ requirements (all adopted):
 - **(nit) Future migrations** must avoid statements that implicitly COMMIT, or the per-migration
   rollback guarantee breaks.
 
+### 16.18 Post-implementation code-review fixes (applied)
+An adversarial multi-dimension code review (5 lenses, each finding independently verified)
+raised 22 findings; 7 were rejected on verification. The confirmed/plausible ones were fixed:
+
+- **Renderer leak (major):** closing a tab now calls `disposeSession` (xterm/observer/router sink).
+  `SplitStage` was made fully prop-driven so the terminal slice imports no other slice, breaking
+  the import cycle that blocked `tabsStore` from calling the controller.
+- **CSP (major):** delivered as a build-injected `<meta>` (a header CSP is a no-op on `file://`);
+  added base-uri/form-action/object-src; dev HMR unaffected.
+- **Silent errors (major):** every mutating store action reports failures via a toast surface.
+- **Pane invariant (major/minor):** `assignToPane` evicts the prior slot occupant atomically in
+  one main-process transaction (`clearPaneSlot` + `setPaneSlot`), so the one-tab-per-slot invariant
+  is enforced by the persistence authority, not only the renderer.
+- **Dead code (minor):** the unused `Dialog` is now the workspace-delete confirmation.
+- Cheap: `webContents.isDestroyed()` guard in the sender; removed unused `has()/count()`;
+  consolidated preset metadata into `PRESET_META` (one entry per preset); comment-rule fix.
+- Rejected: the sole "blocker" (an onExit stale-proc theory) - UUID sessionIds are never reused,
+  so it is unreachable; and premature store-helper extraction (only two instances).
+
 ### 16.16 Manifests are append-only (not "one coupling point")
 Adding a slice appends to: `app/registerFeatures.ts`, the app boot/hydrate sequence,
 `src/common/ipc.ts` + `domain.ts`, and `migrations.ts`. All are append-only manifests that add no
