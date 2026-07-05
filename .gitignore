@@ -1,0 +1,28 @@
+node_modules/
+out/
+dist/
+*.local
+.DS_Store
+
+# Vite / electron-vite
+.vite/
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+e2e-userdata/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local SQLite scratch
+*.db
+*.db-wal
+*.db-shm
+
+# Dev scratch scripts (underscore-prefixed)
+/_*.cjs
+/_*.js
+/_*.mjs
