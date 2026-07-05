@@ -1,5 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 
+/** app_state key under which the selected workspace id is persisted. */
+export const SELECTED_WORKSPACE_KEY = 'selected_workspace_id'
+
 /** Flat key/value store for cross-cutting singletons (e.g. the selected workspace id). */
 export interface AppStateRepo {
   get(key: string): string | null

@@ -35,6 +35,9 @@ export interface IpcApi {
     ): Promise<{ ok: boolean }>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
+    /** Backpressure: ask main to XOFF/XON the child when the renderer buffer is over/under water. */
+    pause(sessionId: string): void
+    resume(sessionId: string): void
     kill(sessionId: string): void
     /** Subscribe to PTY output for all sessions; returns an unsubscribe fn. */
     onData(cb: (msg: TerminalDataEvent) => void): () => void
@@ -78,6 +81,8 @@ export const Channel = {
   terminalSpawn: 'terminal:spawn',
   terminalInput: 'terminal:input',
   terminalResize: 'terminal:resize',
+  terminalPause: 'terminal:pause',
+  terminalResume: 'terminal:resume',
   terminalKill: 'terminal:kill',
   // terminal (main -> renderer broadcasts)
   terminalData: 'terminal:data',

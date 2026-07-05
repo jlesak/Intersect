@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Preset, Tab } from '@common/domain'
 import type { RepoDeps } from './deps'
-import { tx } from './tx'
 
 interface TabRow {
   id: string
@@ -84,11 +83,10 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       db.prepare('DELETE FROM tabs WHERE id = ?').run(id)
     },
 
+    // Transaction-agnostic: callers (handlers) wrap multi-step operations in tx() as needed.
     reorder(workspaceId, orderedIds) {
-      tx(db, () => {
-        const update = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ? AND workspace_id = ?')
-        orderedIds.forEach((id, index) => update.run(index, id, workspaceId))
-      })
+      const update = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ? AND workspace_id = ?')
+      orderedIds.forEach((id, index) => update.run(index, id, workspaceId))
       return listByWorkspace(workspaceId)
     },
 
@@ -99,10 +97,8 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
     },
 
     setPaneSlots(assignments) {
-      tx(db, () => {
-        const update = db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?')
-        for (const a of assignments) update.run(a.paneSlot, a.id)
-      })
+      const update = db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?')
+      for (const a of assignments) update.run(a.paneSlot, a.id)
     }
   }
 }
