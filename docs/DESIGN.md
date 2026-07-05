@@ -559,6 +559,48 @@ node:sqlite (a different RC build). Verified logic ≠ verified shipped engine. 
 node:sqlite in the repo layer (swappable), and rely on the §16.13 Electron-runtime parity smoke to
 exercise the shipped engine. Trade-off accepted for MVP.
 
+### 16.17 Correctness-review reconciliation (runtime robustness)
+A dedicated correctness/robustness review surfaced several runtime bugs to fix as first-class
+requirements (all adopted):
+
+- **(blocker) Register-before-spawn.** The PTY emits its prompt within ~1ms of `pty.spawn`. If
+  the renderer registers its data sink only *after* `await terminal.spawn` resolves, the initial
+  prompt / Claude banner is routed to a missing sink and silently lost. FIX: because `sessionId`
+  is deterministic, construct the xterm `Terminal` + `router.register(sessionId, sink)` FIRST,
+  then `await terminal.spawn(...)`. xterm buffers `write()` before `open()`, so nothing is lost.
+- **(major) Latch the Claude write.** `onData` fires repeatedly; gate `claude\r` on the FIRST
+  data event and latch it (unsubscribe / boolean) so it is written exactly once.
+- **(major) Validate cwd.** A workspace folder may be deleted/moved externally. `sessionManager`
+  checks `fs.existsSync(cwd)` and falls back to `os.homedir()` (writing a one-line notice into the
+  terminal) instead of throwing an un-actionable spawn error.
+- **(major) Kill PTYs by sessionId prefix on workspace delete.** `sessionManager.killWorkspace(wsId)`
+  iterates its Map keys with prefix `` `${wsId}:` `` and kills matches - no DB enumeration, so it
+  works even after the cascade removed the tab rows. Called in the `workspaces.remove` handler.
+- **(major) Backpressure.** Implement the watermark scheme: spawn with node-pty
+  `handleFlowControl: true`; renderer counts outstanding bytes via xterm `write(data, cb)`, and
+  crossing a high watermark sends `terminal:pause` (main writes XOFF `\x13`), dropping below a low
+  watermark sends `terminal:resume` (main writes XON `\x11`). Prevents runaway output (`cat huge`,
+  `yes`) from hanging/OOMing the renderer. Adds channels `terminal:pause` / `terminal:resume`.
+- **(major) tabs.remove reselects active tab in-transaction.** If the removed tab is the
+  workspace's `active_tab_id`, set it to a sibling (by sort_order) or null in the SAME transaction,
+  so no dangling ref persists in the DB (it is deliberately not an FK).
+- **reconcilePanes hardening + applied on load AND setLayout:** never place `activeTabId` in slot 0
+  if it already owns a slot (no double-render); clear any `pane_slot >= slotCount(layout)`;
+  reconcile is the single authoritative transform run on `setLayout` (persisted) and at load.
+- **Invariants (all sessions):** `route/write/resize/kill` are no-ops on an unknown sessionId;
+  xterm disposal is idempotent (guarded Map entry); exactly ONE module-scope `terminal:data`
+  listener for the renderer's lifetime; the `ResizeObserver` observes the persisted `mountDiv`
+  (which travels between panes), not the pane node.
+- **(decision) Quit on window close.** Single-window app: `window-all-closed -> app.quit()` on all
+  platforms (overriding the macOS stay-resident convention) to avoid a dock-reactivate showing a
+  live window with dead shells. `before-quit`: `killAll()` then `db.close()` (WAL checkpoint).
+  No separate `killAll()` on window `'closed'`.
+- **(nit) Env hygiene:** pass `env` derived from `process.env` but strip `ELECTRON_RUN_AS_NODE` and
+  other `ELECTRON_*` vars (confuse node CLIs); set `TERM=xterm-256color`. Keep `-l` login shell
+  (that is what resolves PATH for `claude`).
+- **(nit) Future migrations** must avoid statements that implicitly COMMIT, or the per-migration
+  rollback guarantee breaks.
+
 ### 16.16 Manifests are append-only (not "one coupling point")
 Adding a slice appends to: `app/registerFeatures.ts`, the app boot/hydrate sequence,
 `src/common/ipc.ts` + `domain.ts`, and `migrations.ts`. All are append-only manifests that add no
