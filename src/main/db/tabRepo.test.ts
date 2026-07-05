@@ -82,6 +82,16 @@ describe('tabRepo', () => {
     expect(list.find((t) => t.id === b.id)?.paneSlot).toBe(1)
   })
 
+  test('clearPaneSlot frees the slot for all workspace tabs except the given one', () => {
+    const a = tabs.create(wsId, 'shell')
+    const b = tabs.create(wsId, 'shell')
+    tabs.setPaneSlot(a.id, 0)
+    tabs.setPaneSlot(b.id, 0)
+    tabs.clearPaneSlot(wsId, 0, b.id)
+    expect(tabs.getById(a.id)?.paneSlot).toBeNull()
+    expect(tabs.getById(b.id)?.paneSlot).toBe(0)
+  })
+
   test('rename throws for a missing tab', () => {
     expect(() => tabs.rename('missing', 'x')).toThrow(/not found/i)
   })

@@ -1,20 +1,23 @@
-import { useShallow } from 'zustand/react/shallow'
-import type { Tab } from '@common/domain'
+import type { Layout, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { slotCount } from '@common/layout'
-import { selectTabList, useTabsStore } from '@renderer/features/tabs'
 import { TerminalPane } from './TerminalPane'
 
-/** Arranges the workspace's terminals into the chosen split layout. Assumes at least one tab. */
-export function SplitStage({ cwd }: { cwd: string }) {
-  const layout = useTabsStore((s) => s.layout)
-  const activeTabId = useTabsStore((s) => s.activeTabId)
-  const workspaceId = useTabsStore((s) => s.workspaceId)
-  const assignToPane = useTabsStore((s) => s.assignToPane)
-  const tabs = useTabsStore(useShallow(selectTabList))
+export interface SplitStageProps {
+  workspaceId: string
+  cwd: string
+  layout: Layout
+  activeTabId: string | null
+  tabs: Tab[]
+  onAssign: (tabId: string, slot: number) => void
+}
 
-  if (!workspaceId) return null
-
+/**
+ * Arranges the workspace's terminals into the chosen split layout. Fully controlled - it renders
+ * the state it is given and never reaches into a feature store, so the terminal slice depends on
+ * no other slice.
+ */
+export function SplitStage({ workspaceId, cwd, layout, activeTabId, tabs, onAssign }: SplitStageProps) {
   const n = slotCount(layout)
   const paneTabs: (Tab | null)[] =
     layout === 'single'
@@ -34,7 +37,7 @@ export function SplitStage({ cwd }: { cwd: string }) {
               cwd={cwd}
             />
           ) : (
-            <EmptyPane unplaced={unplaced} onAssign={(id) => void assignToPane(id, slot)} />
+            <EmptyPane unplaced={unplaced} onAssign={(id) => onAssign(id, slot)} />
           )}
         </div>
       ))}
@@ -47,7 +50,7 @@ function EmptyPane({ unplaced, onAssign }: { unplaced: Tab[]; onAssign: (id: str
     <>
       <span className="jv-eyebrow">Empty pane</span>
       {unplaced.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="jv-col" style={{ gap: 6 }}>
           {unplaced.map((t) => (
             <button key={t.id} type="button" className="jv-btn jv-btn--ghost" onClick={() => onAssign(t.id)}>
               Place “{t.title}” here
@@ -55,7 +58,7 @@ function EmptyPane({ unplaced, onAssign }: { unplaced: Tab[]; onAssign: (id: str
           ))}
         </div>
       ) : (
-        <span style={{ color: 'var(--text-faint)' }}>Every tab is already placed</span>
+        <span className="jv-faint">Every tab is already placed</span>
       )}
     </>
   )

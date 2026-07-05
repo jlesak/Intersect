@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { Preset } from '@common/domain'
-import { TabBar, useTabsStore } from '@renderer/features/tabs'
+import { selectTabList, TabBar, useTabsStore } from '@renderer/features/tabs'
 import { SplitStage } from '@renderer/features/terminal'
 import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
@@ -9,8 +10,12 @@ import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
 export function WorkspaceView() {
   const selected = useWorkspacesStore(selectSelectedWorkspace)
   const selectedId = selected?.id ?? null
+
   const tabsStatus = useTabsStore((s) => s.status)
-  const tabCount = useTabsStore((s) => s.order.length)
+  const layout = useTabsStore((s) => s.layout)
+  const activeTabId = useTabsStore((s) => s.activeTabId)
+  const workspaceId = useTabsStore((s) => s.workspaceId)
+  const tabs = useTabsStore(useShallow(selectTabList))
 
   // Load the selected workspace's terminal view whenever the selection changes.
   useEffect(() => {
@@ -30,13 +35,22 @@ export function WorkspaceView() {
     )
   }
 
+  const ready = tabsStatus === 'ready' && workspaceId === selected.id
+
   return (
     <div className="jv-main">
       <TabBar />
-      {tabsStatus === 'ready' && tabCount === 0 ? (
+      {ready && tabs.length === 0 ? (
         <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
       ) : (
-        <SplitStage cwd={selected.folderPath} />
+        <SplitStage
+          workspaceId={selected.id}
+          cwd={selected.folderPath}
+          layout={layout}
+          activeTabId={activeTabId}
+          tabs={tabs}
+          onAssign={(tabId, slot) => void useTabsStore.getState().assignToPane(tabId, slot)}
+        />
       )}
     </div>
   )
@@ -47,7 +61,7 @@ function NoTabs({ onOpen }: { onOpen: (preset: Preset) => void }) {
     <div className="jv-empty">
       <span className="jv-eyebrow">No terminals</span>
       <div className="jv-empty__title">Open a terminal to get going</div>
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div className="jv-row" style={{ gap: 10 }}>
         <button type="button" className="jv-btn jv-btn--primary" onClick={() => onOpen('shell')}>
           <IconShell /> Shell
         </button>

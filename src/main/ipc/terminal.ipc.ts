@@ -44,8 +44,12 @@ export function createSender(getWebContents: () => WebContents | null): {
   data(event: TerminalDataEvent): void
   exit(event: TerminalExitEvent): void
 } {
+  const send = (channel: string, payload: unknown): void => {
+    const wc = getWebContents()
+    if (wc && !wc.isDestroyed()) wc.send(channel, payload)
+  }
   return {
-    data: (event) => getWebContents()?.send(Channel.terminalData, event),
-    exit: (event) => getWebContents()?.send(Channel.terminalExit, event)
+    data: (event) => send(Channel.terminalData, event),
+    exit: (event) => send(Channel.terminalExit, event)
   }
 }

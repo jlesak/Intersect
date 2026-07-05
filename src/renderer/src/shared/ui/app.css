@@ -394,3 +394,41 @@
   background: var(--panel-3);
   color: var(--accent);
 }
+
+/* ---------------- layout utilities ---------------- */
+.jv-row {
+  display: flex;
+  align-items: center;
+}
+.jv-col {
+  display: flex;
+  flex-direction: column;
+}
+.jv-faint {
+  color: var(--text-faint);
+}
+
+/* ---------------- toasts ---------------- */
+.jv-toaster {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 300;
+  max-width: 380px;
+}
+.jv-toast {
+  padding: 10px 13px;
+  border: 1px solid var(--danger);
+  border-left-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  animation: jv-fade var(--dur) var(--ease);
+}

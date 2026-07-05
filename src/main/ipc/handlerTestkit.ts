@@ -35,9 +35,7 @@ export function makeFakeSessions(): FakeSessions {
     },
     killAll: () => {
       calls.killAll += 1
-    },
-    has: () => false,
-    count: () => 0
+    }
   }
   return { sessions, calls }
 }

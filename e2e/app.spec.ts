@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
@@ -101,6 +101,23 @@ test('splits into two columns and places both terminals', async () => {
   await win.locator('.jv-pane--empty .jv-btn').first().click()
   await expect(win.locator('.jv-pane .xterm')).toHaveCount(2)
 
+  await app.close()
+})
+
+test('deletes a workspace after confirming, leaving the folder on disk untouched', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'jarvis-e2e-'))
+  const wsDir = mkdtempSync(join(tmpdir(), 'delws-'))
+  const { app, win } = await launch(userDataDir)
+  await addWorkspace(win, app, wsDir)
+  await expect(win.locator('.jv-ws')).toHaveCount(1)
+
+  await win.locator('.jv-ws').first().click({ button: 'right' })
+  await win.locator('.jv-menu__item--danger', { hasText: 'Delete workspace' }).click()
+  await win.locator('.jv-dialog').waitFor()
+  await win.locator('.jv-dialog .jv-btn--danger').click()
+
+  await expect(win.locator('.jv-ws')).toHaveCount(0)
+  expect(existsSync(wsDir), 'workspace folder must not be deleted from disk').toBe(true)
   await app.close()
 })
 

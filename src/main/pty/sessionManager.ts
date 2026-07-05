@@ -46,8 +46,6 @@ export interface SessionManager {
   kill(sessionId: string): void
   killWorkspace(workspaceId: string): void
   killAll(): void
-  has(sessionId: string): boolean
-  count(): number
 }
 
 // XON/XOFF flow-control bytes (node-pty intercepts these when handleFlowControl is on).
@@ -140,8 +138,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     },
     killAll() {
       for (const id of [...sessions.keys()]) kill(id)
-    },
-    has: (sessionId) => sessions.has(sessionId),
-    count: () => sessions.size
+    }
   }
 }

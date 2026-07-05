@@ -1,2 +1,2 @@
 export { SplitStage } from './components/SplitStage'
-export { disposeWorkspaceSessions } from './terminalController'
+export { disposeSession, disposeWorkspaceSessions } from './terminalController'

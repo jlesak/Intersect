@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Preset, Tab } from '@common/domain'
+import { PRESET_META, type Preset, type Tab } from '@common/domain'
 import type { RepoDeps } from './deps'
 
 interface TabRow {
@@ -23,8 +23,6 @@ function toTab(row: TabRow): Tab {
   }
 }
 
-const DEFAULT_TITLE: Record<Preset, string> = { shell: 'Shell', claude: 'Claude' }
-
 export interface TabRepo {
   listByWorkspace(workspaceId: string): Tab[]
   getById(id: string): Tab | undefined
@@ -34,6 +32,8 @@ export interface TabRepo {
   reorder(workspaceId: string, orderedIds: string[]): Tab[]
   setPaneSlot(id: string, slot: number | null): Tab
   setPaneSlots(assignments: { id: string; paneSlot: number | null }[]): void
+  /** Clear the given pane slot for every tab of the workspace except `exceptId`. */
+  clearPaneSlot(workspaceId: string, slot: number, exceptId: string): void
 }
 
 export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
@@ -69,7 +69,7 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       const id = deps.newId()
       db.prepare(
         'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
-      ).run(id, workspaceId, title ?? DEFAULT_TITLE[preset], preset, null, nextOrder, deps.now())
+      ).run(id, workspaceId, title ?? PRESET_META[preset].defaultTitle, preset, null, nextOrder, deps.now())
       return mustGet(id)
     },
 
@@ -83,7 +83,7 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       db.prepare('DELETE FROM tabs WHERE id = ?').run(id)
     },
 
-    // Transaction-agnostic: callers (handlers) wrap multi-step operations in tx() as needed.
+    // Does not open its own transaction; wrap in tx() when composing with other writes.
     reorder(workspaceId, orderedIds) {
       const update = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ? AND workspace_id = ?')
       orderedIds.forEach((id, index) => update.run(index, id, workspaceId))
@@ -99,6 +99,12 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
     setPaneSlots(assignments) {
       const update = db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?')
       for (const a of assignments) update.run(a.paneSlot, a.id)
+    },
+
+    clearPaneSlot(workspaceId, slot, exceptId) {
+      db.prepare(
+        'UPDATE tabs SET pane_slot = NULL WHERE workspace_id = ? AND pane_slot = ? AND id != ?'
+      ).run(workspaceId, slot, exceptId)
     }
   }
 }

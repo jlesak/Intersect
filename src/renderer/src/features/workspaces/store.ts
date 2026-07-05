@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Workspace } from '@common/domain'
+import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
@@ -55,22 +56,36 @@ export const useWorkspacesStore = create<WorkspacesState>()((set) => ({
   },
 
   async create(folderPath, name) {
-    const ws = await api.create(folderPath, name)
-    set((s) => ({
-      byId: { ...s.byId, [ws.id]: ws },
-      order: [...s.order, ws.id],
-      selectedWorkspaceId: ws.id
-    }))
-    return ws
+    try {
+      const ws = await api.create(folderPath, name)
+      set((s) => ({
+        byId: { ...s.byId, [ws.id]: ws },
+        order: [...s.order, ws.id],
+        selectedWorkspaceId: ws.id
+      }))
+      return ws
+    } catch (e) {
+      reportError('Could not add the workspace', e)
+      return null
+    }
   },
 
   async rename(id, name) {
-    const ws = await api.rename(id, name)
-    set((s) => ({ byId: { ...s.byId, [id]: ws } }))
+    try {
+      const ws = await api.rename(id, name)
+      set((s) => ({ byId: { ...s.byId, [id]: ws } }))
+    } catch (e) {
+      reportError('Could not rename the workspace', e)
+    }
   },
 
   async remove(id) {
-    await api.remove(id)
+    try {
+      await api.remove(id)
+    } catch (e) {
+      reportError('Could not delete the workspace', e)
+      return
+    }
     set((s) => {
       const byId = { ...s.byId }
       delete byId[id]
@@ -82,11 +97,20 @@ export const useWorkspacesStore = create<WorkspacesState>()((set) => ({
   },
 
   async select(id) {
-    await api.setActive(id)
-    set({ selectedWorkspaceId: id })
+    try {
+      await api.setActive(id)
+      set({ selectedWorkspaceId: id })
+    } catch (e) {
+      reportError('Could not switch workspace', e)
+    }
   },
 
   async pickFolder() {
-    return api.pickFolder()
+    try {
+      return await api.pickFolder()
+    } catch (e) {
+      reportError('Could not open the folder picker', e)
+      return null
+    }
   }
 }))

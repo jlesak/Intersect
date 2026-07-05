@@ -1,4 +1,5 @@
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
+import { Toaster } from '@renderer/shared/ui/Toaster'
 import { Sidebar } from './Sidebar'
 
 /**
@@ -13,6 +14,7 @@ export function App() {
     <div className="jv-app">
       <Sidebar />
       {Main ? <Main /> : <div className="jv-main" />}
+      <Toaster />
     </div>
   )
 }

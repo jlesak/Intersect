@@ -7,6 +7,33 @@
 export const PRESETS = ['shell', 'claude'] as const
 export type Preset = (typeof PRESETS)[number]
 
+/** How a preset presents and launches. One entry here is all a new preset needs (plus the union). */
+export interface PresetMeta {
+  label: string
+  badge: string
+  description: string
+  defaultTitle: string
+  /** Typed into the resolved shell once ready; null spawns a plain shell. */
+  initialCommand: string | null
+}
+
+export const PRESET_META: Record<Preset, PresetMeta> = {
+  shell: {
+    label: 'Shell',
+    badge: 'SH',
+    description: 'Your default shell',
+    defaultTitle: 'Shell',
+    initialCommand: null
+  },
+  claude: {
+    label: 'Claude Code',
+    badge: 'AI',
+    description: 'claude in this folder',
+    defaultTitle: 'Claude',
+    initialCommand: 'claude'
+  }
+}
+
 export const LAYOUTS = ['single', 'columns', 'rows', 'grid'] as const
 export type Layout = (typeof LAYOUTS)[number]
 

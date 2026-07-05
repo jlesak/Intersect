@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { Preset } from '@common/domain'
+import { PRESET_META } from '@common/domain'
 import { slotCount } from '@common/layout'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconChevronLeft, IconChevronRight, IconClose, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { selectTabList, useTabsStore } from '../store'
 import { LayoutPicker } from './LayoutPicker'
 import { PresetPicker } from './PresetPicker'
-
-const PRESET_BADGE: Record<Preset, string> = { shell: 'SH', claude: 'AI' }
 
 export function TabBar() {
   const tabs = useTabsStore(useShallow(selectTabList))
@@ -78,7 +76,7 @@ export function TabBar() {
               setMenu({ x: e.clientX, y: e.clientY, id: tab.id })
             }}
           >
-            <span className="jv-tab__preset">{PRESET_BADGE[tab.preset]}</span>
+            <span className="jv-tab__preset">{PRESET_META[tab.preset].badge}</span>
             {renamingId === tab.id ? (
               <input
                 className="jv-tab__rename"

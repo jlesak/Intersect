@@ -64,6 +64,15 @@ describe('tab handlers', () => {
     expect((await tabs.assignToPane(a.id, 1)).paneSlot).toBe(1)
   })
 
+  test('assignToPane atomically evicts a prior occupant of the slot', async () => {
+    const a = await tabs.create(wsId, 'shell')
+    const b = await tabs.create(wsId, 'shell')
+    await tabs.assignToPane(a.id, 0)
+    await tabs.assignToPane(b.id, 0)
+    expect(ctx.tabs.getById(a.id)?.paneSlot).toBeNull()
+    expect(ctx.tabs.getById(b.id)?.paneSlot).toBe(0)
+  })
+
   test('setActive updates the workspace active tab', async () => {
     const a = await tabs.create(wsId, 'shell')
     await tabs.create(wsId, 'shell')

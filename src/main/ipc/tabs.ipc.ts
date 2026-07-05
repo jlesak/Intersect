@@ -49,7 +49,14 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
     },
 
     async assignToPane(id, slot) {
-      return d.tabs.setPaneSlot(id, slot)
+      // Atomically enforce one-tab-per-slot: evict any other tab holding the slot, then assign.
+      return tx(d.db, () => {
+        if (slot !== null) {
+          const tab = d.tabs.getById(id)
+          if (tab) d.tabs.clearPaneSlot(tab.workspaceId, slot, id)
+        }
+        return d.tabs.setPaneSlot(id, slot)
+      })
     },
 
     async setActive(workspaceId, tabId) {

@@ -27,3 +27,5 @@ npm-debug.log*
 /_*.js
 /_*.mjs
 e2e/diag.spec.ts
+
+e2e/screenshot.spec.ts

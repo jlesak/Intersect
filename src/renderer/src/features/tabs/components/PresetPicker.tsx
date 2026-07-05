@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Preset } from '@common/domain'
+import { PRESETS, PRESET_META, type Preset } from '@common/domain'
 import { IconPlus } from '@renderer/shared/ui/icons'
-
-const PRESETS: { preset: Preset; label: string; badge: string; desc: string }[] = [
-  { preset: 'shell', label: 'Shell', badge: 'SH', desc: 'Your default shell' },
-  { preset: 'claude', label: 'Claude Code', badge: 'AI', desc: 'claude in this folder' }
-]
 
 /** The "+" affordance: opens a small popover to pick which terminal preset to open. */
 export function PresetPicker({ onPick }: { onPick: (preset: Preset) => void }) {
@@ -50,23 +45,26 @@ export function PresetPicker({ onPick }: { onPick: (preset: Preset) => void }) {
       {open &&
         createPortal(
           <div ref={popRef} className="jv-presets" style={{ left: pos.x, top: pos.y }}>
-            {PRESETS.map((p) => (
-              <button
-                key={p.preset}
-                type="button"
-                className="jv-preset"
-                onClick={() => {
-                  setOpen(false)
-                  onPick(p.preset)
-                }}
-              >
-                <span className="jv-preset__badge">{p.badge}</span>
-                <span style={{ flex: 1 }}>
-                  <div>{p.label}</div>
-                  <div className="jv-preset__desc">{p.desc}</div>
-                </span>
-              </button>
-            ))}
+            {PRESETS.map((preset) => {
+              const meta = PRESET_META[preset]
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  className="jv-preset"
+                  onClick={() => {
+                    setOpen(false)
+                    onPick(preset)
+                  }}
+                >
+                  <span className="jv-preset__badge">{meta.badge}</span>
+                  <span style={{ flex: 1 }}>
+                    <div>{meta.label}</div>
+                    <div className="jv-preset__desc">{meta.description}</div>
+                  </span>
+                </button>
+              )
+            })}
           </div>,
           document.body
         )}

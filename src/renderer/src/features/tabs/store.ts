@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { Layout, Preset, Tab } from '@common/domain'
+import { makeSessionId } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
+import { disposeSession } from '@renderer/features/terminal'
+import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
@@ -77,18 +80,35 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
   async createTab(preset) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return null
-    const t = await api.create(workspaceId, preset)
-    set((s) => ({ byId: { ...s.byId, [t.id]: t }, order: [...s.order, t.id], activeTabId: t.id }))
-    return t
+    try {
+      const t = await api.create(workspaceId, preset)
+      set((s) => ({ byId: { ...s.byId, [t.id]: t }, order: [...s.order, t.id], activeTabId: t.id }))
+      return t
+    } catch (e) {
+      reportError('Could not open a terminal', e)
+      return null
+    }
   },
 
   async renameTab(id, title) {
-    const t = await api.rename(id, title)
-    set((s) => ({ byId: { ...s.byId, [id]: t } }))
+    try {
+      const t = await api.rename(id, title)
+      set((s) => ({ byId: { ...s.byId, [id]: t } }))
+    } catch (e) {
+      reportError('Could not rename the tab', e)
+    }
   },
 
   async removeTab(id) {
-    await api.remove(id)
+    const workspaceId = get().workspaceId
+    try {
+      await api.remove(id)
+    } catch (e) {
+      reportError('Could not close the tab', e)
+      return
+    }
+    // Release the tab's live terminal (xterm, observer, router sink); the PTY is killed in main.
+    if (workspaceId) disposeSession(makeSessionId(workspaceId, id))
     set((s) => {
       const byId = { ...s.byId }
       delete byId[id]
@@ -101,44 +121,62 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
   async reorderTabs(orderedIds) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return
-    const tabs = await api.reorder(workspaceId, orderedIds)
-    const byId: Record<string, Tab> = {}
-    for (const t of tabs) byId[t.id] = t
-    set({ byId, order: tabs.map((t) => t.id) })
+    try {
+      const tabs = await api.reorder(workspaceId, orderedIds)
+      const byId: Record<string, Tab> = {}
+      for (const t of tabs) byId[t.id] = t
+      set({ byId, order: tabs.map((t) => t.id) })
+    } catch (e) {
+      reportError('Could not reorder tabs', e)
+    }
   },
 
   async setActiveTab(id) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return
-    await api.setActive(workspaceId, id)
-    set({ activeTabId: id })
+    try {
+      await api.setActive(workspaceId, id)
+      set({ activeTabId: id })
+    } catch (e) {
+      reportError('Could not switch tabs', e)
+    }
   },
 
   async setLayout(layout) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return
-    const ws = await api.setLayout(workspaceId, layout)
-    // Recompute pane placement locally to match what the main process persisted.
-    const assignments = reconcilePanes(selectTabList(get()), ws.layout, get().activeTabId)
-    set((s) => {
-      const byId = { ...s.byId }
-      for (const a of assignments) {
-        if (byId[a.id]) byId[a.id] = { ...byId[a.id], paneSlot: a.paneSlot }
-      }
-      return { layout: ws.layout, byId }
-    })
+    try {
+      const ws = await api.setLayout(workspaceId, layout)
+      // Recompute pane placement locally to match what the main process persisted.
+      const assignments = reconcilePanes(selectTabList(get()), ws.layout, get().activeTabId)
+      set((s) => {
+        const byId = { ...s.byId }
+        for (const a of assignments) {
+          if (byId[a.id]) byId[a.id] = { ...byId[a.id], paneSlot: a.paneSlot }
+        }
+        return { layout: ws.layout, byId }
+      })
+    } catch (e) {
+      reportError('Could not change the layout', e)
+    }
   },
 
   async assignToPane(id, slot) {
-    // Evict whatever tab currently holds the target slot so a slot maps to one tab.
-    if (slot !== null) {
-      const occupant = selectTabList(get()).find((t) => t.paneSlot === slot && t.id !== id)
-      if (occupant) {
-        const cleared = await api.assignToPane(occupant.id, null)
-        set((s) => ({ byId: { ...s.byId, [occupant.id]: cleared } }))
-      }
+    try {
+      // Main atomically evicts any other tab in this slot; mirror that locally for the UI.
+      const updated = await api.assignToPane(id, slot)
+      set((s) => {
+        const byId = { ...s.byId }
+        if (slot !== null) {
+          for (const t of Object.values(byId)) {
+            if (t.paneSlot === slot && t.id !== id) byId[t.id] = { ...t, paneSlot: null }
+          }
+        }
+        byId[id] = updated
+        return { byId }
+      })
+    } catch (e) {
+      reportError('Could not place the tab', e)
     }
-    const updated = await api.assignToPane(id, slot)
-    set((s) => ({ byId: { ...s.byId, [id]: updated } }))
   }
 }))

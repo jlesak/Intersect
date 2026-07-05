@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Tab, Workspace } from '@common/domain'
+import { makeSessionId } from '@common/ipc'
 
 vi.mock('./ipc')
+vi.mock('@renderer/features/terminal', () => ({
+  disposeSession: vi.fn(),
+  disposeWorkspaceSessions: vi.fn()
+}))
 import * as api from './ipc'
+import { disposeSession } from '@renderer/features/terminal'
 import { selectTabList, useTabsStore } from './store'
 
 const mocked = vi.mocked(api)
+const mockedDispose = vi.mocked(disposeSession)
 
 const workspace = (over: Partial<Workspace> = {}): Workspace => ({
   id: 'w1',
@@ -69,13 +76,14 @@ describe('tabsStore', () => {
     expect(s.activeTabId).toBe('a')
   })
 
-  test('removeTab drops the tab and reselects a sibling when it was active', async () => {
+  test('removeTab drops the tab, reselects a sibling, and disposes the terminal', async () => {
     await hydrateWith([tab('a'), tab('b')], workspace({ activeTabId: 'b' }))
     mocked.remove.mockResolvedValue(undefined)
     await useTabsStore.getState().removeTab('b')
     const s = useTabsStore.getState()
     expect(s.order).toEqual(['a'])
     expect(s.activeTabId).toBe('a')
+    expect(mockedDispose).toHaveBeenCalledWith(makeSessionId('w1', 'b'))
   })
 
   test('removeTab of the last tab clears the active tab', async () => {
@@ -119,14 +127,15 @@ describe('tabsStore', () => {
     expect(s.byId.b.paneSlot).toBeNull()
   })
 
-  test('assignToPane places a tab in a slot and evicts the previous occupant', async () => {
+  test('assignToPane places a tab in a slot and evicts the previous occupant locally', async () => {
     await hydrateWith([tab('a', { paneSlot: 0 }), tab('b')], workspace({ layout: 'columns' }))
     mocked.assignToPane.mockImplementation(async (id, slot) => tab(id, { paneSlot: slot }))
     await useTabsStore.getState().assignToPane('b', 0)
     const s = useTabsStore.getState()
     expect(s.byId.b.paneSlot).toBe(0)
     expect(s.byId.a.paneSlot).toBeNull()
-    expect(mocked.assignToPane).toHaveBeenCalledWith('a', null)
+    // Eviction of the old occupant is enforced atomically in main, so only one IPC call is made.
+    expect(mocked.assignToPane).toHaveBeenCalledTimes(1)
     expect(mocked.assignToPane).toHaveBeenCalledWith('b', 0)
   })
 

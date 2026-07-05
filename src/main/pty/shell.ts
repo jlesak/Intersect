@@ -1,4 +1,4 @@
-import type { Preset } from '@common/domain'
+import { PRESET_META, type Preset } from '@common/domain'
 
 type EnvInput = Record<string, string | undefined>
 
@@ -55,7 +55,7 @@ export function buildSpawn(preset: Preset, opts: BuildSpawnOptions = {}): SpawnS
   return {
     file,
     args,
-    initialCommand: preset === 'claude' ? 'claude' : null,
+    initialCommand: PRESET_META[preset].initialCommand,
     env: sanitizeEnv(opts.env ?? process.env)
   }
 }

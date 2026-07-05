@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
@@ -81,27 +81,11 @@ function wireIpc(database: DatabaseSync): void {
   })
 }
 
-function applyProductionCsp(): void {
-  // Strict CSP for the packaged (loadFile) app; skipped in dev so Vite HMR works. The renderer
-  // only ever loads local content and runs with contextIsolation + sandbox + no nodeIntegration.
-  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
-    cb({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'"
-        ]
-      }
-    })
-  })
-}
-
 app.whenReady().then(() => {
   ensureSpawnHelperExecutable()
   const userDataDir = process.env.JARVIS_USER_DATA_DIR || app.getPath('userData')
   db = openDatabase(userDataDir)
   wireIpc(db)
-  if (!process.env.ELECTRON_RENDERER_URL) applyProductionCsp()
   createWindow()
 
   app.on('activate', () => {

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { disposeWorkspaceSessions } from '@renderer/features/terminal'
 import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
+import { Dialog } from '@renderer/shared/ui/Dialog'
 import { IconFolder, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { selectWorkspaceList, useWorkspacesStore } from '../store'
 
@@ -13,6 +14,7 @@ export function WorkspaceList() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const beginRename = (id: string, name: string): void => {
     setRenamingId(id)
@@ -101,9 +103,43 @@ export function WorkspaceList() {
               }
             },
             { separator: true },
-            { label: 'Delete workspace', icon: <IconTrash />, danger: true, onClick: () => remove(menu.id) }
+            {
+              label: 'Delete workspace',
+              icon: <IconTrash />,
+              danger: true,
+              onClick: () => setConfirmId(menu.id)
+            }
           ]}
         />
+      )}
+
+      {confirmId && (
+        <Dialog
+          title="Delete workspace?"
+          onClose={() => setConfirmId(null)}
+          actions={
+            <>
+              <button type="button" className="jv-btn jv-btn--ghost" onClick={() => setConfirmId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="jv-btn jv-btn--danger"
+                onClick={() => {
+                  remove(confirmId)
+                  setConfirmId(null)
+                }}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0 }}>
+            Delete “{workspaces.find((w) => w.id === confirmId)?.name}” and close its terminals? The
+            folder on disk is not touched.
+          </p>
+        </Dialog>
       )}
     </div>
   )
