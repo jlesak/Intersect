@@ -1,5 +1,10 @@
 import type { Preset } from '@common/domain'
-import type { TerminalDataEvent, TerminalExitEvent } from '@common/ipc'
+import type {
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalNotificationClickEvent,
+  TerminalSessionStatusEvent
+} from '@common/ipc'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin wrappers over the terminal IPC surface. The controller is the only consumer.
@@ -18,3 +23,9 @@ export const resume = (sessionId: string): void => ipc().terminal.resume(session
 export const kill = (sessionId: string): void => ipc().terminal.kill(sessionId)
 export const onData = (cb: (e: TerminalDataEvent) => void): (() => void) => ipc().terminal.onData(cb)
 export const onExit = (cb: (e: TerminalExitEvent) => void): (() => void) => ipc().terminal.onExit(cb)
+export const reportActiveSession = (sessionId: string | null): void =>
+  ipc().terminal.reportActiveSession(sessionId)
+export const onSessionStatus = (cb: (e: TerminalSessionStatusEvent) => void): (() => void) =>
+  ipc().terminal.onSessionStatus(cb)
+export const onNotificationClicked = (cb: (e: TerminalNotificationClickEvent) => void): (() => void) =>
+  ipc().terminal.onNotificationClicked(cb)

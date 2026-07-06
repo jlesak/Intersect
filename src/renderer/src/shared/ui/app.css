@@ -626,6 +626,67 @@
   text-overflow: ellipsis;
 }
 
+/* ----- Claude Code session status: working (steady) / waiting & done (pulsing), each its own hue.
+   Each modifier only sets --status-color/--status-color-soft; the shared rules below paint them. */
+.ix-tab--working,
+.ix-ws--working {
+  --status-color: var(--status-working);
+  --status-color-soft: var(--status-working-soft);
+}
+.ix-tab--waiting,
+.ix-ws--waiting {
+  --status-color: var(--status-waiting);
+  --status-color-soft: var(--status-waiting-soft);
+}
+.ix-tab--done,
+.ix-ws--done {
+  --status-color: var(--status-done);
+  --status-color-soft: var(--status-done-soft);
+}
+
+.ix-tab--working,
+.ix-tab--waiting,
+.ix-tab--done {
+  color: var(--text);
+  background: var(--status-color-soft);
+}
+.ix-tab--working .ix-tab__title,
+.ix-tab--waiting .ix-tab__title,
+.ix-tab--done .ix-tab__title {
+  color: var(--status-color);
+}
+.ix-tab--working .ix-tab__preset,
+.ix-tab--waiting .ix-tab__preset,
+.ix-tab--done .ix-tab__preset {
+  color: var(--status-color);
+  background: var(--status-color-soft);
+}
+.ix-tab--working::before,
+.ix-tab--waiting::before,
+.ix-tab--done::before,
+.ix-ws--working::before,
+.ix-ws--waiting::before,
+.ix-ws--done::before {
+  background: var(--status-color);
+  box-shadow: 0 0 7px var(--status-color);
+}
+/* Waiting/done are action-needed: pulse to draw the eye. Working is informational: steady. */
+.ix-tab--waiting::before,
+.ix-tab--done::before,
+.ix-ws--waiting::before,
+.ix-ws--done::before {
+  animation: ix-attn-pulse 1.4s var(--ease) infinite;
+}
+@keyframes ix-attn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
 /* ---------------- spinner ---------------- */
 .ix-spinner {
   width: 12px;

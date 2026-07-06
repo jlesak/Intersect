@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Layout, Preset, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
+import { useAttentionStore } from '@renderer/features/attention'
 import { disposeSession } from '@renderer/features/terminal'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
@@ -108,7 +109,11 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
       return
     }
     // Release the tab's live terminal (xterm, observer, router sink); the PTY is killed in main.
-    if (workspaceId) disposeSession(makeSessionId(workspaceId, id))
+    if (workspaceId) {
+      const sessionId = makeSessionId(workspaceId, id)
+      disposeSession(sessionId)
+      useAttentionStore.getState().remove(sessionId)
+    }
     set((s) => {
       const byId = { ...s.byId }
       delete byId[id]

@@ -39,6 +39,14 @@ export function registerTerminalHandlers(ipcMain: IpcMain, h: TerminalHandlers):
   ipcMain.on(Channel.terminalKill, (_e, id: string) => h.kill(id))
 }
 
+/** Wire the renderer's active-session reports to the attention notifier. */
+export function registerActiveSessionReporter(
+  ipcMain: IpcMain,
+  report: (sessionId: string | null) => void
+): void {
+  ipcMain.on(Channel.terminalReportActive, (_e, sessionId: string | null) => report(sessionId))
+}
+
 /** The `send` object the session manager uses to broadcast PTY output/exit to the window. */
 export function createSender(getWebContents: () => WebContents | null): {
   data(event: TerminalDataEvent): void

@@ -52,10 +52,20 @@ export interface IpcApi {
     pause(sessionId: string): void
     resume(sessionId: string): void
     kill(sessionId: string): void
+    /**
+     * Tell main which session the user is currently viewing (or null when no terminal is in
+     * focus). Main uses it to suppress attention alerts for the session already on screen and to
+     * clear a session's pending-alert state once the user acknowledges it by opening it.
+     */
+    reportActiveSession(sessionId: string | null): void
     /** Subscribe to PTY output for all sessions; returns an unsubscribe fn. */
     onData(cb: (msg: TerminalDataEvent) => void): () => void
     /** Subscribe to PTY exit for all sessions; returns an unsubscribe fn. */
     onExit(cb: (msg: TerminalExitEvent) => void): () => void
+    /** A Claude Code session's status changed (working / waiting for you / done). */
+    onSessionStatus(cb: (msg: TerminalSessionStatusEvent) => void): () => void
+    /** The user clicked a session's native notification; navigate to it. */
+    onNotificationClicked(cb: (msg: TerminalNotificationClickEvent) => void): () => void
   }
   prInbox: {
     /** Fan-out fetch every active PR I author/review, replace the cache, return the fresh list. */
@@ -93,6 +103,27 @@ export interface TerminalExitEvent {
 }
 
 /**
+ * The visible state of a Claude Code session, driving both the tab's color and (for the two
+ * action-needed states) a native notification. `working` = it is actively processing a turn;
+ * `waiting` = blocked on a tool-permission decision; `done` = it finished a turn and is waiting
+ * for the next prompt. Absence of a status (no entry) means neutral - a shell tab, or a Claude tab
+ * that has not sent its first prompt yet.
+ */
+export const SESSION_STATUSES = ['working', 'waiting', 'done'] as const
+export type SessionStatus = (typeof SESSION_STATUSES)[number]
+
+/** Broadcast whenever a session's status changes. */
+export interface TerminalSessionStatusEvent {
+  sessionId: string
+  status: SessionStatus
+}
+
+/** Payload delivered to the renderer when a session's notification is clicked. */
+export interface TerminalNotificationClickEvent {
+  sessionId: string
+}
+
+/**
  * Channel names. Request/response channels use ipcMain.handle / ipcRenderer.invoke.
  * Terminal I/O channels are fire-and-forget (`send`) plus a single multiplexed data
  * channel the renderer demuxes by sessionId.
@@ -121,9 +152,12 @@ export const Channel = {
   terminalPause: 'terminal:pause',
   terminalResume: 'terminal:resume',
   terminalKill: 'terminal:kill',
+  terminalReportActive: 'terminal:reportActive',
   // terminal (main -> renderer broadcasts)
   terminalData: 'terminal:data',
   terminalExit: 'terminal:exit',
+  terminalSessionStatus: 'terminal:sessionStatus',
+  terminalNotificationClicked: 'terminal:notificationClicked',
   // prInbox (request/response)
   prInboxSync: 'prInbox:sync',
   prInboxList: 'prInbox:list',
@@ -150,4 +184,14 @@ export type ChannelName = (typeof Channel)[keyof typeof Channel]
 /** Build the stable `${workspaceId}:${tabId}` session id used across the PTY layer. */
 export function makeSessionId(workspaceId: string, tabId: string): string {
   return `${workspaceId}:${tabId}`
+}
+
+/**
+ * Inverse of makeSessionId. Ids are colon-free (nanoids), so splitting on the first colon is exact.
+ * Returns null for a malformed id so callers can safely ignore late/garbled events.
+ */
+export function parseSessionId(sessionId: string): { workspaceId: string; tabId: string } | null {
+  const i = sessionId.indexOf(':')
+  if (i <= 0 || i >= sessionId.length - 1) return null
+  return { workspaceId: sessionId.slice(0, i), tabId: sessionId.slice(i + 1) }
 }

@@ -7,6 +7,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
+import { wireAttention } from './app/attentionWiring'
 import { usePrInboxStore } from './features/prInbox'
 import { useWorkspacesStore } from './features/workspaces'
 
@@ -27,3 +28,5 @@ void useWorkspacesStore.getState().hydrate()
 // Load the cached PRs (no network) and start listening for pushed drafts / review-session exits.
 void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
+// Mirror main's session-attention alerts into the pulse UI and report the viewed session back.
+wireAttention()

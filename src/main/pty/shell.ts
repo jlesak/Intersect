@@ -17,6 +17,12 @@ export interface BuildSpawnOptions {
   testMode?: boolean
   /** Environment to derive from; defaults to process.env. */
   env?: EnvInput
+  /**
+   * Absolute path to the app-managed Claude Code `--settings` file. When set, the claude preset
+   * launches with it so Claude emits Intersect's attention markers, without touching the user's
+   * own settings. Ignored by the plain shell preset.
+   */
+  notifSettingsPath?: string
 }
 
 /** The user's default shell, falling back to zsh (macOS default). */
@@ -55,7 +61,26 @@ export function buildSpawn(preset: Preset, opts: BuildSpawnOptions = {}): SpawnS
   return {
     file,
     args,
-    initialCommand: PRESET_META[preset].initialCommand,
+    initialCommand: resolveInitialCommand(preset, opts.notifSettingsPath),
     env: sanitizeEnv(opts.env ?? process.env)
   }
+}
+
+/**
+ * The command typed into the ready shell. For claude, appends the app-managed `--settings` file
+ * (single-quoted, since the userData path contains spaces) so Claude emits Intersect's attention
+ * markers alongside the user's own hooks.
+ */
+function resolveInitialCommand(preset: Preset, notifSettingsPath?: string): string | null {
+  const base = PRESET_META[preset].initialCommand
+  if (base === null) return null
+  if (preset === 'claude' && notifSettingsPath) {
+    return `${base} --settings ${singleQuote(notifSettingsPath)}`
+  }
+  return base
+}
+
+/** POSIX single-quote a shell argument, safe for paths containing spaces or apostrophes. */
+function singleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }
