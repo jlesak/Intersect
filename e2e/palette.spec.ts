@@ -12,6 +12,8 @@ async function launch(userDataDir: string): Promise<{ app: ElectronApplication; 
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
+  // Boot lands on My Work (the first section); these tests exercise the Workspaces section.
+  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
   return { app, win }
 }
 
@@ -35,10 +37,11 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   await addWorkspace(win, app, wsDir)
 
   // Open the palette and confirm it shows every registered command (workspaces/tabs/terminal +
-  // the PR Review Inbox slice's prInbox.sync / prInbox.review + the Sessions slice's sessions.refresh).
+  // the PR Review Inbox slice's prInbox.sync / prInbox.review + the Sessions slice's
+  // sessions.refresh + the My Work slice's myWork.refresh).
   await win.keyboard.press('Meta+k')
   await expect(win.locator('.ix-palette')).toBeVisible()
-  await expect(win.locator('.ix-palette__item')).toHaveCount(10)
+  await expect(win.locator('.ix-palette__item')).toHaveCount(11)
 
   // Filtering narrows the list to the Shell command as the top result.
   await win.locator('.ix-palette__input').fill('new shell')

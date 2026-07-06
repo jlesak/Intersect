@@ -95,6 +95,14 @@ const api: IpcApi = {
     list: () => ipcRenderer.invoke(Channel.sessionsList),
     refresh: () => ipcRenderer.invoke(Channel.sessionsRefresh),
     getTranscript: (id) => ipcRenderer.invoke(Channel.sessionsGetTranscript, id)
+  },
+  myWork: {
+    list: () => ipcRenderer.invoke(Channel.myWorkList),
+    refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),
+    login: () => ipcRenderer.invoke(Channel.myWorkLogin)
+  },
+  system: {
+    openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url)
   }
 }
 

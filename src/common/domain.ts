@@ -248,3 +248,51 @@ export interface SessionTranscript {
   cwd: string
   entries: TranscriptEntry[]
 }
+
+// ---------------------------------------------------------------------------
+// My Work (slice 5) - see docs/superpowers/specs/2026-07-06-my-work-design.md
+// ---------------------------------------------------------------------------
+
+/**
+ * The My Work Jira board's columns, in display order. There is no Done column: the board only
+ * shows unresolved issues, which can never sit in Done.
+ */
+export const JIRA_COLUMNS = ['todo', 'progress', 'waiting', 'review', 'test'] as const
+export type JiraColumn = (typeof JIRA_COLUMNS)[number]
+
+/** The priority bucket shown on a card; null when Jira reports no (or an unknown) priority. */
+export const JIRA_PRIORITIES = ['high', 'medium', 'low'] as const
+export type JiraPriority = (typeof JIRA_PRIORITIES)[number]
+
+/**
+ * One unresolved Jira issue assigned to me, as shown on the My Work board. Normalized in the main
+ * process from the raw Jira fields; `updatedAt` (last activity, epoch ms) is the within-column
+ * sort key. `url` is the canonical browse link opened in the system browser on card click.
+ */
+export interface JiraIssue {
+  key: string
+  url: string
+  summary: string
+  column: JiraColumn
+  priority: JiraPriority | null
+  updatedAt: number
+}
+
+/** Why a board fetch failed: a missing/expired SSO browser session vs. anything else. */
+export const JIRA_ERROR_KINDS = ['auth', 'other'] as const
+export type JiraErrorKind = (typeof JIRA_ERROR_KINDS)[number]
+
+/**
+ * The outcome of one board fetch. A failure is data rather than a thrown error because the
+ * renderer presents the auth-expired case differently from a generic failure, and only an Error's
+ * `.message` would survive the IPC boundary.
+ */
+export type JiraBoardResult =
+  | { ok: true; issues: JiraIssue[]; fetchedAt: number }
+  | { ok: false; kind: JiraErrorKind; message: string }
+
+/**
+ * The outcome of one interactive Jira SSO login (a headed browser window the user completes).
+ * Failure means the user closed the window, the login timed out, or the jira skill is missing.
+ */
+export type JiraLoginResult = { ok: true } | { ok: false; message: string }

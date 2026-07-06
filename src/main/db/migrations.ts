@@ -106,6 +106,20 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE tabs ADD COLUMN resume_session_id TEXT;`)
     }
+  },
+  {
+    // My Work: the last successfully fetched Jira board, so the section is useful immediately on
+    // boot while a fresh fetch runs in the background. A single-row snapshot, replaced whole.
+    version: 4,
+    up(db) {
+      db.exec(`
+        CREATE TABLE my_work_cache (
+          key         TEXT PRIMARY KEY CHECK (key = 'board'),
+          issues_json TEXT NOT NULL,
+          fetched_at  INTEGER NOT NULL
+        );
+      `)
+    }
   }
 ]
 

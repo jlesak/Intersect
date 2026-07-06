@@ -19,6 +19,12 @@ test('app launches and renders the shell', async () => {
   win.on('pageerror', (e) => errors.push(e.message))
 
   await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
+
+  // Boot lands on My Work (the first section); the stubbed E2E board renders its empty state.
+  await expect(win.locator('.ix-mw-empty-inline')).toBeVisible()
+
+  // Switching to Workspaces renders its empty state.
+  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
   await expect(win.locator('.ix-empty__title')).toBeVisible()
 
   await app.close()
