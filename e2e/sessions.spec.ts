@@ -68,6 +68,8 @@ async function launch(userDataDir: string, projectsDir: string): Promise<{ app: 
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
+  // Boot lands on My Work (the first section); these tests start from the Workspaces section.
+  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
   return { app, win }
 }
 

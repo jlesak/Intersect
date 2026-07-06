@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Preset } from '@common/domain'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
@@ -11,6 +11,7 @@ import { createAppStateRepo } from './db/appStateRepo'
 import { createTabRepo, type TabRepo } from './db/tabRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from './db/workspaceRepo'
 import { createDraftCommentRepo } from './db/draftCommentRepo'
+import { createMyWorkCacheRepo } from './db/myWorkCacheRepo'
 import { createPrCacheRepo } from './db/prCacheRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
@@ -30,7 +31,13 @@ import {
 } from './ipc/terminal.ipc'
 import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
 import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.ipc'
+import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
+import { createSystemHandlers, registerSystemHandlers } from './ipc/system.ipc'
 import { createSessionIndex } from './sessions/sessionIndex'
+import { createJiraE2eStub } from './myWork/jiraE2eStub'
+import { createJiraFetcher } from './myWork/jiraFetch'
+import { createJiraIndex } from './myWork/jiraIndex'
+import { createJiraLogin } from './myWork/jiraLogin'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoService } from './prInbox/adoService'
 import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
@@ -248,12 +255,36 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   // --- Session Search slice: read-only index over ~/.claude/projects (built lazily, in memory) ---
   registerSessionHandlers(ipcMain, createSessionHandlers({ index: createSessionIndex() }))
 
+  // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT anywhere) ---
+  // E2E runs get a stubbed backend: the section auto-fetches on first open (which is boot, since
+  // it is the first section), and a real fetch would launch an actual claude session or browser.
+  const jiraFetcher = createJiraFetcher({
+    spawn: nodePtySpawn,
+    claudePath: resolveClaudePath(),
+    reportServerPath: join(__dirname, 'jiraReportServer.js')
+  })
+  const jiraLogin = createJiraLogin()
+  const jiraStub = process.env.INTERSECT_E2E === '1' ? createJiraE2eStub(process.env) : null
+  registerMyWorkHandlers(
+    ipcMain,
+    createMyWorkHandlers({
+      index: createJiraIndex({
+        fetch: jiraStub ? () => jiraStub.fetchBoard() : () => jiraFetcher.fetchBoard(),
+        store: createMyWorkCacheRepo(database)
+      }),
+      login: jiraStub ? { login: () => jiraStub.login(), dispose: () => {} } : jiraLogin
+    })
+  )
+  registerSystemHandlers(ipcMain, createSystemHandlers({ openExternal: (url) => shell.openExternal(url) }))
+
   // Kill every PTY when the app quits so no shell process is orphaned. review.shutdown() is
   // synchronous and does NOT touch the DB, so closing the DB immediately after is safe (its async
   // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on next boot.
   app.on('before-quit', () => {
     sessions.killAll()
     review.shutdown()
+    jiraFetcher.dispose()
+    jiraLogin.dispose()
     void adoClient.close()
     db?.close()
     db = null

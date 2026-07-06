@@ -78,6 +78,18 @@ export const IconHistory = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconMyWork = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2 4h12M2 8h12M2 12h7" />
+  </svg>
+)
+
+export const IconRefresh = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M13.5 8A5.5 5.5 0 1 1 11.9 4.1M13.5 2v3.5H10" />
+  </svg>
+)
+
 export const IconLayoutSingle = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="2.5" y="3" width="11" height="10" rx="1" />

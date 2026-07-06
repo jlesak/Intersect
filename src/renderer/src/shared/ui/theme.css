@@ -30,6 +30,8 @@
   --status-waiting-soft: rgba(240, 197, 61, 0.16);
   --status-done: #5fd68a;
   --status-done-soft: rgba(95, 214, 138, 0.14);
+  /* The My Work board's Test column - a teal distinct from the session-status hues. */
+  --status-test: #8bd4d0;
 
   --radius: 7px;
   --radius-sm: 5px;

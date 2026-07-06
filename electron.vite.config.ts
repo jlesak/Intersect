@@ -37,10 +37,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['@modelcontextprotocol/sdk'] })],
     build: {
       rollupOptions: {
-        // Second entry: the standalone draft MCP server spawned by the review session.
+        // Extra entries: the standalone MCP servers (draft review, jira report) that guardrailed
+        // claude sessions spawn under plain node.
         input: {
           index: resolve('src/main/index.ts'),
-          draftServer: resolve('src/main/prInbox/draftServer.ts')
+          draftServer: resolve('src/main/prInbox/draftServer.ts'),
+          jiraReportServer: resolve('src/main/myWork/jiraReportServer.ts')
         }
       }
     }

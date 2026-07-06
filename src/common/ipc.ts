@@ -2,6 +2,8 @@ import type {
   BootState,
   DraftComment,
   FileDiff,
+  JiraBoardResult,
+  JiraLoginResult,
   Layout,
   NewManualDraft,
   Preset,
@@ -104,6 +106,18 @@ export interface IpcApi {
     /** The full, on-demand transcript for one session id. */
     getTranscript(id: string): Promise<SessionTranscript>
   }
+  myWork: {
+    /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
+    list(): Promise<JiraBoardResult>
+    /** Force a fresh board fetch (a new hidden session), ignoring the cache. */
+    refresh(): Promise<JiraBoardResult>
+    /** Interactive SSO login: opens a headed browser window and resolves once it completes. */
+    login(): Promise<JiraLoginResult>
+  }
+  system: {
+    /** Open an allowlisted https URL in the system default browser. Rejects anything else. */
+    openExternal(url: string): Promise<void>
+  }
 }
 
 export interface TerminalDataEvent {
@@ -193,7 +207,13 @@ export const Channel = {
   // sessions (request/response)
   sessionsList: 'sessions:list',
   sessionsRefresh: 'sessions:refresh',
-  sessionsGetTranscript: 'sessions:getTranscript'
+  sessionsGetTranscript: 'sessions:getTranscript',
+  // myWork (request/response)
+  myWorkList: 'myWork:list',
+  myWorkRefresh: 'myWork:refresh',
+  myWorkLogin: 'myWork:login',
+  // system (request/response)
+  systemOpenExternal: 'system:openExternal'
 } as const
 
 export type ChannelName = (typeof Channel)[keyof typeof Channel]
