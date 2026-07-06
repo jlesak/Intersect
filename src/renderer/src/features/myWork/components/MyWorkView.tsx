@@ -2,6 +2,7 @@ import { useEffect, useReducer } from 'react'
 import { IconRefresh } from '@renderer/shared/ui/icons'
 import { formatRelativeTime, useMyWorkStore } from '../store'
 import { JiraBoard, JiraBoardSkeleton } from './JiraBoard'
+import { PrRadar } from './PrRadar'
 
 /**
  * The Jira section's body. Once any board exists (even a stale persisted one) it stays on screen
@@ -106,9 +107,9 @@ function JiraSectionBody() {
 }
 
 /**
- * The My Work section's main region: a refresh topbar over the Jira board. Fetches the board on
- * first open (idle check), mirroring how SessionsView hydrates. The Jira board fills the top of
- * the page; further work sources will stack below it as their own sections.
+ * The My Work section's main region: a refresh topbar over the Jira board with the PR radar below
+ * it. Fetches both sources on first open (idle check), mirroring how SessionsView hydrates, and
+ * the one Refresh button re-fetches both.
  */
 export function MyWorkView() {
   const status = useMyWorkStore((s) => s.status)
@@ -162,6 +163,8 @@ export function MyWorkView() {
           </div>
           <JiraSectionBody />
         </section>
+
+        <PrRadar />
       </div>
     </div>
   )

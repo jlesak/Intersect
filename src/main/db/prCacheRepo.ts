@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { PrReviewer, PrRole, PullRequest } from '@common/domain'
+import type { PrReviewer, PrRole, PrVote, PullRequest } from '@common/domain'
 import type { RepoDeps } from './deps'
 import { tx } from './tx'
 
@@ -19,6 +19,8 @@ interface PrRow {
   target_commit: string
   url: string
   my_role: string
+  /** NULL both when I am not a reviewer and on rows cached before the column existed. */
+  my_vote: string | null
   reviewers_json: string
   synced_at: number
 }
@@ -40,7 +42,10 @@ function toPr(row: PrRow): PullRequest {
     targetCommitId: row.target_commit,
     url: row.url,
     role: row.my_role as PrRole,
-    reviewers: JSON.parse(row.reviewers_json) as PrReviewer[]
+    myVote: (row.my_vote as PrVote | null) ?? null,
+    reviewers: JSON.parse(row.reviewers_json) as PrReviewer[],
+    // Derived from the review watermark by the read path (see reviewWatermark), never stored.
+    newChangesSinceMyReview: false
   }
 }
 
@@ -61,8 +66,8 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
           `INSERT INTO pr_cache
              (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
               created_at, status, source_ref, target_ref, source_commit, target_commit, url,
-              my_role, reviewers_json, synced_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              my_role, my_vote, reviewers_json, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         for (const pr of prs) {
           stmt.run(
@@ -81,6 +86,7 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.targetCommitId,
             pr.url,
             pr.role,
+            pr.myVote,
             JSON.stringify(pr.reviewers),
             syncedAt
           )

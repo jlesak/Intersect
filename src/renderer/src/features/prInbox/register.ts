@@ -5,10 +5,13 @@ import { PrInboxView } from './components/PrInboxView'
 import { PrList } from './components/PrList'
 import { usePrInboxStore } from './store'
 
+/** The PR Review section's registry id, exported so other slices can navigate to it. */
+export const PR_INBOX_SECTION_ID = 'prInbox'
+
 /** Registers the PR-review sidebar section (owning the main area) and its commands. */
 export function registerPrInboxFeature(): void {
   registerSidebarSection({
-    id: 'prInbox',
+    id: PR_INBOX_SECTION_ID,
     order: 2,
     label: 'PR Review',
     icon: IconInbox,

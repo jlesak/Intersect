@@ -20,7 +20,9 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   targetCommitId: 'bbb',
   url: 'https://ado/pr/100',
   role: 'author',
+  myVote: null,
   reviewers: [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
+  newChangesSinceMyReview: false,
   ...over
 })
 
@@ -52,6 +54,24 @@ describe('prCacheRepo', () => {
   test('list orders newest-first by createdAt', () => {
     repo.replaceAll([pr({ prId: 1, createdAt: 100 }), pr({ prId: 2, createdAt: 300 })])
     expect(repo.list().map((p) => p.prId)).toEqual([2, 1])
+  })
+
+  test('round-trips my vote, and a missing vote stays null', () => {
+    repo.replaceAll([pr({ prId: 1, myVote: 'approved' }), pr({ prId: 2, myVote: null })])
+    expect(repo.get('repo-a', 1)?.myVote).toBe('approved')
+    expect(repo.get('repo-a', 2)?.myVote).toBeNull()
+  })
+
+  test('a row cached before the my_vote column existed reads as a null vote', () => {
+    repo.replaceAll([pr()])
+    // Simulate the pre-migration state: the column exists but the row never had it written.
+    db.prepare('UPDATE pr_cache SET my_vote = NULL WHERE pr_id = 100').run()
+    expect(repo.get('repo-a', 100)?.myVote).toBeNull()
+  })
+
+  test('the derived new-changes flag always reads false from the cache itself', () => {
+    repo.replaceAll([pr({ newChangesSinceMyReview: true })])
+    expect(repo.get('repo-a', 100)?.newChangesSinceMyReview).toBe(false)
   })
 
   test('the same prId in two repos are distinct rows (composite key)', () => {

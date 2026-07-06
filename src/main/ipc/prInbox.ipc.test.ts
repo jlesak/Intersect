@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { FileDiff, PrChangeFile, PrThread, PullRequest, ReviewSession } from '@common/domain'
 import { createDraftCommentRepo, type DraftCommentRepo } from '../db/draftCommentRepo'
 import { createPrCacheRepo, type PrCacheRepo } from '../db/prCacheRepo'
+import { createPrReviewWatermarkRepo, type PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { AdoService, SyncResult } from '../prInbox/adoService'
 import type { ReviewManager } from '../prInbox/reviewManager'
@@ -23,7 +24,9 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   targetCommitId: 'tgt-sha',
   url: 'https://ado/pr/100',
   role: 'author',
+  myVote: null,
   reviewers: [],
+  newChangesSinceMyReview: false,
   ...over
 })
 
@@ -79,12 +82,14 @@ function makeReview(over: Partial<ReviewManager> = {}): ReviewManager {
 describe('prInbox handlers', () => {
   let prCache: PrCacheRepo
   let drafts: DraftCommentRepo
+  let watermarks: PrReviewWatermarkRepo
 
   beforeEach(() => {
     const db = makeTestDb()
     const deps = makeTestDeps()
     prCache = createPrCacheRepo(db, deps)
     drafts = createDraftCommentRepo(db, deps)
+    watermarks = createPrReviewWatermarkRepo(db, deps)
   })
 
   function handlers(overrides: {
@@ -96,8 +101,10 @@ describe('prInbox handlers', () => {
     const h = createPrInboxHandlers({
       prCache,
       drafts,
+      watermarks,
       ado: ado.ado,
       review: overrides.review ?? makeReview(),
+      atomically: (fn) => fn(),
       warn: overrides.warn
     })
     return { h, ado }
@@ -110,12 +117,124 @@ describe('prInbox handlers', () => {
     expect(prCache.list()).toHaveLength(1)
   })
 
+  test('the first sync of a voted PR seeds the watermark without flagging it (bootstrap)', async () => {
+    const reviewed = pr({ role: 'reviewer', myVote: 'approved', sourceCommitId: 'commit-1' })
+    const ado = makeAdo({ syncMyPrs: vi.fn(async () => ({ prs: [reviewed], failedRepos: [] })) })
+    const { h } = handlers({ ado })
+    const result = await h.sync()
+    expect(result[0].newChangesSinceMyReview).toBe(false)
+    expect(watermarks.get('repo-a', 100)?.votedCommitId).toBe('commit-1')
+  })
+
+  test('a later sync with a moved source commit flags the PR on sync and list alike', async () => {
+    const reviewed = (commit: string): PullRequest =>
+      pr({ role: 'reviewer', myVote: 'approved', sourceCommitId: commit })
+    const syncMyPrs = vi
+      .fn<() => Promise<SyncResult>>()
+      .mockResolvedValueOnce({ prs: [reviewed('commit-1')], failedRepos: [] })
+      .mockResolvedValueOnce({ prs: [reviewed('commit-2')], failedRepos: [] })
+    const { h } = handlers({ ado: makeAdo({ syncMyPrs }) })
+    await h.sync()
+    const second = await h.sync()
+    expect(second[0].newChangesSinceMyReview).toBe(true)
+    const listed = await h.list()
+    expect(listed[0].newChangesSinceMyReview).toBe(true)
+  })
+
+  test('re-voting on the updated PR moves the watermark and clears the flag', async () => {
+    const syncMyPrs = vi
+      .fn<() => Promise<SyncResult>>()
+      .mockResolvedValueOnce({
+        prs: [pr({ role: 'reviewer', myVote: 'waiting', sourceCommitId: 'commit-1' })],
+        failedRepos: []
+      })
+      .mockResolvedValueOnce({
+        prs: [pr({ role: 'reviewer', myVote: 'approved', sourceCommitId: 'commit-2' })],
+        failedRepos: []
+      })
+    const { h } = handlers({ ado: makeAdo({ syncMyPrs }) })
+    await h.sync()
+    const second = await h.sync()
+    expect(second[0].newChangesSinceMyReview).toBe(false)
+    expect(watermarks.get('repo-a', 100)?.votedCommitId).toBe('commit-2')
+  })
+
+  test('a PR gone from the sync has its watermark pruned', async () => {
+    const syncMyPrs = vi
+      .fn<() => Promise<SyncResult>>()
+      .mockResolvedValueOnce({
+        prs: [pr({ role: 'reviewer', myVote: 'approved' })],
+        failedRepos: []
+      })
+      .mockResolvedValueOnce({ prs: [], failedRepos: [] })
+    const { h } = handlers({ ado: makeAdo({ syncMyPrs }) })
+    await h.sync()
+    expect(watermarks.get('repo-a', 100)).toBeDefined()
+    await h.sync()
+    expect(watermarks.get('repo-a', 100)).toBeUndefined()
+  })
+
+  test('a vote withdrawn to noVote drops the watermark', async () => {
+    const syncMyPrs = vi
+      .fn<() => Promise<SyncResult>>()
+      .mockResolvedValueOnce({
+        prs: [pr({ role: 'reviewer', myVote: 'approved' })],
+        failedRepos: []
+      })
+      .mockResolvedValueOnce({
+        prs: [pr({ role: 'reviewer', myVote: 'noVote' })],
+        failedRepos: []
+      })
+    const { h } = handlers({ ado: makeAdo({ syncMyPrs }) })
+    await h.sync()
+    await h.sync()
+    expect(watermarks.get('repo-a', 100)).toBeUndefined()
+  })
+
   test('sync warns about repos that failed but still caches the rest', async () => {
     const warn = vi.fn()
     const ado = makeAdo({ syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['spot-frontend'] })) })
     const { h } = handlers({ ado, warn })
     await h.sync()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('spot-frontend'))
+  })
+
+  test('a failed repo keeps its last-known PRs and their review watermark across the sync', async () => {
+    // First sync: I have reviewed PR 200 in spot-frontend at commit c1; the author pushes c2.
+    const reviewed = pr({
+      prId: 200,
+      repositoryId: 'repo-b',
+      repositoryName: 'spot-frontend',
+      role: 'reviewer',
+      myVote: 'approved',
+      sourceCommitId: 'c1'
+    })
+    const okSync = makeAdo({
+      syncMyPrs: vi.fn(async () => ({ prs: [pr(), reviewed], failedRepos: [] }))
+    })
+    const { h: h1 } = handlers({ ado: okSync })
+    await h1.sync()
+
+    const pushed = { ...reviewed, sourceCommitId: 'c2' }
+    const pushSync = makeAdo({
+      syncMyPrs: vi.fn(async () => ({ prs: [pr(), pushed], failedRepos: [] }))
+    })
+    const { h: h2 } = handlers({ ado: pushSync })
+    const afterPush = await h2.sync()
+    expect(afterPush.find((p) => p.prId === 200)?.newChangesSinceMyReview).toBe(true)
+
+    // The repo fails one sync: its PR must survive with the flag, not vanish or re-baseline.
+    const failedSync = makeAdo({
+      syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['spot-frontend'] }))
+    })
+    const { h: h3 } = handlers({ ado: failedSync, warn: vi.fn() })
+    const afterFailure = await h3.sync()
+    expect(afterFailure.find((p) => p.prId === 200)?.newChangesSinceMyReview).toBe(true)
+
+    // The repo recovers: the flag still stands because the watermark was never re-seeded.
+    const { h: h4 } = handlers({ ado: pushSync })
+    const afterRecovery = await h4.sync()
+    expect(afterRecovery.find((p) => p.prId === 200)?.newChangesSinceMyReview).toBe(true)
   })
 
   test('getFileDiff resolves the change type and diff base commits from the cached PR', async () => {

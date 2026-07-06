@@ -21,7 +21,9 @@ const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {})
   targetCommitId: 'tgt',
   url: 'https://ado/pr',
   role: 'reviewer',
+  myVote: null,
   reviewers: [],
+  newChangesSinceMyReview: false,
   ...over
 })
 
@@ -97,6 +99,15 @@ describe('prInboxStore', () => {
     expect(s.syncing).toBe(false)
     expect(s.order).toEqual([prKey('repo', 7)])
     expect(s.prsByKey[prKey('repo', 7)].prId).toBe(7)
+  })
+
+  test('a quiet sync failure warns without toasting and clears the syncing flag', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mocked.sync.mockRejectedValue(new Error('ADO not configured'))
+    await usePrInboxStore.getState().sync({ quiet: true })
+    expect(usePrInboxStore.getState().syncing).toBe(false)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   test('select loads changes, drafts and threads for the PR', async () => {

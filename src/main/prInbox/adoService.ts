@@ -86,8 +86,8 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         listAll(repositoryId, { reviewerId: identity.id })
       ])
       return mergeMyPrs([
-        ...authored.map((raw) => mapPullRequest(raw, 'author')),
-        ...reviewing.map((raw) => mapPullRequest(raw, 'reviewer'))
+        ...authored.map((raw) => mapPullRequest(raw, 'author', identity)),
+        ...reviewing.map((raw) => mapPullRequest(raw, 'reviewer', identity))
       ])
     }
     // No UUID (identity is a name/uniqueName): list all active PRs and match client-side.
@@ -95,7 +95,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     const mine: PullRequest[] = []
     for (const raw of all) {
       const role = roleForIdentity(raw, identity)
-      if (role) mine.push(mapPullRequest(raw, role))
+      if (role) mine.push(mapPullRequest(raw, role, identity))
     }
     return mine
   }

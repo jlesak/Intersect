@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { JiraIssue } from '@common/domain'
 
 vi.mock('./ipc')
+// The store fans a shared refresh out to the prInbox slice; stub its store so these tests stay
+// isolated from that slice (and from the heavyweight components its barrel re-exports).
+const prInboxSync = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@renderer/features/prInbox', () => ({
+  usePrInboxStore: { getState: () => ({ sync: prInboxSync }) }
+}))
 import * as api from './ipc'
 import { formatRelativeTime, groupByColumn, useMyWorkStore } from './store'
 
@@ -25,6 +31,8 @@ const reset = (over: Partial<ReturnType<typeof useMyWorkStore.getState>> = {}): 
       error: null,
       issues: [],
       fetchedAt: null,
+      prSyncStarted: false,
+      pendingPrOpen: null,
       ...over
     },
     false
@@ -221,6 +229,55 @@ describe('store status transitions', () => {
     await useMyWorkStore.getState().refresh()
     expect(useMyWorkStore.getState().status).toBe('ready')
     expect(useMyWorkStore.getState().issues.map((i) => i.key)).toEqual(['A-1'])
+  })
+})
+
+describe('shared refresh fan-out to the PR inbox', () => {
+  test('hydrate kicks off the PR sync once per app session, quietly', async () => {
+    mocked.list.mockResolvedValue({ ok: true, issues: [], fetchedAt: Date.now() })
+    await useMyWorkStore.getState().hydrate()
+    expect(prInboxSync).toHaveBeenCalledOnce()
+    expect(prInboxSync).toHaveBeenCalledWith({ quiet: true })
+    // A second hydrate in the same session must not re-sync.
+    await useMyWorkStore.getState().hydrate()
+    expect(prInboxSync).toHaveBeenCalledOnce()
+  })
+
+  test('the stale-board background refresh is Jira-only, never a second PR sync', async () => {
+    mocked.list.mockResolvedValue({
+      ok: true,
+      issues: [issue('OLD-1')],
+      fetchedAt: Date.now() - 2 * 60 * 60_000
+    })
+    mocked.refresh.mockResolvedValue({ ok: true, issues: [issue('NEW-1')], fetchedAt: Date.now() })
+    await useMyWorkStore.getState().hydrate()
+    await vi.waitFor(() =>
+      expect(useMyWorkStore.getState().issues.map((i) => i.key)).toEqual(['NEW-1'])
+    )
+    expect(prInboxSync).toHaveBeenCalledOnce()
+  })
+
+  test('refresh always triggers both the Jira refresh and the PR sync', async () => {
+    mocked.refresh.mockResolvedValue({ ok: true, issues: [], fetchedAt: Date.now() })
+    await useMyWorkStore.getState().refresh()
+    await useMyWorkStore.getState().refresh()
+    expect(mocked.refresh).toHaveBeenCalledTimes(2)
+    expect(prInboxSync).toHaveBeenCalledTimes(2)
+  })
+
+  test('a failed Jira refresh does not prevent the PR sync (they run in parallel)', async () => {
+    mocked.refresh.mockResolvedValue({ ok: false, kind: 'other', message: 'boom' })
+    await useMyWorkStore.getState().refresh()
+    expect(prInboxSync).toHaveBeenCalledOnce()
+  })
+})
+
+describe('openPr', () => {
+  test('records the open intent for the app-layer wiring and clearPrOpen resets it', () => {
+    useMyWorkStore.getState().openPr('repo-a', 42)
+    expect(useMyWorkStore.getState().pendingPrOpen).toEqual({ repositoryId: 'repo-a', prId: 42 })
+    useMyWorkStore.getState().clearPrOpen()
+    expect(useMyWorkStore.getState().pendingPrOpen).toBeNull()
   })
 })
 

@@ -101,9 +101,14 @@ export function roleForIdentity(raw: AdoRawPullRequest, identity: AdoIdentity): 
   return null
 }
 
-/** Map a raw PR to the domain type. `role` is the caller-resolved relationship. */
-export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole): PullRequest {
+/**
+ * Map a raw PR to the domain type. `role` is the caller-resolved relationship; `identity` resolves
+ * my own reviewer entry (same matching as {@link roleForIdentity}) into `myVote`, null when I am
+ * not among the reviewers.
+ */
+export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: AdoIdentity): PullRequest {
   const repo = raw.repository ?? {}
+  const myReview = (raw.reviewers ?? []).find((r) => matchesIdentity(r, identity))
   return {
     prId: raw.pullRequestId,
     repositoryId: repo.id ?? '',
@@ -120,7 +125,10 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole): PullReques
     targetCommitId: raw.lastMergeTargetCommit?.commitId ?? '',
     url: raw.url ?? '',
     role,
-    reviewers: (raw.reviewers ?? []).map(mapReviewer)
+    myVote: myReview ? mapVote(myReview.vote) : null,
+    reviewers: (raw.reviewers ?? []).map(mapReviewer),
+    // Derived from the review watermark by the read path (see reviewWatermark), never mapped here.
+    newChangesSinceMyReview: false
   }
 }
 

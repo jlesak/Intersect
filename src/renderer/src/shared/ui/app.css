@@ -1512,6 +1512,101 @@
   overflow: hidden;
 }
 
+/* ---------------- My Work: PR radar rows ---------------- */
+.ix-mw-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background var(--dur) var(--ease);
+}
+.ix-mw-row:last-child {
+  border-bottom: none;
+}
+.ix-mw-row:hover {
+  background: var(--panel-2);
+}
+.ix-mw-avatar {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--panel-3);
+  color: var(--text-dim);
+  font-size: 9.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+.ix-mw-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ix-mw-title {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-mw-sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-mw-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.ix-mw-status--todo {
+  color: var(--text-dim);
+  background: var(--panel-3);
+}
+.ix-mw-status--progress {
+  color: var(--status-working);
+  background: var(--status-working-soft);
+}
+.ix-mw-status--review {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.ix-mw-subgroup__label {
+  padding: 8px 16px 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.ix-mw-subgroup__label:not(:first-child) {
+  border-top: 1px solid var(--border);
+}
+
 .ix-mw-key {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1672,8 +1767,12 @@
 }
 
 /* ---------------- My Work: section-level states ---------------- */
+/* The PR radar's loading/empty states share the Jira styles under their own class names, so
+   selectors (including e2e locators) can address either section unambiguously. */
 .ix-mw-loading,
+.ix-mw-pr-loading,
 .ix-mw-empty-inline,
+.ix-mw-pr-empty,
 .ix-mw-error {
   display: flex;
   align-items: center;
@@ -1682,7 +1781,8 @@
   color: var(--text-dim);
   font-size: 12.5px;
 }
-.ix-mw-empty-inline {
+.ix-mw-empty-inline,
+.ix-mw-pr-empty {
   color: var(--text-faint);
   justify-content: center;
   text-align: center;

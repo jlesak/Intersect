@@ -6,6 +6,7 @@ import {
   type JiraErrorKind,
   type JiraIssue
 } from '@common/domain'
+import { usePrInboxStore } from '@renderer/features/prInbox'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -21,12 +22,20 @@ interface MyWorkState {
   /** When the shown board was fetched (epoch ms), for the "Last refreshed" subtitle; null before
    * the first successful fetch. Also the marker that stale data exists to fall back to. */
   fetchedAt: number | null
+  /** Set once hydrate has kicked off the shared ADO sync, so it runs once per app session. */
+  prSyncStarted: boolean
+  /** A PR-radar row click waiting for the app layer to open it in the PR Inbox section
+   * (cross-slice; see myWorkPrNavWiring, mirroring the sessions slice's pendingResume). */
+  pendingPrOpen: { repositoryId: string; prId: number } | null
   hydrate(): Promise<void>
   refresh(): Promise<void>
   /** Run the interactive SSO login (headed browser window), then fetch a fresh board. */
   loginAndRefresh(): Promise<void>
   /** Open the issue in the system default browser (no in-app navigation). */
   openIssue(issue: JiraIssue): void
+  /** Ask the app shell to show this PR in the PR Inbox section (recorded as intent only). */
+  openPr(repositoryId: string, prId: number): void
+  clearPrOpen(): void
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -94,6 +103,12 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
     }
   }
 
+  /** Force a fresh Jira fetch; any board already on screen stays visible while it runs. */
+  const refreshJira = async (): Promise<void> => {
+    set({ status: 'loading' })
+    await attempt(() => api.refresh(), true)
+  }
+
   /** Run the headed-browser SSO login; a completed login is followed by one forced fresh fetch. */
   const loginThenFetch = async (fallbackMessage: string): Promise<void> => {
     set({ status: 'login' })
@@ -116,21 +131,35 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
     error: null,
     issues: [],
     fetchedAt: null,
+    prSyncStarted: false,
+    pendingPrOpen: null,
 
     async hydrate() {
+      // The PR radar shares this section's lifecycle: opening My Work also kicks off one ADO sync
+      // per app session. The prInbox store already serves its SQLite cache from boot, so PR cards
+      // show instantly while the sync runs. This automatic sync is quiet: a machine without ADO
+      // configured must not toast an error on every boot just for landing on this section.
+      if (!get().prSyncStarted) {
+        set({ prSyncStarted: true })
+        void usePrInboxStore.getState().sync({ quiet: true })
+      }
       set({ status: 'loading', error: null, errorKind: null })
       await attempt(() => api.list(), true)
       // A board served from the persisted snapshot may be old; refresh it in the background
       // (the stale board stays on screen) unless it is fresh enough to be this session's fetch.
+      // Jira only: the PR sync for this session was already started above.
       const s = get()
       if (s.status === 'ready' && s.fetchedAt !== null && Date.now() - s.fetchedAt > 60_000) {
-        void get().refresh()
+        void refreshJira()
       }
     },
 
     async refresh() {
-      set({ status: 'loading' })
-      await attempt(() => api.refresh(), true)
+      // One Refresh serves both halves of the section: the Jira board and the PR radar run in
+      // parallel, and prInbox.sync reports its own failures (never rethrows) - no double toast.
+      const prSync = usePrInboxStore.getState().sync()
+      await refreshJira()
+      await prSync
     },
 
     async loginAndRefresh() {
@@ -139,6 +168,14 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
 
     openIssue(issue) {
       api.openExternal(issue.url).catch((e) => reportError('Could not open the issue', e))
+    },
+
+    openPr(repositoryId, prId) {
+      set({ pendingPrOpen: { repositoryId, prId } })
+    },
+
+    clearPrOpen() {
+      set({ pendingPrOpen: null })
     }
   }
 })

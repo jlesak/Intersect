@@ -3,8 +3,10 @@ import { Channel, type IpcApi } from '@common/ipc'
 import type { PrChangeFile, PullRequest } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
+import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import type { AdoService } from '../prInbox/adoService'
 import type { ReviewManager } from '../prInbox/reviewManager'
+import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
 
 /** Main implements everything except the renderer-only broadcast subscriptions. */
 export type PrInboxHandlers = Omit<
@@ -15,8 +17,15 @@ export type PrInboxHandlers = Omit<
 export interface PrInboxHandlerDeps {
   prCache: PrCacheRepo
   drafts: DraftCommentRepo
+  watermarks: PrReviewWatermarkRepo
   ado: AdoService
   review: ReviewManager
+  /**
+   * Run the sync's cache and watermark writes as one transaction, so a crash mid-sync cannot
+   * leave a vote recorded without its watermark (which would silently disable new-changes
+   * detection for that PR).
+   */
+  atomically: <T>(fn: () => T) => T
   /** Warn surface for partial sync failures (defaults to console.warn). */
   warn?: (message: string) => void
 }
@@ -54,16 +63,34 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
     return pr
   }
 
+  /** Every PR list leaving these handlers carries the derived "new changes since my review" flag. */
+  const listDecorated = (): PullRequest[] =>
+    decorateNewChanges(d.prCache.list(), (repositoryId, prId) => d.watermarks.get(repositoryId, prId))
+
   return {
     async sync() {
       const { prs, failedRepos } = await d.ado.syncMyPrs()
-      d.prCache.replaceAll(prs)
+      // Vote transitions are read against the cache as it was before this sync overwrites it.
+      const before = d.prCache.list()
+      // A failed repo contributes no rows this round; carry its last-known PRs forward so a
+      // transient ADO error neither empties that repo's inbox nor re-baselines its review
+      // watermarks (which would silently swallow a "new changes since my review" flag).
+      const failed = new Set(failedRepos)
+      const merged =
+        failed.size > 0 ? [...prs, ...before.filter((pr) => failed.has(pr.repositoryName))] : prs
+      const plan = planWatermarks(before, merged)
+      d.atomically(() => {
+        d.prCache.replaceAll(merged)
+        for (const w of plan.upserts) d.watermarks.upsert(w.repositoryId, w.prId, w.votedCommitId)
+        for (const w of plan.deletes) d.watermarks.delete(w.repositoryId, w.prId)
+        d.watermarks.prune(merged)
+      })
       if (failedRepos.length) warn(`PR sync skipped repos: ${failedRepos.join(', ')}`)
-      return d.prCache.list()
+      return listDecorated()
     },
 
     async list() {
-      return d.prCache.list()
+      return listDecorated()
     },
 
     async getChanges(repositoryId, prId) {

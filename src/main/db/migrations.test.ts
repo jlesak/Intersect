@@ -30,6 +30,28 @@ describe('migrations', () => {
     expect(userVersion(db)).toBe(CURRENT_VERSION)
   })
 
+  test('pr_cache accepts my_vote and the pr_review_watermark table exists', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, my_vote, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u', 'reviewer', 'approved', '[]', 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT my_vote AS v FROM pr_cache').get() as { v: string }).v
+    ).toBe('approved')
+    db.prepare(
+      `INSERT INTO pr_review_watermark (repository_id, pr_id, voted_commit_id, updated_at)
+       VALUES ('r', 1, 'sc', 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM pr_review_watermark').get() as { c: number }).c
+    ).toBe(1)
+  })
+
   test('deleting a workspace cascades to its tabs', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

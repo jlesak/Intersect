@@ -95,7 +95,7 @@ describe('roleForIdentity', () => {
 
 describe('mapPullRequest', () => {
   test('maps the real payload including commit ids and reviewers', () => {
-    const pr = mapPullRequest(rawAuthored, 'author')
+    const pr = mapPullRequest(rawAuthored, 'author', me)
     expect(pr.prId).toBe(33719)
     expect(pr.repositoryName).toBe('spot-backend')
     expect(pr.projectId).toBe('SPOT')
@@ -109,19 +109,56 @@ describe('mapPullRequest', () => {
       { id: 'fcb74157', displayName: 'Novacek, Radek', vote: 'approved', isRequired: true }
     ])
   })
+
+  test('myVote is null when I am not among the reviewers (pure author)', () => {
+    expect(mapPullRequest(rawAuthored, 'author', me).myVote).toBeNull()
+  })
+
+  test('myVote is my reviewer entry, matched by identity id', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      reviewers: [...(rawAuthored.reviewers ?? []), { id: me.id, vote: -5 }]
+    }
+    expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('waiting')
+  })
+
+  test('myVote matches by uniqueName when the reviewer entry has no id', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      reviewers: [{ uniqueName: 'dmz\\dzcup4c', vote: 10 }]
+    }
+    expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('approved')
+  })
+
+  test('myVote matches by displayName as last resort', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      reviewers: [{ displayName: 'Lesak, Jan (Green:Code s.r.o.)', vote: 5 }]
+    }
+    expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('approvedWithSuggestions')
+  })
+
+  test('my reviewer entry without a vote code reads as noVote, distinct from null', () => {
+    const raw: AdoRawPullRequest = { ...rawAuthored, reviewers: [{ id: me.id }] }
+    expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('noVote')
+  })
+
+  test('the derived new-changes flag is never set by the mapper', () => {
+    expect(mapPullRequest(rawAuthored, 'author', me).newChangesSinceMyReview).toBe(false)
+  })
 })
 
 describe('mergeMyPrs', () => {
   test('dedupes the same PR from creator+reviewer fan-out, author wins', () => {
-    const asReviewer = mapPullRequest(rawAuthored, 'reviewer')
-    const asAuthor = mapPullRequest(rawAuthored, 'author')
+    const asReviewer = mapPullRequest(rawAuthored, 'reviewer', me)
+    const asAuthor = mapPullRequest(rawAuthored, 'author', me)
     const merged = mergeMyPrs([asReviewer, asAuthor])
     expect(merged).toHaveLength(1)
     expect(merged[0].role).toBe('author')
   })
   test('keeps distinct PRs across repos', () => {
-    const a = mapPullRequest(rawAuthored, 'author')
-    const b = mapPullRequest({ ...rawAuthored, repository: { id: 'other', name: 'spot-frontend' } }, 'reviewer')
+    const a = mapPullRequest(rawAuthored, 'author', me)
+    const b = mapPullRequest({ ...rawAuthored, repository: { id: 'other', name: 'spot-frontend' } }, 'reviewer', me)
     expect(mergeMyPrs([a, b])).toHaveLength(2)
   })
 })

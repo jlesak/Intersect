@@ -34,7 +34,9 @@ interface PrInboxState {
   // full history on remount and capture output emitted before (or while) the view is mounted.
   reviewOutput: string
   hydrate(): Promise<void>
-  sync(): Promise<void>
+  /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
+   * should stay loud so a broken sync is never silently ignored. */
+  sync(opts?: { quiet?: boolean }): Promise<void>
   select(repositoryId: string, prId: number): Promise<void>
   openFile(path: string): Promise<void>
   addManualDraft(input: NewManualDraft): Promise<void>
@@ -102,13 +104,14 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     }
   },
 
-  async sync() {
+  async sync(opts) {
     set({ syncing: true })
     try {
       const prs = await api.sync()
       set({ status: 'ready', ...indexPrs(prs) })
     } catch (e) {
-      reportError('Could not sync pull requests', e)
+      if (opts?.quiet) console.warn('Background PR sync failed', e)
+      else reportError('Could not sync pull requests', e)
     } finally {
       set({ syncing: false })
     }
