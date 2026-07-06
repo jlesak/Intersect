@@ -1,23 +1,33 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import { Channel } from '@common/ipc'
+import type { Preset } from '@common/domain'
+import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
 import { createAppStateRepo } from './db/appStateRepo'
-import { createTabRepo } from './db/tabRepo'
-import { createWorkspaceRepo } from './db/workspaceRepo'
+import { createTabRepo, type TabRepo } from './db/tabRepo'
+import { createWorkspaceRepo, type WorkspaceRepo } from './db/workspaceRepo'
 import { createDraftCommentRepo } from './db/draftCommentRepo'
 import { createPrCacheRepo } from './db/prCacheRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
 import { buildSpawn } from './pty/shell'
+import { createAttentionDetector } from './pty/attentionDetector'
+import { writeNotifSettings } from './pty/notifSettings'
+import { createSessionNotifier } from './sessionNotifier'
 import { createWorkspaceHandlers, registerWorkspaceHandlers } from './ipc/workspaces.ipc'
 import { createTabHandlers, registerTabHandlers } from './ipc/tabs.ipc'
-import { createSender, createTerminalHandlers, registerTerminalHandlers } from './ipc/terminal.ipc'
+import {
+  createSender,
+  createTerminalHandlers,
+  registerActiveSessionReporter,
+  registerTerminalHandlers,
+  type TerminalHandlers
+} from './ipc/terminal.ipc'
 import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoService } from './prInbox/adoService'
@@ -43,6 +53,50 @@ function resolveClaudePath(): string {
 function sendToRenderer(channel: string, ...args: unknown[]): void {
   const wc = mainWindow?.webContents
   if (wc && !wc.isDestroyed()) wc.send(channel, ...args)
+}
+
+/**
+ * Bring the app to the foreground from a background/minimised state (as when the user clicks a
+ * session's notification) and hand the target session to the renderer to navigate to.
+ */
+function focusAndNavigate(sessionId: string): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.focus()
+  app.focus({ steal: true })
+  sendToRenderer(Channel.terminalNotificationClicked, { sessionId })
+}
+
+/**
+ * Raise the native macOS notification for a session that wants the user. Title/subtitle name the
+ * tab and its workspace so the user knows which of many sessions is calling; clicking it focuses
+ * the app and navigates there. No-ops silently where the OS cannot show notifications (e.g. an
+ * unsigned dev build) or the session can no longer be resolved.
+ */
+function showAttentionNotification(
+  sessionId: string,
+  status: SessionStatus,
+  tabs: TabRepo,
+  workspaces: WorkspaceRepo
+): void {
+  if (!Notification.isSupported()) return
+  const parsed = parseSessionId(sessionId)
+  const tab = parsed ? tabs.getById(parsed.tabId) : undefined
+  const ws = parsed ? workspaces.getById(parsed.workspaceId) : undefined
+
+  const notification = new Notification({
+    title: tab?.title ?? 'Claude Code',
+    subtitle: ws?.name,
+    body: status === 'waiting' ? 'Needs your permission' : 'Waiting for your input',
+    silent: false
+  })
+  notification.on('click', () => focusAndNavigate(sessionId))
+  // macOS (Electron 42+) only shows notifications for a code-signed app; an unsigned dev build
+  // fires 'failed' instead of a banner. Log it so a missing banner is diagnosable, not silent.
+  notification.on('failed', (_e, error) => console.error('[intersect] notification failed:', error))
+  notification.show()
 }
 
 /** The configured ADO default project, or a sensible fallback if ADO isn't configured yet. */
@@ -81,17 +135,49 @@ function createWindow(): void {
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-function wireIpc(database: DatabaseSync): void {
+function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   const deps = defaultRepoDeps
   const workspaces = createWorkspaceRepo(database, deps)
   const tabs = createTabRepo(database, deps)
   const appState = createAppStateRepo(database)
 
+  // Attention pipeline: detect Claude's "waiting for you" markers in the PTY stream, then raise a
+  // native notification and recolor the tab (unless the user is already looking at that session).
+  // 'working' is inferred separately, from the user submitting a prompt (see the write wrapper
+  // below) - it never notifies, so it needs none of the suppress/dedup machinery.
+  const detector = createAttentionDetector()
+  const notifier = createSessionNotifier({
+    detect: (sessionId, chunk) => detector.push(sessionId, chunk),
+    isWindowFocused: () => mainWindow?.isFocused() ?? false,
+    broadcastStatus: (sessionId, status) =>
+      sendToRenderer(Channel.terminalSessionStatus, { sessionId, status }),
+    notify: (sessionId, status) => showAttentionNotification(sessionId, status, tabs, workspaces)
+  })
+
+  // Which preset each live session is (only a claude session's input drives the 'working' status).
+  const presetsBySession = new Map<string, Preset>()
+
+  const baseSend = createSender(() => mainWindow?.webContents ?? null)
   const sessions = createSessionManager({
     spawn: nodePtySpawn,
-    send: createSender(() => mainWindow?.webContents ?? null),
-    buildSpec: (preset) => buildSpawn(preset, { testMode: process.env.INTERSECT_E2E === '1' })
+    // Every PTY chunk also feeds the attention detector; exit clears its per-session state.
+    send: {
+      data: (event) => {
+        baseSend.data(event)
+        notifier.onChunk(event.sessionId, event.data)
+      },
+      exit: (event) => {
+        baseSend.exit(event)
+        notifier.forget(event.sessionId)
+        detector.forget(event.sessionId)
+        presetsBySession.delete(event.sessionId)
+      }
+    },
+    buildSpec: (preset) =>
+      buildSpawn(preset, { testMode: process.env.INTERSECT_E2E === '1', notifSettingsPath })
   })
+
+  registerActiveSessionReporter(ipcMain, (sessionId) => notifier.reportActive(sessionId))
 
   const pickFolder = async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog({
@@ -106,7 +192,22 @@ function wireIpc(database: DatabaseSync): void {
     createWorkspaceHandlers({ db: database, workspaces, tabs, appState, sessions, pickFolder })
   )
   registerTabHandlers(ipcMain, createTabHandlers({ db: database, workspaces, tabs, sessions }))
-  registerTerminalHandlers(ipcMain, createTerminalHandlers(sessions))
+
+  // Wrap spawn/write to drive the 'working' status: record each session's preset, then flag a
+  // claude session 'working' the moment the user submits a prompt (an Enter keypress, i.e. '\r').
+  const baseTerminalHandlers = createTerminalHandlers(sessions)
+  const terminalHandlers: TerminalHandlers = {
+    ...baseTerminalHandlers,
+    spawn: (id, preset, cwd, cols, rows) => {
+      presetsBySession.set(id, preset)
+      return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows)
+    },
+    write: (id, data) => {
+      if (presetsBySession.get(id) === 'claude' && data.includes('\r')) notifier.onInput(id)
+      baseTerminalHandlers.write(id, data)
+    }
+  }
+  registerTerminalHandlers(ipcMain, terminalHandlers)
 
   // --- PR Review Inbox slice ---
   const prCache = createPrCacheRepo(database, deps)
@@ -154,7 +255,18 @@ app.whenReady().then(() => {
   ensureSpawnHelperExecutable()
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   db = openDatabase(userDataDir)
-  wireIpc(db)
+  // The app-managed Claude Code settings that make claude emit attention markers into the PTY. If
+  // it cannot be written, the feature degrades to nothing rather than blocking app launch, and the
+  // empty path keeps `--settings` off the claude command (never pointing it at a missing file).
+  let notifSettingsPath = ''
+  try {
+    const path = join(userDataDir, 'intersect-claude-notif.json')
+    writeNotifSettings(path)
+    notifSettingsPath = path
+  } catch {
+    notifSettingsPath = ''
+  }
+  wireIpc(db, notifSettingsPath)
   createWindow()
 
   app.on('activate', () => {

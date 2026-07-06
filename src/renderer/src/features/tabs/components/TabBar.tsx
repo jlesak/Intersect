@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { PRESET_META } from '@common/domain'
+import { makeSessionId } from '@common/ipc'
 import { slotCount } from '@common/layout'
+import { useAttentionStore } from '@renderer/features/attention'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconChevronLeft, IconChevronRight, IconClose, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { selectTabList, useTabsStore } from '../store'
@@ -11,7 +13,9 @@ import { PresetPicker } from './PresetPicker'
 export function TabBar() {
   const tabs = useTabsStore(useShallow(selectTabList))
   const activeTabId = useTabsStore((s) => s.activeTabId)
+  const workspaceId = useTabsStore((s) => s.workspaceId)
   const layout = useTabsStore((s) => s.layout)
+  const attention = useAttentionStore((s) => s.status)
   const store = useTabsStore.getState()
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -65,10 +69,12 @@ export function TabBar() {
   return (
     <div className="ix-tabbar">
       <div className="ix-tabs">
-        {tabs.map((tab) => (
+        {tabs.map((tab) => {
+          const status = workspaceId ? attention[makeSessionId(workspaceId, tab.id)] : undefined
+          return (
           <div
             key={tab.id}
-            className={`ix-tab${tab.id === activeTabId ? ' ix-tab--active' : ''}`}
+            className={`ix-tab${tab.id === activeTabId ? ' ix-tab--active' : ''}${status ? ` ix-tab--${status}` : ''}`}
             onMouseDown={() => renamingId !== tab.id && void store.setActiveTab(tab.id)}
             onDoubleClick={() => startRename(tab.id, tab.title)}
             onContextMenu={(e) => {
@@ -105,7 +111,8 @@ export function TabBar() {
               <IconClose width={12} height={12} />
             </button>
           </div>
-        ))}
+          )
+        })}
         <PresetPicker onPick={(preset) => void store.createTab(preset)} />
       </div>
       <div className="ix-tabbar__tools">

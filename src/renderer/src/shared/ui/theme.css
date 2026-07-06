@@ -22,6 +22,15 @@
   --danger: #e06a6a;
   --danger-soft: rgba(224, 106, 106, 0.13);
 
+  /* Claude Code session status: three hues distinct from each other and from --accent/--danger,
+     so a tab's state reads at a glance without depending on wording. */
+  --status-working: #5b9dd9;
+  --status-working-soft: rgba(91, 157, 217, 0.14);
+  --status-waiting: #f0c53d;
+  --status-waiting-soft: rgba(240, 197, 61, 0.16);
+  --status-done: #5fd68a;
+  --status-done-soft: rgba(95, 214, 138, 0.14);
+
   --radius: 7px;
   --radius-sm: 5px;
 

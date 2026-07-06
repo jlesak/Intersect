@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useAttentionStore, workspaceStatus } from '@renderer/features/attention'
 import { disposeWorkspaceSessions } from '@renderer/features/terminal'
 import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
 import { Dialog } from '@renderer/shared/ui/Dialog'
@@ -10,6 +11,7 @@ import { selectWorkspaceList, useWorkspacesStore } from '../store'
 export function WorkspaceList() {
   const workspaces = useWorkspacesStore(useShallow(selectWorkspaceList))
   const selectedId = useWorkspacesStore((s) => s.selectedWorkspaceId)
+  const attention = useAttentionStore((s) => s.status)
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -33,6 +35,7 @@ export function WorkspaceList() {
   const remove = (id: string): void => {
     void useWorkspacesStore.getState().remove(id)
     disposeWorkspaceSessions(id)
+    useAttentionStore.getState().clearWorkspace(id)
   }
 
   return (
@@ -45,12 +48,14 @@ export function WorkspaceList() {
         {workspaces.length === 0 && (
           <div style={{ padding: '2px 10px', color: 'var(--text-faint)' }}>None yet.</div>
         )}
-        {workspaces.map((w) => (
+        {workspaces.map((w) => {
+          const status = workspaceStatus(attention, w.id)
+          return (
           <div
             key={w.id}
             role="button"
             tabIndex={0}
-            className={`ix-ws${w.id === selectedId ? ' ix-ws--active' : ''}`}
+            className={`ix-ws${w.id === selectedId ? ' ix-ws--active' : ''}${status ? ` ix-ws--${status}` : ''}`}
             onMouseDown={() => renamingId !== w.id && void useWorkspacesStore.getState().select(w.id)}
             onDoubleClick={() => beginRename(w.id, w.name)}
             onContextMenu={(e) => {
@@ -78,7 +83,8 @@ export function WorkspaceList() {
               </>
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="ix-sidebar__foot">

@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DraftComment } from '@common/domain'
-import { Channel, type IpcApi, type TerminalDataEvent, type TerminalExitEvent } from '@common/ipc'
+import {
+  Channel,
+  type IpcApi,
+  type TerminalDataEvent,
+  type TerminalExitEvent,
+  type TerminalNotificationClickEvent,
+  type TerminalSessionStatusEvent
+} from '@common/ipc'
 
 const api: IpcApi = {
   workspaces: {
@@ -29,6 +36,7 @@ const api: IpcApi = {
     pause: (sessionId) => ipcRenderer.send(Channel.terminalPause, sessionId),
     resume: (sessionId) => ipcRenderer.send(Channel.terminalResume, sessionId),
     kill: (sessionId) => ipcRenderer.send(Channel.terminalKill, sessionId),
+    reportActiveSession: (sessionId) => ipcRenderer.send(Channel.terminalReportActive, sessionId),
     onData: (cb) => {
       const listener = (_e: unknown, msg: TerminalDataEvent): void => cb(msg)
       ipcRenderer.on(Channel.terminalData, listener)
@@ -38,6 +46,16 @@ const api: IpcApi = {
       const listener = (_e: unknown, msg: TerminalExitEvent): void => cb(msg)
       ipcRenderer.on(Channel.terminalExit, listener)
       return () => ipcRenderer.removeListener(Channel.terminalExit, listener)
+    },
+    onSessionStatus: (cb) => {
+      const listener = (_e: unknown, msg: TerminalSessionStatusEvent): void => cb(msg)
+      ipcRenderer.on(Channel.terminalSessionStatus, listener)
+      return () => ipcRenderer.removeListener(Channel.terminalSessionStatus, listener)
+    },
+    onNotificationClicked: (cb) => {
+      const listener = (_e: unknown, msg: TerminalNotificationClickEvent): void => cb(msg)
+      ipcRenderer.on(Channel.terminalNotificationClicked, listener)
+      return () => ipcRenderer.removeListener(Channel.terminalNotificationClicked, listener)
     }
   },
   prInbox: {

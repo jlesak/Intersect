@@ -27,6 +27,21 @@ describe('buildSpawn', () => {
     expect(buildSpawn('claude', { env }).initialCommand).toBe('claude')
   })
 
+  test('claude preset appends the quoted --settings path when one is given', () => {
+    const spec = buildSpawn('claude', { env, notifSettingsPath: '/App Support/Intersect/n.json' })
+    expect(spec.initialCommand).toBe("claude --settings '/App Support/Intersect/n.json'")
+  })
+
+  test('a --settings path with an apostrophe is safely escaped (no shell break)', () => {
+    const spec = buildSpawn('claude', { env, notifSettingsPath: "/Users/O'Brien/n.json" })
+    expect(spec.initialCommand).toBe("claude --settings '/Users/O'\\''Brien/n.json'")
+  })
+
+  test('the notif settings path never leaks into the plain shell preset', () => {
+    const spec = buildSpawn('shell', { env, notifSettingsPath: '/App Support/Intersect/n.json' })
+    expect(spec.initialCommand).toBeNull()
+  })
+
   test('test mode uses a no-rc shell so E2E output is deterministic', () => {
     const spec = buildSpawn('shell', { env, testMode: true })
     expect(spec.args).not.toContain('-l')
