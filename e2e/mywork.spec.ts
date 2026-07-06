@@ -5,7 +5,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
-/** Launch the app with the stubbed My Work backend in the given mode (see jiraE2eStub). */
+/** Launch the app with the stubbed My Work backends in the given modes (see jiraE2eStub / adoE2eStub). */
 async function launch(
   env: Record<string, string>,
   userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
@@ -79,6 +79,61 @@ test('a loaded board renders all five columns and refresh keeps it current', asy
   await expect(win.locator('.ix-mywork__subtitle')).toContainText('Last refreshed')
 
   await win.locator('.ix-mywork__topbar button', { hasText: 'Refresh' }).click()
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await app.close()
+})
+
+test('the PR radar groups pull requests and flags new changes after the author pushes', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
+  const prSection = win.locator('.ix-mw-section', { hasText: 'Pull requests' })
+
+  // The boot sync seeds the review watermark for the already-approved PR, so only the first two
+  // subgroups exist - nothing is retroactively flagged as changed.
+  await expect(prSection.locator('.ix-mw-subgroup__label')).toHaveText([
+    'My PRs waiting to merge',
+    'Waiting on my review'
+  ])
+  await expect(prSection.locator('.ix-mw-section__count')).toHaveText('2')
+
+  // The shared Refresh re-syncs the PRs too; the stub's author has pushed since my approval.
+  await win.locator('.ix-mywork__topbar button', { hasText: 'Refresh' }).click()
+  await expect(prSection.locator('.ix-mw-subgroup__label')).toHaveText([
+    'My PRs waiting to merge',
+    'Waiting on my review',
+    'New changes since my review'
+  ])
+  await expect(prSection.locator('.ix-mw-row .ix-mw-title')).toHaveText([
+    'Add rate limiting to the sync pipeline',
+    'Fix PTY backpressure on large output',
+    'Extract the notification preferences screen'
+  ])
+  await expect(prSection.locator('.ix-mw-status')).toHaveText(['2 approvals', 'Waiting', 'Updated'])
+  await expect(prSection.locator('.ix-mw-row .ix-mw-sub').first()).toHaveText(
+    'intersect-app · #501 · Jan Lesak'
+  )
+  await expect(prSection.locator('.ix-mw-section__count')).toHaveText('3')
+
+  await app.close()
+})
+
+test('clicking a PR row opens it in the PR Inbox section with the PR selected', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
+
+  await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
+
+  // The shell switched to the PR Inbox main view and its detail header shows the selected PR.
+  await expect(win.locator('.ix-pr-header__title')).toHaveText('Fix PTY backpressure on large output')
+  await expect(win.locator('.ix-rail__btn--active')).toContainText('PR Review')
+
+  await app.close()
+})
+
+test('with no pull requests needing attention the radar shows a neutral empty message', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+
+  await expect(win.locator('.ix-mw-pr-empty')).toHaveText('No pull requests need your attention.')
+  // The Jira half is unaffected by the empty PR radar.
   await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
 
   await app.close()

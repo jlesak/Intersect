@@ -119,7 +119,14 @@ export interface PullRequest {
   targetCommitId: string
   url: string
   role: PrRole
+  /** My own vote when I am among the reviewers; null otherwise (e.g. a PR I only authored). */
+  myVote: PrVote | null
   reviewers: PrReviewer[]
+  /**
+   * True when the PR's source branch moved past the commit I last voted on - the author pushed
+   * new changes since my review. Derived from the review watermark on every read; never persisted.
+   */
+  newChangesSinceMyReview: boolean
 }
 
 /** Which side of the diff a comment anchors to. Publishing supports 'right' only (ADO server). */

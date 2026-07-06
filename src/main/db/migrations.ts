@@ -120,6 +120,25 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // My Work PR radar: cache my own vote per PR, and record per reviewed PR the source commit it
+    // pointed at when I last voted. The PR drifting past that watermark is what the radar surfaces
+    // as "new changes since my review".
+    version: 5,
+    up(db) {
+      db.exec(`
+        ALTER TABLE pr_cache ADD COLUMN my_vote TEXT;
+
+        CREATE TABLE pr_review_watermark (
+          repository_id   TEXT NOT NULL,
+          pr_id           INTEGER NOT NULL,
+          voted_commit_id TEXT NOT NULL,
+          updated_at      INTEGER NOT NULL,
+          PRIMARY KEY (repository_id, pr_id)
+        );
+      `)
+    }
   }
 ]
 

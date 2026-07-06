@@ -12,7 +12,9 @@ import { createTabRepo, type TabRepo } from './db/tabRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from './db/workspaceRepo'
 import { createDraftCommentRepo } from './db/draftCommentRepo'
 import { createMyWorkCacheRepo } from './db/myWorkCacheRepo'
+import { tx } from './db/tx'
 import { createPrCacheRepo } from './db/prCacheRepo'
+import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
@@ -39,6 +41,7 @@ import { createJiraFetcher } from './myWork/jiraFetch'
 import { createJiraIndex } from './myWork/jiraIndex'
 import { createJiraLogin } from './myWork/jiraLogin'
 import { createAdoClient } from './prInbox/adoClient'
+import { createAdoE2eStub } from './prInbox/adoE2eStub'
 import { createAdoService } from './prInbox/adoService'
 import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
 import { createReviewManager } from './prInbox/reviewManager'
@@ -225,15 +228,21 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   // --- PR Review Inbox slice ---
   const prCache = createPrCacheRepo(database, deps)
   const drafts = createDraftCommentRepo(database, deps)
+  const prReviewWatermarks = createPrReviewWatermarkRepo(database, deps)
   const reviewSessions = createReviewSessionRepo(database, deps)
 
   const adoClient = createAdoClient(() => resolveAdoServerConfig())
   const defaultProject = safeDefaultProject()
-  const ado = createAdoService({
-    client: adoClient,
-    resolveIdentity: () => resolveMyIdentity(),
-    projectId: defaultProject
-  })
+  // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR radar)
+  // runs the real cache/watermark path without a live server; everything else stays unchanged.
+  const adoStub = process.env.INTERSECT_E2E === '1' ? createAdoE2eStub(process.env) : null
+  const ado =
+    adoStub ??
+    createAdoService({
+      client: adoClient,
+      resolveIdentity: () => resolveMyIdentity(),
+      projectId: defaultProject
+    })
 
   const review = createReviewManager({
     reviewSessions,
@@ -249,7 +258,17 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     draftServerPath: join(__dirname, 'draftServer.js')
   })
 
-  registerPrInboxHandlers(ipcMain, createPrInboxHandlers({ prCache, drafts, ado, review }))
+  registerPrInboxHandlers(
+    ipcMain,
+    createPrInboxHandlers({
+      prCache,
+      drafts,
+      watermarks: prReviewWatermarks,
+      ado,
+      review,
+      atomically: (fn) => tx(database, fn)
+    })
+  )
   void review.pruneOnBoot().catch(() => {})
 
   // --- Session Search slice: read-only index over ~/.claude/projects (built lazily, in memory) ---

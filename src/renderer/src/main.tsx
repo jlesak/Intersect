@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
+import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { usePrInboxStore } from './features/prInbox'
 import { useWorkspacesStore } from './features/workspaces'
@@ -33,3 +34,5 @@ usePrInboxStore.getState().subscribe()
 wireAttention()
 // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice, app-layer).
 wireSessionResume()
+// Bridge My Work's PR-radar clicks to the PR Inbox section (cross-slice, app-layer).
+wireMyWorkPrNav()
