@@ -21,7 +21,7 @@ interface ListResult {
 
 export interface AdoServiceDeps {
   client: AdoClient
-  /** Resolved lazily so a missing JARVIS_ADO_IDENTITY surfaces at sync time, not at boot. */
+  /** Resolved lazily so a missing INTERSECT_ADO_IDENTITY surfaces at sync time, not at boot. */
   resolveIdentity: () => AdoIdentity
   projectId: string
 }

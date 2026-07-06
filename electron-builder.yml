@@ -1,5 +1,5 @@
-appId: cz.greencode.jarvis
-productName: Jarvis
+appId: cz.greencode.intersect
+productName: Intersect
 
 directories:
   buildResources: build

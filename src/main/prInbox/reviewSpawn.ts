@@ -3,7 +3,7 @@
  * Electron / node-pty so the guardrail can be asserted in a unit test without spawning anything.
  *
  * The guarantee that the session cannot publish to Azure DevOps rests on, in order:
- *  1. `--strict-mcp-config` + a config that contains ONLY the local jarvisReview draft server, so
+ *  1. `--strict-mcp-config` + a config that contains ONLY the local intersectReview draft server, so
  *     no Azure DevOps tool exists in the session at all.
  *  2. a closed `--allowed-tools` allowlist plus `--permission-mode dontAsk` (anything not allowed is
  *     denied without prompting).
@@ -16,7 +16,7 @@ export const REVIEW_ALLOWED_TOOLS = [
   'Read',
   'Grep',
   'Glob',
-  'mcp__jarvisReview__record_draft_comment'
+  'mcp__intersectReview__record_draft_comment'
 ]
 
 /**

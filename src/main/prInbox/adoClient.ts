@@ -37,7 +37,7 @@ export function createAdoClient(
         env: { ...process.env, ...config.env } as Record<string, string>,
         stderr: 'pipe'
       })
-      const client = new Client({ name: 'jarvis', version: '0.1.0' })
+      const client = new Client({ name: 'intersect', version: '0.1.0' })
       await client.connect(transport)
       conn = { client, transport }
       return conn

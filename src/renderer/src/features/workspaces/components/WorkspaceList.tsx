@@ -37,11 +37,11 @@ export function WorkspaceList() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <div className="jv-sidebar__section">
-        <span className="jv-eyebrow">Workspaces</span>
+      <div className="ix-sidebar__section">
+        <span className="ix-eyebrow">Workspaces</span>
       </div>
 
-      <div className="jv-sidebar__list">
+      <div className="ix-sidebar__list">
         {workspaces.length === 0 && (
           <div style={{ padding: '2px 10px', color: 'var(--text-faint)' }}>None yet.</div>
         )}
@@ -50,7 +50,7 @@ export function WorkspaceList() {
             key={w.id}
             role="button"
             tabIndex={0}
-            className={`jv-ws${w.id === selectedId ? ' jv-ws--active' : ''}`}
+            className={`ix-ws${w.id === selectedId ? ' ix-ws--active' : ''}`}
             onMouseDown={() => renamingId !== w.id && void useWorkspacesStore.getState().select(w.id)}
             onDoubleClick={() => beginRename(w.id, w.name)}
             onContextMenu={(e) => {
@@ -60,7 +60,7 @@ export function WorkspaceList() {
           >
             {renamingId === w.id ? (
               <input
-                className="jv-ws__rename"
+                className="ix-ws__rename"
                 autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
@@ -73,16 +73,16 @@ export function WorkspaceList() {
               />
             ) : (
               <>
-                <span className="jv-ws__name">{w.name}</span>
-                <span className="jv-ws__path">{w.folderPath}</span>
+                <span className="ix-ws__name">{w.name}</span>
+                <span className="ix-ws__path">{w.folderPath}</span>
               </>
             )}
           </div>
         ))}
       </div>
 
-      <div className="jv-sidebar__foot">
-        <button type="button" className="jv-add" onClick={() => void add()}>
+      <div className="ix-sidebar__foot">
+        <button type="button" className="ix-add" onClick={() => void add()}>
           <IconFolder />
           Add workspace
         </button>
@@ -119,12 +119,12 @@ export function WorkspaceList() {
           onClose={() => setConfirmId(null)}
           actions={
             <>
-              <button type="button" className="jv-btn jv-btn--ghost" onClick={() => setConfirmId(null)}>
+              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => setConfirmId(null)}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="jv-btn jv-btn--danger"
+                className="ix-btn ix-btn--danger"
                 onClick={() => {
                   remove(confirmId)
                   setConfirmId(null)

@@ -13,7 +13,7 @@ export interface AdoServerConfig {
  * Resolve the Azure DevOps MCP server launch config the same way Claude Code does: from the global
  * `~/.claude.json` `mcpServers.azureDevOps` entry (command/args/env incl. the PAT). Falls back to
  * constructing it from `AZURE_DEVOPS_*` process env if the file entry is absent. Reusing the
- * existing configuration is decision #1 - Jarvis hand-rolls no separate ADO client or PAT storage.
+ * existing configuration is decision #1 - Intersect hand-rolls no separate ADO client or PAT storage.
  */
 export function resolveAdoServerConfig(env: NodeJS.ProcessEnv = process.env): AdoServerConfig {
   const fromFile = readClaudeJsonAdoServer()
@@ -59,7 +59,7 @@ function readClaudeJsonAdoServer(): AdoServerConfig | null {
 
 /**
  * Resolve who "I" am for filtering PRs. On-prem ADO Server has no get_me profile endpoint, so the
- * identity is taken from `JARVIS_ADO_IDENTITY` (a UUID, a `domain\user` uniqueName, or a display
+ * identity is taken from `INTERSECT_ADO_IDENTITY` (a UUID, a `domain\user` uniqueName, or a display
  * name); matching is then done client-side against creators/reviewers.
  */
 export function resolveMyIdentity(env: NodeJS.ProcessEnv = process.env): {
@@ -67,11 +67,11 @@ export function resolveMyIdentity(env: NodeJS.ProcessEnv = process.env): {
   uniqueName?: string
   displayName?: string
 } {
-  const raw = env.JARVIS_ADO_IDENTITY?.trim()
+  const raw = env.INTERSECT_ADO_IDENTITY?.trim()
   if (!raw) {
     throw new Error(
-      'Set JARVIS_ADO_IDENTITY to your Azure DevOps identity (UUID, domain\\user, or display name) ' +
-        'so Jarvis can find the PRs you author or review.'
+      'Set INTERSECT_ADO_IDENTITY to your Azure DevOps identity (UUID, domain\\user, or display name) ' +
+        'so Intersect can find the PRs you author or review.'
     )
   }
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(raw)) return { id: raw }

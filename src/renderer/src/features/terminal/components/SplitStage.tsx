@@ -27,9 +27,9 @@ export function SplitStage({ workspaceId, cwd, layout, activeTabId, tabs, onAssi
   const unplaced = tabs.filter((t) => t.paneSlot === null)
 
   return (
-    <div className={`jv-stage jv-stage--${layout}`}>
+    <div className={`ix-stage ix-stage--${layout}`}>
       {paneTabs.map((tab, slot) => (
-        <div key={slot} className={`jv-pane${tab ? '' : ' jv-pane--empty'}`}>
+        <div key={slot} className={`ix-pane${tab ? '' : ' ix-pane--empty'}`}>
           {tab ? (
             <TerminalPane
               sessionId={makeSessionId(workspaceId, tab.id)}
@@ -48,17 +48,17 @@ export function SplitStage({ workspaceId, cwd, layout, activeTabId, tabs, onAssi
 function EmptyPane({ unplaced, onAssign }: { unplaced: Tab[]; onAssign: (id: string) => void }) {
   return (
     <>
-      <span className="jv-eyebrow">Empty pane</span>
+      <span className="ix-eyebrow">Empty pane</span>
       {unplaced.length > 0 ? (
-        <div className="jv-col" style={{ gap: 6 }}>
+        <div className="ix-col" style={{ gap: 6 }}>
           {unplaced.map((t) => (
-            <button key={t.id} type="button" className="jv-btn jv-btn--ghost" onClick={() => onAssign(t.id)}>
+            <button key={t.id} type="button" className="ix-btn ix-btn--ghost" onClick={() => onAssign(t.id)}>
               Place “{t.title}” here
             </button>
           ))}
         </div>
       ) : (
-        <span className="jv-faint">Every tab is already placed</span>
+        <span className="ix-faint">Every tab is already placed</span>
       )}
     </>
   )

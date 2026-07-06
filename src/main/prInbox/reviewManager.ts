@@ -158,13 +158,13 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         })
         await chmod(socketPath, 0o600).catch(() => {})
 
-        const mcpConfigPath = join(worktreePath, '.jarvis-review-mcp.json')
+        const mcpConfigPath = join(worktreePath, '.intersect-review-mcp.json')
         const mcpConfig = {
           mcpServers: {
-            jarvisReview: {
+            intersectReview: {
               command: 'node',
               args: [d.draftServerPath],
-              env: { JARVIS_DRAFT_SOCK: socketPath, JARVIS_REVIEW_SESSION: session.id }
+              env: { INTERSECT_DRAFT_SOCK: socketPath, INTERSECT_REVIEW_SESSION: session.id }
             }
           }
         }

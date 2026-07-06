@@ -6,10 +6,10 @@ import { _electron as electron, expect, test } from '@playwright/test'
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
 test('app launches and renders the shell', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'jarvis-e2e-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, JARVIS_E2E: '1' }
+    env: { ...process.env, INTERSECT_E2E: '1' }
   })
   const win = await app.firstWindow()
   const errors: string[] = []
@@ -18,8 +18,8 @@ test('app launches and renders the shell', async () => {
   })
   win.on('pageerror', (e) => errors.push(e.message))
 
-  await expect(win.locator('.jv-wordmark__name')).toHaveText('Jarvis')
-  await expect(win.locator('.jv-empty__title')).toBeVisible()
+  await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
+  await expect(win.locator('.ix-empty__title')).toBeVisible()
 
   await app.close()
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])

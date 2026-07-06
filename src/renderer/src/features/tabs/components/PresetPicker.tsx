@@ -31,7 +31,7 @@ export function PresetPicker({ onPick }: { onPick: (preset: Preset) => void }) {
       <button
         ref={btnRef}
         type="button"
-        className="jv-iconbtn"
+        className="ix-iconbtn"
         title="New terminal"
         aria-label="New terminal"
         onClick={() => {
@@ -44,23 +44,23 @@ export function PresetPicker({ onPick }: { onPick: (preset: Preset) => void }) {
       </button>
       {open &&
         createPortal(
-          <div ref={popRef} className="jv-presets" style={{ left: pos.x, top: pos.y }}>
+          <div ref={popRef} className="ix-presets" style={{ left: pos.x, top: pos.y }}>
             {PRESETS.map((preset) => {
               const meta = PRESET_META[preset]
               return (
                 <button
                   key={preset}
                   type="button"
-                  className="jv-preset"
+                  className="ix-preset"
                   onClick={() => {
                     setOpen(false)
                     onPick(preset)
                   }}
                 >
-                  <span className="jv-preset__badge">{meta.badge}</span>
+                  <span className="ix-preset__badge">{meta.badge}</span>
                   <span style={{ flex: 1 }}>
                     <div>{meta.label}</div>
-                    <div className="jv-preset__desc">{meta.description}</div>
+                    <div className="ix-preset__desc">{meta.description}</div>
                   </span>
                 </button>
               )

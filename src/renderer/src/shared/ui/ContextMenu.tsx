@@ -49,20 +49,20 @@ export function ContextMenu({
   return createPortal(
     <div
       ref={ref}
-      className="jv-menu"
+      className="ix-menu"
       style={{ left: Math.min(x, window.innerWidth - 200), top: Math.min(y, window.innerHeight - 260) }}
       role="menu"
     >
       {entries.map((entry, i) =>
         isSeparator(entry) ? (
-          <div key={`sep-${i}`} className="jv-menu__sep" />
+          <div key={`sep-${i}`} className="ix-menu__sep" />
         ) : (
           <button
             key={entry.label}
             type="button"
             role="menuitem"
             disabled={entry.disabled}
-            className={`jv-menu__item${entry.danger ? ' jv-menu__item--danger' : ''}`}
+            className={`ix-menu__item${entry.danger ? ' ix-menu__item--danger' : ''}`}
             onClick={() => {
               entry.onClick()
               onClose()

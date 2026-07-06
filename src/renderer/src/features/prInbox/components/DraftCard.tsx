@@ -24,20 +24,20 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
   }
 
   return (
-    <div className="jv-pr-draft">
-      <div className="jv-pr-draft__meta">
-        <span className={`jv-pr-draft__badge jv-pr-draft__badge--${draft.source}`}>
+    <div className="ix-pr-draft">
+      <div className="ix-pr-draft__meta">
+        <span className={`ix-pr-draft__badge ix-pr-draft__badge--${draft.source}`}>
           {draft.source === 'claude' ? 'Claude' : 'Manual'}
         </span>
-        <span className="jv-faint">
+        <span className="ix-faint">
           {draft.filePath}:{draft.line}
         </span>
-        <span className="jv-pr-draft__status">{draft.status}</span>
+        <span className="ix-pr-draft__status">{draft.status}</span>
       </div>
 
       {editing ? (
         <textarea
-          className="jv-input jv-pr-draft__edit"
+          className="ix-input ix-pr-draft__edit"
           autoFocus
           value={body}
           onChange={(e) => setBody(e.target.value)}
@@ -49,19 +49,19 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
           }}
         />
       ) : (
-        <p className="jv-pr-draft__body">{draft.body}</p>
+        <p className="ix-pr-draft__body">{draft.body}</p>
       )}
 
-      <div className="jv-pr-draft__actions">
+      <div className="ix-pr-draft__actions">
         {editing ? (
           <>
-            <button type="button" className="jv-btn jv-btn--ghost" onClick={() => {
+            <button type="button" className="ix-btn ix-btn--ghost" onClick={() => {
               setBody(draft.body)
               setEditing(false)
             }}>
               Cancel
             </button>
-            <button type="button" className="jv-btn jv-btn--primary" onClick={commitEdit}>
+            <button type="button" className="ix-btn ix-btn--primary" onClick={commitEdit}>
               Save
             </button>
           </>
@@ -69,7 +69,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
           <>
             <button
               type="button"
-              className="jv-btn jv-btn--primary"
+              className="ix-btn ix-btn--primary"
               disabled={published || inFlight || publishing}
               onClick={() => setConfirming(true)}
             >
@@ -77,7 +77,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
             </button>
             <button
               type="button"
-              className="jv-btn jv-btn--ghost"
+              className="ix-btn ix-btn--ghost"
               disabled={published || inFlight}
               onClick={() => setEditing(true)}
             >
@@ -85,7 +85,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
             </button>
             <button
               type="button"
-              className="jv-btn jv-btn--danger"
+              className="ix-btn ix-btn--danger"
               disabled={published || inFlight}
               onClick={() => void usePrInboxStore.getState().discardDraft(draft.id)}
             >
@@ -101,12 +101,12 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
           onClose={() => setConfirming(false)}
           actions={
             <>
-              <button type="button" className="jv-btn jv-btn--ghost" onClick={() => setConfirming(false)}>
+              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => setConfirming(false)}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="jv-btn jv-btn--primary"
+                className="ix-btn ix-btn--primary"
                 disabled={publishing}
                 onClick={() => {
                   setPublishing(true)
@@ -124,7 +124,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
         >
           <p style={{ margin: 0 }}>
             This posts the comment on <strong>{draft.filePath}:{draft.line}</strong> to the pull
-            request under your identity. This cannot be undone from Jarvis.
+            request under your identity. This cannot be undone from Intersect.
           </p>
         </Dialog>
       )}

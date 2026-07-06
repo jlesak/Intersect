@@ -26,5 +26,5 @@ export function TerminalPane({
     return () => detachSession(sessionId)
   }, [sessionId, preset, cwd])
 
-  return <div className="jv-pane__host" ref={hostRef} />
+  return <div className="ix-pane__host" ref={hostRef} />
 }

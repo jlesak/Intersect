@@ -73,7 +73,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       let notice: string | null = null
       if (!fileExists(cwd)) {
         effectiveCwd = homedir()
-        notice = `\r\n[jarvis] "${cwd}" not found - started in ${effectiveCwd}\r\n`
+        notice = `\r\n[intersect] "${cwd}" not found - started in ${effectiveCwd}\r\n`
       }
 
       const spec = buildSpec(preset)

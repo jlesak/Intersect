@@ -63,12 +63,12 @@ export function TabBar() {
   }
 
   return (
-    <div className="jv-tabbar">
-      <div className="jv-tabs">
+    <div className="ix-tabbar">
+      <div className="ix-tabs">
         {tabs.map((tab) => (
           <div
             key={tab.id}
-            className={`jv-tab${tab.id === activeTabId ? ' jv-tab--active' : ''}`}
+            className={`ix-tab${tab.id === activeTabId ? ' ix-tab--active' : ''}`}
             onMouseDown={() => renamingId !== tab.id && void store.setActiveTab(tab.id)}
             onDoubleClick={() => startRename(tab.id, tab.title)}
             onContextMenu={(e) => {
@@ -76,10 +76,10 @@ export function TabBar() {
               setMenu({ x: e.clientX, y: e.clientY, id: tab.id })
             }}
           >
-            <span className="jv-tab__preset">{PRESET_META[tab.preset].badge}</span>
+            <span className="ix-tab__preset">{PRESET_META[tab.preset].badge}</span>
             {renamingId === tab.id ? (
               <input
-                className="jv-tab__rename"
+                className="ix-tab__rename"
                 autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
@@ -91,11 +91,11 @@ export function TabBar() {
                 onMouseDown={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className="jv-tab__title">{tab.title}</span>
+              <span className="ix-tab__title">{tab.title}</span>
             )}
             <button
               type="button"
-              className="jv-tab__close"
+              className="ix-tab__close"
               aria-label={`Close ${tab.title}`}
               onMouseDown={(e) => {
                 e.stopPropagation()
@@ -108,7 +108,7 @@ export function TabBar() {
         ))}
         <PresetPicker onPick={(preset) => void store.createTab(preset)} />
       </div>
-      <div className="jv-tabbar__tools">
+      <div className="ix-tabbar__tools">
         <LayoutPicker layout={layout} onChange={(l) => void store.setLayout(l)} />
       </div>
       {menu && (

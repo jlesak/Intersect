@@ -61,7 +61,7 @@ export function ensureSession(sessionId: string, preset: Preset, cwd: string): V
   term.loadAddon(fit)
 
   const mount = document.createElement('div')
-  mount.className = 'jv-pane__mount'
+  mount.className = 'ix-pane__mount'
 
   const view: View = {
     term,

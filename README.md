@@ -1,4 +1,4 @@
-# Jarvis
+# Intersect
 
 A personal, single-user macOS desktop app that consolidates a developer's daily tools into one
 modular workspace. This first vertical slice is a **workspace & terminal manager**: named folder
@@ -18,7 +18,7 @@ Clean-room React/Electron implementation, inspired by strIDEterm's UX.
   - Create, close, rename, and reorder (move left/right from the tab's context menu).
 - **Split layouts** - Single, Columns, Rows, and a 2×2 Grid. Assign tabs to panes from the empty
   pane or the tab context menu. Layout and pane assignment persist per workspace.
-- **Persistence** - SQLite (`node:sqlite`) in `~/Library/Application Support/Jarvis/jarvis.db`.
+- **Persistence** - SQLite (`node:sqlite`) in `~/Library/Application Support/Intersect/intersect.db`.
   On launch the selected workspace, its tabs, layout, and pane assignment are restored.
 
 ## Tech stack
@@ -63,7 +63,7 @@ src/
     pty/             # session manager (injectable spawn), shell spec builder, node-pty adapter
     ipc/             # one handler module per slice (pure factories + thin ipcMain binding)
     index.ts         # app lifecycle: open DB, wire IPC, window, quit teardown
-  preload/           # typed contextBridge -> window.jarvis (contextIsolation + sandbox)
+  preload/           # typed contextBridge -> window.intersect (contextIsolation + sandbox)
   renderer/src/
     app/             # shell: App, Sidebar, feature registration
     shared/          # renderer primitives: registries, UI kit, ipc client, theme

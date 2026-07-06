@@ -88,5 +88,5 @@ export function ReviewTerminal() {
     }
   }, [])
 
-  return <div className="jv-pr-review__term" ref={hostRef} />
+  return <div className="ix-pr-review__term" ref={hostRef} />
 }

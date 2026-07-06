@@ -1,5 +1,5 @@
 /**
- * Pure git-remote-URL matching, used to find the local clone (a Jarvis workspace folder) that
+ * Pure git-remote-URL matching, used to find the local clone (a Intersect workspace folder) that
  * corresponds to a PR's Azure DevOps repository. Electron-free so it is unit-testable.
  */
 

@@ -7,7 +7,7 @@ import { CURRENT_VERSION } from './migrations'
 
 describe('openDatabase', () => {
   test('opens a migrated on-disk database with WAL and foreign keys on', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'jarvis-db-'))
+    const dir = mkdtempSync(join(tmpdir(), 'intersect-db-'))
     const db = openDatabase(dir)
     try {
       expect((db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys).toBe(1)

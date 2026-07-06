@@ -56,7 +56,7 @@ export function CommandPalette() {
   // Keep the highlighted row visible as the selection moves by keyboard.
   useEffect(() => {
     listRef.current
-      ?.querySelector('.jv-palette__item--active')
+      ?.querySelector('.ix-palette__item--active')
       ?.scrollIntoView({ block: 'nearest' })
   }, [selected, results])
 
@@ -84,21 +84,21 @@ export function CommandPalette() {
   if (!open) return null
 
   return createPortal(
-    <div className="jv-palette-overlay" onMouseDown={() => setOpen(false)}>
+    <div className="ix-palette-overlay" onMouseDown={() => setOpen(false)}>
       <div
-        className="jv-palette"
+        className="ix-palette"
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="jv-palette__search">
-          <span className="jv-palette__caret" aria-hidden="true">
+        <div className="ix-palette__search">
+          <span className="ix-palette__caret" aria-hidden="true">
             ›
           </span>
           <input
             ref={inputRef}
-            className="jv-palette__input"
+            className="ix-palette__input"
             type="text"
             placeholder="Run a command"
             value={query}
@@ -106,15 +106,15 @@ export function CommandPalette() {
             onKeyDown={onInputKeyDown}
             role="combobox"
             aria-expanded="true"
-            aria-controls="jv-palette-list"
+            aria-controls="ix-palette-list"
             aria-autocomplete="list"
           />
         </div>
 
         {results.length === 0 ? (
-          <div className="jv-palette__empty">No commands match "{query.trim()}"</div>
+          <div className="ix-palette__empty">No commands match "{query.trim()}"</div>
         ) : (
-          <div ref={listRef} id="jv-palette-list" className="jv-palette__list" role="listbox">
+          <div ref={listRef} id="ix-palette-list" className="ix-palette__list" role="listbox">
             {results.map((command, i) => (
               <button
                 key={command.id}
@@ -122,28 +122,28 @@ export function CommandPalette() {
                 role="option"
                 aria-selected={i === selected}
                 className={
-                  i === selected ? 'jv-palette__item jv-palette__item--active' : 'jv-palette__item'
+                  i === selected ? 'ix-palette__item ix-palette__item--active' : 'ix-palette__item'
                 }
                 onMouseEnter={() => setSelected(i)}
                 onClick={() => run(command)}
               >
-                <span className="jv-palette__title">{command.title}</span>
-                <span className="jv-palette__ns">{namespaceOf(command)}</span>
+                <span className="ix-palette__title">{command.title}</span>
+                <span className="ix-palette__ns">{namespaceOf(command)}</span>
               </button>
             ))}
           </div>
         )}
 
-        <div className="jv-palette__legend">
+        <div className="ix-palette__legend">
           <span>
-            <kbd className="jv-kbd">↑</kbd>
-            <kbd className="jv-kbd">↓</kbd> navigate
+            <kbd className="ix-kbd">↑</kbd>
+            <kbd className="ix-kbd">↓</kbd> navigate
           </span>
           <span>
-            <kbd className="jv-kbd">↵</kbd> run
+            <kbd className="ix-kbd">↵</kbd> run
           </span>
           <span>
-            <kbd className="jv-kbd">esc</kbd> close
+            <kbd className="ix-kbd">esc</kbd> close
           </span>
         </div>
       </div>

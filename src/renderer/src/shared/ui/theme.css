@@ -1,5 +1,5 @@
 /* ============================================================================
-   Jarvis design system - a calm graphite instrument panel with a single amber
+   Intersect design system - a calm graphite instrument panel with a single amber
    signal. Amber marks active/selected state only; everything else stays quiet
    so the terminal content is the focus. Monospace carries structure (labels,
    wordmark, hints) as the terminal vernacular.
@@ -84,7 +84,7 @@ input {
 }
 
 /* --- structural micro-label: the mono uppercase eyebrow used app-wide --- */
-.jv-eyebrow {
+.ix-eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -94,7 +94,7 @@ input {
 }
 
 /* --- buttons --- */
-.jv-btn {
+.ix-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -109,36 +109,36 @@ input {
   cursor: pointer;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.jv-btn:hover {
+.ix-btn:hover {
   background: var(--panel-3);
 }
-.jv-btn--primary {
+.ix-btn--primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #1a1206;
   font-weight: 600;
 }
-.jv-btn--primary:hover {
+.ix-btn--primary:hover {
   background: #f4b878;
 }
-.jv-btn--ghost {
+.ix-btn--ghost {
   background: transparent;
   border-color: transparent;
 }
-.jv-btn--ghost:hover {
+.ix-btn--ghost:hover {
   background: var(--panel-2);
 }
-.jv-btn--danger {
+.ix-btn--danger {
   color: var(--danger);
   border-color: transparent;
   background: transparent;
 }
-.jv-btn--danger:hover {
+.ix-btn--danger:hover {
   background: var(--danger-soft);
 }
 
 /* icon-only button */
-.jv-iconbtn {
+.ix-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -152,13 +152,13 @@ input {
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.jv-iconbtn:hover {
+.ix-iconbtn:hover {
   background: var(--panel-3);
   color: var(--text);
 }
 
 /* --- inputs --- */
-.jv-input {
+.ix-input {
   width: 100%;
   height: 34px;
   padding: 0 11px;
@@ -168,13 +168,13 @@ input {
   color: var(--text);
   transition: border-color var(--dur) var(--ease);
 }
-.jv-input:focus {
+.ix-input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
 /* --- dialog --- */
-.jv-overlay {
+.ix-overlay {
   position: fixed;
   inset: 0;
   background: rgba(4, 6, 9, 0.62);
@@ -182,9 +182,9 @@ input {
   align-items: center;
   justify-content: center;
   z-index: 100;
-  animation: jv-fade var(--dur) var(--ease);
+  animation: ix-fade var(--dur) var(--ease);
 }
-.jv-dialog {
+.ix-dialog {
   width: 420px;
   max-width: calc(100vw - 40px);
   background: var(--panel);
@@ -193,26 +193,26 @@ input {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   padding: 22px;
 }
-.jv-dialog__title {
+.ix-dialog__title {
   margin: 0 0 4px;
   font-size: 15px;
   font-weight: 600;
 }
-.jv-dialog__body {
+.ix-dialog__body {
   margin: 14px 0 20px;
 }
-.jv-dialog__actions {
+.ix-dialog__actions {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
 }
-.jv-field-label {
+.ix-field-label {
   display: block;
   margin-bottom: 6px;
 }
 
 /* --- context menu --- */
-.jv-menu {
+.ix-menu {
   position: fixed;
   min-width: 176px;
   padding: 5px;
@@ -221,9 +221,9 @@ input {
   border-radius: var(--radius);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
   z-index: 200;
-  animation: jv-fade calc(var(--dur) - 40ms) var(--ease);
+  animation: ix-fade calc(var(--dur) - 40ms) var(--ease);
 }
-.jv-menu__item {
+.ix-menu__item {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -237,22 +237,22 @@ input {
   text-align: left;
   cursor: pointer;
 }
-.jv-menu__item:hover {
+.ix-menu__item:hover {
   background: var(--panel-3);
 }
-.jv-menu__item--danger {
+.ix-menu__item--danger {
   color: var(--danger);
 }
-.jv-menu__item--danger:hover {
+.ix-menu__item--danger:hover {
   background: var(--danger-soft);
 }
-.jv-menu__sep {
+.ix-menu__sep {
   height: 1px;
   margin: 5px 4px;
   background: var(--border);
 }
 
-@keyframes jv-fade {
+@keyframes ix-fade {
   from {
     opacity: 0;
   }

@@ -14,24 +14,24 @@ export function Sidebar() {
   const Section = active?.component
 
   return (
-    <aside className="jv-sidebar">
-      <div className="jv-wordmark">
-        <span className="jv-wordmark__dot" />
-        <span className="jv-wordmark__name">Jarvis</span>
+    <aside className="ix-sidebar">
+      <div className="ix-wordmark">
+        <span className="ix-wordmark__dot" />
+        <span className="ix-wordmark__name">Intersect</span>
       </div>
 
-      <div className="jv-rail">
+      <div className="ix-rail">
         {sections.map((section) => {
           const Icon = section.icon
           return (
             <button
               key={section.id}
               type="button"
-              className={`jv-rail__btn${section.id === active?.id ? ' jv-rail__btn--active' : ''}`}
+              className={`ix-rail__btn${section.id === active?.id ? ' ix-rail__btn--active' : ''}`}
               onClick={() => setActiveSection(section.id)}
             >
               <Icon />
-              <span className="jv-rail__label">{section.label}</span>
+              <span className="ix-rail__label">{section.label}</span>
             </button>
           )
         })}

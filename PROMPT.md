@@ -1,8 +1,8 @@
-# Build "Jarvis" — Personal macOS Dashboard App (MVP: Workspace & Terminal Manager)
+# Build "Intersect" — Personal macOS Dashboard App (MVP: Workspace & Terminal Manager)
 
 ## Context and Vision
 
-You are building the first usable version of a personal, single-user macOS desktop application codenamed **Jarvis**, for a senior .NET software engineer and team lead. The long-term goal of this app is to reduce context-switching cost across the many tools this person uses daily (terminals, Claude Code sessions, Azure DevOps, Jira, Notion, calendar, etc.) by consolidating them into one modular app.
+You are building the first usable version of a personal, single-user macOS desktop application codenamed **Intersect**, for a senior .NET software engineer and team lead. The long-term goal of this app is to reduce context-switching cost across the many tools this person uses daily (terminals, Claude Code sessions, Azure DevOps, Jira, Notion, calendar, etc.) by consolidating them into one modular app.
 
 **This prompt scopes only the first vertical slice: a workspace and terminal manager**, heavily inspired by an existing open-source project called `strIDEterm` (a Vue-based Electron app at `../strideterm` relative to this repo, if available on this machine — read its `src/`, `electron/`, and `docs/` for UX and architectural inspiration, but do **not** copy Vue code or its license verbatim; this is a clean-room React implementation, inspired by its UX only).
 
@@ -70,7 +70,7 @@ Within a workspace, support arranging multiple tabs visible simultaneously in th
 The user assigns a tab to a pane (e.g. by dragging a tab into a pane, or a simpler "open in split" action from the tab's context menu — pick whichever is less complex to implement correctly). Persist the chosen layout and pane assignment per workspace.
 
 ### Persistence
-SQLite database in the app's user data directory (e.g. `~/Library/Application Support/Jarvis/jarvis.db`, i.e. Electron's default `app.getPath('userData')` — don't invent a custom directory unless there's a clear reason). Schema covers: workspaces, tabs (with preset type and workspace FK), layout/pane-assignment state. Use a simple migration approach (even a single versioned schema-creation script is fine for MVP — no need for a migration framework).
+SQLite database in the app's user data directory (e.g. `~/Library/Application Support/Intersect/intersect.db`, i.e. Electron's default `app.getPath('userData')` — don't invent a custom directory unless there's a clear reason). Schema covers: workspaces, tabs (with preset type and workspace FK), layout/pane-assignment state. Use a simple migration approach (even a single versioned schema-creation script is fine for MVP — no need for a migration framework).
 
 ## UI / Visual Design
 

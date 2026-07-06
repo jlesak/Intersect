@@ -74,4 +74,4 @@ const api: IpcApi = {
   }
 }
 
-contextBridge.exposeInMainWorld('jarvis', api)
+contextBridge.exposeInMainWorld('intersect', api)

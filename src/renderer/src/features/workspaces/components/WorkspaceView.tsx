@@ -25,11 +25,11 @@ export function WorkspaceView() {
 
   if (!selected) {
     return (
-      <div className="jv-main">
-        <div className="jv-empty">
-          <span className="jv-eyebrow">No workspace</span>
-          <div className="jv-empty__title">Nothing open</div>
-          <p className="jv-empty__hint">Add a workspace from the sidebar to start opening terminals.</p>
+      <div className="ix-main">
+        <div className="ix-empty">
+          <span className="ix-eyebrow">No workspace</span>
+          <div className="ix-empty__title">Nothing open</div>
+          <p className="ix-empty__hint">Add a workspace from the sidebar to start opening terminals.</p>
         </div>
       </div>
     )
@@ -38,7 +38,7 @@ export function WorkspaceView() {
   const ready = tabsStatus === 'ready' && workspaceId === selected.id
 
   return (
-    <div className="jv-main">
+    <div className="ix-main">
       <TabBar />
       {ready && tabs.length === 0 ? (
         <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
@@ -58,14 +58,14 @@ export function WorkspaceView() {
 
 function NoTabs({ onOpen }: { onOpen: (preset: Preset) => void }) {
   return (
-    <div className="jv-empty">
-      <span className="jv-eyebrow">No terminals</span>
-      <div className="jv-empty__title">Open a terminal to get going</div>
-      <div className="jv-row" style={{ gap: 10 }}>
-        <button type="button" className="jv-btn jv-btn--primary" onClick={() => onOpen('shell')}>
+    <div className="ix-empty">
+      <span className="ix-eyebrow">No terminals</span>
+      <div className="ix-empty__title">Open a terminal to get going</div>
+      <div className="ix-row" style={{ gap: 10 }}>
+        <button type="button" className="ix-btn ix-btn--primary" onClick={() => onOpen('shell')}>
           <IconShell /> Shell
         </button>
-        <button type="button" className="jv-btn" onClick={() => onOpen('claude')}>
+        <button type="button" className="ix-btn" onClick={() => onOpen('claude')}>
           <IconClaude /> Claude Code
         </button>
       </div>

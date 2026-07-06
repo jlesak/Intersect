@@ -1,4 +1,4 @@
-# Jarvis - Design (Slice 2: PR Review Inbox)
+# Intersect - Design (Slice 2: PR Review Inbox)
 
 Additive vertical slice over the MVP (see `DESIGN.md`). Consolidates Azure DevOps pull
 requests where I am author or reviewer, renders their diffs (Monaco), and runs an
@@ -14,8 +14,8 @@ spelled out here.
 Settled by the user (2026-07-06):
 - **U1** Review runs as a **classic interactive Claude Code session** (spawned `claude` in a PTY),
   NOT headless `-p`. Guardrail is delivered via CLI flags; the draft-comment tool is a **standalone
-  Jarvis-owned stdio MCP server** process.
-- **U2** The review worktree is built by **reusing an existing local clone** (a Jarvis workspace
+  Intersect-owned stdio MCP server** process.
+- **U2** The review worktree is built by **reusing an existing local clone** (a Intersect workspace
   folder whose git origin matches the PR's repo). No clone-on-demand. Assumes git is already
   authenticated to `devops.skoda.vwgroup.com`.
 - **U3** During verification I **pause before any real publish** - the full flow is exercised live
@@ -97,7 +97,7 @@ export type DraftSource = (typeof DRAFT_SOURCES)[number]
 /**
  * A review comment that has NOT reached Azure DevOps. Created either by the guardrailed Claude
  * session (via the draft MCP server) or by me manually on the diff. Only an explicitly approved
- * draft is published, under my identity, by Jarvis's own code.
+ * draft is published, under my identity, by Intersect's own code.
  */
 export interface DraftComment {
   id: string
@@ -238,7 +238,7 @@ Repos (factory pattern `createXRepo(db, {now,newId})`, message-only errors, dete
   `setStatus(id, status, publishedThreadId?)`, `remove(id)`.
 - `reviewSessionRepo`: `create(...)`, `getActive()`, `setStatus(id, status)`, `remove(id)`.
 
-**The standalone draft MCP server writes into `draft_comment` directly** (same `jarvis.db`, WAL
+**The standalone draft MCP server writes into `draft_comment` directly** (same `intersect.db`, WAL
 allows the extra writer). It receives the DB path, review-session id, pr id, repo id via env. This
 is also why drafts survive restart (PROMPT persistence requirement) for free.
 
@@ -257,7 +257,7 @@ tests mock.
 ### 5.2 `adoService.ts` - domain mapping + "my PRs" fan-out
 - `getMyId()` = `get_me` -> user UUID (cached per process).
 - `syncMyPrs()`:
-  1. `list_repositories()` (optionally filtered by `JARVIS_PR_REPOS` env = comma-sep repo names/ids
+  1. `list_repositories()` (optionally filtered by `INTERSECT_PR_REPOS` env = comma-sep repo names/ids
      - the escape hatch that keeps fan-out bounded without a config UI; default = all project repos).
   2. Per repo, two calls: `list_pull_requests(repositoryId, status:'active', creatorId:myId)` and
      `(..., reviewerId:myId)`. Bounded concurrency (the single stdio pipe serializes anyway; a small
@@ -297,7 +297,7 @@ live under `join(app.getPath('userData'), 'pr-review-worktrees')/<uuid>`.
 
 ## 7. AI review session (main, `src/main/prInbox/`)
 
-### 7.1 `draftServer.ts` - the Jarvis-owned MCP server (separate process)
+### 7.1 `draftServer.ts` - the Intersect-owned MCP server (separate process)
 A standalone entry (built as a second electron-vite main input -> `out/main/draftServer.js`) that
 `@modelcontextprotocol/sdk` `Server` + `StdioServerTransport` exposes exactly one tool:
 
@@ -305,7 +305,7 @@ A standalone entry (built as a second electron-vite main input -> `out/main/draf
 record_draft_comment(filePath: string, line: number, side: 'left'|'right', body: string)
 ```
 
-Its handler opens `jarvis.db` (path from `env.JARVIS_DB_PATH`) and inserts a `draft_comment` row
+Its handler opens `intersect.db` (path from `env.INTERSECT_DB_PATH`) and inserts a `draft_comment` row
 (`source='claude'`, `status='pending'`, `review_session_id`/`pr_id`/`repository_id` from env). It has
 **no Azure DevOps access whatsoever** - it cannot publish. The insert logic is a pure function
 (`recordDraft(db, env, args)`) unit-tested against an in-memory DB.
@@ -317,7 +317,7 @@ with, verified against `claude --help`:
 --mcp-config <mcpConfigPath> --strict-mcp-config
 --allowed-tools "mcp__azureDevOps__get_pull_request mcp__azureDevOps__get_pull_request_changes
                  mcp__azureDevOps__get_pull_request_comments mcp__azureDevOps__get_file_content
-                 mcp__jarvisReview__record_draft_comment Read Grep Glob"
+                 mcp__intersectReview__record_draft_comment Read Grep Glob"
 --disallowed-tools "mcp__azureDevOps__add_pull_request_comment
                     mcp__azureDevOps__update_pull_request_thread_status
                     mcp__azureDevOps__create_pull_request mcp__azureDevOps__update_pull_request
@@ -329,12 +329,12 @@ with, verified against `claude --help`:
 ```
 Guardrail layers (defense in depth): `--strict-mcp-config` (only our two servers exist) + hard
 `--disallowed-tools` on every ADO write + `--permission-mode dontAsk` (allowlisted approved, rest
-denied without prompting) + system-prompt instruction. Publishing to ADO exists ONLY in Jarvis's
+denied without prompting) + system-prompt instruction. Publishing to ADO exists ONLY in Intersect's
 `publishDraft` handler (§8), never reachable from the session.
 
 ### 7.3 `reviewManager.ts` - orchestration + single-session PTY
 - `start(repoId, prId, deps)`: resolve repoDir -> create worktree -> write the mcp-config JSON
-  (jarvisReview: `node out/main/draftServer.js` with env; azureDevOps: cloned from `~/.claude.json`)
+  (intersectReview: `node out/main/draftServer.js` with env; azureDevOps: cloned from `~/.claude.json`)
   to a temp path -> build spec -> spawn PTY (injected `spawn` seam, defaults to `nodePtySpawn` - the
   sanctioned node-pty wrapper; single live session) -> wire `onData -> prInbox:reviewData`,
   `onExit -> prInbox:reviewExit` + mark `completed` -> persist `review_session`.
@@ -459,7 +459,7 @@ start a review (worktree created, claude spawns in it, records a draft via the t
   offset 1. Left-side / multi-line / column anchoring is out (would need the raw ADO REST API).
   Draft UI + the draft tool steer to right-side line comments; `publishDraft` rejects left-side.
 - **"My PRs" fan-out** is O(repos) serialized through one MCP stdio pipe; a manual Sync with a
-  spinner. `JARVIS_PR_REPOS` bounds scope without a config UI.
+  spinner. `INTERSECT_PR_REPOS` bounds scope without a config UI.
 - **Packaged-app follow-ups** (not blocking dev verification): the draft MCP server + Monaco workers
   must be `asarUnpack`ed / bundled; `claude` login via Keychain may need re-auth under the packaged
   app identity. Tracked, not solved in this slice's dev milestone.
@@ -478,18 +478,18 @@ an enumerated `--disallowed-tools` list. That list was incomplete (missed `creat
 `create_commit`, ...) and, worse, the effective allowlist is silently widened by ambient
 `~/.claude/settings.json` `permissions.allow` rules (verified live: `WebFetch(domain:*)` and
 `WebSearch` leak into a `dontAsk` session). Adopted:
-- **The session's `--mcp-config` contains ONLY the `jarvisReview` draft server.** The ADO server is
+- **The session's `--mcp-config` contains ONLY the `intersectReview` draft server.** The ADO server is
   not present, so no ADO write tool exists in the session at all. This is exactly decision #2's
-  "dedicated, local, Jarvis-owned MCP server ... no Azure DevOps access at all."
-- **PR context is injected, not fetched by the session.** Jarvis writes a `REVIEW_CONTEXT.md` into
+  "dedicated, local, Intersect-owned MCP server ... no Azure DevOps access at all."
+- **PR context is injected, not fetched by the session.** Intersect writes a `REVIEW_CONTEXT.md` into
   the worktree (PR title, description, author, changed-file list, existing threads) fetched via
-  Jarvis's own client. The session reviews the checked-out code with `Read`/`Grep`/`Glob` + that
+  Intersect's own client. The session reviews the checked-out code with `Read`/`Grep`/`Glob` + that
   file. No `get_file_content`/`get_pull_request*` tools needed.
 - **Pin setting sources** so ambient allow rules cannot widen the session: pass `--setting-sources`
-  restricted to sources Jarvis controls (verify empirically that ambient `user` allow rules -
+  restricted to sources Intersect controls (verify empirically that ambient `user` allow rules -
   `WebFetch`/`WebSearch` - are denied in the resulting session; do NOT use `--bare`, which forces
   `ANTHROPIC_API_KEY` and breaks the Keychain login).
-- `buildReviewSpawnSpec` allowlist becomes `Read Grep Glob mcp__jarvisReview__record_draft_comment`;
+- `buildReviewSpawnSpec` allowlist becomes `Read Grep Glob mcp__intersectReview__record_draft_comment`;
   `--disallowed-tools "Bash Write Edit"` kept as belt only; guarantee rests on strict-mcp-config +
   the closed allowlist + the ADO server's absence.
 - **The guardrail is verified empirically, not just by asserting the flag string:** the verification
@@ -499,8 +499,8 @@ an enumerated `--disallowed-tools` list. That list was incomplete (missed `creat
 - **Temp mcp-config** is written `0600` and deleted on session end; it carries no PAT (no ADO server).
 
 ### 14.2 Draft capture via a Unix-domain socket to main (not a second DB writer)
-The draft MCP server does NOT open `jarvis.db`. Instead `reviewManager` creates a UDS under
-`userData` (path passed to the draft server via `JARVIS_DRAFT_SOCK`); `record_draft_comment` connects
+The draft MCP server does NOT open `intersect.db`. Instead `reviewManager` creates a UDS under
+`userData` (path passed to the draft server via `INTERSECT_DRAFT_SOCK`); `record_draft_comment` connects
 and sends the draft JSON; **main is the single SQLite writer** (`draftCommentRepo.create`) and
 immediately **broadcasts `prInbox:draftAdded` to the renderer** so drafts appear live during the
 review. This removes the two-writer `SQLITE_BUSY`/busy-timeout surface and closes the live-refresh
@@ -650,7 +650,7 @@ correctness, renderer) plus live probes drove these fixes (all applied):
 - **Guardrail** verified empirically against `claude` v2.1.201 with the real flags.
 - **Deterministic E2E** (Playwright `_electron`): the slice registers, the rail switches to it and
   back, and its Monaco-importing view renders with zero renderer console errors.
-- **Live E2E against real on-prem ADO** (`JARVIS_LIVE_E2E=1`, gated/skipped by default): synced 2
+- **Live E2E against real on-prem ADO** (`INTERSECT_LIVE_E2E=1`, gated/skipped by default): synced 2
   real PRs, loaded a PR's 50 changed files, and rendered the real side-by-side Monaco diff.
 - **Not verified live (by design):** starting an actual Claude review in a worktree (needs a local
   clone registered as a workspace; the spawn spec + worktree lifecycle + draft path are unit/smoke

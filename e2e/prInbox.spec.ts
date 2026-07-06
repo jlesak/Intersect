@@ -12,10 +12,10 @@ const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
  * NOT touch Azure DevOps; live sync is a separate manual verification.
  */
 test('PR Review Inbox section registers, switches, and renders without errors', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'jarvis-e2e-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, JARVIS_E2E: '1' }
+    env: { ...process.env, INTERSECT_E2E: '1' }
   })
   const win = await app.firstWindow()
   const errors: string[] = []
@@ -24,20 +24,20 @@ test('PR Review Inbox section registers, switches, and renders without errors', 
   })
   win.on('pageerror', (e) => errors.push(e.message))
 
-  await expect(win.locator('.jv-wordmark__name')).toHaveText('Jarvis')
+  await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
 
   // The rail has both sections; switch to PR Review.
-  const prRail = win.locator('.jv-rail__btn', { hasText: 'PR Review' })
+  const prRail = win.locator('.ix-rail__btn', { hasText: 'PR Review' })
   await expect(prRail).toBeVisible()
   await prRail.click()
 
   // The PR Inbox sidebar (Sync + empty state) and its main view render.
-  await expect(win.locator('.jv-btn', { hasText: 'Sync' })).toBeVisible()
-  await expect(win.locator('.jv-sidebar__list')).toContainText('Sync to load your pull requests')
+  await expect(win.locator('.ix-btn', { hasText: 'Sync' })).toBeVisible()
+  await expect(win.locator('.ix-sidebar__list')).toContainText('Sync to load your pull requests')
 
   // Switch back to Workspaces - the section swap must not crash.
-  await win.locator('.jv-rail__btn', { hasText: 'Workspaces' }).click()
-  await expect(win.locator('.jv-empty__title')).toBeVisible()
+  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
+  await expect(win.locator('.ix-empty__title')).toBeVisible()
 
   await app.close()
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])

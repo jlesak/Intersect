@@ -65,7 +65,7 @@ export function DiffViewer({ diff, loading, drafts, onAddDraft }: DiffViewerProp
         range: new monaco.Range(d.line, 1, d.line, 1),
         options: {
           isWholeLine: true,
-          glyphMarginClassName: 'jv-pr-diff__glyph',
+          glyphMarginClassName: 'ix-pr-diff__glyph',
           glyphMarginHoverMessage: { value: d.body }
         }
       }))
@@ -75,7 +75,7 @@ export function DiffViewer({ diff, loading, drafts, onAddDraft }: DiffViewerProp
     modified.changeViewZones((accessor) => {
       for (const d of relevant) {
         const dom = document.createElement('div')
-        dom.className = 'jv-pr-diff__zone'
+        dom.className = 'ix-pr-diff__zone'
         dom.textContent = `${d.source === 'claude' ? 'Claude' : 'You'}: ${d.body}`
         zoneIds.push(accessor.addZone({ afterLineNumber: d.line, heightInLines: 2, domNode: dom }))
       }
@@ -98,27 +98,27 @@ export function DiffViewer({ diff, loading, drafts, onAddDraft }: DiffViewerProp
   }
 
   if (loading) {
-    return <div className="jv-pr-diff__placeholder">Loading diff…</div>
+    return <div className="ix-pr-diff__placeholder">Loading diff…</div>
   }
   if (!diff) {
-    return <div className="jv-pr-diff__placeholder">Select a file to view its diff.</div>
+    return <div className="ix-pr-diff__placeholder">Select a file to view its diff.</div>
   }
   if (diff.binary) {
-    return <div className="jv-pr-diff__placeholder">Binary file not shown.</div>
+    return <div className="ix-pr-diff__placeholder">Binary file not shown.</div>
   }
   if (diff.tooLarge) {
-    return <div className="jv-pr-diff__placeholder">File too large to display.</div>
+    return <div className="ix-pr-diff__placeholder">File too large to display.</div>
   }
 
   return (
-    <div className="jv-pr-diff">
-      <div className="jv-pr-diff__toolbar">
-        <span className="jv-eyebrow">{diff.path}</span>
-        <button type="button" className="jv-btn jv-btn--ghost" onClick={commentOnCursor}>
+    <div className="ix-pr-diff">
+      <div className="ix-pr-diff__toolbar">
+        <span className="ix-eyebrow">{diff.path}</span>
+        <button type="button" className="ix-btn ix-btn--ghost" onClick={commentOnCursor}>
           Comment on cursor line
         </button>
       </div>
-      <div className="jv-pr-diff__host" ref={hostRef} />
+      <div className="ix-pr-diff__host" ref={hostRef} />
     </div>
   )
 }

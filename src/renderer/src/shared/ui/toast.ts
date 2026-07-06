@@ -28,6 +28,6 @@ export const useToastStore = create<ToastState>()((set) => ({
 /** Surface a failed operation to the user (and the console) instead of letting it vanish. */
 export function reportError(message: string, error: unknown): void {
   const detail = error instanceof Error ? error.message : String(error)
-  console.error(`[jarvis] ${message}${detail ? `: ${detail}` : ''}`)
+  console.error(`[intersect] ${message}${detail ? `: ${detail}` : ''}`)
   useToastStore.getState().push(detail ? `${message}: ${detail}` : message)
 }

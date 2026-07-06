@@ -25,15 +25,15 @@ import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager } from './prInbox/worktreeManager'
 
-// Deterministic userData dir -> ~/Library/Application Support/Jarvis/ (or an E2E override).
-app.setName('Jarvis')
+// Deterministic userData dir -> ~/Library/Application Support/Intersect/ (or an E2E override).
+app.setName('Intersect')
 
 let mainWindow: BrowserWindow | null = null
 let db: DatabaseSync | null = null
 
 /** Best-effort resolution of the `claude` binary for the review session. */
 function resolveClaudePath(): string {
-  const explicit = process.env.JARVIS_CLAUDE_PATH
+  const explicit = process.env.INTERSECT_CLAUDE_PATH
   if (explicit) return explicit
   const local = join(homedir(), '.local', 'bin', 'claude')
   return existsSync(local) ? local : 'claude'
@@ -62,7 +62,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     backgroundColor: '#0e0f13',
-    title: 'Jarvis',
+    title: 'Intersect',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -90,7 +90,7 @@ function wireIpc(database: DatabaseSync): void {
   const sessions = createSessionManager({
     spawn: nodePtySpawn,
     send: createSender(() => mainWindow?.webContents ?? null),
-    buildSpec: (preset) => buildSpawn(preset, { testMode: process.env.JARVIS_E2E === '1' })
+    buildSpec: (preset) => buildSpawn(preset, { testMode: process.env.INTERSECT_E2E === '1' })
   })
 
   const pickFolder = async (): Promise<string | null> => {
@@ -152,7 +152,7 @@ function wireIpc(database: DatabaseSync): void {
 
 app.whenReady().then(() => {
   ensureSpawnHelperExecutable()
-  const userDataDir = process.env.JARVIS_USER_DATA_DIR || app.getPath('userData')
+  const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   db = openDatabase(userDataDir)
   wireIpc(db)
   createWindow()

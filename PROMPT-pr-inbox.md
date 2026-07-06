@@ -1,8 +1,8 @@
-# Build "PR Review Inbox" — Jarvis Slice 2
+# Build "PR Review Inbox" — Intersect Slice 2
 
 ## Context and Vision
 
-Jarvis's MVP (workspace & terminal manager) is done. This prompt scopes the next vertical
+Intersect's MVP (workspace & terminal manager) is done. This prompt scopes the next vertical
 slice: a **PR Review Inbox** that consolidates Azure DevOps pull requests you're involved in,
 and lets you run an AI-assisted code review via Claude Code without leaving the app or
 disturbing your active working directory.
@@ -44,18 +44,18 @@ should need to change except the app-level composition root (registering the new
 1. **Reuse the existing `azureDevOps` MCP server** (`@tiberriver256/mcp-server-azure-devops`,
    already configured globally for Claude Code with org/project/PAT) as the **sole integration
    point with Azure DevOps** — for listing PRs, fetching diffs/threads, and publishing approved
-   comments. Do not hand-roll a separate ADO REST client or PAT storage; Jarvis's main process
+   comments. Do not hand-roll a separate ADO REST client or PAT storage; Intersect's main process
    connects to it as an MCP client for the read paths, and reuses the same server/config to
    publish comments after my approval.
 2. **Guardrail against unapproved writes**: the Claude Code review session must never be able
    to call the `azureDevOps` server's write tools (e.g. posting comments, changing thread
    status) directly — that would bypass my approval step. Enforce this with (a) a dedicated,
-   local, Jarvis-owned MCP server exposed only to the review session, whose only capability is
+   local, Intersect-owned MCP server exposed only to the review session, whose only capability is
    recording a *draft* comment (no Azure DevOps access at all), and (b) an explicit system-prompt
    instruction restricting the review session to read-only Azure DevOps tools plus that draft
-   tool. All actual publishing to Azure DevOps happens only from Jarvis's own code, only after my
+   tool. All actual publishing to Azure DevOps happens only from Intersect's own code, only after my
    explicit approval of a specific draft.
-3. **Isolation**: each AI review runs in its own git worktree, created/cleaned up by Jarvis, so
+3. **Isolation**: each AI review runs in its own git worktree, created/cleaned up by Intersect, so
    it never touches the working tree of any open workspace/tab.
 4. **Diff rendering**: use Monaco's diff editor for both the plain PR detail view and inline
    display of Claude's proposed comments.

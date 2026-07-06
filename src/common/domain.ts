@@ -133,7 +133,7 @@ export type DraftSource = (typeof DRAFT_SOURCES)[number]
 /**
  * A review comment that has NOT reached Azure DevOps. Created either by the guardrailed Claude
  * session (via the draft MCP server) or by me manually on the diff. Only an explicitly approved
- * draft is published, under my identity, by Jarvis's own code.
+ * draft is published, under my identity, by Intersect's own code.
  */
 export interface DraftComment {
   id: string

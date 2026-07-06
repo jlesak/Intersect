@@ -1,4 +1,4 @@
-# Jarvis - Design (MVP: Workspace & Terminal Manager)
+# Intersect - Design (MVP: Workspace & Terminal Manager)
 
 Clean-room React/Electron implementation inspired by strIDEterm's UX. Scope: workspaces
 + terminal tabs + split layouts + local persistence. Everything else in `PROMPT.md` non-goals
@@ -78,7 +78,7 @@ principle**: renderer is organized by vertical slice, main has one IPC module pe
 isolated, shared is small. Only the top-level folder names follow the tool's convention.
 
 ```
-jarvis/
+intersect/
   electron.vite.config.ts
   package.json  tsconfig.json  tsconfig.node.json  tsconfig.web.json
   vitest.config.ts  playwright.config.ts
@@ -102,8 +102,8 @@ jarvis/
         sessionManager.ts        # Map<sessionId, IPty>; spawn/write/resize/kill/killAll; onExit cleanup
         shell.ts                 # resolveShell(), buildSpawn(preset, cwd) -> {file,args,initialCommand}
     preload/
-      index.ts                   # contextBridge.exposeInMainWorld('jarvis', typed api)
-      index.d.ts                 # declare global Window.jarvis: IpcApi
+      index.ts                   # contextBridge.exposeInMainWorld('intersect', typed api)
+      index.d.ts                 # declare global Window.intersect: IpcApi
     renderer/
       index.html
       src/
@@ -117,7 +117,7 @@ jarvis/
           registries/
             sidebarRegistry.ts   # ordered array + register/getAll/reset
             commandRegistry.ts   # Map + register/get/getAll/reset
-          ipc/client.ts          # thin typed wrapper around window.jarvis
+          ipc/client.ts          # thin typed wrapper around window.intersect
           ui/                    # small UI kit (Button, Dialog, ContextMenu, Icon, ...) - kept minimal
           layout/geometry.ts     # LAYOUTS table: slot counts + css grid templates (pure)
         features/
@@ -148,7 +148,7 @@ import of `features/<x>/**` except `features/<x>/index.ts` from outside that sli
 
 Single source of truth: `src/shared/ipc.ts` exports channel-name constants and an `IpcApi`
 interface. `main` implements handlers; `preload` builds the concrete object and exposes it as
-`window.jarvis`; renderer calls through `shared/ipc/client.ts`. Shared file is included in both
+`window.intersect`; renderer calls through `shared/ipc/client.ts`. Shared file is included in both
 `tsconfig.node.json` and `tsconfig.web.json`.
 
 ### 3.1 Request/response (invoke/handle) - everything except terminal I/O
@@ -221,8 +221,8 @@ interface Tab {
 
 ## 5. Database schema & migrations (node:sqlite)
 
-DB file: `path.join(app.getPath('userData'), 'jarvis.db')` (i.e.
-`~/Library/Application Support/Jarvis/jarvis.db`). Opened after `app.whenReady()`.
+DB file: `path.join(app.getPath('userData'), 'intersect.db')` (i.e.
+`~/Library/Application Support/Intersect/intersect.db`). Opened after `app.whenReady()`.
 `journal_mode = WAL`; `foreign_keys` is ON by default in node:sqlite but we assert it.
 
 Migration runner: read `PRAGMA user_version`; for each migration with `version > current`, run
@@ -406,7 +406,7 @@ via E2E / manual per PROMPT's allowance.
 
 - `webPreferences`: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`
   (Electron defaults; explicitly assert - the react-ts template ships `sandbox:false`, revert).
-- Preload exposes only the narrow `window.jarvis` typed surface via `contextBridge`; never raw
+- Preload exposes only the narrow `window.intersect` typed surface via `contextBridge`; never raw
   `ipcRenderer`.
 - All node:sqlite / node-pty / fs access lives in main only.
 
@@ -537,14 +537,14 @@ message string), canonical-row return, `pickFolder` cancel path. New test-plan i
   (shell is ready), not a fixed timeout. Rationale (spec deviation acknowledged): a login shell
   resolves PATH so `claude` in `~/.local/bin` is found, and exiting claude drops back to a live
   shell - the stronger design; matches strIDEterm's command-in-shell model.
-- Test-mode shell seam: when `JARVIS_E2E=1`, `resolveShell`/`buildSpawn` spawn a no-rc shell
+- Test-mode shell seam: when `INTERSECT_E2E=1`, `resolveShell`/`buildSpawn` spawn a no-rc shell
   (`zsh -f`) so xterm output is deterministic across machines/CI. Production default stays `-l`.
   E2E asserts on a unique token the test itself echoes, never on the prompt string.
 
 ### 16.13 E2E userData isolation + quit durability
 - E2E passes `--user-data-dir=<tmp>` to `_electron.launch({ args })` (Chromium switch Electron
   honors before ready; `app.getPath('userData')` reflects it) and reuses the dir across the
-  quit/relaunch pair. `openDatabase` reads a single `JARVIS_USER_DATA_DIR` env override too.
+  quit/relaunch pair. `openDatabase` reads a single `INTERSECT_USER_DATA_DIR` env override too.
 - `app.on('before-quit')`: `killAll()` PTYs, then `db.close()` (forces WAL checkpoint) so the
   relaunch reliably sees committed state.
 - Add an Electron-runtime DB parity smoke to E2E (migrate + CRUD + reorder round-trip inside the

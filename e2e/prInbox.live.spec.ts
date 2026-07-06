@@ -6,34 +6,34 @@ import { _electron as electron, expect, test } from '@playwright/test'
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
 /**
- * LIVE verification against the real on-prem Azure DevOps (needs VPN + JARVIS_ADO_IDENTITY). Syncs
+ * LIVE verification against the real on-prem Azure DevOps (needs VPN + INTERSECT_ADO_IDENTITY). Syncs
  * the real PR list, selects a PR, and renders its diff. Stops before any AI review / publish.
  * Not part of the default suite's assumptions; run explicitly.
  */
 test('live: sync real PRs and render a diff', async () => {
-  test.skip(!process.env.JARVIS_LIVE_E2E, 'live ADO test; run with JARVIS_LIVE_E2E=1 on VPN')
+  test.skip(!process.env.INTERSECT_LIVE_E2E, 'live ADO test; run with INTERSECT_LIVE_E2E=1 on VPN')
   test.setTimeout(240_000)
-  const userDataDir = mkdtempSync(join(tmpdir(), 'jarvis-live-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-live-'))
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
     env: {
       ...process.env,
-      JARVIS_ADO_IDENTITY: process.env.JARVIS_ADO_IDENTITY || '6dc11d09-387d-4a25-8699-0dc709e21280'
+      INTERSECT_ADO_IDENTITY: process.env.INTERSECT_ADO_IDENTITY || '6dc11d09-387d-4a25-8699-0dc709e21280'
     }
   })
   const win = await app.firstWindow()
-  await win.locator('.jv-wordmark__name').waitFor()
-  await win.locator('.jv-rail__btn', { hasText: 'PR Review' }).click()
+  await win.locator('.ix-wordmark__name').waitFor()
+  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
 
   // Sync against real ADO.
-  await win.locator('.jv-btn', { hasText: 'Sync' }).click()
-  await expect(win.locator('.jv-pr-row').first()).toBeVisible({ timeout: 180_000 })
-  const count = await win.locator('.jv-pr-row').count()
+  await win.locator('.ix-btn', { hasText: 'Sync' }).click()
+  await expect(win.locator('.ix-pr-row').first()).toBeVisible({ timeout: 180_000 })
+  const count = await win.locator('.ix-pr-row').count()
   console.log(`LIVE: synced ${count} pull request(s)`)
 
   // Open the first PR and load its changed files.
-  await win.locator('.jv-pr-row').first().click()
-  const files = win.locator('.jv-pr-file')
+  await win.locator('.ix-pr-row').first().click()
+  const files = win.locator('.ix-pr-file')
   await expect(files.first()).toBeVisible({ timeout: 60_000 })
   const fileCount = await files.count()
   console.log(`LIVE: first PR has ${fileCount} changed file(s)`)

@@ -8,7 +8,7 @@ import {
 const base = {
   claudePath: '/Users/me/.local/bin/claude',
   worktreePath: '/wt/abc',
-  mcpConfigPath: '/wt/abc/.jarvis-review-mcp.json',
+  mcpConfigPath: '/wt/abc/.intersect-review-mcp.json',
   prompt: 'Review this PR.'
 }
 
@@ -43,7 +43,7 @@ describe('buildReviewSpawnSpec', () => {
     expect(flagValue(args, '--permission-mode')).toBe('dontAsk')
     const allowed = flagValue(args, '--allowed-tools') ?? ''
     expect(allowed).toBe(REVIEW_ALLOWED_TOOLS.join(' '))
-    expect(allowed).toContain('mcp__jarvisReview__record_draft_comment')
+    expect(allowed).toContain('mcp__intersectReview__record_draft_comment')
     // Guarantee: no azureDevOps tool is ever allowed.
     expect(allowed).not.toMatch(/azureDevOps/i)
   })

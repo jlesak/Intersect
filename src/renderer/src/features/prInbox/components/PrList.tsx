@@ -35,7 +35,7 @@ const initials = (name: string): string =>
 function VoteChip({ reviewer }: { reviewer: PrReviewer }) {
   return (
     <span
-      className={`jv-pr-vote jv-pr-vote--${reviewer.vote}`}
+      className={`ix-pr-vote ix-pr-vote--${reviewer.vote}`}
       title={`${reviewer.displayName} - ${VOTE_LABEL[reviewer.vote]}`}
     >
       {initials(reviewer.displayName)}
@@ -49,7 +49,7 @@ function PrRow({ pr, active }: { pr: PullRequest; active: boolean }) {
     <div
       role="button"
       tabIndex={0}
-      className={`jv-pr-row${active ? ' jv-pr-row--active' : ''}`}
+      className={`ix-pr-row${active ? ' ix-pr-row--active' : ''}`}
       onMouseDown={select}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -58,12 +58,12 @@ function PrRow({ pr, active }: { pr: PullRequest; active: boolean }) {
         }
       }}
     >
-      <span className="jv-pr-row__title">{pr.title}</span>
-      <span className="jv-pr-row__meta">
+      <span className="ix-pr-row__title">{pr.title}</span>
+      <span className="ix-pr-row__meta">
         {pr.authorName} · {relativeAge(pr.createdAt)}
       </span>
       {pr.reviewers.length > 0 && (
-        <div className="jv-pr-votes">
+        <div className="ix-pr-votes">
           {pr.reviewers.map((r) => (
             <VoteChip key={r.id} reviewer={r} />
           ))}
@@ -84,8 +84,8 @@ export function PrList() {
 
   const group = (label: string, items: PullRequest[]) =>
     items.length > 0 && (
-      <div className="jv-pr-group">
-        <span className="jv-eyebrow">{label}</span>
+      <div className="ix-pr-group">
+        <span className="ix-eyebrow">{label}</span>
         {items.map((pr) => (
           <PrRow
             key={prKey(pr.repositoryId, pr.prId)}
@@ -98,19 +98,19 @@ export function PrList() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <div className="jv-sidebar__section">
+      <div className="ix-sidebar__section">
         <button
           type="button"
-          className="jv-btn"
+          className="ix-btn"
           disabled={syncing}
           onClick={() => void usePrInboxStore.getState().sync()}
         >
-          {syncing && <span className="jv-spinner" aria-hidden />}
+          {syncing && <span className="ix-spinner" aria-hidden />}
           {syncing ? 'Syncing…' : 'Sync'}
         </button>
       </div>
 
-      <div className="jv-sidebar__list">
+      <div className="ix-sidebar__list">
         {prs.length === 0 ? (
           <div style={{ padding: '2px 10px', color: 'var(--text-faint)' }}>
             Sync to load your pull requests.

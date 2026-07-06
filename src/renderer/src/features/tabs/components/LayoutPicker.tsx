@@ -31,12 +31,12 @@ export function LayoutPicker({
   onChange: (layout: Layout) => void
 }) {
   return (
-    <div className="jv-layouts" role="group" aria-label="Split layout">
+    <div className="ix-layouts" role="group" aria-label="Split layout">
       {LAYOUTS.map((l) => (
         <button
           key={l}
           type="button"
-          className={`jv-layout${l === layout ? ' jv-layout--active' : ''}`}
+          className={`ix-layout${l === layout ? ' ix-layout--active' : ''}`}
           title={LABELS[l]}
           aria-label={LABELS[l]}
           aria-pressed={l === layout}

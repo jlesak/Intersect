@@ -10,13 +10,13 @@ const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
 function ThreadRow({ thread }: { thread: PrThread }) {
   const first = thread.comments[0]
   return (
-    <div className="jv-pr-thread">
-      <span className="jv-faint">
+    <div className="ix-pr-thread">
+      <span className="ix-faint">
         {thread.filePath ? `${thread.filePath}${thread.line ? `:${thread.line}` : ''}` : 'PR-level'} ·{' '}
         {thread.status}
       </span>
       {first && (
-        <p className="jv-pr-thread__body">
+        <p className="ix-pr-thread__body">
           <strong>{first.authorName}: </strong>
           {first.body}
         </p>
@@ -38,11 +38,11 @@ export function PrInboxView() {
 
   if (!pr) {
     return (
-      <div className="jv-main">
-        <div className="jv-empty">
-          <span className="jv-eyebrow">No pull request</span>
-          <div className="jv-empty__title">Nothing selected</div>
-          <p className="jv-empty__hint">Pick a pull request from the sidebar to review its changes.</p>
+      <div className="ix-main">
+        <div className="ix-empty">
+          <span className="ix-eyebrow">No pull request</span>
+          <div className="ix-empty__title">Nothing selected</div>
+          <p className="ix-empty__hint">Pick a pull request from the sidebar to review its changes.</p>
         </div>
       </div>
     )
@@ -51,20 +51,20 @@ export function PrInboxView() {
   const running = reviewStatus === 'running'
 
   return (
-    <div className="jv-main">
-      <div className="jv-pr-header">
-        <div className="jv-pr-header__title">{pr.title}</div>
-        <div className="jv-pr-header__refs">
-          <span className="jv-faint">{pr.authorName}</span>
-          <span className="jv-pr-ref">{shortRef(pr.sourceRefName)}</span>
-          <span className="jv-faint">→</span>
-          <span className="jv-pr-ref">{shortRef(pr.targetRefName)}</span>
-          <span className="jv-faint">{pr.url}</span>
+    <div className="ix-main">
+      <div className="ix-pr-header">
+        <div className="ix-pr-header__title">{pr.title}</div>
+        <div className="ix-pr-header__refs">
+          <span className="ix-faint">{pr.authorName}</span>
+          <span className="ix-pr-ref">{shortRef(pr.sourceRefName)}</span>
+          <span className="ix-faint">→</span>
+          <span className="ix-pr-ref">{shortRef(pr.targetRefName)}</span>
+          <span className="ix-faint">{pr.url}</span>
         </div>
-        <div className="jv-row" style={{ gap: 8, marginLeft: 'auto' }}>
+        <div className="ix-row" style={{ gap: 8, marginLeft: 'auto' }}>
           <button
             type="button"
-            className="jv-btn jv-btn--primary"
+            className="ix-btn ix-btn--primary"
             disabled={running}
             onClick={() => void usePrInboxStore.getState().startReview()}
           >
@@ -73,7 +73,7 @@ export function PrInboxView() {
           {running && (
             <button
               type="button"
-              className="jv-btn jv-btn--danger"
+              className="ix-btn ix-btn--danger"
               onClick={() => void usePrInboxStore.getState().endReview()}
             >
               End review
@@ -82,32 +82,32 @@ export function PrInboxView() {
         </div>
       </div>
 
-      <div className="jv-pr-detail">
-        <div className="jv-pr-files">
-          <span className="jv-eyebrow">Changed files</span>
-          {changes.length === 0 && <span className="jv-faint">No changes.</span>}
+      <div className="ix-pr-detail">
+        <div className="ix-pr-files">
+          <span className="ix-eyebrow">Changed files</span>
+          {changes.length === 0 && <span className="ix-faint">No changes.</span>}
           {changes.map((c) => (
             <button
               key={c.path}
               type="button"
-              className={`jv-pr-file${c.path === activeFilePath ? ' jv-pr-file--active' : ''}`}
+              className={`ix-pr-file${c.path === activeFilePath ? ' ix-pr-file--active' : ''}`}
               onClick={() => void usePrInboxStore.getState().openFile(c.path)}
               title={c.path}
             >
-              <span className={`jv-pr-file__type jv-pr-file__type--${c.changeType}`}>
+              <span className={`ix-pr-file__type ix-pr-file__type--${c.changeType}`}>
                 {c.changeType[0].toUpperCase()}
               </span>
-              <span className="jv-pr-file__path">{c.path}</span>
+              <span className="ix-pr-file__path">{c.path}</span>
             </button>
           ))}
         </div>
 
-        <div className="jv-pr-content">
+        <div className="ix-pr-content">
           {running ? (
             <ReviewTerminal />
           ) : (
             <>
-              <div className="jv-pr-diff-wrap">
+              <div className="ix-pr-diff-wrap">
                 <DiffViewer
                   diff={fileDiff}
                   loading={diffLoading}
@@ -126,18 +126,18 @@ export function PrInboxView() {
               </div>
 
               {threads.length > 0 && (
-                <div className="jv-pr-threads">
-                  <span className="jv-eyebrow">Existing threads</span>
+                <div className="ix-pr-threads">
+                  <span className="ix-eyebrow">Existing threads</span>
                   {threads.map((t) => (
                     <ThreadRow key={t.threadId} thread={t} />
                   ))}
                 </div>
               )}
 
-              <div className="jv-pr-drafts">
-                <span className="jv-eyebrow">Draft comments</span>
+              <div className="ix-pr-drafts">
+                <span className="ix-eyebrow">Draft comments</span>
                 {drafts.length === 0 ? (
-                  <span className="jv-faint">
+                  <span className="ix-faint">
                     No drafts yet. Comment on a line or run a Claude review.
                   </span>
                 ) : (

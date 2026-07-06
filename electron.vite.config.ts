@@ -15,7 +15,7 @@ const CSP =
 
 function injectCsp(): Plugin {
   return {
-    name: 'jarvis-inject-csp',
+    name: 'intersect-inject-csp',
     apply: 'build',
     transformIndexHtml(html) {
       return html.replace(

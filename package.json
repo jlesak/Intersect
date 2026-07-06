@@ -1,7 +1,7 @@
 {
-  "name": "jarvis",
+  "name": "intersect",
   "version": "0.1.0",
-  "description": "Jarvis - personal macOS workspace & terminal manager",
+  "description": "Intersect - personal macOS workspace & terminal manager",
   "private": true,
   "author": "jan.lesak@greencode.cz",
   "main": "./out/main/index.js",

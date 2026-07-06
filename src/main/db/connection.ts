@@ -8,7 +8,7 @@ import { runMigrations } from './migrations'
  * foreign_keys is per-connection and re-asserted on every open. Migrations must not touch WAL.
  */
 export function openDatabase(userDataDir: string): DatabaseSync {
-  const db = new DatabaseSync(join(userDataDir, 'jarvis.db'))
+  const db = new DatabaseSync(join(userDataDir, 'intersect.db'))
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
   runMigrations(db)

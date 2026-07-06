@@ -15,7 +15,7 @@ import type {
 
 /**
  * The single source of truth for the renderer <-> main contract. `main` implements these
- * handlers, `preload` mirrors them onto `window.jarvis`, and the renderer calls them
+ * handlers, `preload` mirrors them onto `window.intersect`, and the renderer calls them
  * through the slice-local ipc modules. Because thrown errors only carry their `.message`
  * across the IPC boundary, handlers surface failures as message-only Errors.
  */

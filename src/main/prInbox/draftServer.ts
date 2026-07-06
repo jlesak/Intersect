@@ -1,6 +1,6 @@
 /**
- * Jarvis-owned MCP server, spawned by the guardrailed `claude` review session as its ONLY MCP
- * server. Its single tool, `record_draft_comment`, forwards the draft to the Jarvis main process
+ * Intersect-owned MCP server, spawned by the guardrailed `claude` review session as its ONLY MCP
+ * server. Its single tool, `record_draft_comment`, forwards the draft to the Intersect main process
  * over a Unix-domain socket. It has NO Azure DevOps access and no database access - it cannot
  * publish anything. Runs under plain `node` (no electron / no node:sqlite import).
  */
@@ -9,11 +9,11 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
-const sockPath = process.env.JARVIS_DRAFT_SOCK
-const sessionId = process.env.JARVIS_REVIEW_SESSION ?? ''
+const sockPath = process.env.INTERSECT_DRAFT_SOCK
+const sessionId = process.env.INTERSECT_REVIEW_SESSION ?? ''
 
 if (!sockPath) {
-  process.stderr.write('jarvisReview: JARVIS_DRAFT_SOCK is not set\n')
+  process.stderr.write('intersectReview: INTERSECT_DRAFT_SOCK is not set\n')
   process.exit(1)
 }
 
@@ -21,7 +21,7 @@ let socket: Socket | null = null
 function ensureSocket(): Socket {
   if (socket && !socket.destroyed) return socket
   socket = createConnection(sockPath as string)
-  socket.on('error', (e) => process.stderr.write(`jarvisReview: socket error ${e.message}\n`))
+  socket.on('error', (e) => process.stderr.write(`intersectReview: socket error ${e.message}\n`))
   return socket
 }
 
@@ -33,7 +33,7 @@ function sendDraft(payload: Record<string, unknown>): Promise<void> {
 }
 
 const server = new Server(
-  { name: 'jarvisReview', version: '0.1.0' },
+  { name: 'intersectReview', version: '0.1.0' },
   { capabilities: { tools: {} } }
 )
 

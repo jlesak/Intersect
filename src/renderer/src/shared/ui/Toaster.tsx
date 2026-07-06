@@ -7,9 +7,9 @@ export function Toaster() {
   const dismiss = useToastStore((s) => s.dismiss)
   if (toasts.length === 0) return null
   return createPortal(
-    <div className="jv-toaster">
+    <div className="ix-toaster">
       {toasts.map((t) => (
-        <button key={t.id} type="button" className="jv-toast" onClick={() => dismiss(t.id)}>
+        <button key={t.id} type="button" className="ix-toast" onClick={() => dismiss(t.id)}>
           {t.message}
         </button>
       ))}

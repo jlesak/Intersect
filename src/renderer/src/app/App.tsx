@@ -21,9 +21,9 @@ export function App() {
   const Main = active?.mainComponent
 
   return (
-    <div className="jv-app">
+    <div className="ix-app">
       <Sidebar />
-      {Main ? <Main key={active?.id} /> : <div className="jv-main" />}
+      {Main ? <Main key={active?.id} /> : <div className="ix-main" />}
       <Toaster />
       <CommandPalette />
     </div>

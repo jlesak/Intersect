@@ -22,11 +22,11 @@ export function Dialog({
   }, [onClose])
 
   return createPortal(
-    <div className="jv-overlay" onMouseDown={onClose}>
-      <div className="jv-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className="jv-dialog__title">{title}</h2>
-        <div className="jv-dialog__body">{children}</div>
-        <div className="jv-dialog__actions">{actions}</div>
+    <div className="ix-overlay" onMouseDown={onClose}>
+      <div className="ix-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+        <h2 className="ix-dialog__title">{title}</h2>
+        <div className="ix-dialog__body">{children}</div>
+        <div className="ix-dialog__actions">{actions}</div>
       </div>
     </div>,
     document.body

@@ -1,7 +1,7 @@
 import type { PrReviewer, PrRole, PrVote, PullRequest } from '@common/domain'
 
 /**
- * Pure mappers from the Azure DevOps MCP server's raw JSON to Jarvis's domain types. Kept free of
+ * Pure mappers from the Azure DevOps MCP server's raw JSON to Intersect's domain types. Kept free of
  * any Electron / MCP-SDK import so they are unit-testable in the node vitest project.
  */
 
