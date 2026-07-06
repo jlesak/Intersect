@@ -44,7 +44,12 @@ function wireOnce(): void {
  * that order (register-before-spawn) so the very first bytes - the shell prompt / Claude banner -
  * are never dropped. Safe to call repeatedly; a live session is returned as-is.
  */
-export function ensureSession(sessionId: string, preset: Preset, cwd: string): View {
+export function ensureSession(
+  sessionId: string,
+  preset: Preset,
+  cwd: string,
+  resumeSessionId?: string | null
+): View {
   wireOnce()
   const existing = views.get(sessionId)
   if (existing) return existing
@@ -101,7 +106,7 @@ export function ensureSession(sessionId: string, preset: Preset, cwd: string): V
 
   term.onData((data) => ipc.write(sessionId, data))
 
-  void ipc.spawn(sessionId, preset, cwd, term.cols, term.rows)
+  void ipc.spawn(sessionId, preset, cwd, term.cols, term.rows, resumeSessionId)
   return view
 }
 

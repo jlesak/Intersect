@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
+import { wireSessionResume } from './app/sessionResumeWiring'
 import { usePrInboxStore } from './features/prInbox'
 import { useWorkspacesStore } from './features/workspaces'
 
@@ -30,3 +31,5 @@ void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
 // Mirror main's session-attention alerts into the pulse UI and report the viewed session back.
 wireAttention()
+// Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice, app-layer).
+wireSessionResume()

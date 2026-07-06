@@ -9,7 +9,7 @@ import { usePrInboxStore } from './store'
 export function registerPrInboxFeature(): void {
   registerSidebarSection({
     id: 'prInbox',
-    order: 1,
+    order: 2,
     label: 'PR Review',
     icon: IconInbox,
     component: PrList,

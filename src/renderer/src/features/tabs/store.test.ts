@@ -31,6 +31,7 @@ const tab = (id: string, over: Partial<Tab> = {}): Tab => ({
   preset: 'shell',
   paneSlot: null,
   sortOrder: 0,
+  resumeSessionId: null,
   ...over
 })
 

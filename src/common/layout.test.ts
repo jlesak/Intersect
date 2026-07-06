@@ -8,7 +8,8 @@ const tab = (id: string, paneSlot: number | null = null): Tab => ({
   title: id,
   preset: 'shell',
   paneSlot,
-  sortOrder: 0
+  sortOrder: 0,
+  resumeSessionId: null
 })
 
 describe('slotCount', () => {

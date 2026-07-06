@@ -10,6 +10,7 @@ interface TabRow {
   pane_slot: number | null
   sort_order: number
   created_at: number
+  resume_session_id: string | null
 }
 
 function toTab(row: TabRow): Tab {
@@ -19,14 +20,15 @@ function toTab(row: TabRow): Tab {
     title: row.title,
     preset: row.preset as Preset,
     paneSlot: row.pane_slot,
-    sortOrder: row.sort_order
+    sortOrder: row.sort_order,
+    resumeSessionId: row.resume_session_id ?? null
   }
 }
 
 export interface TabRepo {
   listByWorkspace(workspaceId: string): Tab[]
   getById(id: string): Tab | undefined
-  create(workspaceId: string, preset: Preset, title?: string): Tab
+  create(workspaceId: string, preset: Preset, title?: string, resumeSessionId?: string | null): Tab
   rename(id: string, title: string): Tab
   remove(id: string): void
   reorder(workspaceId: string, orderedIds: string[]): Tab[]
@@ -60,7 +62,7 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
 
     getById,
 
-    create(workspaceId, preset, title) {
+    create(workspaceId, preset, title, resumeSessionId) {
       const nextOrder = (
         db
           .prepare('SELECT COALESCE(MAX(sort_order) + 1, 0) AS n FROM tabs WHERE workspace_id = ?')
@@ -68,8 +70,17 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       ).n
       const id = deps.newId()
       db.prepare(
-        'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
-      ).run(id, workspaceId, title ?? PRESET_META[preset].defaultTitle, preset, null, nextOrder, deps.now())
+        'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at,resume_session_id) VALUES (?,?,?,?,?,?,?,?)'
+      ).run(
+        id,
+        workspaceId,
+        title ?? PRESET_META[preset].defaultTitle,
+        preset,
+        null,
+        nextOrder,
+        deps.now(),
+        resumeSessionId ?? null
+      )
       return mustGet(id)
     },
 

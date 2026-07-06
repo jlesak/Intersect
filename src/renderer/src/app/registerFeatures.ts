@@ -1,4 +1,5 @@
 import { registerPrInboxFeature } from '@renderer/features/prInbox'
+import { registerSessionsFeature } from '@renderer/features/sessions'
 import { registerTabsFeature } from '@renderer/features/tabs'
 import { registerWorkspacesFeature } from '@renderer/features/workspaces'
 
@@ -10,4 +11,5 @@ export function registerFeatures(): void {
   registerWorkspacesFeature()
   registerTabsFeature()
   registerPrInboxFeature()
+  registerSessionsFeature()
 }

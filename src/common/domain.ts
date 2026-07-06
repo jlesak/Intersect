@@ -64,6 +64,12 @@ export interface Tab {
   preset: Preset
   paneSlot: number | null
   sortOrder: number
+  /**
+   * The Claude Code session UUID this tab resumes on spawn (`claude --resume <id>`), or null for a
+   * fresh tab. It is the session id from `~/.claude/projects`, distinct from Intersect's own
+   * `${workspaceId}:${tabId}` session id. Persisted, so the resumed conversation survives a restart.
+   */
+  resumeSessionId: string | null
 }
 
 /** Full state needed to hydrate the renderer at boot. */
@@ -194,4 +200,51 @@ export interface PrThread {
   line: number | null
   status: string
   comments: { authorName: string; body: string; publishedAt: number }[]
+}
+
+// ---------------------------------------------------------------------------
+// Session Search (slice 4) - see docs/superpowers/specs/2026-07-06-session-search-design.md
+// ---------------------------------------------------------------------------
+
+/**
+ * A lightweight index record for one past Claude Code session (`~/.claude/projects/**\/<id>.jsonl`),
+ * parsed once and cached in the main process. Holds everything the list and filters need; the full
+ * conversation is fetched on demand as a SessionTranscript. Timestamps are epoch ms.
+ */
+export interface SessionSummary {
+  /** The Claude session UUID (the `.jsonl` filename without extension). */
+  id: string
+  /** Absolute path to the `.jsonl`, so main can re-open it for the transcript. */
+  filePath: string
+  /** Working directory the session ran in, read from file content (not the lossy dir name). */
+  cwd: string
+  /** basename(cwd) - used for display and the folder filter. */
+  folderName: string
+  /** aiTitle when present, else the first non-meta user prompt, else folderName. */
+  title: string
+  gitBranch: string | null
+  firstTimestamp: number
+  /** Last activity - the key both the date filter and default sort use. */
+  lastTimestamp: number
+  durationMs: number
+  /** Count of user + assistant messages. */
+  messageCount: number
+  /** Every user prompt (command wrappers stripped) - the searchable text alongside the title. */
+  userPrompts: string[]
+}
+
+/** One rendered turn of a transcript. `text` is markdown; `tools` are one-line call summaries. */
+export interface TranscriptEntry {
+  role: 'user' | 'assistant'
+  text: string
+  timestamp: number
+  tools: string[]
+}
+
+/** The full, on-demand transcript of a session for the read-only viewer. */
+export interface SessionTranscript {
+  id: string
+  title: string
+  cwd: string
+  entries: TranscriptEntry[]
 }

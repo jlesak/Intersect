@@ -9,6 +9,8 @@ import type {
   PrThread,
   PullRequest,
   ReviewSession,
+  SessionSummary,
+  SessionTranscript,
   Tab,
   Workspace
 } from './domain'
@@ -31,7 +33,8 @@ export interface IpcApi {
   }
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
-    create(workspaceId: string, preset: Preset): Promise<Tab>
+    /** `resumeSessionId` makes a Claude tab launch `claude --resume <id>` (see Tab.resumeSessionId). */
+    create(workspaceId: string, preset: Preset, resumeSessionId?: string | null): Promise<Tab>
     rename(id: string, title: string): Promise<Tab>
     remove(id: string): Promise<void>
     reorder(workspaceId: string, orderedIds: string[]): Promise<Tab[]>
@@ -44,7 +47,9 @@ export interface IpcApi {
       preset: Preset,
       cwd: string,
       cols: number,
-      rows: number
+      rows: number,
+      /** Claude session UUID to resume (`claude --resume <id>`); omit/null for a fresh session. */
+      resumeSessionId?: string | null
     ): Promise<{ ok: boolean }>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
@@ -90,6 +95,14 @@ export interface IpcApi {
     onReviewExit(cb: (exitCode: number) => void): () => void
     /** Fired when a draft is recorded (by the review session or manually) so the UI refreshes live. */
     onDraftAdded(cb: (draft: DraftComment) => void): () => void
+  }
+  sessions: {
+    /** Past Claude Code sessions, newest activity first. Builds the in-memory index on first call. */
+    list(): Promise<SessionSummary[]>
+    /** Re-scan `~/.claude/projects` from disk and return the fresh list. */
+    refresh(): Promise<SessionSummary[]>
+    /** The full, on-demand transcript for one session id. */
+    getTranscript(id: string): Promise<SessionTranscript>
   }
 }
 
@@ -176,7 +189,11 @@ export const Channel = {
   prInboxReviewResize: 'prInbox:reviewResize',
   prInboxReviewData: 'prInbox:reviewData',
   prInboxReviewExit: 'prInbox:reviewExit',
-  prInboxDraftAdded: 'prInbox:draftAdded'
+  prInboxDraftAdded: 'prInbox:draftAdded',
+  // sessions (request/response)
+  sessionsList: 'sessions:list',
+  sessionsRefresh: 'sessions:refresh',
+  sessionsGetTranscript: 'sessions:getTranscript'
 } as const
 
 export type ChannelName = (typeof Channel)[keyof typeof Channel]

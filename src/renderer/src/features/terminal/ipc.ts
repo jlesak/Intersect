@@ -13,8 +13,9 @@ export const spawn = (
   preset: Preset,
   cwd: string,
   cols: number,
-  rows: number
-): Promise<{ ok: boolean }> => ipc().terminal.spawn(sessionId, preset, cwd, cols, rows)
+  rows: number,
+  resumeSessionId?: string | null
+): Promise<{ ok: boolean }> => ipc().terminal.spawn(sessionId, preset, cwd, cols, rows, resumeSessionId)
 export const write = (sessionId: string, data: string): void => ipc().terminal.write(sessionId, data)
 export const resize = (sessionId: string, cols: number, rows: number): void =>
   ipc().terminal.resize(sessionId, cols, rows)

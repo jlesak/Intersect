@@ -27,6 +27,13 @@ describe('tabRepo', () => {
     expect(tabs.create(wsId, 'claude').title).toBe('Claude')
   })
 
+  test('create defaults to no resume session, and round-trips one when given', () => {
+    expect(tabs.create(wsId, 'claude').resumeSessionId).toBeNull()
+    const resumed = tabs.create(wsId, 'claude', undefined, 'sess-uuid-42')
+    expect(resumed.resumeSessionId).toBe('sess-uuid-42')
+    expect(tabs.getById(resumed.id)?.resumeSessionId).toBe('sess-uuid-42')
+  })
+
   test('listByWorkspace returns tabs ordered by sortOrder', () => {
     tabs.create(wsId, 'shell')
     tabs.create(wsId, 'claude')

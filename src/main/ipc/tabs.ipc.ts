@@ -20,8 +20,8 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
       return d.tabs.listByWorkspace(workspaceId)
     },
 
-    async create(workspaceId, preset) {
-      const tab = d.tabs.create(workspaceId, preset)
+    async create(workspaceId, preset, resumeSessionId) {
+      const tab = d.tabs.create(workspaceId, preset, undefined, resumeSessionId)
       d.workspaces.setActiveTab(workspaceId, tab.id)
       return tab
     },
@@ -69,8 +69,10 @@ export function registerTabHandlers(ipcMain: IpcMain, h: IpcApi['tabs']): void {
   ipcMain.handle(Channel.tabsListByWorkspace, (_e, workspaceId: string) =>
     h.listByWorkspace(workspaceId)
   )
-  ipcMain.handle(Channel.tabsCreate, (_e, workspaceId: string, preset: Preset) =>
-    h.create(workspaceId, preset)
+  ipcMain.handle(
+    Channel.tabsCreate,
+    (_e, workspaceId: string, preset: Preset, resumeSessionId: string | null) =>
+      h.create(workspaceId, preset, resumeSessionId)
   )
   ipcMain.handle(Channel.tabsRename, (_e, id: string, title: string) => h.rename(id, title))
   ipcMain.handle(Channel.tabsRemove, (_e, id: string) => h.remove(id))

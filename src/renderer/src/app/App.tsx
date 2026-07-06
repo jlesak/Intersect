@@ -17,11 +17,12 @@ import { resolveActiveSection, useShellStore } from './shellStore'
  */
 export function App() {
   const activeSectionId = useShellStore((s) => s.activeSectionId)
+  const collapsed = useShellStore((s) => s.sidebarCollapsed)
   const active = resolveActiveSection(getSidebarSections(), activeSectionId)
   const Main = active?.mainComponent
 
   return (
-    <div className="ix-app">
+    <div className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}>
       <Sidebar />
       {Main ? <Main key={active?.id} /> : <div className="ix-main" />}
       <Toaster />

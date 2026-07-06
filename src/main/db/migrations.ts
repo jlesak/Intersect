@@ -98,6 +98,14 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Session Search (slice 4): a tab can resume a past Claude Code session via `claude --resume`.
+    // The resumed session id is persisted so the conversation survives an app restart.
+    version: 3,
+    up(db) {
+      db.exec(`ALTER TABLE tabs ADD COLUMN resume_session_id TEXT;`)
+    }
   }
 ]
 

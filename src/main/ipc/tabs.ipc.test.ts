@@ -25,6 +25,14 @@ describe('tab handlers', () => {
     expect(ctx.workspaces.getById(wsId)?.activeTabId).toBe(t.id)
   })
 
+  test('create persists the resume session id when one is passed', async () => {
+    const t = await tabs.create(wsId, 'claude', 'sess-uuid-42')
+    expect(t.resumeSessionId).toBe('sess-uuid-42')
+    expect(ctx.tabs.getById(t.id)?.resumeSessionId).toBe('sess-uuid-42')
+    // A plain tab carries no resume id.
+    expect((await tabs.create(wsId, 'shell')).resumeSessionId).toBeNull()
+  })
+
   test('remove kills the PTY for that session and deletes the tab', async () => {
     const t = await tabs.create(wsId, 'shell')
     await tabs.remove(t.id)

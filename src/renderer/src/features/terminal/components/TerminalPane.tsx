@@ -10,21 +10,23 @@ import { attachSession, detachSession, ensureSession } from '../terminalControll
 export function TerminalPane({
   sessionId,
   preset,
-  cwd
+  cwd,
+  resumeSessionId
 }: {
   sessionId: string
   preset: Preset
   cwd: string
+  resumeSessionId?: string | null
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-    ensureSession(sessionId, preset, cwd)
+    ensureSession(sessionId, preset, cwd, resumeSessionId)
     attachSession(sessionId, host)
     return () => detachSession(sessionId)
-  }, [sessionId, preset, cwd])
+  }, [sessionId, preset, cwd, resumeSessionId])
 
   return <div className="ix-pane__host" ref={hostRef} />
 }

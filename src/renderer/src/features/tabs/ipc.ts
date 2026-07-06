@@ -7,8 +7,11 @@ export const listByWorkspace = (workspaceId: string): Promise<Tab[]> =>
   ipc().tabs.listByWorkspace(workspaceId)
 // Fetched at hydrate time so the view always seeds from the workspace's freshest layout/activeTab.
 export const workspaceState = (): Promise<BootState> => ipc().workspaces.getState()
-export const create = (workspaceId: string, preset: Preset): Promise<Tab> =>
-  ipc().tabs.create(workspaceId, preset)
+export const create = (
+  workspaceId: string,
+  preset: Preset,
+  resumeSessionId?: string | null
+): Promise<Tab> => ipc().tabs.create(workspaceId, preset, resumeSessionId)
 export const rename = (id: string, title: string): Promise<Tab> => ipc().tabs.rename(id, title)
 export const remove = (id: string): Promise<void> => ipc().tabs.remove(id)
 export const reorder = (workspaceId: string, orderedIds: string[]): Promise<Tab[]> =>

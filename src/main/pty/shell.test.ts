@@ -42,6 +42,35 @@ describe('buildSpawn', () => {
     expect(spec.initialCommand).toBeNull()
   })
 
+  test('claude preset resumes a session with a quoted --resume before --settings', () => {
+    const spec = buildSpawn('claude', {
+      env,
+      resumeSessionId: 'abc-123',
+      notifSettingsPath: '/App Support/Intersect/n.json'
+    })
+    expect(spec.initialCommand).toBe("claude --resume 'abc-123' --settings '/App Support/Intersect/n.json'")
+  })
+
+  test('claude preset resumes without a settings path when none is given', () => {
+    const spec = buildSpawn('claude', { env, resumeSessionId: 'abc-123' })
+    expect(spec.initialCommand).toBe("claude --resume 'abc-123'")
+  })
+
+  test('a null/absent resume id leaves the claude command unchanged', () => {
+    expect(buildSpawn('claude', { env, resumeSessionId: null }).initialCommand).toBe('claude')
+    expect(buildSpawn('claude', { env }).initialCommand).toBe('claude')
+  })
+
+  test('the resume id never leaks into the plain shell preset', () => {
+    expect(buildSpawn('shell', { env, resumeSessionId: 'abc-123' }).initialCommand).toBeNull()
+  })
+
+  test('a resume id with shell metacharacters is rejected, not interpolated', () => {
+    const spec = buildSpawn('claude', { env, resumeSessionId: "x'; rm -rf ~ #" })
+    // The malformed id is dropped entirely - the command resumes nothing rather than risk injection.
+    expect(spec.initialCommand).toBe('claude')
+  })
+
   test('test mode uses a no-rc shell so E2E output is deterministic', () => {
     const spec = buildSpawn('shell', { env, testMode: true })
     expect(spec.args).not.toContain('-l')

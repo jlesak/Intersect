@@ -1,11 +1,10 @@
 import { makeSessionId, parseSessionId } from '@common/ipc'
 import { useAttentionStore } from '@renderer/features/attention'
 import { useTabsStore } from '@renderer/features/tabs'
-import { useWorkspacesStore } from '@renderer/features/workspaces'
+import { useWorkspacesStore, WORKSPACES_SECTION_ID } from '@renderer/features/workspaces'
 import { onNotificationClicked, onSessionStatus, reportActiveSession } from '@renderer/features/terminal'
 import { useShellStore } from './shellStore'
-
-const WORKSPACES_SECTION = 'workspaces'
+import { waitForTabsReady } from './waitForTabsReady'
 
 /**
  * The session the user is actively viewing: the active tab of the selected workspace while the
@@ -16,39 +15,18 @@ const WORKSPACES_SECTION = 'workspaces'
 function currentActiveSession(): string | null {
   // activeSectionId === null resolves to the first main-owning section, which is Workspaces.
   const section = useShellStore.getState().activeSectionId
-  if (section !== null && section !== WORKSPACES_SECTION) return null
+  if (section !== null && section !== WORKSPACES_SECTION_ID) return null
   const wsId = useWorkspacesStore.getState().selectedWorkspaceId
   const tabs = useTabsStore.getState()
   if (!wsId || tabs.status !== 'ready' || tabs.workspaceId !== wsId || !tabs.activeTabId) return null
   return makeSessionId(wsId, tabs.activeTabId)
 }
 
-/** Resolve once the tabs store is hydrated for the given workspace (with a safety timeout). */
-function waitForTabsReady(workspaceId: string): Promise<void> {
-  const ready = (): boolean => {
-    const t = useTabsStore.getState()
-    return t.status === 'ready' && t.workspaceId === workspaceId
-  }
-  if (ready()) return Promise.resolve()
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      unsubscribe()
-      resolve()
-    }, 3000)
-    const unsubscribe = useTabsStore.subscribe(() => {
-      if (!ready()) return
-      clearTimeout(timer)
-      unsubscribe()
-      resolve()
-    })
-  })
-}
-
 /** Focus the workspace/tab a clicked notification points at, hydrating the workspace if needed. */
 async function navigateToSession(sessionId: string): Promise<void> {
   const parsed = parseSessionId(sessionId)
   if (!parsed) return
-  useShellStore.getState().setActiveSection(WORKSPACES_SECTION)
+  useShellStore.getState().setActiveSection(WORKSPACES_SECTION_ID)
   const workspaces = useWorkspacesStore.getState()
   if (workspaces.selectedWorkspaceId !== parsed.workspaceId) {
     await workspaces.select(parsed.workspaceId)

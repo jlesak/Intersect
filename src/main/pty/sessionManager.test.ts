@@ -147,4 +147,21 @@ describe('sessionManager', () => {
     h.mgr.resume('w1:t1')
     expect(h.spawned[0].pty.writes).toEqual(['\x13', '\x11'])
   })
+
+  test('forwards the resume session id to buildSpec so a resumed tab launches claude --resume', () => {
+    const seen: (string | null | undefined)[] = []
+    const mgr = createSessionManager({
+      spawn: () => makeFakePty(),
+      send: { data: () => {}, exit: () => {} },
+      buildSpec: (_preset: Preset, resumeSessionId?: string | null) => {
+        seen.push(resumeSessionId)
+        return { file: '/bin/zsh', args: ['-l'], initialCommand: 'claude', env: {} }
+      },
+      fileExists: () => true,
+      homedir: () => '/home/test'
+    })
+    mgr.spawn('w1:t1', 'claude', '/repo', 80, 24, 'sess-uuid-42')
+    mgr.spawn('w1:t2', 'shell', '/repo', 80, 24)
+    expect(seen).toEqual(['sess-uuid-42', undefined])
+  })
 })

@@ -19,7 +19,7 @@ interface TabsState {
   activeTabId: string | null
   hydrate(workspaceId: string): Promise<void>
   clear(): void
-  createTab(preset: Preset): Promise<Tab | null>
+  createTab(preset: Preset, resumeSessionId?: string | null): Promise<Tab | null>
   renameTab(id: string, title: string): Promise<void>
   removeTab(id: string): Promise<void>
   reorderTabs(orderedIds: string[]): Promise<void>
@@ -78,11 +78,11 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
     set({ ...EMPTY })
   },
 
-  async createTab(preset) {
+  async createTab(preset, resumeSessionId) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return null
     try {
-      const t = await api.create(workspaceId, preset)
+      const t = await api.create(workspaceId, preset, resumeSessionId)
       set((s) => ({ byId: { ...s.byId, [t.id]: t }, order: [...s.order, t.id], activeTabId: t.id }))
       return t
     } catch (e) {

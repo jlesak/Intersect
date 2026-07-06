@@ -21,7 +21,8 @@ const api: IpcApi = {
   },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),
-    create: (wsId, preset) => ipcRenderer.invoke(Channel.tabsCreate, wsId, preset),
+    create: (wsId, preset, resumeSessionId) =>
+      ipcRenderer.invoke(Channel.tabsCreate, wsId, preset, resumeSessionId ?? null),
     rename: (id, title) => ipcRenderer.invoke(Channel.tabsRename, id, title),
     remove: (id) => ipcRenderer.invoke(Channel.tabsRemove, id),
     reorder: (wsId, orderedIds) => ipcRenderer.invoke(Channel.tabsReorder, wsId, orderedIds),
@@ -29,8 +30,8 @@ const api: IpcApi = {
     setActive: (wsId, tabId) => ipcRenderer.invoke(Channel.tabsSetActive, wsId, tabId)
   },
   terminal: {
-    spawn: (sessionId, preset, cwd, cols, rows) =>
-      ipcRenderer.invoke(Channel.terminalSpawn, sessionId, preset, cwd, cols, rows),
+    spawn: (sessionId, preset, cwd, cols, rows, resumeSessionId) =>
+      ipcRenderer.invoke(Channel.terminalSpawn, sessionId, preset, cwd, cols, rows, resumeSessionId ?? null),
     write: (sessionId, data) => ipcRenderer.send(Channel.terminalInput, sessionId, data),
     resize: (sessionId, cols, rows) => ipcRenderer.send(Channel.terminalResize, sessionId, cols, rows),
     pause: (sessionId) => ipcRenderer.send(Channel.terminalPause, sessionId),
@@ -89,6 +90,11 @@ const api: IpcApi = {
       ipcRenderer.on(Channel.prInboxDraftAdded, listener)
       return () => ipcRenderer.removeListener(Channel.prInboxDraftAdded, listener)
     }
+  },
+  sessions: {
+    list: () => ipcRenderer.invoke(Channel.sessionsList),
+    refresh: () => ipcRenderer.invoke(Channel.sessionsRefresh),
+    getTranscript: (id) => ipcRenderer.invoke(Channel.sessionsGetTranscript, id)
   }
 }
 

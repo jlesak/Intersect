@@ -72,6 +72,12 @@ export const IconInbox = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconHistory = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9M2.5 8V4.5M2.5 8H6M8 5.5V8l2 1.5" />
+  </svg>
+)
+
 export const IconLayoutSingle = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="2.5" y="3" width="11" height="10" rx="1" />

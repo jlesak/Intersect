@@ -32,13 +32,20 @@ export interface SessionManagerDeps {
     exit(event: TerminalExitEvent): void
   }
   /** Defaults to buildSpawn; injected so tests stay independent of shell resolution. */
-  buildSpec?: (preset: Preset) => SpawnSpec
+  buildSpec?: (preset: Preset, resumeSessionId?: string | null) => SpawnSpec
   fileExists?: (path: string) => boolean
   homedir?: () => string
 }
 
 export interface SessionManager {
-  spawn(sessionId: string, preset: Preset, cwd: string, cols: number, rows: number): { ok: boolean }
+  spawn(
+    sessionId: string,
+    preset: Preset,
+    cwd: string,
+    cols: number,
+    rows: number,
+    resumeSessionId?: string | null
+  ): { ok: boolean }
   write(sessionId: string, data: string): void
   resize(sessionId: string, cols: number, rows: number): void
   pause(sessionId: string): void
@@ -61,11 +68,19 @@ const XON = '\x11'
 export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   const sessions = new Map<string, PtyProcess>()
   const starting = new Set<string>()
-  const buildSpec = deps.buildSpec ?? ((preset: Preset) => buildSpawn(preset))
+  const buildSpec =
+    deps.buildSpec ?? ((preset: Preset, resumeSessionId?: string | null) => buildSpawn(preset, { resumeSessionId }))
   const fileExists = deps.fileExists ?? existsSync
   const homedir = deps.homedir ?? osHomedir
 
-  function spawn(sessionId: string, preset: Preset, cwd: string, cols: number, rows: number) {
+  function spawn(
+    sessionId: string,
+    preset: Preset,
+    cwd: string,
+    cols: number,
+    rows: number,
+    resumeSessionId?: string | null
+  ) {
     if (sessions.has(sessionId) || starting.has(sessionId)) return { ok: true }
     starting.add(sessionId)
     try {
@@ -76,7 +91,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         notice = `\r\n[intersect] "${cwd}" not found - started in ${effectiveCwd}\r\n`
       }
 
-      const spec = buildSpec(preset)
+      const spec = buildSpec(preset, resumeSessionId)
       const proc = deps.spawn({
         file: spec.file,
         args: spec.args,

@@ -29,6 +29,8 @@ import {
   type TerminalHandlers
 } from './ipc/terminal.ipc'
 import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
+import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.ipc'
+import { createSessionIndex } from './sessions/sessionIndex'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoService } from './prInbox/adoService'
 import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
@@ -173,8 +175,12 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
         presetsBySession.delete(event.sessionId)
       }
     },
-    buildSpec: (preset) =>
-      buildSpawn(preset, { testMode: process.env.INTERSECT_E2E === '1', notifSettingsPath })
+    buildSpec: (preset, resumeSessionId) =>
+      buildSpawn(preset, {
+        testMode: process.env.INTERSECT_E2E === '1',
+        notifSettingsPath,
+        resumeSessionId
+      })
   })
 
   registerActiveSessionReporter(ipcMain, (sessionId) => notifier.reportActive(sessionId))
@@ -198,9 +204,9 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   const baseTerminalHandlers = createTerminalHandlers(sessions)
   const terminalHandlers: TerminalHandlers = {
     ...baseTerminalHandlers,
-    spawn: (id, preset, cwd, cols, rows) => {
+    spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
       presetsBySession.set(id, preset)
-      return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows)
+      return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows, resumeSessionId)
     },
     write: (id, data) => {
       if (presetsBySession.get(id) === 'claude' && data.includes('\r')) notifier.onInput(id)
@@ -238,6 +244,9 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
 
   registerPrInboxHandlers(ipcMain, createPrInboxHandlers({ prCache, drafts, ado, review }))
   void review.pruneOnBoot().catch(() => {})
+
+  // --- Session Search slice: read-only index over ~/.claude/projects (built lazily, in memory) ---
+  registerSessionHandlers(ipcMain, createSessionHandlers({ index: createSessionIndex() }))
 
   // Kill every PTY when the app quits so no shell process is orphaned. review.shutdown() is
   // synchronous and does NOT touch the DB, so closing the DB immediately after is safe (its async

@@ -10,12 +10,19 @@ import type { SidebarSection } from '@renderer/shared/registries/sidebarRegistry
 interface ShellState {
   activeSectionId: string | null
   setActiveSection(id: string): void
+  /** When true the sidebar shrinks to its icon rail only (labels and the section panel hidden). */
+  sidebarCollapsed: boolean
+  toggleSidebar(): void
 }
 
 export const useShellStore = create<ShellState>()((set) => ({
   activeSectionId: null,
   setActiveSection(id) {
     set({ activeSectionId: id })
+  },
+  sidebarCollapsed: false,
+  toggleSidebar() {
+    set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
   }
 }))
 

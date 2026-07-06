@@ -23,6 +23,11 @@ export interface BuildSpawnOptions {
    * own settings. Ignored by the plain shell preset.
    */
   notifSettingsPath?: string
+  /**
+   * A Claude Code session UUID to resume. When set, the claude preset launches
+   * `claude --resume <id> ...` so the tab reopens that past conversation. Ignored by the shell preset.
+   */
+  resumeSessionId?: string | null
 }
 
 /** The user's default shell, falling back to zsh (macOS default). */
@@ -61,24 +66,38 @@ export function buildSpawn(preset: Preset, opts: BuildSpawnOptions = {}): SpawnS
   return {
     file,
     args,
-    initialCommand: resolveInitialCommand(preset, opts.notifSettingsPath),
+    initialCommand: resolveInitialCommand(preset, opts.notifSettingsPath, opts.resumeSessionId),
     env: sanitizeEnv(opts.env ?? process.env)
   }
 }
 
 /**
- * The command typed into the ready shell. For claude, appends the app-managed `--settings` file
- * (single-quoted, since the userData path contains spaces) so Claude emits Intersect's attention
- * markers alongside the user's own hooks.
+ * The command typed into the ready shell. For claude, appends `--resume <id>` when resuming a past
+ * session and the app-managed `--settings` file (both single-quoted, since ids are safe but the
+ * userData path contains spaces) so Claude emits Intersect's attention markers alongside the user's
+ * own hooks.
  */
-function resolveInitialCommand(preset: Preset, notifSettingsPath?: string): string | null {
+function resolveInitialCommand(
+  preset: Preset,
+  notifSettingsPath?: string,
+  resumeSessionId?: string | null
+): string | null {
   const base = PRESET_META[preset].initialCommand
   if (base === null) return null
-  if (preset === 'claude' && notifSettingsPath) {
-    return `${base} --settings ${singleQuote(notifSettingsPath)}`
+  if (preset !== 'claude') return base
+  let command = base
+  // The resume id is a Claude session UUID (a `.jsonl` basename). It is already single-quoted below,
+  // but since it becomes part of a command typed into a live shell, we additionally require it to be
+  // a bare token; anything else is not a real session id and is dropped rather than interpolated.
+  if (resumeSessionId && SESSION_ID_PATTERN.test(resumeSessionId)) {
+    command += ` --resume ${singleQuote(resumeSessionId)}`
   }
-  return base
+  if (notifSettingsPath) command += ` --settings ${singleQuote(notifSettingsPath)}`
+  return command
 }
+
+/** A Claude session id is a filename-safe token (UUIDs in practice); nothing else can resume. */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 
 /** POSIX single-quote a shell argument, safe for paths containing spaces or apostrophes. */
 function singleQuote(value: string): string {
