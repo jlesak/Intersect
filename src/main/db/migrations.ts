@@ -43,6 +43,61 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // PR Review Inbox (slice 2): cached PRs, local draft comments, and review-session bookkeeping.
+    version: 2,
+    up(db) {
+      db.exec(`
+        CREATE TABLE pr_cache (
+          repository_id   TEXT NOT NULL,
+          pr_id           INTEGER NOT NULL,
+          project_id      TEXT NOT NULL,
+          repository_name TEXT NOT NULL,
+          title           TEXT NOT NULL,
+          author_id       TEXT NOT NULL,
+          author_name     TEXT NOT NULL,
+          created_at      INTEGER NOT NULL,
+          status          TEXT NOT NULL,
+          source_ref      TEXT NOT NULL,
+          target_ref      TEXT NOT NULL,
+          source_commit   TEXT NOT NULL,
+          target_commit   TEXT NOT NULL,
+          url             TEXT NOT NULL,
+          my_role         TEXT NOT NULL CHECK (my_role IN ('author','reviewer')),
+          reviewers_json  TEXT NOT NULL,
+          synced_at       INTEGER NOT NULL,
+          PRIMARY KEY (repository_id, pr_id)
+        );
+
+        CREATE TABLE draft_comment (
+          id                  TEXT PRIMARY KEY,
+          pr_id               INTEGER NOT NULL,
+          repository_id       TEXT NOT NULL,
+          file_path           TEXT NOT NULL,
+          line                INTEGER NOT NULL,
+          side                TEXT NOT NULL CHECK (side IN ('left','right')),
+          body                TEXT NOT NULL,
+          status              TEXT NOT NULL CHECK (status IN ('pending','approved','publishing','published','discarded')),
+          source              TEXT NOT NULL CHECK (source IN ('claude','manual')),
+          review_session_id   TEXT,
+          published_thread_id INTEGER,
+          created_at          INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_draft_pr ON draft_comment(repository_id, pr_id);
+
+        CREATE TABLE review_session (
+          id            TEXT PRIMARY KEY,
+          pr_id         INTEGER NOT NULL,
+          repository_id TEXT NOT NULL,
+          repo_dir      TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          status        TEXT NOT NULL CHECK (status IN ('running','completed','failed','cleaned')),
+          created_at    INTEGER NOT NULL
+        );
+      `)
+    }
   }
 ]
 

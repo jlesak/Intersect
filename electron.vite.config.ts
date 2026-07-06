@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,9 +7,10 @@ const common = resolve('src/common')
 
 // A header-based CSP does not apply to file:// (how the packaged app loads), so inject a strict
 // policy as a <meta> tag - but only in the production build, so Vite's dev HMR is unaffected.
+// worker-src allows Monaco's bundled ES-module workers (script-src stays 'self').
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
+  "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; " +
   "base-uri 'self'; form-action 'self'; object-src 'none'"
 
 function injectCsp(): Plugin {
@@ -30,7 +31,19 @@ function injectCsp(): Plugin {
 // .node addon must never be bundled by Rollup.
 export default defineConfig({
   main: {
-    resolve: { alias: { '@common': common } }
+    resolve: { alias: { '@common': common } },
+    // Bundle the MCP SDK (ESM-only) into the CJS main outputs so a plain `node` running the draft
+    // server resolves it without ESM/CJS friction; node-pty stays external (native addon).
+    plugins: [externalizeDepsPlugin({ exclude: ['@modelcontextprotocol/sdk'] })],
+    build: {
+      rollupOptions: {
+        // Second entry: the standalone draft MCP server spawned by the review session.
+        input: {
+          index: resolve('src/main/index.ts'),
+          draftServer: resolve('src/main/prInbox/draftServer.ts')
+        }
+      }
+    }
   },
   preload: {
     resolve: { alias: { '@common': common } }
@@ -42,6 +55,8 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
+    // Monaco's language/diff workers are emitted as same-origin ES-module chunks.
+    worker: { format: 'es' },
     plugins: [react(), injectCsp()]
   }
 })

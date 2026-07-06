@@ -1,23 +1,58 @@
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
+import { Channel } from '@common/ipc'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
 import { createAppStateRepo } from './db/appStateRepo'
 import { createTabRepo } from './db/tabRepo'
 import { createWorkspaceRepo } from './db/workspaceRepo'
+import { createDraftCommentRepo } from './db/draftCommentRepo'
+import { createPrCacheRepo } from './db/prCacheRepo'
+import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
 import { buildSpawn } from './pty/shell'
 import { createWorkspaceHandlers, registerWorkspaceHandlers } from './ipc/workspaces.ipc'
 import { createTabHandlers, registerTabHandlers } from './ipc/tabs.ipc'
 import { createSender, createTerminalHandlers, registerTerminalHandlers } from './ipc/terminal.ipc'
+import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
+import { createAdoClient } from './prInbox/adoClient'
+import { createAdoService } from './prInbox/adoService'
+import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
+import { createReviewManager } from './prInbox/reviewManager'
+import { createWorktreeManager } from './prInbox/worktreeManager'
 
 // Deterministic userData dir -> ~/Library/Application Support/Jarvis/ (or an E2E override).
 app.setName('Jarvis')
 
 let mainWindow: BrowserWindow | null = null
 let db: DatabaseSync | null = null
+
+/** Best-effort resolution of the `claude` binary for the review session. */
+function resolveClaudePath(): string {
+  const explicit = process.env.JARVIS_CLAUDE_PATH
+  if (explicit) return explicit
+  const local = join(homedir(), '.local', 'bin', 'claude')
+  return existsSync(local) ? local : 'claude'
+}
+
+/** Fire-and-forget send to the renderer, guarded against a destroyed window. */
+function sendToRenderer(channel: string, ...args: unknown[]): void {
+  const wc = mainWindow?.webContents
+  if (wc && !wc.isDestroyed()) wc.send(channel, ...args)
+}
+
+/** The configured ADO default project, or a sensible fallback if ADO isn't configured yet. */
+function safeDefaultProject(): string {
+  try {
+    return resolveAdoServerConfig().env.AZURE_DEVOPS_DEFAULT_PROJECT || 'SPOT'
+  } catch {
+    return 'SPOT'
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -73,9 +108,43 @@ function wireIpc(database: DatabaseSync): void {
   registerTabHandlers(ipcMain, createTabHandlers({ db: database, workspaces, tabs, sessions }))
   registerTerminalHandlers(ipcMain, createTerminalHandlers(sessions))
 
-  // Kill every PTY when the app quits so no shell process is orphaned.
+  // --- PR Review Inbox slice ---
+  const prCache = createPrCacheRepo(database, deps)
+  const drafts = createDraftCommentRepo(database, deps)
+  const reviewSessions = createReviewSessionRepo(database, deps)
+
+  const adoClient = createAdoClient(() => resolveAdoServerConfig())
+  const defaultProject = safeDefaultProject()
+  const ado = createAdoService({
+    client: adoClient,
+    resolveIdentity: () => resolveMyIdentity(),
+    projectId: defaultProject
+  })
+
+  const review = createReviewManager({
+    reviewSessions,
+    drafts,
+    prCache,
+    worktrees: createWorktreeManager(),
+    workspaceFolders: () => workspaces.list().map((w) => w.folderPath),
+    spawn: nodePtySpawn,
+    sendData: (data) => sendToRenderer(Channel.prInboxReviewData, data),
+    sendExit: (exitCode) => sendToRenderer(Channel.prInboxReviewExit, exitCode),
+    onDraft: (draft) => sendToRenderer(Channel.prInboxDraftAdded, draft),
+    claudePath: resolveClaudePath(),
+    draftServerPath: join(__dirname, 'draftServer.js')
+  })
+
+  registerPrInboxHandlers(ipcMain, createPrInboxHandlers({ prCache, drafts, ado, review }))
+  void review.pruneOnBoot().catch(() => {})
+
+  // Kill every PTY when the app quits so no shell process is orphaned. review.shutdown() is
+  // synchronous and does NOT touch the DB, so closing the DB immediately after is safe (its async
+  // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on next boot.
   app.on('before-quit', () => {
     sessions.killAll()
+    review.shutdown()
+    void adoClient.close()
     db?.close()
     db = null
   })
