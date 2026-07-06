@@ -1,3 +1,4 @@
+import { CommandPalette } from '@renderer/features/commandPalette'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { Toaster } from '@renderer/shared/ui/Toaster'
 import { Sidebar } from './Sidebar'
@@ -15,6 +16,7 @@ export function App() {
       <Sidebar />
       {Main ? <Main /> : <div className="jv-main" />}
       <Toaster />
+      <CommandPalette />
     </div>
   )
 }

@@ -59,8 +59,13 @@ research captured on 2026-07-05 (see "Research basis").
   survives reinstall, no shell step. Verified: with the bit set, spawn succeeds and streams data.
 - `node-pty` is imported **only** in `src/main/**`. It is never imported by renderer or by any
   Vitest test, so unit tests never touch it. PTY behavior is verified via Playwright E2E.
-- macOS `spawn-helper` also needs asarUnpack for a *packaged* build - out of scope for this
-  MVP's dev-run goal, noted for the future.
+- **Packaging (implemented):** `npm run pack:mac` builds an ad-hoc-signed `.app` (arm64) via
+  `electron-builder.yml`. node-pty is `asarUnpack`ed so `pty.node` and `spawn-helper` live in
+  `app.asar.unpacked`; node-pty's own `app.asar` -> `app.asar.unpacked` path rewrite
+  (`unixTerminal.js`) then resolves `spawn-helper` at runtime. `hardenedRuntime` is off, since a
+  personal, machine-local build is never notarized and hardened-runtime library validation would
+  otherwise block loading node-pty's ad-hoc-signed binaries. Verified end-to-end: the packaged app
+  boots, opens its window, initializes the SQLite DB, and spawns a live PTY.
 
 ---
 
@@ -349,8 +354,9 @@ grid    : 4 slots  2x2 (css grid-areas a b / c d)
 - `commandRegistry`: `Command { id, title, handler }`; `Map`; `registerCommand` (throws on dup),
   `getCommand(id)`, `getAllCommands()`, `__resetForTests()`. Registered command ids include
   `workspaces.create`, `workspaces.rename`, `workspaces.delete`, `tabs.newShell`,
-  `tabs.newClaude`, `terminal.setLayout.columns|rows|grid|single`. **No palette UI** (data only),
-  ready for a future command-palette slice.
+  `tabs.newClaude`, `terminal.setLayout.columns|rows|grid|single`. Consumed by the
+  `commandPalette` slice (Cmd+K overlay); the registry stays the seam so slices register commands
+  without knowing the palette exists.
 - Both are dead-simple, synchronous, no plugin loader / dynamic import / config files.
 
 ---

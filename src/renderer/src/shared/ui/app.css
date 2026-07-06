@@ -408,6 +408,150 @@
   color: var(--text-faint);
 }
 
+/* ---------------- command palette ---------------- */
+/* A top-anchored overlay (distinct from the centered dialog) for running commands by keyboard.
+   The active row wears the app's amber signal line, matching active workspaces and tabs. */
+.jv-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 9, 0.62);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  z-index: 400;
+  animation: jv-fade var(--dur) var(--ease);
+}
+.jv-palette {
+  display: flex;
+  flex-direction: column;
+  width: 540px;
+  max-width: calc(100vw - 40px);
+  max-height: 60vh;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.jv-palette__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  height: 50px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.jv-palette__caret {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.jv-palette__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14.5px;
+}
+.jv-palette__input:focus {
+  outline: none;
+}
+.jv-palette__input::placeholder {
+  color: var(--text-faint);
+}
+.jv-palette__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.jv-palette__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px 9px 15px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.jv-palette__item::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+.jv-palette__item--active {
+  background: var(--panel-2);
+}
+.jv-palette__item--active::before {
+  background: var(--accent);
+}
+.jv-palette__title {
+  font-size: 13.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jv-palette__ns {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  flex: none;
+}
+.jv-palette__item--active .jv-palette__ns {
+  color: var(--text-dim);
+}
+.jv-palette__empty {
+  padding: 22px 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.jv-palette__legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11px;
+  flex: none;
+}
+.jv-palette__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.jv-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
 /* ---------------- toasts ---------------- */
 .jv-toaster {
   position: fixed;
