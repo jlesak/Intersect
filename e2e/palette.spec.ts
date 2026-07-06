@@ -34,10 +34,11 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   const { app, win } = await launch(userDataDir)
   await addWorkspace(win, app, wsDir)
 
-  // Open the palette and confirm it shows every registered command.
+  // Open the palette and confirm it shows every registered command (workspaces/tabs/terminal +
+  // the PR Review Inbox slice's prInbox.sync / prInbox.review).
   await win.keyboard.press('Meta+k')
   await expect(win.locator('.jv-palette')).toBeVisible()
-  await expect(win.locator('.jv-palette__item')).toHaveCount(7)
+  await expect(win.locator('.jv-palette__item')).toHaveCount(9)
 
   // Filtering narrows the list to the Shell command as the top result.
   await win.locator('.jv-palette__input').fill('new shell')

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { DraftComment } from '@common/domain'
 import { Channel, type IpcApi, type TerminalDataEvent, type TerminalExitEvent } from '@common/ipc'
 
 const api: IpcApi = {
@@ -37,6 +38,38 @@ const api: IpcApi = {
       const listener = (_e: unknown, msg: TerminalExitEvent): void => cb(msg)
       ipcRenderer.on(Channel.terminalExit, listener)
       return () => ipcRenderer.removeListener(Channel.terminalExit, listener)
+    }
+  },
+  prInbox: {
+    sync: () => ipcRenderer.invoke(Channel.prInboxSync),
+    list: () => ipcRenderer.invoke(Channel.prInboxList),
+    getChanges: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxGetChanges, repositoryId, prId),
+    getFileDiff: (repositoryId, prId, filePath) =>
+      ipcRenderer.invoke(Channel.prInboxGetFileDiff, repositoryId, prId, filePath),
+    getThreads: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxGetThreads, repositoryId, prId),
+    listDrafts: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxListDrafts, repositoryId, prId),
+    addManualDraft: (input) => ipcRenderer.invoke(Channel.prInboxAddManualDraft, input),
+    editDraft: (id, body) => ipcRenderer.invoke(Channel.prInboxEditDraft, id, body),
+    discardDraft: (id) => ipcRenderer.invoke(Channel.prInboxDiscardDraft, id),
+    publishDraft: (id) => ipcRenderer.invoke(Channel.prInboxPublishDraft, id),
+    startReview: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxStartReview, repositoryId, prId),
+    endReview: () => ipcRenderer.invoke(Channel.prInboxEndReview),
+    reviewInput: (data) => ipcRenderer.send(Channel.prInboxReviewInput, data),
+    reviewResize: (cols, rows) => ipcRenderer.send(Channel.prInboxReviewResize, cols, rows),
+    onReviewData: (cb) => {
+      const listener = (_e: unknown, data: string): void => cb(data)
+      ipcRenderer.on(Channel.prInboxReviewData, listener)
+      return () => ipcRenderer.removeListener(Channel.prInboxReviewData, listener)
+    },
+    onReviewExit: (cb) => {
+      const listener = (_e: unknown, exitCode: number): void => cb(exitCode)
+      ipcRenderer.on(Channel.prInboxReviewExit, listener)
+      return () => ipcRenderer.removeListener(Channel.prInboxReviewExit, listener)
+    },
+    onDraftAdded: (cb) => {
+      const listener = (_e: unknown, draft: DraftComment): void => cb(draft)
+      ipcRenderer.on(Channel.prInboxDraftAdded, listener)
+      return () => ipcRenderer.removeListener(Channel.prInboxDraftAdded, listener)
     }
   }
 }

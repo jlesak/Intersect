@@ -1,0 +1,43 @@
+appId: cz.greencode.jarvis
+productName: Jarvis
+
+directories:
+  buildResources: build
+
+# main points at out/ (electron-vite build output); source, tests, and build config
+# are never read at runtime, so they are excluded from the bundle. Negation-only patterns
+# are appended to electron-builder's default "**/*" inclusion.
+files:
+  - '!.vscode/**'
+  - '!src/**'
+  - '!e2e/**'
+  - '!docs/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!eslint.config.js'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{vitest.config.ts,playwright.config.ts}'
+  - '!{README.md,PROMPT.md}'
+
+# node-pty is the only native module. Its pty.node and spawn-helper must live on disk
+# outside the asar archive so (a) electron-builder can sign them and (b) node-pty's own
+# runtime path rewrite (app.asar -> app.asar.unpacked in unixTerminal.js) can locate
+# spawn-helper. Without this the app launches but every terminal fails to spawn.
+asarUnpack:
+  - node_modules/node-pty/**
+
+# node-pty ships ABI-stable N-API prebuilds; there is nothing to compile.
+npmRebuild: false
+
+mac:
+  # dir = the raw .app bundle only (no dmg/zip), built for this machine's arch.
+  target:
+    - target: dir
+      arch: arm64
+  category: public.app-category.developer-tools
+  # Ad-hoc signature: valid only on the machine that produced the build. No Apple
+  # Developer account or notarization. Hardened runtime is disabled because its library
+  # validation would reject node-pty's binaries (signed ad-hoc, not with Electron's team
+  # id) and kill terminal spawning; hardened runtime only matters for notarization, which
+  # a personal, machine-local build never undergoes.
+  identity: '-'
+  hardenedRuntime: false
