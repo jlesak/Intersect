@@ -3,6 +3,7 @@ import type { PrThread } from '@common/domain'
 import { selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
+import { PrVoteButtons } from './PrVoteButtons'
 import { ReviewTerminal } from './ReviewTerminal'
 
 const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
@@ -62,6 +63,7 @@ export function PrInboxView() {
           <span className="ix-faint">{pr.url}</span>
         </div>
         <div className="ix-row" style={{ gap: 8, marginLeft: 'auto' }}>
+          <PrVoteButtons pr={pr} />
           <button
             type="button"
             className="ix-btn ix-btn--primary"

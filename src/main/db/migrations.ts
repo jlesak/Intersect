@@ -215,6 +215,15 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_oto_run_created ON oto_run(created_at);
       `)
     }
+  },
+  {
+    // PR voting: remember which reviewer entry on a cached PR is mine, so casting a vote can
+    // address the PR's reviewer resource directly instead of re-resolving my identity. NULL when
+    // I am not among the reviewers, and on rows cached before the column existed.
+    version: 9,
+    up(db) {
+      db.exec(`ALTER TABLE pr_cache ADD COLUMN my_reviewer_id TEXT;`)
+    }
   }
 ]
 

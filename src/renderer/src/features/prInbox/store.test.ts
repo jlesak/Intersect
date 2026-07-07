@@ -22,6 +22,7 @@ const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {})
   url: 'https://ado/pr',
   role: 'reviewer',
   myVote: null,
+  myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
   ...over
@@ -136,6 +137,41 @@ describe('prInboxStore', () => {
     })
     expect(usePrInboxStore.getState().drafts.map((d) => d.id)).toEqual(['d2'])
     expect(mocked.addManualDraft).toHaveBeenCalled()
+  })
+
+  test('castVote replaces the cached PR with the returned row once ADO accepted the vote', async () => {
+    const key = prKey('repo', 1)
+    usePrInboxStore.setState({
+      prsByKey: { [key]: pr('repo', 1, { myVote: 'noVote', myReviewerId: 'me' }) },
+      order: [key],
+      selectedKey: key
+    })
+    mocked.castVote.mockResolvedValue(
+      pr('repo', 1, { myVote: 'approved', myReviewerId: 'me' })
+    )
+    await usePrInboxStore.getState().castVote('approved')
+    expect(mocked.castVote).toHaveBeenCalledWith('repo', 1, 'approved')
+    expect(usePrInboxStore.getState().prsByKey[key].myVote).toBe('approved')
+  })
+
+  test('a failed castVote reports the error and leaves the PR state unchanged', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const key = prKey('repo', 1)
+    usePrInboxStore.setState({
+      prsByKey: { [key]: pr('repo', 1, { myVote: 'noVote', myReviewerId: 'me' }) },
+      order: [key],
+      selectedKey: key
+    })
+    mocked.castVote.mockRejectedValue(new Error('ADO down'))
+    await usePrInboxStore.getState().castVote('approved')
+    expect(usePrInboxStore.getState().prsByKey[key].myVote).toBe('noVote')
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not cast vote'))
+    error.mockRestore()
+  })
+
+  test('castVote without a selected PR is a no-op', async () => {
+    await usePrInboxStore.getState().castVote('approved')
+    expect(mocked.castVote).not.toHaveBeenCalled()
   })
 
   test('publishDraft calls the IPC and replaces the draft with the published row', async () => {

@@ -1,4 +1,4 @@
-import type { FileDiff, PrChangeFile, PrThread, PullRequest } from '@common/domain'
+import type { FileDiff, PrChangeFile, PrThread, PrVote, PullRequest } from '@common/domain'
 import type { AdoClient } from './adoClient'
 import {
   mapPullRequest,
@@ -8,6 +8,7 @@ import {
   type AdoPerson,
   type AdoRawPullRequest
 } from './adoMapping'
+import { castVote as castVoteRest, type CastVoteOptions } from './adoVote'
 import { langFromPath } from './language'
 
 const PAGE_SIZE = 100
@@ -24,6 +25,10 @@ export interface AdoServiceDeps {
   /** Resolved lazily so a missing INTERSECT_ADO_IDENTITY surfaces at sync time, not at boot. */
   resolveIdentity: () => AdoIdentity
   projectId: string
+  /** Org URL + PAT for the direct REST vote call, resolved lazily per vote (see adoVote). */
+  resolveVoteCredentials: () => { orgUrl: string; pat: string }
+  /** Injected in tests to fake the vote HTTP round-trip. */
+  voteOptions?: CastVoteOptions
 }
 
 export interface SyncResult {
@@ -50,6 +55,8 @@ export interface AdoService {
     line: number
     body: string
   }): Promise<number>
+  /** Cast my reviewer vote on the PR, addressed by my reviewer entry id. */
+  castVote(repositoryId: string, prId: number, reviewerId: string, vote: PrVote): Promise<void>
 }
 
 export function createAdoService(d: AdoServiceDeps): AdoService {
@@ -192,6 +199,14 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         throw new Error('Azure DevOps did not return a thread id for the published comment')
       }
       return threadId
+    },
+
+    async castVote(repositoryId, prId, reviewerId, vote) {
+      const { orgUrl, pat } = d.resolveVoteCredentials()
+      await castVoteRest(
+        { orgUrl, pat, projectId: d.projectId, repositoryId, prId, reviewerId, vote },
+        d.voteOptions ?? {}
+      )
     }
   }
 }

@@ -12,6 +12,7 @@ import type {
   Preset,
   PrChangeFile,
   PrThread,
+  PrVote,
   PullRequest,
   ReviewSession,
   SessionSummary,
@@ -94,8 +95,13 @@ export interface IpcApi {
     addManualDraft(input: NewManualDraft): Promise<DraftComment>
     editDraft(id: string, body: string): Promise<DraftComment>
     discardDraft(id: string): Promise<void>
-    /** The only path that writes to Azure DevOps; publishes under my identity after my approval. */
+    /** Publishes the draft to Azure DevOps, under my identity, only after my explicit approval. */
     publishDraft(id: string): Promise<DraftComment>
+    /**
+     * Cast my reviewer vote on the PR, immediately and under my identity, then return the updated
+     * cached PR (my vote recorded and the review watermark moved to its current source commit).
+     */
+    castVote(repositoryId: string, prId: number, vote: PrVote): Promise<PullRequest>
     startReview(repositoryId: string, prId: number): Promise<ReviewSession>
     endReview(): Promise<void>
     // Review terminal I/O for the single live session.
@@ -243,6 +249,7 @@ export const Channel = {
   prInboxEditDraft: 'prInbox:editDraft',
   prInboxDiscardDraft: 'prInbox:discardDraft',
   prInboxPublishDraft: 'prInbox:publishDraft',
+  prInboxCastVote: 'prInbox:castVote',
   prInboxStartReview: 'prInbox:startReview',
   prInboxEndReview: 'prInbox:endReview',
   // prInbox review terminal (fire-and-forget input/resize; broadcasts for data/exit/draft)

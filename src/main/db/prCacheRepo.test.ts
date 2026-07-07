@@ -21,6 +21,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   url: 'https://ado/pr/100',
   role: 'author',
   myVote: null,
+  myReviewerId: null,
   reviewers: [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
   newChangesSinceMyReview: false,
   ...over
@@ -67,6 +68,62 @@ describe('prCacheRepo', () => {
     // Simulate the pre-migration state: the column exists but the row never had it written.
     db.prepare('UPDATE pr_cache SET my_vote = NULL WHERE pr_id = 100').run()
     expect(repo.get('repo-a', 100)?.myVote).toBeNull()
+  })
+
+  test('round-trips my reviewer id, and a missing one stays null', () => {
+    repo.replaceAll([pr({ prId: 1, myReviewerId: 'rev-me' }), pr({ prId: 2, myReviewerId: null })])
+    expect(repo.get('repo-a', 1)?.myReviewerId).toBe('rev-me')
+    expect(repo.get('repo-a', 2)?.myReviewerId).toBeNull()
+  })
+
+  test('a row cached before the my_reviewer_id column existed reads as a null reviewer id', () => {
+    repo.replaceAll([pr({ myReviewerId: 'rev-me' })])
+    // Simulate the pre-migration state: the column exists but the row never had it written.
+    db.prepare('UPDATE pr_cache SET my_reviewer_id = NULL WHERE pr_id = 100').run()
+    expect(repo.get('repo-a', 100)?.myReviewerId).toBeNull()
+  })
+
+  test('updateVote rewrites my vote and the reviewers array in place', () => {
+    repo.replaceAll([pr({ myVote: 'noVote', myReviewerId: 'r1' })])
+    repo.updateVote(
+      'repo-a',
+      100,
+      'approved',
+      [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
+      'r1'
+    )
+    const got = repo.get('repo-a', 100)
+    expect(got?.myVote).toBe('approved')
+    expect(got?.myReviewerId).toBe('r1')
+    expect(got?.reviewers).toEqual([
+      { id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }
+    ])
+  })
+
+  test('updateVote round-trips a reviewer entry appended for me and fills a NULL my_reviewer_id', () => {
+    repo.replaceAll([pr({ myVote: null, myReviewerId: null })])
+    const appended = [
+      ...pr().reviewers,
+      { id: 'me-uuid', displayName: 'You', vote: 'waiting' as const, isRequired: false }
+    ]
+    repo.updateVote('repo-a', 100, 'waiting', appended, 'me-uuid')
+    const got = repo.get('repo-a', 100)
+    expect(got?.myVote).toBe('waiting')
+    expect(got?.myReviewerId).toBe('me-uuid')
+    expect(got?.reviewers).toEqual(appended)
+  })
+
+  test('updateVote on an uncached PR is a no-op and creates no row', () => {
+    repo.replaceAll([pr()])
+    expect(() => repo.updateVote('repo-a', 999, 'approved', [], 'me-uuid')).not.toThrow()
+    expect(repo.get('repo-a', 999)).toBeUndefined()
+    expect(repo.list()).toHaveLength(1)
+  })
+
+  test('updateVote leaves the other cached rows untouched', () => {
+    repo.replaceAll([pr({ prId: 1, myVote: 'noVote' }), pr({ prId: 2, myVote: 'noVote' })])
+    repo.updateVote('repo-a', 1, 'approved', pr().reviewers, 'me-uuid')
+    expect(repo.get('repo-a', 2)?.myVote).toBe('noVote')
   })
 
   test('the derived new-changes flag always reads false from the cache itself', () => {

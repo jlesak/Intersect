@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { FileDiff, PrChangeFile, PrThread, PullRequest, ReviewSession } from '@common/domain'
+import type {
+  FileDiff,
+  PrChangeFile,
+  PrThread,
+  PullRequest,
+  ReviewSession
+} from '@common/domain'
+import type { AdoIdentity } from '../prInbox/adoMapping'
 import { createDraftCommentRepo, type DraftCommentRepo } from '../db/draftCommentRepo'
 import { createPrCacheRepo, type PrCacheRepo } from '../db/prCacheRepo'
 import { createPrReviewWatermarkRepo, type PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { AdoService, SyncResult } from '../prInbox/adoService'
 import type { ReviewManager } from '../prInbox/reviewManager'
-import { buildReviewContext, createPrInboxHandlers, type PrInboxHandlers } from './prInbox.ipc'
+import { applyMyVote, buildReviewContext, createPrInboxHandlers, type PrInboxHandlers } from './prInbox.ipc'
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 100,
@@ -25,6 +32,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   url: 'https://ado/pr/100',
   role: 'author',
   myVote: null,
+  myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
   ...over
@@ -52,6 +60,7 @@ function makeAdo(over: Partial<AdoService> = {}): { ado: AdoService; calls: Reco
       calls.publishComment.push(input)
       return 5555
     }),
+    castVote: vi.fn(async () => {}),
     ...over
   }
   return { ado, calls }
@@ -96,6 +105,8 @@ describe('prInbox handlers', () => {
     ado?: ReturnType<typeof makeAdo>
     review?: ReviewManager
     warn?: (m: string) => void
+    atomically?: <T>(fn: () => T) => T
+    resolveIdentity?: () => AdoIdentity
   } = {}): { h: PrInboxHandlers; ado: ReturnType<typeof makeAdo> } {
     const ado = overrides.ado ?? makeAdo()
     const h = createPrInboxHandlers({
@@ -104,7 +115,8 @@ describe('prInbox handlers', () => {
       watermarks,
       ado: ado.ado,
       review: overrides.review ?? makeReview(),
-      atomically: (fn) => fn(),
+      atomically: overrides.atomically ?? ((fn) => fn()),
+      resolveIdentity: overrides.resolveIdentity,
       warn: overrides.warn
     })
     return { h, ado }
@@ -315,6 +327,143 @@ describe('prInbox handlers', () => {
     expect(await h.listDrafts('repo-a', 100)).toEqual([])
   })
 
+  test('castVote sends the vote for my cached reviewer entry and returns the updated PR', async () => {
+    const { h, ado } = handlers()
+    prCache.replaceAll([
+      pr({
+        role: 'reviewer',
+        myVote: 'noVote',
+        myReviewerId: 'rev-me',
+        reviewers: [{ id: 'rev-me', displayName: 'Jan', vote: 'noVote', isRequired: true }]
+      })
+    ])
+    const updated = await h.castVote('repo-a', 100, 'approved')
+    expect(ado.ado.castVote).toHaveBeenCalledWith('repo-a', 100, 'rev-me', 'approved')
+    expect(updated.myVote).toBe('approved')
+    expect(updated.reviewers).toEqual([
+      { id: 'rev-me', displayName: 'Jan', vote: 'approved', isRequired: true }
+    ])
+    expect(updated.newChangesSinceMyReview).toBe(false)
+    // The cache row itself is updated, so a later list() agrees without a fresh sync.
+    expect(prCache.get('repo-a', 100)?.myVote).toBe('approved')
+  })
+
+  test('a vote cast while a sync fetch is in flight survives the sync (no local revert)', async () => {
+    // The fetched snapshot predates the vote: it still says noVote.
+    const stale = pr({
+      role: 'reviewer',
+      myVote: 'noVote',
+      myReviewerId: 'rev-me',
+      reviewers: [{ id: 'rev-me', displayName: 'Jan', vote: 'noVote', isRequired: true }]
+    })
+    let resolveFetch!: (value: { prs: PullRequest[]; failedRepos: string[] }) => void
+    const ado = makeAdo({
+      syncMyPrs: vi.fn(
+        () =>
+          new Promise<{ prs: PullRequest[]; failedRepos: string[] }>((resolve) => {
+            resolveFetch = resolve
+          })
+      ),
+      castVote: vi.fn(async () => {})
+    })
+    const { h } = handlers({ ado })
+    prCache.replaceAll([stale])
+
+    const syncing = h.sync()
+    await h.castVote('repo-a', 100, 'approved')
+    resolveFetch({ prs: [stale], failedRepos: [] })
+    const synced = await syncing
+
+    expect(synced.find((p) => p.prId === 100)?.myVote).toBe('approved')
+    expect(prCache.get('repo-a', 100)?.myVote).toBe('approved')
+    // The watermark seeded by the vote survives the sync too.
+    expect(watermarks.get('repo-a', 100)?.votedCommitId).toBe('src-sha')
+  })
+
+  test('castVote moves the review watermark to the PR source commit ("caught up as of now")', async () => {
+    const { h } = handlers()
+    prCache.replaceAll([pr({ role: 'reviewer', myVote: 'noVote', myReviewerId: 'rev-me' })])
+    await h.castVote('repo-a', 100, 'waiting')
+    expect(watermarks.get('repo-a', 100)?.votedCommitId).toBe('src-sha')
+    const listed = await h.list()
+    expect(listed[0].newChangesSinceMyReview).toBe(false)
+  })
+
+  test('castVote appends my reviewer entry when the cached PR listed me nowhere', async () => {
+    const { h } = handlers()
+    prCache.replaceAll([
+      pr({
+        role: 'reviewer',
+        myVote: 'noVote',
+        myReviewerId: 'rev-me',
+        reviewers: [{ id: 'other', displayName: 'Radek', vote: 'approved', isRequired: true }]
+      })
+    ])
+    const updated = await h.castVote('repo-a', 100, 'approvedWithSuggestions')
+    expect(updated.reviewers).toEqual([
+      { id: 'other', displayName: 'Radek', vote: 'approved', isRequired: true },
+      { id: 'rev-me', displayName: 'You', vote: 'approvedWithSuggestions', isRequired: false }
+    ])
+  })
+
+  test('castVote falls back to my configured UUID identity when the PR has no reviewer entry of mine', async () => {
+    const { h, ado } = handlers({ resolveIdentity: () => ({ id: 'my-uuid' }) })
+    prCache.replaceAll([pr({ myReviewerId: null })])
+    const updated = await h.castVote('repo-a', 100, 'approved')
+    expect(ado.ado.castVote).toHaveBeenCalledWith('repo-a', 100, 'my-uuid', 'approved')
+    expect(updated.myReviewerId).toBe('my-uuid')
+  })
+
+  test('castVote refuses when neither a reviewer entry nor a UUID identity exists', async () => {
+    const { h, ado } = handlers({ resolveIdentity: () => ({ displayName: 'Jan' }) })
+    prCache.replaceAll([pr({ myReviewerId: null })])
+    await expect(h.castVote('repo-a', 100, 'approved')).rejects.toThrow(/reviewer identity .* is unknown/i)
+    expect(ado.ado.castVote).not.toHaveBeenCalled()
+  })
+
+  test('castVote treats a throwing identity resolution as unresolvable', async () => {
+    const { h } = handlers({
+      resolveIdentity: () => {
+        throw new Error('INTERSECT_ADO_IDENTITY is not set')
+      }
+    })
+    prCache.replaceAll([pr({ myReviewerId: null })])
+    await expect(h.castVote('repo-a', 100, 'approved')).rejects.toThrow(/reviewer identity .* is unknown/i)
+  })
+
+  test('a failed ADO vote leaves the cache and the watermark untouched', async () => {
+    const ado = makeAdo({
+      castVote: vi.fn(async () => {
+        throw new Error('ADO down')
+      })
+    })
+    const { h } = handlers({ ado })
+    prCache.replaceAll([pr({ role: 'reviewer', myVote: 'noVote', myReviewerId: 'rev-me' })])
+    await expect(h.castVote('repo-a', 100, 'approved')).rejects.toThrow(/ADO down/)
+    expect(prCache.get('repo-a', 100)?.myVote).toBe('noVote')
+    expect(watermarks.get('repo-a', 100)).toBeUndefined()
+  })
+
+  test('castVote writes the cache row and the watermark inside one atomically block', async () => {
+    let atomicallyCalls = 0
+    const atomically = <T,>(fn: () => T): T => {
+      atomicallyCalls += 1
+      return fn()
+    }
+    const { h } = handlers({ atomically })
+    prCache.replaceAll([pr({ role: 'reviewer', myVote: 'noVote', myReviewerId: 'rev-me' })])
+    await h.castVote('repo-a', 100, 'approved')
+    expect(atomicallyCalls).toBe(1)
+    expect(prCache.get('repo-a', 100)?.myVote).toBe('approved')
+    expect(watermarks.get('repo-a', 100)?.votedCommitId).toBe('src-sha')
+  })
+
+  test('castVote on an unknown PR throws to sync first, without hitting ADO', async () => {
+    const { h, ado } = handlers()
+    await expect(h.castVote('repo-a', 999, 'approved')).rejects.toThrow(/sync first/i)
+    expect(ado.ado.castVote).not.toHaveBeenCalled()
+  })
+
   test('startReview builds context from changes and starts the review', async () => {
     const review = makeReview()
     const { h } = handlers({ review })
@@ -330,6 +479,25 @@ describe('prInbox handlers', () => {
   test('startReview on an unknown PR throws to sync first', async () => {
     const { h } = handlers()
     await expect(h.startReview('repo-a', 999)).rejects.toThrow(/sync first/i)
+  })
+})
+
+describe('applyMyVote', () => {
+  test('updates my entry in place, leaving the others untouched', () => {
+    const reviewers = [
+      { id: 'other', displayName: 'Radek', vote: 'approved' as const, isRequired: true },
+      { id: 'me', displayName: 'Jan', vote: 'noVote' as const, isRequired: false }
+    ]
+    expect(applyMyVote(reviewers, 'me', 'waiting')).toEqual([
+      { id: 'other', displayName: 'Radek', vote: 'approved', isRequired: true },
+      { id: 'me', displayName: 'Jan', vote: 'waiting', isRequired: false }
+    ])
+  })
+
+  test('appends a minimal entry when I am absent', () => {
+    expect(applyMyVote([], 'me', 'approved')).toEqual([
+      { id: 'me', displayName: 'You', vote: 'approved', isRequired: false }
+    ])
   })
 })
 

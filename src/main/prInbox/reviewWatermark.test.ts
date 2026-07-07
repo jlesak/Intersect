@@ -19,6 +19,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   url: 'https://ado/pr/100',
   role: 'reviewer',
   myVote: 'approved',
+  myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
   ...over

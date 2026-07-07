@@ -52,7 +52,7 @@ import { createOtoManager } from './oneOnOne/otoManager'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoE2eStub } from './prInbox/adoE2eStub'
 import { createAdoService } from './prInbox/adoService'
-import { resolveAdoServerConfig, resolveMyIdentity } from './prInbox/adoConfig'
+import { resolveAdoServerConfig, resolveMyIdentity, resolveVoteCredentials } from './prInbox/adoConfig'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager } from './prInbox/worktreeManager'
 
@@ -260,7 +260,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     createAdoService({
       client: adoClient,
       resolveIdentity: () => resolveMyIdentity(),
-      projectId: defaultProject
+      projectId: defaultProject,
+      resolveVoteCredentials: () => resolveVoteCredentials()
     })
 
   const review = createReviewManager({
@@ -285,7 +286,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
       watermarks: prReviewWatermarks,
       ado,
       review,
-      atomically: (fn) => tx(database, fn)
+      atomically: (fn) => tx(database, fn),
+      resolveIdentity: () => resolveMyIdentity()
     })
   )
   void review.pruneOnBoot().catch(() => {})

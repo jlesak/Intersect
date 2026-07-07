@@ -5,6 +5,7 @@ import type {
   NewManualDraft,
   PrChangeFile,
   PrThread,
+  PrVote,
   PullRequest
 } from '@common/domain'
 import { reportError } from '@renderer/shared/ui/toast'
@@ -43,6 +44,8 @@ interface PrInboxState {
   editDraft(id: string, body: string): Promise<void>
   discardDraft(id: string): Promise<void>
   publishDraft(id: string): Promise<void>
+  /** Cast my vote on the selected PR; the state changes only once ADO has accepted the vote. */
+  castVote(vote: PrVote): Promise<void>
   startReview(): Promise<void>
   endReview(): Promise<void>
   reviewInput(data: string): void
@@ -198,6 +201,19 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
       set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
     } catch (e) {
       reportError('Could not publish the comment to Azure DevOps', e)
+    }
+  },
+
+  async castVote(vote) {
+    const pr = selectSelectedPr(get())
+    if (!pr) return
+    try {
+      const updated = await api.castVote(pr.repositoryId, pr.prId, vote)
+      set((s) => ({
+        prsByKey: { ...s.prsByKey, [prKey(updated.repositoryId, updated.prId)]: updated }
+      }))
+    } catch (e) {
+      reportError('Could not cast vote', e)
     }
   },
 

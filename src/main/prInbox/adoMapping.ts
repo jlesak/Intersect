@@ -53,6 +53,22 @@ export function mapVote(code: number | undefined): PrVote {
   }
 }
 
+/** Normalized vote -> ADO reviewer vote code; the inverse of {@link mapVote}, used to cast votes. */
+export function toNumericVote(vote: PrVote): number {
+  switch (vote) {
+    case 'approved':
+      return 10
+    case 'approvedWithSuggestions':
+      return 5
+    case 'waiting':
+      return -5
+    case 'rejected':
+      return -10
+    case 'noVote':
+      return 0
+  }
+}
+
 /** ADO numeric PR status -> string. Already-string statuses pass through. */
 export function mapStatus(status: number | string | undefined): string {
   if (typeof status === 'string') return status
@@ -103,8 +119,8 @@ export function roleForIdentity(raw: AdoRawPullRequest, identity: AdoIdentity): 
 
 /**
  * Map a raw PR to the domain type. `role` is the caller-resolved relationship; `identity` resolves
- * my own reviewer entry (same matching as {@link roleForIdentity}) into `myVote`, null when I am
- * not among the reviewers.
+ * my own reviewer entry (same matching as {@link roleForIdentity}) into `myVote` and
+ * `myReviewerId`, both null when I am not among the reviewers.
  */
 export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: AdoIdentity): PullRequest {
   const repo = raw.repository ?? {}
@@ -126,6 +142,7 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: A
     url: raw.url ?? '',
     role,
     myVote: myReview ? mapVote(myReview.vote) : null,
+    myReviewerId: myReview?.id ? myReview.id : null,
     reviewers: (raw.reviewers ?? []).map(mapReviewer),
     // Derived from the review watermark by the read path (see reviewWatermark), never mapped here.
     newChangesSinceMyReview: false

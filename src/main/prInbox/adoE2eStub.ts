@@ -1,4 +1,4 @@
-import type { PullRequest } from '@common/domain'
+import type { PrVote, PullRequest } from '@common/domain'
 import type { AdoService, SyncResult } from './adoService'
 
 /**
@@ -7,6 +7,8 @@ import type { AdoService, SyncResult } from './adoService'
  * cache clear, `radar` returns one PR per My Work radar subgroup. In radar mode the PR I already
  * approved advances its source commit on the second sync, so a Refresh drives the real watermark
  * flow end to end: the first sync seeds the watermark (caught up), the second flags new changes.
+ * Votes cast during the run are remembered and applied on top of the canned PRs, so a later sync
+ * reflects them exactly like the real server would.
  */
 
 const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projectId: 'SPOT' }
@@ -34,6 +36,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       url: 'https://devops/pr/501',
       role: 'author',
       myVote: null,
+      myReviewerId: null,
       reviewers: [
         { id: 'rev-1', displayName: 'Marek Kral', vote: 'approved', isRequired: true },
         { id: 'rev-2', displayName: 'Tereza Nova', vote: 'approvedWithSuggestions', isRequired: false }
@@ -51,6 +54,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       url: 'https://devops/pr/502',
       role: 'reviewer',
       myVote: 'noVote',
+      myReviewerId: 'me',
       reviewers: [{ id: 'me', displayName: 'Jan Lesak', vote: 'noVote', isRequired: true }]
     },
     {
@@ -66,6 +70,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       url: 'https://devops/pr/503',
       role: 'reviewer',
       myVote: 'approved',
+      myReviewerId: 'me',
       reviewers: [{ id: 'me', displayName: 'Jan Lesak', vote: 'approved', isRequired: true }]
     }
   ]
@@ -74,10 +79,25 @@ function radarPrs(syncCount: number): PullRequest[] {
 export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
   const mode = env.INTERSECT_E2E_ADO ?? 'empty'
   let syncCount = 0
+  // Votes cast during this run, keyed by PR id, layered over the canned PRs on every sync.
+  const castVotes = new Map<number, { reviewerId: string; vote: PrVote }>()
+
+  function applyVotes(prs: PullRequest[]): PullRequest[] {
+    return prs.map((pr) => {
+      const cast = castVotes.get(pr.prId)
+      if (!cast) return pr
+      return {
+        ...pr,
+        myVote: cast.vote,
+        reviewers: pr.reviewers.map((r) => (r.id === cast.reviewerId ? { ...r, vote: cast.vote } : r))
+      }
+    })
+  }
+
   return {
     async syncMyPrs(): Promise<SyncResult> {
       syncCount += 1
-      return { prs: mode === 'radar' ? radarPrs(syncCount) : [], failedRepos: [] }
+      return { prs: mode === 'radar' ? applyVotes(radarPrs(syncCount)) : [], failedRepos: [] }
     },
 
     async getChanges() {
@@ -101,6 +121,10 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
 
     async publishComment() {
       throw new Error('Publishing is not available in the E2E stub')
+    },
+
+    async castVote(_repositoryId, prId, reviewerId, vote) {
+      castVotes.set(prId, { reviewerId, vote })
     }
   }
 }

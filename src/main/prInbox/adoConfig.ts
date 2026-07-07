@@ -58,6 +58,24 @@ function readClaudeJsonAdoServer(): AdoServerConfig | null {
 }
 
 /**
+ * Credentials for Intersect's own direct REST calls (vote casting). Read from the same MCP server
+ * config the ADO client spawn uses, so a PAT still lives in exactly one place. Resolved lazily per
+ * call, so a missing/rotated configuration surfaces on the vote, not at boot.
+ */
+export function resolveVoteCredentials(): { orgUrl: string; pat: string } {
+  const env = resolveAdoServerConfig().env
+  const orgUrl = env.AZURE_DEVOPS_ORG_URL
+  const pat = env.AZURE_DEVOPS_PAT
+  if (!orgUrl || !pat) {
+    throw new Error(
+      'Azure DevOps voting is not configured. The azureDevOps MCP server entry must carry ' +
+        'AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT.'
+    )
+  }
+  return { orgUrl, pat }
+}
+
+/**
  * Resolve who "I" am for filtering PRs. On-prem ADO Server has no get_me profile endpoint, so the
  * identity is taken from `INTERSECT_ADO_IDENTITY` (a UUID, a `domain\user` uniqueName, or a display
  * name); matching is then done client-side against creators/reviewers.
