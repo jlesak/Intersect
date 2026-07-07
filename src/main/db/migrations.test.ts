@@ -52,6 +52,25 @@ describe('migrations', () => {
     ).toBe(1)
   })
 
+  test('the time tracking tables accept manual entries and session overrides', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO time_entry_manual (id, day, description, issue_key, duration_ms, created_at)
+       VALUES ('m1', '2026-07-06', 'Team sync', NULL, 1800000, 1)`
+    ).run()
+    db.prepare(
+      `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, updated_at)
+       VALUES ('s1', 'FID2507-611', 3600000, 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT deleted AS d FROM time_entry_override').get() as { d: number }).d
+    ).toBe(0)
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM time_entry_manual').get() as { c: number }).c
+    ).toBe(1)
+  })
+
   test('deleting a workspace cascades to its tabs', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

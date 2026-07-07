@@ -6,6 +6,7 @@ import type {
   JiraLoginResult,
   Layout,
   NewManualDraft,
+  NewManualTimeEntry,
   Preset,
   PrChangeFile,
   PrThread,
@@ -14,6 +15,9 @@ import type {
   SessionSummary,
   SessionTranscript,
   Tab,
+  TimeEntry,
+  TimeEntrySource,
+  TimeEntryUpdate,
   Workspace
 } from './domain'
 
@@ -105,6 +109,20 @@ export interface IpcApi {
     refresh(): Promise<SessionSummary[]>
     /** The full, on-demand transcript for one session id. */
     getTranscript(id: string): Promise<SessionTranscript>
+  }
+  timeTracking: {
+    /**
+     * The merged worklog entries (auto from Claude Code sessions + manual) for the Monday-Friday
+     * week starting at the given Monday day key (`yyyy-mm-dd`, local calendar).
+     */
+    getWeek(weekStart: string): Promise<TimeEntry[]>
+    /** Re-scan the Claude Code session index from disk, then return the fresh week. */
+    refreshWeek(weekStart: string): Promise<TimeEntry[]>
+    addManual(input: NewManualTimeEntry): Promise<TimeEntry>
+    /** Edit time/issue key on any card; an auto edit persists as an override keyed by session id. */
+    updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
+    /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
+    deleteEntry(source: TimeEntrySource, id: string): Promise<void>
   }
   myWork: {
     /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
@@ -208,6 +226,12 @@ export const Channel = {
   sessionsList: 'sessions:list',
   sessionsRefresh: 'sessions:refresh',
   sessionsGetTranscript: 'sessions:getTranscript',
+  // timeTracking (request/response)
+  timeTrackingGetWeek: 'timeTracking:getWeek',
+  timeTrackingRefreshWeek: 'timeTracking:refreshWeek',
+  timeTrackingAddManual: 'timeTracking:addManual',
+  timeTrackingUpdateEntry: 'timeTracking:updateEntry',
+  timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
   // myWork (request/response)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',

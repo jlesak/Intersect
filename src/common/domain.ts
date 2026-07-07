@@ -303,3 +303,32 @@ export type JiraBoardResult =
  * Failure means the user closed the window, the login timed out, or the jira skill is missing.
  */
 export type JiraLoginResult = { ok: true } | { ok: false; message: string }
+
+// ---------------------------------------------------------------------------
+// Time Tracking - see docs/superpowers/specs/2026-07-06-time-tracking-design.md
+// ---------------------------------------------------------------------------
+
+/** Where a worklog entry comes from: derived from a Claude Code session, or typed in by hand. */
+export const TIME_ENTRY_SOURCES = ['auto', 'manual'] as const
+export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number]
+
+/**
+ * One card on the weekly worklog board. An auto entry is derived from a past Claude Code session
+ * (its id IS the session id) with any user edits applied on top; a manual entry is a standalone
+ * worklog the user typed in. `day` is the local calendar day in `yyyy-mm-dd` form; `issueKey` is
+ * the Jira issue the time belongs to, or null for unattributed time (e.g. a meeting).
+ */
+export interface TimeEntry {
+  id: string
+  source: TimeEntrySource
+  day: string
+  description: string
+  issueKey: string | null
+  durationMs: number
+}
+
+/** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
+export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'>
+
+/** The two fields editable in place on any card, auto or manual. */
+export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>

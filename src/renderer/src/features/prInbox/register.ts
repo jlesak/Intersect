@@ -12,7 +12,7 @@ export const PR_INBOX_SECTION_ID = 'prInbox'
 export function registerPrInboxFeature(): void {
   registerSidebarSection({
     id: PR_INBOX_SECTION_ID,
-    order: 2,
+    order: 1,
     label: 'PR Review',
     icon: IconInbox,
     component: PrList,

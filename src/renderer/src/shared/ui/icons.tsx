@@ -78,6 +78,13 @@ export const IconHistory = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconClock = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 5v3l2 1.5" />
+  </svg>
+)
+
 export const IconMyWork = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M2 4h12M2 8h12M2 12h7" />

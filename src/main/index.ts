@@ -33,9 +33,12 @@ import {
 } from './ipc/terminal.ipc'
 import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
 import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.ipc'
+import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './ipc/timeTracking.ipc'
 import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
 import { createSystemHandlers, registerSystemHandlers } from './ipc/system.ipc'
 import { createSessionIndex } from './sessions/sessionIndex'
+import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
+import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
 import { createJiraFetcher } from './myWork/jiraFetch'
 import { createJiraIndex } from './myWork/jiraIndex'
@@ -272,7 +275,21 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   void review.pruneOnBoot().catch(() => {})
 
   // --- Session Search slice: read-only index over ~/.claude/projects (built lazily, in memory) ---
-  registerSessionHandlers(ipcMain, createSessionHandlers({ index: createSessionIndex() }))
+  // The one index instance is shared with the Time Tracking slice so both read the same scan.
+  const sessionIndex = createSessionIndex()
+  registerSessionHandlers(ipcMain, createSessionHandlers({ index: sessionIndex }))
+
+  // --- Time Tracking slice: weekly worklog merged from Claude Code sessions + manual entries ---
+  registerTimeTrackingHandlers(
+    ipcMain,
+    createTimeTrackingHandlers({
+      service: createTimeTracking({
+        sessions: sessionIndex,
+        manual: createManualTimeEntryRepo(database, deps),
+        overrides: createTimeOverrideRepo(database, deps)
+      })
+    })
+  )
 
   // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT anywhere) ---
   // E2E runs get a stubbed backend: the section auto-fetches on first open (which is boot, since
