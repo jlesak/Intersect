@@ -7,6 +7,8 @@ import type {
   Layout,
   NewManualDraft,
   NewManualTimeEntry,
+  OtoRun,
+  OtoStartInput,
   Preset,
   PrChangeFile,
   PrThread,
@@ -144,9 +146,24 @@ export interface IpcApi {
     /** Interactive SSO login: opens a headed browser window and resolves once it completes. */
     login(): Promise<JiraLoginResult>
   }
+  oneOnOne: {
+    /** The full run history, newest first. */
+    list(): Promise<OtoRun[]>
+    /** Validate the input, start the hidden session, and return the new `running` run. */
+    start(input: OtoStartInput): Promise<OtoRun>
+    /** Native file picker restricted to .vtt files; null when the user cancels. */
+    pickVttFile(): Promise<string | null>
+    /** Fired whenever a run finishes (done or failed) so the history refreshes live. */
+    onRunChanged(cb: (run: OtoRun) => void): () => void
+  }
   system: {
     /** Open an allowlisted https URL in the system default browser. Rejects anything else. */
     openExternal(url: string): Promise<void>
+    /**
+     * The absolute filesystem path of a dropped File. Implemented entirely in preload (Electron's
+     * webUtils is preload-only) - it never crosses IPC and main does not implement it.
+     */
+    getPathForFile(file: File): string
   }
 }
 
@@ -254,6 +271,11 @@ export const Channel = {
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',
   myWorkLogin: 'myWork:login',
+  // oneOnOne (request/response, plus a main -> renderer broadcast)
+  oneOnOneList: 'oneOnOne:list',
+  oneOnOneStart: 'oneOnOne:start',
+  oneOnOnePickVtt: 'oneOnOne:pickVtt',
+  oneOnOneRunChanged: 'oneOnOne:runChanged',
   // system (request/response)
   systemOpenExternal: 'system:openExternal'
 } as const

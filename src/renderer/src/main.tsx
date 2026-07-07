@@ -10,6 +10,7 @@ import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
+import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
 import { useWorkspacesStore } from './features/workspaces'
 
@@ -30,6 +31,8 @@ void useWorkspacesStore.getState().hydrate()
 // Load the cached PRs (no network) and start listening for pushed drafts / review-session exits.
 void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
+// Listen for finished 1:1 runs pushed from main so the history refreshes live.
+useOneOnOneStore.getState().subscribe()
 // Mirror main's session-attention alerts into the pulse UI and report the viewed session back.
 wireAttention()
 // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice, app-layer).

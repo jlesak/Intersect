@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import type { DraftComment } from '@common/domain'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { DraftComment, OtoRun } from '@common/domain'
 import {
   Channel,
   type IpcApi,
@@ -116,8 +116,20 @@ const api: IpcApi = {
     refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),
     login: () => ipcRenderer.invoke(Channel.myWorkLogin)
   },
+  oneOnOne: {
+    list: () => ipcRenderer.invoke(Channel.oneOnOneList),
+    start: (input) => ipcRenderer.invoke(Channel.oneOnOneStart, input),
+    pickVttFile: () => ipcRenderer.invoke(Channel.oneOnOnePickVtt),
+    onRunChanged: (cb) => {
+      const listener = (_e: unknown, run: OtoRun): void => cb(run)
+      ipcRenderer.on(Channel.oneOnOneRunChanged, listener)
+      return () => ipcRenderer.removeListener(Channel.oneOnOneRunChanged, listener)
+    }
+  },
   system: {
-    openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url)
+    openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),
+    // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.
+    getPathForFile: (file) => webUtils.getPathForFile(file)
   }
 }
 

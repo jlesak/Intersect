@@ -98,6 +98,14 @@ export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconPeople = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="6" cy="6" r="2.3" />
+    <circle cx="12" cy="9" r="1.8" />
+    <path d="M2.5 13c0-2 1.6-3.3 3.5-3.3s3.5 1.3 3.5 3.3M9.5 13c0-1.4 1-2.4 2.5-2.4s2.5 1 2.5 2.4" />
+  </svg>
+)
+
 export const IconMyWork = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M2 4h12M2 8h12M2 12h7" />

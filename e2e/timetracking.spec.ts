@@ -116,11 +116,12 @@ test('the section sits second in the rail and shows the week with auto cards in 
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir, buildProjectsFixture())
 
-  // Sidebar order: My Work, Time Tracking, TODO, Workspaces, PR Review, Sessions.
+  // Sidebar order: My Work, Time Tracking, TODO, 1:1, Workspaces, PR Review, Sessions.
   await expect(win.locator('.ix-rail__label')).toHaveText([
     'My Work',
     'Time Tracking',
     'TODO',
+    '1:1',
     'Workspaces',
     'PR Review',
     'Sessions'
