@@ -4,6 +4,7 @@ import type {
   NewManualDraft,
   PrChangeFile,
   PrThread,
+  PrVote,
   PullRequest,
   ReviewSession
 } from '@common/domain'
@@ -26,6 +27,8 @@ export const editDraft = (id: string, body: string): Promise<DraftComment> =>
   ipc().prInbox.editDraft(id, body)
 export const discardDraft = (id: string): Promise<void> => ipc().prInbox.discardDraft(id)
 export const publishDraft = (id: string): Promise<DraftComment> => ipc().prInbox.publishDraft(id)
+export const castVote = (repositoryId: string, prId: number, vote: PrVote): Promise<PullRequest> =>
+  ipc().prInbox.castVote(repositoryId, prId, vote)
 export const startReview = (repositoryId: string, prId: number): Promise<ReviewSession> =>
   ipc().prInbox.startReview(repositoryId, prId)
 export const endReview = (): Promise<void> => ipc().prInbox.endReview()

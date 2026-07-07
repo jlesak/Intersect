@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { PR_VOTES } from '@common/domain'
 import {
   mapPullRequest,
   mapStatus,
@@ -6,6 +7,7 @@ import {
   matchesIdentity,
   mergeMyPrs,
   roleForIdentity,
+  toNumericVote,
   type AdoIdentity,
   type AdoRawPullRequest
 } from './adoMapping'
@@ -45,6 +47,24 @@ describe('mapVote', () => {
     [999, 'noVote']
   ])('%s -> %s', (code, expected) => {
     expect(mapVote(code as number)).toBe(expected)
+  })
+})
+
+describe('toNumericVote', () => {
+  test.each([
+    ['approved', 10],
+    ['approvedWithSuggestions', 5],
+    ['noVote', 0],
+    ['waiting', -5],
+    ['rejected', -10]
+  ] as const)('%s -> %s', (vote, expected) => {
+    expect(toNumericVote(vote)).toBe(expected)
+  })
+
+  test('is the exact inverse of mapVote for every vote', () => {
+    for (const vote of PR_VOTES) {
+      expect(mapVote(toNumericVote(vote))).toBe(vote)
+    }
   })
 })
 
@@ -145,6 +165,28 @@ describe('mapPullRequest', () => {
 
   test('the derived new-changes flag is never set by the mapper', () => {
     expect(mapPullRequest(rawAuthored, 'author', me).newChangesSinceMyReview).toBe(false)
+  })
+
+  test('myReviewerId is my matched reviewer entry id', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      reviewers: [...(rawAuthored.reviewers ?? []), { id: me.id, vote: -5 }]
+    }
+    expect(mapPullRequest(raw, 'reviewer', me).myReviewerId).toBe(me.id)
+  })
+
+  test('myReviewerId is null when I am not among the reviewers (pure author)', () => {
+    expect(mapPullRequest(rawAuthored, 'author', me).myReviewerId).toBeNull()
+  })
+
+  test('myReviewerId is null when my entry matched by name carries no id', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      reviewers: [{ uniqueName: 'dmz\\dzcup4c', vote: 10 }]
+    }
+    const pr = mapPullRequest(raw, 'reviewer', me)
+    expect(pr.myVote).toBe('approved')
+    expect(pr.myReviewerId).toBeNull()
   })
 })
 

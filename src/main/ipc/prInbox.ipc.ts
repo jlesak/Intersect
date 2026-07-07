@@ -1,9 +1,10 @@
 import type { IpcMain } from 'electron'
 import { Channel, type IpcApi } from '@common/ipc'
-import type { PrChangeFile, PullRequest } from '@common/domain'
+import type { PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
+import type { AdoIdentity } from '../prInbox/adoMapping'
 import type { AdoService } from '../prInbox/adoService'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
@@ -26,6 +27,12 @@ export interface PrInboxHandlerDeps {
    * detection for that PR).
    */
   atomically: <T>(fn: () => T) => T
+  /**
+   * Who I am on the ADO server, used as the vote fallback when the cached PR carries no reviewer
+   * entry of mine. Only a UUID identity can address the reviewers endpoint directly, and
+   * resolution may throw when the identity is not configured.
+   */
+  resolveIdentity?: () => AdoIdentity
   /** Warn surface for partial sync failures (defaults to console.warn). */
   warn?: (message: string) => void
 }
@@ -54,13 +61,40 @@ export function buildReviewContext(pr: PullRequest, changes: PrChangeFile[]): st
   ].join('\n')
 }
 
+/**
+ * Reflect a vote just cast on the PR's reviewers list: update my entry in place, or append a
+ * minimal entry when the cached PR listed me nowhere (voting adds you as a reviewer server-side
+ * too, so the local cache must agree until the next sync).
+ */
+export function applyMyVote(reviewers: PrReviewer[], myReviewerId: string, vote: PrVote): PrReviewer[] {
+  if (reviewers.some((r) => r.id === myReviewerId)) {
+    return reviewers.map((r) => (r.id === myReviewerId ? { ...r, vote } : r))
+  }
+  return [...reviewers, { id: myReviewerId, displayName: 'You', vote, isRequired: false }]
+}
+
 export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
   const warn = d.warn ?? ((m: string) => console.warn(m))
+
+  const prCacheKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
+
+  // Votes cast since the last completed sync, so a sync whose snapshot was fetched before the
+  // vote landed on ADO cannot revert the vote locally.
+  const recentVotes = new Map<string, { vote: PrVote; reviewerId: string; at: number }>()
 
   const mustGetPr = (repositoryId: string, prId: number): PullRequest => {
     const pr = d.prCache.get(repositoryId, prId)
     if (!pr) throw new Error(`Unknown pull request ${prId} in ${repositoryId}. Sync first.`)
     return pr
+  }
+
+  /** My configured identity id, or null when it is missing, unresolvable, or not a UUID. */
+  const identityUuid = (): string | null => {
+    try {
+      return d.resolveIdentity?.().id ?? null
+    } catch {
+      return null
+    }
   }
 
   /** Every PR list leaving these handlers carries the derived "new changes since my review" flag. */
@@ -69,6 +103,7 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
 
   return {
     async sync() {
+      const fetchStarted = Date.now()
       const { prs, failedRepos } = await d.ado.syncMyPrs()
       // Vote transitions are read against the cache as it was before this sync overwrites it.
       const before = d.prCache.list()
@@ -76,8 +111,24 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       // transient ADO error neither empties that repo's inbox nor re-baselines its review
       // watermarks (which would silently swallow a "new changes since my review" flag).
       const failed = new Set(failedRepos)
-      const merged =
+      const carried =
         failed.size > 0 ? [...prs, ...before.filter((pr) => failed.has(pr.repositoryName))] : prs
+      // A vote cast while this fetch was in flight is live on ADO but may be missing from the
+      // fetched snapshot; re-apply it so the sync cannot revert the vote locally. Votes older
+      // than this fetch are already reflected server-side and their overlay entries expire.
+      const merged = carried.map((pr) => {
+        const entry = recentVotes.get(prCacheKey(pr.repositoryId, pr.prId))
+        if (!entry || entry.at < fetchStarted) return pr
+        return {
+          ...pr,
+          myVote: entry.vote,
+          myReviewerId: entry.reviewerId,
+          reviewers: applyMyVote(pr.reviewers, entry.reviewerId, entry.vote)
+        }
+      })
+      for (const [key, entry] of recentVotes) {
+        if (entry.at < fetchStarted) recentVotes.delete(key)
+      }
       const plan = planWatermarks(before, merged)
       d.atomically(() => {
         d.prCache.replaceAll(merged)
@@ -177,6 +228,29 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       }
     },
 
+    async castVote(repositoryId, prId, vote) {
+      const pr = mustGetPr(repositoryId, prId)
+      // My reviewer entry on the PR addresses the vote; a PR without one (I only author it, or the
+      // row predates the column) falls back to my configured identity, which works only as a UUID.
+      const reviewerId = pr.myReviewerId ?? identityUuid()
+      if (!reviewerId) {
+        throw new Error(
+          'Cannot vote: your reviewer identity on this PR is unknown. Sync the inbox, or set INTERSECT_ADO_IDENTITY to your ADO user GUID.'
+        )
+      }
+      await d.ado.castVote(repositoryId, prId, reviewerId, vote)
+      // The vote is live on ADO now; record it locally in one transaction. Moving the watermark to
+      // the PR's current source commit means "caught up as of this commit", which keeps the "new
+      // changes since my review" radar correct immediately, without waiting for a full sync.
+      const reviewers = applyMyVote(pr.reviewers, reviewerId, vote)
+      d.atomically(() => {
+        d.prCache.updateVote(repositoryId, prId, vote, reviewers, reviewerId)
+        d.watermarks.upsert(repositoryId, prId, pr.sourceCommitId)
+      })
+      recentVotes.set(prCacheKey(repositoryId, prId), { vote, reviewerId, at: Date.now() })
+      return decorateNewChanges([mustGetPr(repositoryId, prId)], (r, p) => d.watermarks.get(r, p))[0]
+    },
+
     async startReview(repositoryId, prId) {
       const pr = mustGetPr(repositoryId, prId)
       const changes = await d.ado.getChanges(repositoryId, prId)
@@ -219,6 +293,9 @@ export function registerPrInboxHandlers(ipcMain: IpcMain, h: PrInboxHandlers): v
   ipcMain.handle(Channel.prInboxEditDraft, (_e, id: string, body: string) => h.editDraft(id, body))
   ipcMain.handle(Channel.prInboxDiscardDraft, (_e, id: string) => h.discardDraft(id))
   ipcMain.handle(Channel.prInboxPublishDraft, (_e, id: string) => h.publishDraft(id))
+  ipcMain.handle(Channel.prInboxCastVote, (_e, repositoryId: string, prId: number, vote: PrVote) =>
+    h.castVote(repositoryId, prId, vote)
+  )
   ipcMain.handle(Channel.prInboxStartReview, (_e, repositoryId: string, prId: number) =>
     h.startReview(repositoryId, prId)
   )

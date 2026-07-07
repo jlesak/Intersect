@@ -52,6 +52,32 @@ describe('migrations', () => {
     ).toBe(1)
   })
 
+  test('pr_cache accepts my_reviewer_id and rows written without it read as NULL', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, my_vote, my_reviewer_id, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u', 'reviewer', 'approved', 'me-uuid', '[]', 1)`
+    ).run()
+    // A legacy-shaped insert (as rows cached before the column existed) leaves the column NULL.
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 2, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u', 'reviewer', '[]', 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT my_reviewer_id AS v FROM pr_cache WHERE pr_id = 1').get() as { v: string }).v
+    ).toBe('me-uuid')
+    expect(
+      (db.prepare('SELECT my_reviewer_id AS v FROM pr_cache WHERE pr_id = 2').get() as { v: string | null }).v
+    ).toBeNull()
+  })
+
   test('the time tracking tables accept manual entries and session overrides', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

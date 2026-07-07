@@ -69,4 +69,14 @@ describe('buildReviewSpawnSpec', () => {
     expect(prompt).toMatch(/READ-ONLY/)
     expect(prompt).toMatch(/record_draft_comment/)
   })
+
+  test('voting stays out of the AI review: no vote or ADO tool is allowed, only the draft MCP server', () => {
+    for (const tool of REVIEW_ALLOWED_TOOLS) {
+      expect(tool).not.toMatch(/vote|azure|devops|pull_?request|reviewer/i)
+    }
+    // The only MCP tool the session may call is the local draft recorder - the strict MCP config
+    // exposes intersectReview alone, so no other server (and no vote surface) exists at all.
+    const mcpTools = REVIEW_ALLOWED_TOOLS.filter((t) => t.startsWith('mcp__'))
+    expect(mcpTools).toEqual(['mcp__intersectReview__record_draft_comment'])
+  })
 })

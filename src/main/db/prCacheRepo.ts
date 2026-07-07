@@ -21,6 +21,8 @@ interface PrRow {
   my_role: string
   /** NULL both when I am not a reviewer and on rows cached before the column existed. */
   my_vote: string | null
+  /** NULL both when I am not a reviewer and on rows cached before the column existed. */
+  my_reviewer_id: string | null
   reviewers_json: string
   synced_at: number
 }
@@ -43,6 +45,7 @@ function toPr(row: PrRow): PullRequest {
     url: row.url,
     role: row.my_role as PrRole,
     myVote: (row.my_vote as PrVote | null) ?? null,
+    myReviewerId: row.my_reviewer_id ?? null,
     reviewers: JSON.parse(row.reviewers_json) as PrReviewer[],
     // Derived from the review watermark by the read path (see reviewWatermark), never stored.
     newChangesSinceMyReview: false
@@ -54,6 +57,18 @@ export interface PrCacheRepo {
   replaceAll(prs: PullRequest[]): void
   list(): PullRequest[]
   get(repositoryId: string, prId: number): PullRequest | undefined
+  /**
+   * Record a vote just cast from Intersect on the cached row, without waiting for a full sync:
+   * my vote, the caller-updated reviewers array, and my reviewer entry id (which fills in a row
+   * cached before the vote resolved it). A no-op when the PR is not cached.
+   */
+  updateVote(
+    repositoryId: string,
+    prId: number,
+    vote: PrVote,
+    reviewers: PrReviewer[],
+    myReviewerId: string
+  ): void
 }
 
 export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo {
@@ -66,8 +81,8 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
           `INSERT INTO pr_cache
              (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
               created_at, status, source_ref, target_ref, source_commit, target_commit, url,
-              my_role, my_vote, reviewers_json, synced_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              my_role, my_vote, my_reviewer_id, reviewers_json, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         for (const pr of prs) {
           stmt.run(
@@ -87,6 +102,7 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.url,
             pr.role,
             pr.myVote,
+            pr.myReviewerId,
             JSON.stringify(pr.reviewers),
             syncedAt
           )
@@ -106,6 +122,14 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
         .prepare('SELECT * FROM pr_cache WHERE repository_id = ? AND pr_id = ?')
         .get(repositoryId, prId) as PrRow | undefined
       return row ? toPr(row) : undefined
+    },
+
+    updateVote(repositoryId, prId, vote, reviewers, myReviewerId) {
+      db.prepare(
+        `UPDATE pr_cache
+            SET my_vote = ?, reviewers_json = ?, my_reviewer_id = ?
+          WHERE repository_id = ? AND pr_id = ?`
+      ).run(vote, JSON.stringify(reviewers), myReviewerId, repositoryId, prId)
     }
   }
 }

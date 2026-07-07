@@ -71,6 +71,8 @@ const api: IpcApi = {
     editDraft: (id, body) => ipcRenderer.invoke(Channel.prInboxEditDraft, id, body),
     discardDraft: (id) => ipcRenderer.invoke(Channel.prInboxDiscardDraft, id),
     publishDraft: (id) => ipcRenderer.invoke(Channel.prInboxPublishDraft, id),
+    castVote: (repositoryId, prId, vote) =>
+      ipcRenderer.invoke(Channel.prInboxCastVote, repositoryId, prId, vote),
     startReview: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxStartReview, repositoryId, prId),
     endReview: () => ipcRenderer.invoke(Channel.prInboxEndReview),
     reviewInput: (data) => ipcRenderer.send(Channel.prInboxReviewInput, data),

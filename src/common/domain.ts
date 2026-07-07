@@ -121,6 +121,12 @@ export interface PullRequest {
   role: PrRole
   /** My own vote when I am among the reviewers; null otherwise (e.g. a PR I only authored). */
   myVote: PrVote | null
+  /**
+   * The id of my own reviewer entry on this PR, so a vote cast from Intersect can address the
+   * reviewer resource directly. Null when I am not among the reviewers (e.g. a PR I only authored)
+   * or my entry carries no id.
+   */
+  myReviewerId: string | null
   reviewers: PrReviewer[]
   /**
    * True when the PR's source branch moved past the commit I last voted on - the author pushed
