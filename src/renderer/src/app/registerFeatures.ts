@@ -3,6 +3,7 @@ import { registerPrInboxFeature } from '@renderer/features/prInbox'
 import { registerSessionsFeature } from '@renderer/features/sessions'
 import { registerTabsFeature } from '@renderer/features/tabs'
 import { registerTimeTrackingFeature } from '@renderer/features/timeTracking'
+import { registerTodoFeature } from '@renderer/features/todo'
 import { registerWorkspacesFeature } from '@renderer/features/workspaces'
 
 /**
@@ -12,6 +13,7 @@ import { registerWorkspacesFeature } from '@renderer/features/workspaces'
 export function registerFeatures(): void {
   registerMyWorkFeature()
   registerTimeTrackingFeature()
+  registerTodoFeature()
   registerWorkspacesFeature()
   registerTabsFeature()
   registerPrInboxFeature()

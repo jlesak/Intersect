@@ -34,10 +34,12 @@ import {
 import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ipc'
 import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.ipc'
 import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './ipc/timeTracking.ipc'
+import { createTodoHandlers, registerTodoHandlers } from './ipc/todo.ipc'
 import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
 import { createSystemHandlers, registerSystemHandlers } from './ipc/system.ipc'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
+import { createTodoRepo } from './db/todoRepo'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
 import { createJiraFetcher } from './myWork/jiraFetch'
@@ -289,6 +291,12 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
         overrides: createTimeOverrideRepo(database, deps)
       })
     })
+  )
+
+  // --- TODO list slice: a personal task list living entirely in local SQLite ---
+  registerTodoHandlers(
+    ipcMain,
+    createTodoHandlers({ db: database, todos: createTodoRepo(database, deps) })
   )
 
   // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT anywhere) ---

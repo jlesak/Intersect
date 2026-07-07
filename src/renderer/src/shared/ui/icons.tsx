@@ -85,6 +85,19 @@ export const IconClock = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconTodo = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 4h2l1 1h6v8H3zM5 8h6M5 10.5h4" />
+  </svg>
+)
+
+export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+    <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+  </svg>
+)
+
 export const IconMyWork = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M2 4h12M2 8h12M2 12h7" />
