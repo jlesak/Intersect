@@ -170,6 +170,25 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // TODO list: a flat personal task list, independent of workspaces and Jira. `due_day` is the
+    // optional local calendar day (`yyyy-mm-dd`) the task is due; `sort_order` is the manual
+    // position within the open list. A non-null `done_at` (epoch ms) means the task is done and
+    // doubles as the Done section's ordering key (most recently completed first).
+    version: 7,
+    up(db) {
+      db.exec(`
+        CREATE TABLE todo_task (
+          id         TEXT PRIMARY KEY,
+          text       TEXT NOT NULL,
+          due_day    TEXT,
+          sort_order INTEGER NOT NULL,
+          done_at    INTEGER,
+          created_at INTEGER NOT NULL
+        );
+      `)
+    }
   }
 ]
 

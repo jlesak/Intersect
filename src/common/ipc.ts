@@ -18,6 +18,8 @@ import type {
   TimeEntry,
   TimeEntrySource,
   TimeEntryUpdate,
+  TodoLists,
+  TodoTask,
   Workspace
 } from './domain'
 
@@ -123,6 +125,16 @@ export interface IpcApi {
     updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
     deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+  }
+  todo: {
+    /** Both TODO lists: open tasks in manual order, done tasks most recently completed first. */
+    list(): Promise<TodoLists>
+    add(text: string, dueDay: string | null): Promise<TodoTask>
+    /** Checking stamps the completion time; unchecking appends the task to the end of the open list. */
+    setDone(id: string, done: boolean): Promise<TodoTask>
+    remove(id: string): Promise<void>
+    /** Persist a manual reordering of the open list; returns it in the new order. */
+    reorder(orderedIds: string[]): Promise<TodoTask[]>
   }
   myWork: {
     /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
@@ -232,6 +244,12 @@ export const Channel = {
   timeTrackingAddManual: 'timeTracking:addManual',
   timeTrackingUpdateEntry: 'timeTracking:updateEntry',
   timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
+  // todo (request/response)
+  todoList: 'todo:list',
+  todoAdd: 'todo:add',
+  todoSetDone: 'todo:setDone',
+  todoRemove: 'todo:remove',
+  todoReorder: 'todo:reorder',
   // myWork (request/response)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',

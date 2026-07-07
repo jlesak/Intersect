@@ -332,3 +332,29 @@ export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueK
 
 /** The two fields editable in place on any card, auto or manual. */
 export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>
+
+// ---------------------------------------------------------------------------
+// TODO list - see docs/superpowers/specs/2026-07-06-todo-list-design.md
+// ---------------------------------------------------------------------------
+
+/**
+ * One task on the personal TODO list - a lightweight note-to-self with no tie to workspaces or
+ * Jira. `dueDay` is the optional local calendar day (`yyyy-mm-dd`) the task is due; `sortOrder`
+ * is the manual position within the open list. A non-null `doneAt` (epoch ms) means the task is
+ * done and orders the Done section, most recently completed first.
+ */
+export interface TodoTask {
+  id: string
+  text: string
+  dueDay: string | null
+  sortOrder: number
+  doneAt: number | null
+}
+
+/** Both TODO lists fetched together, so a single call hydrates the whole section. */
+export interface TodoLists {
+  /** Open tasks in manual order. */
+  open: TodoTask[]
+  /** Done tasks, most recently completed first. */
+  done: TodoTask[]
+}

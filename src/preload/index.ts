@@ -104,6 +104,13 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, source, id, update),
     deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id)
   },
+  todo: {
+    list: () => ipcRenderer.invoke(Channel.todoList),
+    add: (text, dueDay) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay),
+    setDone: (id, done) => ipcRenderer.invoke(Channel.todoSetDone, id, done),
+    remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
+    reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
+  },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),
     refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),

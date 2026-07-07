@@ -71,6 +71,25 @@ describe('migrations', () => {
     ).toBe(1)
   })
 
+  test('the todo table accepts open and done tasks with an optional due day', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO todo_task (id, text, due_day, sort_order, done_at, created_at)
+       VALUES ('t1', 'Ask Marek about the review', '2026-07-10', 0, NULL, 1)`
+    ).run()
+    db.prepare(
+      `INSERT INTO todo_task (id, text, due_day, sort_order, done_at, created_at)
+       VALUES ('t2', 'Order a monitor', NULL, 1, 42, 2)`
+    ).run()
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM todo_task WHERE done_at IS NULL').get() as { c: number }).c
+    ).toBe(1)
+    expect(
+      (db.prepare("SELECT due_day AS d FROM todo_task WHERE id = 't1'").get() as { d: string }).d
+    ).toBe('2026-07-10')
+  })
+
   test('deleting a workspace cascades to its tabs', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)
