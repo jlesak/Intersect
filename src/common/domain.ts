@@ -358,3 +358,53 @@ export interface TodoLists {
   /** Done tasks, most recently completed first. */
   done: TodoTask[]
 }
+
+// ---------------------------------------------------------------------------
+// 1:1 workflows - see docs/superpowers/specs/2026-07-06-one-on-one-workflows-design.md
+// ---------------------------------------------------------------------------
+
+/**
+ * The two runnable 1:1 workflows: `process` turns a VTT recording into a Notion note plus a Slack
+ * summary (via the user's 1to1 skill), `prep` produces an in-app markdown briefing for an
+ * upcoming 1:1.
+ */
+export const OTO_RUN_TYPES = ['process', 'prep'] as const
+export type OtoRunType = (typeof OTO_RUN_TYPES)[number]
+
+/** A run's lifecycle. `running` means the hidden Claude Code session is still working. */
+export const OTO_RUN_STATUSES = ['running', 'done', 'failed'] as const
+export type OtoRunStatus = (typeof OTO_RUN_STATUSES)[number]
+
+/**
+ * One 1:1 workflow run, persisted so the run history survives app restarts. The result fields are
+ * per type: a done `process` run carries the Notion page URL and the Slack draft outcome; a done
+ * `prep` run carries the briefing as markdown. `error` is set only on a failed run. Timestamps
+ * are epoch ms; `finishedAt` is null while the run is still going.
+ */
+export interface OtoRun {
+  id: string
+  type: OtoRunType
+  /** Free-text person name typed into the form (no persistent people list by design). */
+  person: string
+  /** Absolute path of the VTT recording; null for `prep` runs. */
+  vttPath: string | null
+  status: OtoRunStatus
+  /** URL of the Notion page the 1to1 skill updated; null until a `process` run is done. */
+  notionUrl: string | null
+  /** Whether the 1to1 skill created the Slack summary draft (false also while running/for prep). */
+  slackDraftCreated: boolean
+  /** Slack link to the created draft's conversation, when the skill reported one. */
+  slackChannelLink: string | null
+  /** The `prep` briefing rendered in-app as markdown; null until a `prep` run is done. */
+  resultMarkdown: string | null
+  error: string | null
+  createdAt: number
+  finishedAt: number | null
+}
+
+/** The fields the form supplies to start a run; `vttPath` is required only for `process`. */
+export interface OtoStartInput {
+  type: OtoRunType
+  person: string
+  vttPath?: string | null
+}

@@ -3,7 +3,13 @@ import { Channel, type IpcApi } from '@common/ipc'
 import { JIRA_HOST } from '../myWork/jiraMapping'
 
 /** Hosts Intersect may hand to the system browser. Grows one entry per feature that links out. */
-const ALLOWED_EXTERNAL_HOSTS = new Set([JIRA_HOST])
+const ALLOWED_EXTERNAL_HOSTS = new Set([JIRA_HOST, 'notion.so', 'www.notion.so', 'slack.com'])
+
+/**
+ * Host suffixes allowed for services that address content by subdomain: Notion page links live
+ * under user subdomains and a Slack channel link carries the workspace as its subdomain.
+ */
+const ALLOWED_EXTERNAL_HOST_SUFFIXES = ['.notion.so', '.slack.com']
 
 /**
  * Whether a URL may be opened in the system browser: https only, host allowlisted. Everything
@@ -16,7 +22,11 @@ export function isAllowedExternalUrl(url: string): boolean {
   } catch {
     return false
   }
-  return parsed.protocol === 'https:' && ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname)
+  if (parsed.protocol !== 'https:') return false
+  return (
+    ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname) ||
+    ALLOWED_EXTERNAL_HOST_SUFFIXES.some((suffix) => parsed.hostname.endsWith(suffix))
+  )
 }
 
 export interface SystemHandlerDeps {
@@ -36,8 +46,11 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The system surface main implements (getPathForFile lives entirely in preload, off IPC). */
+export type SystemHandlers = Omit<IpcApi['system'], 'getPathForFile'>
+
 /** System-level handlers: the allowlist-guarded bridge to the default browser. */
-export function createSystemHandlers(deps: SystemHandlerDeps): IpcApi['system'] {
+export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
   return {
     openExternal: (url) =>
       surface(async () => {
@@ -47,6 +60,6 @@ export function createSystemHandlers(deps: SystemHandlerDeps): IpcApi['system'] 
   }
 }
 
-export function registerSystemHandlers(ipcMain: IpcMain, h: IpcApi['system']): void {
+export function registerSystemHandlers(ipcMain: IpcMain, h: SystemHandlers): void {
   ipcMain.handle(Channel.systemOpenExternal, (_e, url: string) => h.openExternal(url))
 }

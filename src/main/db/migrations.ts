@@ -189,6 +189,32 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // 1:1 workflows: the persistent run history. Result columns are per type - a done 'process'
+    // run fills notion_url / slack_draft_created / slack_channel_link, a done 'prep' run fills
+    // result_markdown, a failed run fills error. `finished_at` stays NULL while the run lives.
+    version: 8,
+    up(db) {
+      db.exec(`
+        CREATE TABLE oto_run (
+          id                  TEXT PRIMARY KEY,
+          type                TEXT NOT NULL CHECK (type IN ('process','prep')),
+          person              TEXT NOT NULL,
+          vtt_path            TEXT,
+          status              TEXT NOT NULL CHECK (status IN ('running','done','failed')),
+          notion_url          TEXT,
+          slack_draft_created INTEGER,
+          slack_channel_link  TEXT,
+          result_markdown     TEXT,
+          error               TEXT,
+          created_at          INTEGER NOT NULL,
+          finished_at         INTEGER
+        );
+
+        CREATE INDEX idx_oto_run_created ON oto_run(created_at);
+      `)
+    }
   }
 ]
 

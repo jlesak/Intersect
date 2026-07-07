@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import type { Preset } from '@common/domain'
+import type { OtoRun, Preset } from '@common/domain'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
@@ -36,6 +36,7 @@ import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.i
 import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './ipc/timeTracking.ipc'
 import { createTodoHandlers, registerTodoHandlers } from './ipc/todo.ipc'
 import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
+import { createOneOnOneHandlers, registerOneOnOneHandlers } from './ipc/oneOnOne.ipc'
 import { createSystemHandlers, registerSystemHandlers } from './ipc/system.ipc'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
@@ -45,6 +46,9 @@ import { createJiraE2eStub } from './myWork/jiraE2eStub'
 import { createJiraFetcher } from './myWork/jiraFetch'
 import { createJiraIndex } from './myWork/jiraIndex'
 import { createJiraLogin } from './myWork/jiraLogin'
+import { createOtoRunRepo } from './db/otoRunRepo'
+import { createOtoE2eStub } from './oneOnOne/otoE2eStub'
+import { createOtoManager } from './oneOnOne/otoManager'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoE2eStub } from './prInbox/adoE2eStub'
 import { createAdoService } from './prInbox/adoService'
@@ -146,6 +150,16 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  // The renderer shows content that originates outside the app (Notion, Slack, LLM output); a
+  // clicked link must never navigate the app window itself, where the preload bridge would hand
+  // the remote page the whole IPC surface. External links go through system.openExternal only.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).origin !== new URL(mainWindow!.webContents.getURL()).origin) {
+      event.preventDefault()
+    }
+  })
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (devUrl) void mainWindow.loadURL(devUrl)
@@ -294,10 +308,9 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   )
 
   // --- TODO list slice: a personal task list living entirely in local SQLite ---
-  registerTodoHandlers(
-    ipcMain,
-    createTodoHandlers({ db: database, todos: createTodoRepo(database, deps) })
-  )
+  // The repo is shared with the 1:1 slice, which fulltext-matches task texts (read-only).
+  const todos = createTodoRepo(database, deps)
+  registerTodoHandlers(ipcMain, createTodoHandlers({ db: database, todos }))
 
   // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT anywhere) ---
   // E2E runs get a stubbed backend: the section auto-fetches on first open (which is boot, since
@@ -321,6 +334,34 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   )
   registerSystemHandlers(ipcMain, createSystemHandlers({ openExternal: (url) => shell.openExternal(url) }))
 
+  // --- 1:1 slice: the two workflows behind hidden Claude Code sessions, plus their run history ---
+  // Any run still 'running' in the DB belonged to a previous app process and can never finish.
+  const otoRuns = createOtoRunRepo(database, deps)
+  otoRuns.reconcileOnBoot()
+  const onOtoRunChanged = (run: OtoRun): void => sendToRenderer(Channel.oneOnOneRunChanged, run)
+  const oto =
+    process.env.INTERSECT_E2E === '1'
+      ? createOtoE2eStub({ runs: otoRuns, onRunChanged: onOtoRunChanged, env: process.env })
+      : createOtoManager({
+          runs: otoRuns,
+          onRunChanged: onOtoRunChanged,
+          spawn: nodePtySpawn,
+          claudePath: resolveClaudePath(),
+          reportServerPath: join(__dirname, 'otoReportServer.js')
+        })
+  const pickVttFile = async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'VTT', extensions: ['vtt'] }],
+      title: 'Choose a 1:1 recording (VTT)'
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  }
+  registerOneOnOneHandlers(
+    ipcMain,
+    createOneOnOneHandlers({ runs: otoRuns, manager: oto, todos, pickVttFile })
+  )
+
   // Kill every PTY when the app quits so no shell process is orphaned. review.shutdown() is
   // synchronous and does NOT touch the DB, so closing the DB immediately after is safe (its async
   // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on next boot.
@@ -329,6 +370,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     review.shutdown()
     jiraFetcher.dispose()
     jiraLogin.dispose()
+    oto.dispose()
     void adoClient.close()
     db?.close()
     db = null
