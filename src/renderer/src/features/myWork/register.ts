@@ -9,7 +9,7 @@ import { useMyWorkStore } from './store'
 export function registerMyWorkFeature(): void {
   registerSidebarSection({
     id: 'myWork',
-    order: -1,
+    order: -2,
     label: 'My Work',
     icon: IconMyWork,
     component: SidebarMyWork,

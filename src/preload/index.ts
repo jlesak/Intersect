@@ -96,6 +96,14 @@ const api: IpcApi = {
     refresh: () => ipcRenderer.invoke(Channel.sessionsRefresh),
     getTranscript: (id) => ipcRenderer.invoke(Channel.sessionsGetTranscript, id)
   },
+  timeTracking: {
+    getWeek: (weekStart) => ipcRenderer.invoke(Channel.timeTrackingGetWeek, weekStart),
+    refreshWeek: (weekStart) => ipcRenderer.invoke(Channel.timeTrackingRefreshWeek, weekStart),
+    addManual: (input) => ipcRenderer.invoke(Channel.timeTrackingAddManual, input),
+    updateEntry: (source, id, update) =>
+      ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, source, id, update),
+    deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id)
+  },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),
     refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),

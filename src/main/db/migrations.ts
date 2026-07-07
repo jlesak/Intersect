@@ -139,6 +139,37 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Time Tracking: the weekly worklog board's two writable stores. `time_entry_manual` holds
+    // worklogs the user typed in (`day` is the local calendar day as `yyyy-mm-dd`; a null
+    // `issue_key` is deliberate unattributed time, e.g. a meeting). `time_entry_override` carries
+    // the user's edits to auto entries derived from Claude Code sessions: a row snapshots BOTH
+    // editable fields, so a cleared issue key needs no sentinel, and its `deleted` tombstone keeps
+    // a removed auto card from resurrecting on the next session re-scan.
+    version: 6,
+    up(db) {
+      db.exec(`
+        CREATE TABLE time_entry_manual (
+          id          TEXT PRIMARY KEY,
+          day         TEXT NOT NULL,
+          description TEXT NOT NULL,
+          issue_key   TEXT,
+          duration_ms INTEGER NOT NULL,
+          created_at  INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_time_entry_manual_day ON time_entry_manual(day);
+
+        CREATE TABLE time_entry_override (
+          session_id  TEXT PRIMARY KEY,
+          issue_key   TEXT,
+          duration_ms INTEGER NOT NULL,
+          deleted     INTEGER NOT NULL DEFAULT 0,
+          updated_at  INTEGER NOT NULL
+        );
+      `)
+    }
   }
 ]
 
