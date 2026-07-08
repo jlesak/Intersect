@@ -54,7 +54,7 @@ Claude tab that hasn't sent its first prompt yet):
 
 | Status | Color | Trigger | Notifies? |
 |---|---|---|---|
-| `working` | Blue `#5b9dd9`, steady | user submits a prompt (Enter, `\r`) into a claude-preset session's PTY input | no |
+| `working` | Blue `#5b9dd9`, steady | user submits a prompt (Enter, `\r`) into a claude-preset session's PTY input | opt-in (off by default) |
 | `waiting` | Amber/gold `#f0c53d`, pulsing | `permission_prompt` marker | yes |
 | `done` | Green `#5fd68a`, pulsing | `idle_prompt` marker | yes |
 
@@ -67,8 +67,13 @@ redraw bytes after printing a marker would otherwise flip the tab back to
 new prompt also drops any stale unacknowledged `waiting`/`done` alert for that
 session, since it no longer describes the current state.
 
-`working` is broadcast unconditionally (no suppress/dedup/notify) since it never
-raises a native notification and is idempotent on the renderer. `waiting`/`done`
+`working` is broadcast unconditionally to recolor the tab and is idempotent on
+the renderer. A native notification for `working` fires only on the transition
+into working (not on every prompt of an already-working session), is suppressed
+while the user is viewing that session, and is gated by the user's notification
+settings (see the Settings slice) - the `working` toggle is off by default, so
+out of the box `working` still stays silent. It is not deduped via the pending
+set and does not escalate. `waiting`/`done`
 keep the original suppress-when-viewing and dedup-until-acknowledged rules, plus
 escalation (a pending `done` is superseded by a `waiting` for the same session).
 Viewing a session (`acknowledge`) clears `waiting`/`done` back to neutral but

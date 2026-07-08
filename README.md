@@ -78,9 +78,10 @@ e2e/                 # Playwright _electron specs
 
 Two dead-simple registries let future slices plug in without restructuring:
 
-- **Sidebar section registry** - slices push `{ id, order, icon, label, component, mainComponent }`;
-  the shell renders sections and the active section's main content from the registry, so nothing is
-  hardcoded to "workspaces".
+- **Sidebar section registry** - slices push `{ id, order, icon, label, component, mainComponent,
+  placement }`; the shell renders sections and the active section's main content from the registry,
+  so nothing is hardcoded to "workspaces". `placement` pins utility sections (Settings) to the
+  sidebar footer instead of the main rail.
 - **Command registry** - a `Map` of `{ id, title, handler }` (e.g. `workspaces.create`,
   `terminal.layoutColumns`). Data structure only - a future command palette will consume it.
 
