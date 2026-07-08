@@ -1,7 +1,11 @@
 import { create } from 'zustand'
-import type { AdoSettings, NotificationSettings } from '@common/domain'
+import type { AdoFallback, AdoSettings, NotificationSettings } from '@common/domain'
+import { debounce } from '@common/debounce'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
+
+/** How long the font-size slider settles before its value is written to SQLite (see below). */
+const FONT_SIZE_PERSIST_DELAY_MS = 250
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -12,11 +16,15 @@ export type AdoTestState =
   | { status: 'success'; displayName: string }
   | { status: 'error'; error: string }
 
+const EMPTY_ADO_FALLBACK: AdoFallback = { orgUrl: '', project: '', hasPat: false }
+
 interface SettingsState {
   status: Status
   error: string | null
   notifications: NotificationSettings
   ado: AdoSettings
+  /** Live fallback shown as form hints while a saved field is blank; never carries the PAT. */
+  adoFallback: AdoFallback
   terminalFontSize: number
   adoTest: AdoTestState
   load(): Promise<void>
@@ -28,8 +36,13 @@ interface SettingsState {
    * outcome is stale once a field changes, so it resets.
    */
   setAdoField(key: keyof AdoSettings, value: string): Promise<void>
-  /** Move the slider; live terminals restyle via the store subscription in settingsWiring. */
-  setTerminalFontSize(px: number): Promise<void>
+  /**
+   * Move the slider: the new size lands in state at once (live terminals restyle via the store
+   * subscription in settingsWiring), while the SQLite write is debounced so a drag does not storm
+   * the DB. `commitTerminalFontSize` flushes that pending write on pointer-up / relaunch.
+   */
+  setTerminalFontSize(px: number): void
+  commitTerminalFontSize(): void
   /** Probe Azure DevOps with the current form values (saved or not) and record the outcome. */
   testConnection(): Promise<void>
 }
@@ -58,11 +71,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     }
   }
 
+  /** The most recent slider value gets written once the drag settles; flushed on commit. */
+  const persistFontSize = debounce((px: number) => {
+    void persist(() => api.setTerminalFontSize(px), 'Could not save the terminal font size')
+  }, FONT_SIZE_PERSIST_DELAY_MS)
+
   return {
     status: 'idle',
     error: null,
     notifications: INITIAL_NOTIFICATIONS,
     ado: EMPTY_ADO,
+    adoFallback: EMPTY_ADO_FALLBACK,
     terminalFontSize: 12.5,
     adoTest: { status: 'idle' },
 
@@ -75,6 +94,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
           error: null,
           notifications: settings.notifications,
           ado: settings.ado,
+          adoFallback: settings.adoFallback,
           terminalFontSize: settings.appearance.terminalFontSize
         })
       } catch (e) {
@@ -94,9 +114,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
       await persist(() => api.setAdo(next), 'Could not save the Azure DevOps settings')
     },
 
-    async setTerminalFontSize(px) {
+    setTerminalFontSize(px) {
       set({ terminalFontSize: px })
-      await persist(() => api.setTerminalFontSize(px), 'Could not save the terminal font size')
+      persistFontSize(px)
+    },
+
+    commitTerminalFontSize() {
+      persistFontSize.flush()
     },
 
     async testConnection() {

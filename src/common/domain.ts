@@ -444,6 +444,18 @@ export interface AdoSettings {
   pat: string
 }
 
+/**
+ * The live Azure DevOps fallback (`~/.claude.json` / `AZURE_DEVOPS_*` env) shown to the user as
+ * hints while the matching saved field is blank. The PAT itself is never sent to the renderer;
+ * `hasPat` only says whether the fallback supplies one, so the form can hint that a token is
+ * inherited without exposing it.
+ */
+export interface AdoFallback {
+  orgUrl: string
+  project: string
+  hasPat: boolean
+}
+
 export interface AppearanceSettings {
   /** Font size (px) of every xterm terminal; applied to live instances immediately. */
   terminalFontSize: number
@@ -452,7 +464,9 @@ export interface AppearanceSettings {
 /** All user settings fetched together, so a single call hydrates the whole section. */
 export interface AppSettings {
   notifications: NotificationSettings
+  /** Only what the user actually entered; a blank field defers to `adoFallback` at resolve time. */
   ado: AdoSettings
+  adoFallback: AdoFallback
   appearance: AppearanceSettings
 }
 

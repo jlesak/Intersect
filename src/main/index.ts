@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AdoSettings, OtoRun, Preset } from '@common/domain'
+import { debounce } from '@common/debounce'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
@@ -269,6 +270,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   const reviewSessions = createReviewSessionRepo(database, deps)
 
   const adoClient = createAdoClient(() => resolveAdoServerConfig(process.env, settings.getSavedAdo()))
+  const debouncedAdoTeardown = debounce(() => void adoClient.close(), 500)
   // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR radar)
   // runs the real cache/watermark path without a live server; everything else stays unchanged.
   const adoStub = process.env.INTERSECT_E2E === '1' ? createAdoE2eStub(process.env) : null
@@ -380,8 +382,14 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
           ? () => Promise.resolve({ ok: true as const, displayName: 'E2E User' })
           : (ado) => testAdoConnection(ado),
       // The MCP child keeps the credentials it was spawned with, so saving new ones must drop it;
-      // the next PR-sync call reconnects with the fresh config instead of the stale PAT/org.
-      adoSettingsChanged: () => adoClient.close()
+      // the next PR-sync call reconnects with the fresh config instead of the stale PAT/org. The
+      // teardown is debounced: the form persists per keystroke, so an un-debounced close would drop
+      // the live client (and any in-flight PR sync) on every character - this coalesces a burst into
+      // a single teardown once the edit settles.
+      adoSettingsChanged: () => {
+        debouncedAdoTeardown()
+        return Promise.resolve()
+      }
     })
   )
 
@@ -422,6 +430,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     jiraFetcher.dispose()
     jiraLogin.dispose()
     oto.dispose()
+    debouncedAdoTeardown.cancel()
     void adoClient.close()
     db?.close()
     db = null

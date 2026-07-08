@@ -75,6 +75,19 @@ describe('testAdoConnection', () => {
     }
   })
 
+  test('rejects a HTTP 200 HTML sign-in page as an auth failure, not a raw parse error', async () => {
+    const html = '<!DOCTYPE html><html><head><title>Please sign in</title></head><body>SSO</body></html>'
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(new Response(html, { status: 200 }))
+    const result = await testAdoConnection(input({ repository: '' }), { fetchFn })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('rejected the PAT')
+      expect(result.error).toContain('Please sign in')
+      expect(result.error).not.toContain('DOCTYPE')
+      expect(result.error).not.toMatch(/JSON|Unexpected token/i)
+    }
+  })
+
   test('a 404 on the repository probe names the missing project/repository', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

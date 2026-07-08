@@ -151,7 +151,17 @@ const ADO_FIELDS: { key: keyof AdoSettings; label: string; type: 'text' | 'passw
 
 function AdoPane() {
   const ado = useSettingsStore((s) => s.ado)
+  const adoFallback = useSettingsStore((s) => s.adoFallback)
   const adoTest = useSettingsStore((s) => s.adoTest)
+
+  // A blank field is served live by the fallback (`~/.claude.json` / env), so hint the effective
+  // value as the placeholder rather than pre-filling it - typing here means "override the fallback".
+  const placeholder = (key: keyof AdoSettings): string => {
+    if (key === 'orgUrl') return adoFallback.orgUrl
+    if (key === 'project') return adoFallback.project
+    if (key === 'pat') return adoFallback.hasPat ? 'Používá se PAT z ~/.claude.json' : ''
+    return ''
+  }
 
   return (
     <>
@@ -164,6 +174,7 @@ function AdoPane() {
             className="ix-input"
             type={field.type}
             spellCheck={false}
+            placeholder={placeholder(field.key)}
             value={ado[field.key]}
             onChange={(e) => void useSettingsStore.getState().setAdoField(field.key, e.target.value)}
           />
@@ -231,6 +242,10 @@ function ShortcutsPane() {
 function AppearancePane() {
   const fontSize = useSettingsStore((s) => s.terminalFontSize)
 
+  // Every drag step updates state (live terminals restyle at once) but the SQLite write is
+  // debounced; flush it the moment the interaction settles so the size survives a relaunch.
+  const commit = (): void => useSettingsStore.getState().commitTerminalFontSize()
+
   return (
     <>
       <div className="ix-settings__title">Vzhled</div>
@@ -244,9 +259,10 @@ function AppearancePane() {
             max={TERMINAL_FONT_SIZE_MAX}
             step={0.5}
             value={fontSize}
-            onChange={(e) =>
-              void useSettingsStore.getState().setTerminalFontSize(Number(e.target.value))
-            }
+            onChange={(e) => useSettingsStore.getState().setTerminalFontSize(Number(e.target.value))}
+            onPointerUp={commit}
+            onKeyUp={commit}
+            onBlur={commit}
           />
           <span className="ix-set-slider__value">{fontSize}px</span>
         </div>

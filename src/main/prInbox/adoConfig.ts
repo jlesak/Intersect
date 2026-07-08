@@ -11,33 +11,30 @@ export interface AdoServerConfig {
 }
 
 /**
- * Resolve the Azure DevOps MCP server launch config. Settings the user saved in the app win;
- * otherwise it resolves the same way Claude Code does: from the global `~/.claude.json`
- * `mcpServers.azureDevOps` entry (command/args/env incl. the PAT), falling back to constructing
- * it from `AZURE_DEVOPS_*` process env if the file entry is absent.
+ * Resolve the Azure DevOps MCP server launch config. Each connection field (org URL, project, PAT)
+ * is resolved independently: a value the user saved in the app wins only when it is non-empty,
+ * otherwise it comes live from the same fallback Claude Code uses - the global `~/.claude.json`
+ * `mcpServers.azureDevOps` entry (command/args/env incl. the PAT), or `AZURE_DEVOPS_*` process env
+ * if the file entry is absent. So saving only the repository never freezes the fallback PAT, and a
+ * PAT rotated in `~/.claude.json` is picked up as long as the user has not saved their own.
  */
 export function resolveAdoServerConfig(
   env: NodeJS.ProcessEnv = process.env,
   saved?: AdoSettings | null
 ): AdoServerConfig {
-  if (saved?.orgUrl && saved.pat) {
-    return {
-      command: 'npx',
-      args: ['-y', '@tiberriver256/mcp-server-azure-devops'],
-      env: {
-        AZURE_DEVOPS_AUTH_METHOD: env.AZURE_DEVOPS_AUTH_METHOD ?? 'pat',
-        AZURE_DEVOPS_ORG_URL: saved.orgUrl,
-        AZURE_DEVOPS_DEFAULT_PROJECT: saved.project,
-        AZURE_DEVOPS_PAT: saved.pat
-      }
-    }
-  }
+  const savedOrgUrl = saved?.orgUrl?.trim() ?? ''
+  const savedProject = saved?.project?.trim() ?? ''
+  const savedPat = saved?.pat?.trim() ?? ''
 
-  const fromFile = readClaudeJsonAdoServer()
-  if (fromFile) return fromFile
+  // Only consult the fallback when the saved settings leave a connection field blank, so a fully
+  // saved connection stays self-contained (and its resolution never depends on the machine's
+  // `~/.claude.json`).
+  const fallback =
+    savedOrgUrl && savedProject && savedPat ? null : resolveFallbackServerConfig(env)
 
-  const orgUrl = env.AZURE_DEVOPS_ORG_URL
-  const pat = env.AZURE_DEVOPS_PAT
+  const orgUrl = savedOrgUrl || fallback?.env.AZURE_DEVOPS_ORG_URL || ''
+  const project = savedProject || fallback?.env.AZURE_DEVOPS_DEFAULT_PROJECT || ''
+  const pat = savedPat || fallback?.env.AZURE_DEVOPS_PAT || ''
   if (!orgUrl || !pat) {
     throw new Error(
       'Azure DevOps is not configured. Expected settings saved in the app, ' +
@@ -45,6 +42,39 @@ export function resolveAdoServerConfig(
         'AZURE_DEVOPS_ORG_URL + AZURE_DEVOPS_PAT in the environment.'
     )
   }
+
+  // Keep the fallback's command/args/env (an on-prem file entry may use a custom launcher), then
+  // overlay the effective identity so a per-field override still takes effect.
+  const base = fallback ?? {
+    command: 'npx',
+    args: ['-y', '@tiberriver256/mcp-server-azure-devops'],
+    env: {} as Record<string, string>
+  }
+  return {
+    command: base.command,
+    args: base.args,
+    env: {
+      ...base.env,
+      AZURE_DEVOPS_AUTH_METHOD: base.env.AZURE_DEVOPS_AUTH_METHOD ?? env.AZURE_DEVOPS_AUTH_METHOD ?? 'pat',
+      AZURE_DEVOPS_ORG_URL: orgUrl,
+      AZURE_DEVOPS_DEFAULT_PROJECT: project,
+      AZURE_DEVOPS_PAT: pat
+    }
+  }
+}
+
+/**
+ * The fallback ADO server config Claude Code itself would use: the `~/.claude.json`
+ * `mcpServers.azureDevOps` entry if present, else one constructed from `AZURE_DEVOPS_*` env.
+ * Returns null when neither source carries an org URL + PAT.
+ */
+function resolveFallbackServerConfig(env: NodeJS.ProcessEnv): AdoServerConfig | null {
+  const fromFile = readClaudeJsonAdoServer()
+  if (fromFile) return fromFile
+
+  const orgUrl = env.AZURE_DEVOPS_ORG_URL
+  const pat = env.AZURE_DEVOPS_PAT
+  if (!orgUrl || !pat) return null
   return {
     command: 'npx',
     args: ['-y', '@tiberriver256/mcp-server-azure-devops'],

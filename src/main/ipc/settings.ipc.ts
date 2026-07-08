@@ -41,12 +41,33 @@ async function surface<T>(op: () => T | Promise<T>): Promise<T> {
  * settings, so the renderer never has to compose partial state. Test-connection is a pure
  * probe of the given form values - it saves nothing.
  */
+const EMPTY_ADO: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
+
 export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings'] {
   function current(): AppSettings {
+    const fallback = d.fallbackAdo()
     return {
       notifications: d.settings.getNotifications(),
-      ado: d.settings.getSavedAdo() ?? d.fallbackAdo(),
+      // Only the values the user actually saved; a blank field defers live to the fallback (see
+      // resolveAdoServerConfig), so nothing here freezes a copy of `~/.claude.json` / env.
+      ado: d.settings.getSavedAdo() ?? EMPTY_ADO,
+      adoFallback: {
+        orgUrl: fallback.orgUrl,
+        project: fallback.project,
+        hasPat: fallback.pat.trim() !== ''
+      },
       appearance: d.settings.getAppearance()
+    }
+  }
+
+  /** Fill any blank form field from the live fallback, so a probe tests the effective connection. */
+  function effectiveAdo(form: AdoSettings): AdoSettings {
+    const fallback = d.fallbackAdo()
+    return {
+      orgUrl: form.orgUrl.trim() || fallback.orgUrl,
+      project: form.project.trim() || fallback.project,
+      repository: form.repository.trim() || fallback.repository,
+      pat: form.pat.trim() || fallback.pat
     }
   }
 
@@ -103,7 +124,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         return current()
       }),
 
-    testAdoConnection: (ado) => surface(() => d.testConnection(ado))
+    testAdoConnection: (ado) => surface(() => d.testConnection(effectiveAdo(ado)))
   }
 }
 

@@ -11,6 +11,7 @@ const mocked = vi.mocked(api)
 const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
   ado: { orgUrl: 'https://devops.example.com', project: 'SPOT', repository: 'app', pat: 'pat-1' },
+  adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },
   appearance: { terminalFontSize: 14 },
   ...over
 })
@@ -22,6 +23,7 @@ const reset = (): void => {
       error: null,
       notifications: INITIAL_NOTIFICATIONS,
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
+      adoFallback: { orgUrl: '', project: '', hasPat: false },
       terminalFontSize: 12.5,
       adoTest: { status: 'idle' }
     },
@@ -45,6 +47,7 @@ describe('load', () => {
     const s = useSettingsStore.getState()
     expect(s.status).toBe('ready')
     expect(s.ado.orgUrl).toBe('https://devops.example.com')
+    expect(s.adoFallback).toEqual({ orgUrl: 'https://fallback', project: 'FB', hasPat: true })
     expect(s.terminalFontSize).toBe(14)
   })
 
@@ -82,10 +85,26 @@ describe('setAdoField', () => {
 })
 
 describe('setTerminalFontSize', () => {
-  test('updates locally (live terminals subscribe to this) and persists', async () => {
-    await useSettingsStore.getState().setTerminalFontSize(16)
+  test('updates the live value at once (terminals subscribe) but debounces the persist', () => {
+    useSettingsStore.getState().setTerminalFontSize(16)
     expect(useSettingsStore.getState().terminalFontSize).toBe(16)
+    expect(mocked.setTerminalFontSize).not.toHaveBeenCalled()
+
+    useSettingsStore.getState().commitTerminalFontSize()
     expect(mocked.setTerminalFontSize).toHaveBeenCalledWith(16)
+  })
+
+  test('a drag burst persists only the final value once committed', () => {
+    const s = useSettingsStore.getState()
+    s.setTerminalFontSize(11)
+    s.setTerminalFontSize(12)
+    s.setTerminalFontSize(13)
+    expect(useSettingsStore.getState().terminalFontSize).toBe(13)
+    expect(mocked.setTerminalFontSize).not.toHaveBeenCalled()
+
+    s.commitTerminalFontSize()
+    expect(mocked.setTerminalFontSize).toHaveBeenCalledTimes(1)
+    expect(mocked.setTerminalFontSize).toHaveBeenCalledWith(13)
   })
 })
 

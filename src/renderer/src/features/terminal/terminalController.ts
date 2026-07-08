@@ -1,10 +1,16 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { Preset } from '@common/domain'
+import { debounce } from '@common/debounce'
 import { makeSessionId } from '@common/ipc'
 import { createDataRouter } from './dataRouter'
 import * as ipc from './ipc'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
+
+// A font-size change restyles xterm instantly, but the follow-up refit + PTY winsize resize is
+// coalesced: dragging the settings slider must not fire a refit/resize per step across every open
+// terminal. The trailing call lands the final cols/rows once the size settles.
+const FONT_SIZE_REFIT_DELAY_MS = 120
 
 // Backpressure watermarks (bytes outstanding in xterm's write buffer). Crossing HIGH pauses the
 // child (XOFF); dropping under LOW resumes it (XON). Keeps a firehose from hanging the renderer.
@@ -32,15 +38,23 @@ const router = createDataRouter()
 let currentFontSize = XTERM_FONT_SIZE
 
 /**
- * Apply a new font size to every live terminal immediately (refitting each visible one so its
- * cols/rows and the PTY winsize follow), and to every terminal created from now on.
+ * Apply a new font size to every live terminal immediately (the visible restyle is the live
+ * preview), and to every terminal created from now on. The heavier refit - recomputing cols/rows
+ * and pushing the PTY winsize - is debounced so a slider drag settles into a single resize per
+ * terminal instead of one per step.
  */
 export function setTerminalFontSize(px: number): void {
   currentFontSize = px
-  for (const [sessionId, view] of views) {
+  for (const [, view] of views) {
     if (view.disposed) continue
     view.term.options.fontSize = px
-    if (!view.opened) continue
+  }
+  refitForFontSize()
+}
+
+const refitForFontSize = debounce(() => {
+  for (const [sessionId, view] of views) {
+    if (view.disposed || !view.opened) continue
     try {
       view.fit.fit()
     } catch {
@@ -48,7 +62,7 @@ export function setTerminalFontSize(px: number): void {
     }
     ipc.resize(sessionId, view.term.cols, view.term.rows)
   }
-}
+}, FONT_SIZE_REFIT_DELAY_MS)
 
 // Exactly one listener per channel for the renderer's lifetime; the router demuxes by sessionId.
 let wired = false

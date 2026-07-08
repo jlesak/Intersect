@@ -37,12 +37,29 @@ describe('settings handlers', () => {
     })
   })
 
-  test('get falls back to defaults and the env-derived ADO config when nothing is saved', async () => {
+  test('get returns an empty ADO form plus the env-derived fallback as a hint when nothing is saved', async () => {
     expect(await h.get()).toEqual({
       notifications: DEFAULT_NOTIFICATION_SETTINGS,
-      ado: FALLBACK_ADO,
+      ado: { orgUrl: '', project: '', repository: '', pat: '' },
+      adoFallback: { orgUrl: FALLBACK_ADO.orgUrl, project: FALLBACK_ADO.project, hasPat: true },
       appearance: DEFAULT_APPEARANCE_SETTINGS
     })
+  })
+
+  test('get never leaks the fallback PAT to the renderer, only whether one exists', async () => {
+    const withoutPat = createSettingsHandlers({
+      settings,
+      fallbackAdo: () => ({ ...FALLBACK_ADO, pat: '' }),
+      testConnection,
+      adoSettingsChanged
+    })
+    expect((await withoutPat.get()).adoFallback).toEqual({
+      orgUrl: FALLBACK_ADO.orgUrl,
+      project: FALLBACK_ADO.project,
+      hasPat: false
+    })
+    // Whatever the renderer receives, the raw token string is never part of it.
+    expect(JSON.stringify(await h.get())).not.toContain('env-pat')
   })
 
   test('setNotifications persists and returns the fresh settings', async () => {
@@ -117,6 +134,16 @@ describe('settings handlers', () => {
     expect(await h.testAdoConnection(typed)).toEqual({ ok: true, displayName: 'Jan' })
     expect(testConnection).toHaveBeenCalledWith(typed)
     expect(settings.getSavedAdo()).toBeNull()
+  })
+
+  test('testAdoConnection fills blank form fields from the fallback so it probes the effective connection', async () => {
+    await h.testAdoConnection({ orgUrl: '', project: '', repository: 'my-repo', pat: '' })
+    expect(testConnection).toHaveBeenCalledWith({
+      orgUrl: FALLBACK_ADO.orgUrl,
+      project: FALLBACK_ADO.project,
+      repository: 'my-repo',
+      pat: 'env-pat'
+    })
   })
 
   test('a test-connection throw crosses as a message-only Error', async () => {

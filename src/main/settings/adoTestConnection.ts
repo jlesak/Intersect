@@ -46,8 +46,22 @@ export async function testAdoConnection(
             : `Azure DevOps rejected the connection (HTTP ${conn.status})${detail ? `: ${detail}` : ''}`
       }
     }
-    const data = (await conn.json()) as {
+    // An on-prem/TFS server can answer an invalid PAT with HTTP 200 and an HTML federated sign-in
+    // page rather than a 401; a parseable JSON body is the only proof the PAT was truly accepted.
+    const body = await conn.text()
+    let data: {
       authenticatedUser?: { customDisplayName?: string; providerDisplayName?: string }
+    }
+    try {
+      data = JSON.parse(body) as typeof data
+    } catch {
+      const detail = errorDetail(body)
+      return {
+        ok: false,
+        error: detail
+          ? `Azure DevOps rejected the PAT: ${detail}`
+          : 'Azure DevOps rejected the PAT (received a sign-in page instead of data).'
+      }
     }
     const displayName =
       data.authenticatedUser?.customDisplayName ||
