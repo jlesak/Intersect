@@ -13,6 +13,11 @@ export interface SidebarSection {
   icon: ComponentType
   component: ComponentType
   mainComponent?: ComponentType
+  /**
+   * Where the section's rail button lives: among the daily-use sections (default 'rail') or
+   * pinned to the sidebar's bottom ('footer', for utilities like Settings).
+   */
+  placement?: 'rail' | 'footer'
 }
 
 const sections: SidebarSection[] = []

@@ -10,6 +10,7 @@ import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
+import { wireSettings } from './app/settingsWiring'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
 import { useWorkspacesStore } from './features/workspaces'
@@ -39,3 +40,5 @@ wireAttention()
 wireSessionResume()
 // Bridge My Work's PR-radar clicks to the PR Inbox section (cross-slice, app-layer).
 wireMyWorkPrNav()
+// Hydrate the settings store and keep live terminals following the terminal font size.
+wireSettings()

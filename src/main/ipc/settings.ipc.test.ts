@@ -1,0 +1,160 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { AdoConnectionResult, AdoSettings } from '@common/domain'
+import { Channel, type IpcApi } from '@common/ipc'
+import { makeTestDb } from '../db/testkit'
+import {
+  createSettingsRepo,
+  DEFAULT_APPEARANCE_SETTINGS,
+  DEFAULT_NOTIFICATION_SETTINGS,
+  type SettingsRepo
+} from '../db/settingsRepo'
+import { createSettingsHandlers, registerSettingsHandlers } from './settings.ipc'
+
+const FALLBACK_ADO: AdoSettings = {
+  orgUrl: 'https://devops.example.com/tfs/Collection',
+  project: 'SPOT',
+  repository: '',
+  pat: 'env-pat'
+}
+
+describe('settings handlers', () => {
+  let settings: SettingsRepo
+  let testConnection: ReturnType<typeof vi.fn<(ado: AdoSettings) => Promise<AdoConnectionResult>>>
+  let adoSettingsChanged: ReturnType<typeof vi.fn<() => Promise<void>>>
+  let h: IpcApi['settings']
+
+  beforeEach(() => {
+    settings = createSettingsRepo(makeTestDb())
+    testConnection = vi
+      .fn<(ado: AdoSettings) => Promise<AdoConnectionResult>>()
+      .mockResolvedValue({ ok: true, displayName: 'Jan' })
+    adoSettingsChanged = vi.fn<() => Promise<void>>().mockResolvedValue()
+    h = createSettingsHandlers({
+      settings,
+      fallbackAdo: () => ({ ...FALLBACK_ADO }),
+      testConnection,
+      adoSettingsChanged
+    })
+  })
+
+  test('get falls back to defaults and the env-derived ADO config when nothing is saved', async () => {
+    expect(await h.get()).toEqual({
+      notifications: DEFAULT_NOTIFICATION_SETTINGS,
+      ado: FALLBACK_ADO,
+      appearance: DEFAULT_APPEARANCE_SETTINGS
+    })
+  })
+
+  test('setNotifications persists and returns the fresh settings', async () => {
+    const next = { enabled: false, working: true, waiting: true, done: false, sound: false }
+    const result = await h.setNotifications(next)
+    expect(result.notifications).toEqual(next)
+    expect(settings.getNotifications()).toEqual(next)
+  })
+
+  test('setAdo trims fields, persists, and saved values win over the fallback', async () => {
+    const result = await h.setAdo({
+      orgUrl: ' https://other.example.com ',
+      project: ' P1 ',
+      repository: ' repo ',
+      pat: ' my-pat '
+    })
+    expect(result.ado).toEqual({
+      orgUrl: 'https://other.example.com',
+      project: 'P1',
+      repository: 'repo',
+      pat: 'my-pat'
+    })
+    expect((await h.get()).ado.orgUrl).toBe('https://other.example.com')
+  })
+
+  test('setAdo notifies the ADO-settings-changed hook after persisting, so live clients reconnect', async () => {
+    await h.setAdo({ orgUrl: 'https://o', project: 'p', repository: 'r', pat: 'new-pat' })
+    expect(adoSettingsChanged).toHaveBeenCalledTimes(1)
+    expect(settings.getSavedAdo()?.pat).toBe('new-pat')
+  })
+
+  test('setAdo with unchanged values does not reconnect the ADO client', async () => {
+    const saved: AdoSettings = { orgUrl: 'https://o', project: 'p', repository: 'r', pat: 'pat' }
+    await h.setAdo(saved)
+    adoSettingsChanged.mockClear()
+    await h.setAdo({ ...saved, orgUrl: ' https://o ' })
+    expect(adoSettingsChanged).not.toHaveBeenCalled()
+    expect(settings.getSavedAdo()).toEqual(saved)
+  })
+
+  test('a repository-only change persists without reconnecting the ADO client', async () => {
+    await h.setAdo({ orgUrl: 'https://o', project: 'p', repository: 'r', pat: 'pat' })
+    adoSettingsChanged.mockClear()
+    await h.setAdo({ orgUrl: 'https://o', project: 'p', repository: 'other-repo', pat: 'pat' })
+    expect(adoSettingsChanged).not.toHaveBeenCalled()
+    expect(settings.getSavedAdo()?.repository).toBe('other-repo')
+  })
+
+  test('a connection-relevant change (org/project/PAT) reconnects the ADO client', async () => {
+    await h.setAdo({ orgUrl: 'https://o', project: 'p', repository: 'r', pat: 'pat' })
+    adoSettingsChanged.mockClear()
+    await h.setAdo({ orgUrl: 'https://o', project: 'p', repository: 'r', pat: 'rotated' })
+    expect(adoSettingsChanged).toHaveBeenCalledTimes(1)
+  })
+
+  test('other mutations do not touch the ADO-settings-changed hook', async () => {
+    await h.setNotifications({ ...DEFAULT_NOTIFICATION_SETTINGS, sound: false })
+    await h.setTerminalFontSize(14)
+    await h.testAdoConnection(FALLBACK_ADO)
+    expect(adoSettingsChanged).not.toHaveBeenCalled()
+  })
+
+  test('setTerminalFontSize clamps to the allowed range', async () => {
+    expect((await h.setTerminalFontSize(14)).appearance.terminalFontSize).toBe(14)
+    expect((await h.setTerminalFontSize(99)).appearance.terminalFontSize).toBe(20)
+    expect((await h.setTerminalFontSize(2)).appearance.terminalFontSize).toBe(10)
+    await expect(h.setTerminalFontSize(Number.NaN)).rejects.toThrow(/must be a number/)
+  })
+
+  test('testAdoConnection probes the given form values without saving them', async () => {
+    const typed: AdoSettings = { orgUrl: 'https://t', project: 'p', repository: 'r', pat: 'typed' }
+    expect(await h.testAdoConnection(typed)).toEqual({ ok: true, displayName: 'Jan' })
+    expect(testConnection).toHaveBeenCalledWith(typed)
+    expect(settings.getSavedAdo()).toBeNull()
+  })
+
+  test('a test-connection throw crosses as a message-only Error', async () => {
+    testConnection.mockRejectedValue('boom')
+    await expect(h.testAdoConnection(FALLBACK_ADO)).rejects.toThrow(/boom/)
+  })
+})
+
+describe('registerSettingsHandlers', () => {
+  test('binds the five request/response channels to the handlers', async () => {
+    const registered = new Map<string, (...args: unknown[]) => unknown>()
+    const ipcMain = {
+      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
+        registered.set(channel, listener)
+      }
+    }
+    const h = createSettingsHandlers({
+      settings: createSettingsRepo(makeTestDb()),
+      fallbackAdo: () => ({ ...FALLBACK_ADO }),
+      testConnection: () => Promise.resolve({ ok: true, displayName: 'Jan' }),
+      adoSettingsChanged: () => Promise.resolve()
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerSettingsHandlers(ipcMain as any, h)
+
+    expect([...registered.keys()].sort()).toEqual(
+      [
+        Channel.settingsGet,
+        Channel.settingsSetNotifications,
+        Channel.settingsSetAdo,
+        Channel.settingsSetTerminalFontSize,
+        Channel.settingsTestAdoConnection
+      ].sort()
+    )
+
+    const updated = (await registered.get(Channel.settingsSetTerminalFontSize)!({}, 15)) as {
+      appearance: { terminalFontSize: number }
+    }
+    expect(updated.appearance.terminalFontSize).toBe(15)
+  })
+})

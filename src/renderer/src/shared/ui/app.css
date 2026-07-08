@@ -2503,3 +2503,215 @@
   margin: 0;
   padding-left: 18px;
 }
+
+/* ---------------- settings ---------------- */
+
+/* Footer rail: utility sections (Settings) pinned to the sidebar's bottom edge. */
+.ix-rail__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+
+/* Settings layout: own left sub-nav + content. */
+.ix-settings {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px 1fr;
+}
+.ix-settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+.ix-settings__nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.ix-settings__nav-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.ix-settings__nav-btn--active {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.ix-settings__body {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 28px 32px;
+  max-width: 620px;
+}
+.ix-settings__title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+/* All four category panes stay mounted; only the active one is shown, so switching
+   categories never loses another pane's field state. */
+.ix-settings__pane {
+  display: none;
+}
+.ix-settings__pane--active {
+  display: block;
+}
+
+.ix-set-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ix-set-row:last-child {
+  border-bottom: none;
+}
+.ix-set-row__label {
+  font-size: 13px;
+  color: var(--text);
+}
+.ix-set-row__label--working {
+  color: var(--status-working);
+}
+.ix-set-row__label--waiting {
+  color: var(--status-waiting);
+}
+.ix-set-row__label--done {
+  color: var(--status-done);
+}
+.ix-set-row__hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.ix-set-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.ix-set-field label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* toggle switch */
+.ix-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 34px;
+  height: 20px;
+  flex: none;
+}
+.ix-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.ix-toggle__track {
+  position: absolute;
+  inset: 0;
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ix-toggle__track::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 1.5px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ix-toggle input:checked + .ix-toggle__track {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.ix-toggle input:checked + .ix-toggle__track::after {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+.ix-toggle input:focus-visible + .ix-toggle__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* test-connection action + inline outcome */
+.ix-settings__test {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+.ix-settings__test-msg {
+  font-size: 12px;
+}
+.ix-settings__test-msg--ok {
+  color: var(--status-done);
+}
+.ix-settings__test-msg--err {
+  color: var(--danger);
+}
+
+/* keyboard shortcuts overview */
+.ix-settings__keys-note {
+  margin-bottom: 10px;
+}
+.ix-kshort-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ix-kshort-table td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.ix-kshort-table td:last-child {
+  text-align: right;
+}
+.ix-kshort-table .ix-kbd + .ix-kbd {
+  margin-left: 4px;
+}
+
+/* terminal font-size slider with its numeric preview */
+.ix-set-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ix-set-slider input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.ix-set-slider__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  width: 44px;
+  text-align: right;
+}

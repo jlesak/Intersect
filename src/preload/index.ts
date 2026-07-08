@@ -128,6 +128,14 @@ const api: IpcApi = {
       return () => ipcRenderer.removeListener(Channel.oneOnOneRunChanged, listener)
     }
   },
+  settings: {
+    get: () => ipcRenderer.invoke(Channel.settingsGet),
+    setNotifications: (notifications) =>
+      ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),
+    setAdo: (ado) => ipcRenderer.invoke(Channel.settingsSetAdo, ado),
+    setTerminalFontSize: (px) => ipcRenderer.invoke(Channel.settingsSetTerminalFontSize, px),
+    testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
+  },
   system: {
     openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),
     // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.

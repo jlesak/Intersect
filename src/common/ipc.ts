@@ -1,4 +1,7 @@
 import type {
+  AdoConnectionResult,
+  AdoSettings,
+  AppSettings,
   BootState,
   DraftComment,
   FileDiff,
@@ -7,6 +10,7 @@ import type {
   Layout,
   NewManualDraft,
   NewManualTimeEntry,
+  NotificationSettings,
   OtoRun,
   OtoStartInput,
   Preset,
@@ -162,6 +166,18 @@ export interface IpcApi {
     /** Fired whenever a run finishes (done or failed) so the history refreshes live. */
     onRunChanged(cb: (run: OtoRun) => void): () => void
   }
+  settings: {
+    /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
+    get(): Promise<AppSettings>
+    setNotifications(notifications: NotificationSettings): Promise<AppSettings>
+    setAdo(ado: AdoSettings): Promise<AppSettings>
+    setTerminalFontSize(px: number): Promise<AppSettings>
+    /**
+     * Hit the real Azure DevOps API with exactly the given (possibly unsaved) form values and
+     * report who the PAT authenticates as, or a readable failure. Never touches saved settings.
+     */
+    testAdoConnection(ado: AdoSettings): Promise<AdoConnectionResult>
+  }
   system: {
     /** Open an allowlisted https URL in the system default browser. Rejects anything else. */
     openExternal(url: string): Promise<void>
@@ -283,6 +299,12 @@ export const Channel = {
   oneOnOneStart: 'oneOnOne:start',
   oneOnOnePickVtt: 'oneOnOne:pickVtt',
   oneOnOneRunChanged: 'oneOnOne:runChanged',
+  // settings (request/response)
+  settingsGet: 'settings:get',
+  settingsSetNotifications: 'settings:setNotifications',
+  settingsSetAdo: 'settings:setAdo',
+  settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
+  settingsTestAdoConnection: 'settings:testAdoConnection',
   // system (request/response)
   systemOpenExternal: 'system:openExternal'
 } as const

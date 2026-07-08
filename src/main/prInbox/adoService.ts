@@ -24,7 +24,8 @@ export interface AdoServiceDeps {
   client: AdoClient
   /** Resolved lazily so a missing INTERSECT_ADO_IDENTITY surfaces at sync time, not at boot. */
   resolveIdentity: () => AdoIdentity
-  projectId: string
+  /** Resolved lazily per call so a project changed in Settings applies without a restart. */
+  projectId: () => string
   /** Org URL + PAT for the direct REST vote call, resolved lazily per vote (see adoVote). */
   resolveVoteCredentials: () => { orgUrl: string; pat: string }
   /** Injected in tests to fake the vote HTTP round-trip. */
@@ -71,7 +72,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     for (let page = 0; page < 50; page++) {
       const result = await d.client.callTool<ListResult>('list_pull_requests', {
         repositoryId,
-        projectId: d.projectId,
+        projectId: d.projectId(),
         status: 'active',
         top: PAGE_SIZE,
         skip,
@@ -112,7 +113,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
       const identity = d.resolveIdentity()
       const repos = await d.client.callTool<Array<{ id?: string; name?: string }>>(
         'list_repositories',
-        { projectId: d.projectId }
+        { projectId: d.projectId() }
       )
       const settled = await Promise.allSettled(
         repos.map(async (r) => ({
@@ -142,7 +143,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     async getChanges(repositoryId, prId) {
       const res = await d.client.callTool<{ files?: RawChangeFile[]; changes?: RawChangeFile[] }>(
         'get_pull_request_changes',
-        { repositoryId, pullRequestId: prId, projectId: d.projectId }
+        { repositoryId, pullRequestId: prId, projectId: d.projectId() }
       )
       const files = res.files ?? res.changes ?? []
       return files.map(toChangeFile)
@@ -178,7 +179,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     async getThreads(repositoryId, prId) {
       const raw = await d.client.callTool<{ value?: RawThread[] } | RawThread[]>(
         'get_pull_request_comments',
-        { repositoryId, pullRequestId: prId, projectId: d.projectId }
+        { repositoryId, pullRequestId: prId, projectId: d.projectId() }
       )
       const threads = Array.isArray(raw) ? raw : (raw.value ?? [])
       return threads.map(toThread)
@@ -188,7 +189,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
       const res = await d.client.callTool<RawThread>('add_pull_request_comment', {
         pullRequestId: input.prId,
         repositoryId: input.repositoryId,
-        projectId: d.projectId,
+        projectId: d.projectId(),
         content: input.body,
         filePath: input.filePath,
         lineNumber: input.line,
@@ -204,7 +205,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     async castVote(repositoryId, prId, reviewerId, vote) {
       const { orgUrl, pat } = d.resolveVoteCredentials()
       await castVoteRest(
-        { orgUrl, pat, projectId: d.projectId, repositoryId, prId, reviewerId, vote },
+        { orgUrl, pat, projectId: d.projectId(), repositoryId, prId, reviewerId, vote },
         d.voteOptions ?? {}
       )
     }
@@ -265,7 +266,7 @@ async function fetchContent(
   try {
     const res = await d.client.callTool<{ content?: string } | string>('get_file_content', {
       repositoryId,
-      projectId: d.projectId,
+      projectId: d.projectId(),
       path,
       version: commit,
       versionType: 'commit'

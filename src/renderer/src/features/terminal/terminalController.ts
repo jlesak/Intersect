@@ -27,6 +27,29 @@ interface View {
 const views = new Map<string, View>()
 const router = createDataRouter()
 
+// The font size every terminal uses - the settings-driven override once set, the theme default
+// until then. New terminals are created with it; setTerminalFontSize restyles the live ones.
+let currentFontSize = XTERM_FONT_SIZE
+
+/**
+ * Apply a new font size to every live terminal immediately (refitting each visible one so its
+ * cols/rows and the PTY winsize follow), and to every terminal created from now on.
+ */
+export function setTerminalFontSize(px: number): void {
+  currentFontSize = px
+  for (const [sessionId, view] of views) {
+    if (view.disposed) continue
+    view.term.options.fontSize = px
+    if (!view.opened) continue
+    try {
+      view.fit.fit()
+    } catch {
+      continue
+    }
+    ipc.resize(sessionId, view.term.cols, view.term.rows)
+  }
+}
+
 // Exactly one listener per channel for the renderer's lifetime; the router demuxes by sessionId.
 let wired = false
 function wireOnce(): void {
@@ -57,7 +80,7 @@ export function ensureSession(
   const term = new Terminal({
     theme: xtermTheme,
     fontFamily: XTERM_FONT_FAMILY,
-    fontSize: XTERM_FONT_SIZE,
+    fontSize: currentFontSize,
     scrollback: XTERM_SCROLLBACK,
     cursorBlink: true,
     allowProposedApi: true

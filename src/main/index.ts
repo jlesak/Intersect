@@ -3,11 +3,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import type { OtoRun, Preset } from '@common/domain'
+import type { AdoSettings, OtoRun, Preset } from '@common/domain'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
 import { createAppStateRepo } from './db/appStateRepo'
+import { createSettingsRepo } from './db/settingsRepo'
 import { createTabRepo, type TabRepo } from './db/tabRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from './db/workspaceRepo'
 import { createDraftCommentRepo } from './db/draftCommentRepo'
@@ -22,6 +23,7 @@ import { buildSpawn } from './pty/shell'
 import { createAttentionDetector } from './pty/attentionDetector'
 import { writeNotifSettings } from './pty/notifSettings'
 import { createSessionNotifier } from './sessionNotifier'
+import { createNotifyGate } from './notifyGate'
 import { createWorkspaceHandlers, registerWorkspaceHandlers } from './ipc/workspaces.ipc'
 import { createTabHandlers, registerTabHandlers } from './ipc/tabs.ipc'
 import {
@@ -37,7 +39,9 @@ import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './ipc/
 import { createTodoHandlers, registerTodoHandlers } from './ipc/todo.ipc'
 import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
 import { createOneOnOneHandlers, registerOneOnOneHandlers } from './ipc/oneOnOne.ipc'
+import { createSettingsHandlers, registerSettingsHandlers } from './ipc/settings.ipc'
 import { createSystemHandlers, registerSystemHandlers } from './ipc/system.ipc'
+import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
@@ -90,6 +94,13 @@ function focusAndNavigate(sessionId: string): void {
   sendToRenderer(Channel.terminalNotificationClicked, { sessionId })
 }
 
+/** What each session status announces when its notification fires. */
+const STATUS_BODY: Record<SessionStatus, string> = {
+  working: 'Started working',
+  waiting: 'Needs your permission',
+  done: 'Waiting for your input'
+}
+
 /**
  * Raise the native macOS notification for a session that wants the user. Title/subtitle name the
  * tab and its workspace so the user knows which of many sessions is calling; clicking it focuses
@@ -100,7 +111,8 @@ function showAttentionNotification(
   sessionId: string,
   status: SessionStatus,
   tabs: TabRepo,
-  workspaces: WorkspaceRepo
+  workspaces: WorkspaceRepo,
+  sound: boolean
 ): void {
   if (!Notification.isSupported()) return
   const parsed = parseSessionId(sessionId)
@@ -110,8 +122,8 @@ function showAttentionNotification(
   const notification = new Notification({
     title: tab?.title ?? 'Claude Code',
     subtitle: ws?.name,
-    body: status === 'waiting' ? 'Needs your permission' : 'Waiting for your input',
-    silent: false
+    body: STATUS_BODY[status],
+    silent: !sound
   })
   notification.on('click', () => focusAndNavigate(sessionId))
   // macOS (Electron 42+) only shows notifications for a code-signed app; an unsigned dev build
@@ -121,9 +133,9 @@ function showAttentionNotification(
 }
 
 /** The configured ADO default project, or a sensible fallback if ADO isn't configured yet. */
-function safeDefaultProject(): string {
+function safeDefaultProject(saved: AdoSettings | null): string {
   try {
-    return resolveAdoServerConfig().env.AZURE_DEVOPS_DEFAULT_PROJECT || 'SPOT'
+    return resolveAdoServerConfig(process.env, saved).env.AZURE_DEVOPS_DEFAULT_PROJECT || 'SPOT'
   } catch {
     return 'SPOT'
   }
@@ -171,18 +183,24 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   const workspaces = createWorkspaceRepo(database, deps)
   const tabs = createTabRepo(database, deps)
   const appState = createAppStateRepo(database)
+  const settings = createSettingsRepo(database)
 
   // Attention pipeline: detect Claude's "waiting for you" markers in the PTY stream, then raise a
   // native notification and recolor the tab (unless the user is already looking at that session).
   // 'working' is inferred separately, from the user submitting a prompt (see the write wrapper
-  // below) - it never notifies, so it needs none of the suppress/dedup machinery.
+  // below). The user's notification settings gate which statuses reach the screen and whether
+  // they make a sound; they are read per event so a settings change applies immediately.
   const detector = createAttentionDetector()
   const notifier = createSessionNotifier({
     detect: (sessionId, chunk) => detector.push(sessionId, chunk),
     isWindowFocused: () => mainWindow?.isFocused() ?? false,
     broadcastStatus: (sessionId, status) =>
       sendToRenderer(Channel.terminalSessionStatus, { sessionId, status }),
-    notify: (sessionId, status) => showAttentionNotification(sessionId, status, tabs, workspaces)
+    notify: createNotifyGate(
+      () => settings.getNotifications(),
+      (sessionId, status, sound) =>
+        showAttentionNotification(sessionId, status, tabs, workspaces, sound)
+    )
   })
 
   // Which preset each live session is (only a claude session's input drives the 'working' status).
@@ -250,8 +268,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   const prReviewWatermarks = createPrReviewWatermarkRepo(database, deps)
   const reviewSessions = createReviewSessionRepo(database, deps)
 
-  const adoClient = createAdoClient(() => resolveAdoServerConfig())
-  const defaultProject = safeDefaultProject()
+  const adoClient = createAdoClient(() => resolveAdoServerConfig(process.env, settings.getSavedAdo()))
   // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR radar)
   // runs the real cache/watermark path without a live server; everything else stays unchanged.
   const adoStub = process.env.INTERSECT_E2E === '1' ? createAdoE2eStub(process.env) : null
@@ -260,8 +277,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     createAdoService({
       client: adoClient,
       resolveIdentity: () => resolveMyIdentity(),
-      projectId: defaultProject,
-      resolveVoteCredentials: () => resolveVoteCredentials()
+      projectId: () => safeDefaultProject(settings.getSavedAdo()),
+      resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
 
   const review = createReviewManager({
@@ -335,6 +352,38 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     })
   )
   registerSystemHandlers(ipcMain, createSystemHandlers({ openExternal: (url) => shell.openExternal(url) }))
+
+  // --- Settings slice: notification/ADO/appearance preferences persisted in local SQLite ---
+  // Until the user saves ADO settings of their own, the form shows the effective config resolved
+  // from ~/.claude.json / env, so what the app actually uses is what the user sees.
+  const fallbackAdo = (): AdoSettings => {
+    try {
+      const env = resolveAdoServerConfig().env
+      return {
+        orgUrl: env.AZURE_DEVOPS_ORG_URL ?? '',
+        project: env.AZURE_DEVOPS_DEFAULT_PROJECT ?? '',
+        repository: '',
+        pat: env.AZURE_DEVOPS_PAT ?? ''
+      }
+    } catch {
+      return { orgUrl: '', project: '', repository: '', pat: '' }
+    }
+  }
+  registerSettingsHandlers(
+    ipcMain,
+    createSettingsHandlers({
+      settings,
+      fallbackAdo,
+      // E2E runs answer with a canned identity so the button never makes a live network request.
+      testConnection:
+        process.env.INTERSECT_E2E === '1'
+          ? () => Promise.resolve({ ok: true as const, displayName: 'E2E User' })
+          : (ado) => testAdoConnection(ado),
+      // The MCP child keeps the credentials it was spawned with, so saving new ones must drop it;
+      // the next PR-sync call reconnects with the fresh config instead of the stale PAT/org.
+      adoSettingsChanged: () => adoClient.close()
+    })
+  )
 
   // --- 1:1 slice: the two workflows behind hidden Claude Code sessions, plus their run history ---
   // Any run still 'running' in the DB belonged to a previous app process and can never finish.

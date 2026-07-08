@@ -97,11 +97,36 @@ describe('sessionNotifier', () => {
   })
 
   describe('onInput', () => {
-    it('broadcasts working without ever calling notify', () => {
+    it('broadcasts working and notifies once on the transition into working', () => {
       const h = harness()
       h.notifier.onInput('w:a')
       expect(h.broadcastStatus).toHaveBeenCalledWith('w:a', 'working')
+      expect(h.notify).toHaveBeenCalledWith('w:a', 'working')
+    })
+
+    it('does not re-notify working for further prompts within the same turn', () => {
+      const h = harness()
+      h.notifier.onInput('w:a')
+      h.notifier.onInput('w:a')
+      expect(h.broadcastStatus).toHaveBeenCalledTimes(2)
+      expect(h.notify).toHaveBeenCalledTimes(1)
+    })
+
+    it('suppresses the working notification when the user is viewing the session', () => {
+      const h = harness({ focused: true })
+      h.notifier.reportActive('w:a')
+      h.notifier.onInput('w:a')
+      expect(h.broadcastStatus).toHaveBeenCalledWith('w:a', 'working')
       expect(h.notify).not.toHaveBeenCalled()
+    })
+
+    it('notifies working again after a marker ended the previous turn', () => {
+      const h = harness()
+      h.notifier.onInput('w:a') // working (notified)
+      h.notifier.onChunk('w:a', 'WANT') // done - turn over (notified)
+      h.notifier.onInput('w:a') // a new turn starts working (notified)
+      expect(h.notify).toHaveBeenCalledTimes(3)
+      expect(h.notify).toHaveBeenLastCalledWith('w:a', 'working')
     })
 
     it('clears a stale pending alert so the same-kind marker can re-alert next turn', () => {
@@ -109,7 +134,7 @@ describe('sessionNotifier', () => {
       h.notifier.onChunk('w:a', 'WANT') // done, now pending
       h.notifier.onInput('w:a') // user submits a new prompt - old alert is stale
       h.notifier.onChunk('w:a', 'WANT') // same kind as before, but should re-alert
-      expect(h.notify).toHaveBeenCalledTimes(2)
+      expect(h.notify.mock.calls.filter(([, s]) => s === 'done')).toHaveLength(2)
     })
   })
 })

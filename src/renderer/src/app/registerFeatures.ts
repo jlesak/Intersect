@@ -2,6 +2,7 @@ import { registerMyWorkFeature } from '@renderer/features/myWork'
 import { registerOneOnOneFeature } from '@renderer/features/oneOnOne'
 import { registerPrInboxFeature } from '@renderer/features/prInbox'
 import { registerSessionsFeature } from '@renderer/features/sessions'
+import { registerSettingsFeature } from '@renderer/features/settings'
 import { registerTabsFeature } from '@renderer/features/tabs'
 import { registerTimeTrackingFeature } from '@renderer/features/timeTracking'
 import { registerTodoFeature } from '@renderer/features/todo'
@@ -20,4 +21,5 @@ export function registerFeatures(): void {
   registerTabsFeature()
   registerPrInboxFeature()
   registerSessionsFeature()
+  registerSettingsFeature()
 }

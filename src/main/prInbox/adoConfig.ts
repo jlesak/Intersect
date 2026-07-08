@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { AdoSettings } from '@common/domain'
 
 /** How to launch the Azure DevOps MCP server as a stdio subprocess. */
 export interface AdoServerConfig {
@@ -10,12 +11,28 @@ export interface AdoServerConfig {
 }
 
 /**
- * Resolve the Azure DevOps MCP server launch config the same way Claude Code does: from the global
- * `~/.claude.json` `mcpServers.azureDevOps` entry (command/args/env incl. the PAT). Falls back to
- * constructing it from `AZURE_DEVOPS_*` process env if the file entry is absent. Reusing the
- * existing configuration is decision #1 - Intersect hand-rolls no separate ADO client or PAT storage.
+ * Resolve the Azure DevOps MCP server launch config. Settings the user saved in the app win;
+ * otherwise it resolves the same way Claude Code does: from the global `~/.claude.json`
+ * `mcpServers.azureDevOps` entry (command/args/env incl. the PAT), falling back to constructing
+ * it from `AZURE_DEVOPS_*` process env if the file entry is absent.
  */
-export function resolveAdoServerConfig(env: NodeJS.ProcessEnv = process.env): AdoServerConfig {
+export function resolveAdoServerConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  saved?: AdoSettings | null
+): AdoServerConfig {
+  if (saved?.orgUrl && saved.pat) {
+    return {
+      command: 'npx',
+      args: ['-y', '@tiberriver256/mcp-server-azure-devops'],
+      env: {
+        AZURE_DEVOPS_AUTH_METHOD: env.AZURE_DEVOPS_AUTH_METHOD ?? 'pat',
+        AZURE_DEVOPS_ORG_URL: saved.orgUrl,
+        AZURE_DEVOPS_DEFAULT_PROJECT: saved.project,
+        AZURE_DEVOPS_PAT: saved.pat
+      }
+    }
+  }
+
   const fromFile = readClaudeJsonAdoServer()
   if (fromFile) return fromFile
 
@@ -23,7 +40,8 @@ export function resolveAdoServerConfig(env: NodeJS.ProcessEnv = process.env): Ad
   const pat = env.AZURE_DEVOPS_PAT
   if (!orgUrl || !pat) {
     throw new Error(
-      'Azure DevOps is not configured. Expected mcpServers.azureDevOps in ~/.claude.json or ' +
+      'Azure DevOps is not configured. Expected settings saved in the app, ' +
+        'mcpServers.azureDevOps in ~/.claude.json, or ' +
         'AZURE_DEVOPS_ORG_URL + AZURE_DEVOPS_PAT in the environment.'
     )
   }
@@ -62,8 +80,8 @@ function readClaudeJsonAdoServer(): AdoServerConfig | null {
  * config the ADO client spawn uses, so a PAT still lives in exactly one place. Resolved lazily per
  * call, so a missing/rotated configuration surfaces on the vote, not at boot.
  */
-export function resolveVoteCredentials(): { orgUrl: string; pat: string } {
-  const env = resolveAdoServerConfig().env
+export function resolveVoteCredentials(saved?: AdoSettings | null): { orgUrl: string; pat: string } {
+  const env = resolveAdoServerConfig(process.env, saved).env
   const orgUrl = env.AZURE_DEVOPS_ORG_URL
   const pat = env.AZURE_DEVOPS_PAT
   if (!orgUrl || !pat) {
