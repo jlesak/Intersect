@@ -26,15 +26,21 @@ export function resolveAdoServerConfig(
   const savedProject = saved?.project?.trim() ?? ''
   const savedPat = saved?.pat?.trim() ?? ''
 
-  // Only consult the fallback when the saved settings leave a connection field blank, so a fully
-  // saved connection stays self-contained (and its resolution never depends on the machine's
-  // `~/.claude.json`).
-  const fallback =
-    savedOrgUrl && savedProject && savedPat ? null : resolveFallbackServerConfig(env)
+  // The `~/.claude.json` mcpServers.azureDevOps entry is the launcher an on-prem/TFS deployment
+  // relies on (a custom binary/wrapper that may not be the default npx package), so whenever it is
+  // present it is always the base - command, args, and every env key - regardless of which identity
+  // fields the user has saved. The default npx launcher is only constructed when no file entry
+  // exists. Identity is then layered on per-field.
+  const fileEntry = readClaudeJsonAdoServer()
 
-  const orgUrl = savedOrgUrl || fallback?.env.AZURE_DEVOPS_ORG_URL || ''
-  const project = savedProject || fallback?.env.AZURE_DEVOPS_DEFAULT_PROJECT || ''
-  const pat = savedPat || fallback?.env.AZURE_DEVOPS_PAT || ''
+  const orgUrl =
+    savedOrgUrl || fileEntry?.env.AZURE_DEVOPS_ORG_URL || env.AZURE_DEVOPS_ORG_URL || ''
+  const project =
+    savedProject ||
+    fileEntry?.env.AZURE_DEVOPS_DEFAULT_PROJECT ||
+    env.AZURE_DEVOPS_DEFAULT_PROJECT ||
+    ''
+  const pat = savedPat || fileEntry?.env.AZURE_DEVOPS_PAT || env.AZURE_DEVOPS_PAT || ''
   if (!orgUrl || !pat) {
     throw new Error(
       'Azure DevOps is not configured. Expected settings saved in the app, ' +
@@ -43,9 +49,9 @@ export function resolveAdoServerConfig(
     )
   }
 
-  // Keep the fallback's command/args/env (an on-prem file entry may use a custom launcher), then
+  // Keep the file entry's command/args/env (an on-prem entry may use a custom launcher), then
   // overlay the effective identity so a per-field override still takes effect.
-  const base = fallback ?? {
+  const base = fileEntry ?? {
     command: 'npx',
     args: ['-y', '@tiberriver256/mcp-server-azure-devops'],
     env: {} as Record<string, string>
@@ -64,29 +70,10 @@ export function resolveAdoServerConfig(
 }
 
 /**
- * The fallback ADO server config Claude Code itself would use: the `~/.claude.json`
- * `mcpServers.azureDevOps` entry if present, else one constructed from `AZURE_DEVOPS_*` env.
- * Returns null when neither source carries an org URL + PAT.
+ * The `~/.claude.json` `mcpServers.azureDevOps` file entry Claude Code itself uses, if present:
+ * its launcher command/args and full env (including a PAT). Returns null when the file is absent,
+ * unreadable, or carries no such server entry.
  */
-function resolveFallbackServerConfig(env: NodeJS.ProcessEnv): AdoServerConfig | null {
-  const fromFile = readClaudeJsonAdoServer()
-  if (fromFile) return fromFile
-
-  const orgUrl = env.AZURE_DEVOPS_ORG_URL
-  const pat = env.AZURE_DEVOPS_PAT
-  if (!orgUrl || !pat) return null
-  return {
-    command: 'npx',
-    args: ['-y', '@tiberriver256/mcp-server-azure-devops'],
-    env: {
-      AZURE_DEVOPS_AUTH_METHOD: env.AZURE_DEVOPS_AUTH_METHOD ?? 'pat',
-      AZURE_DEVOPS_ORG_URL: orgUrl,
-      AZURE_DEVOPS_DEFAULT_PROJECT: env.AZURE_DEVOPS_DEFAULT_PROJECT ?? '',
-      AZURE_DEVOPS_PAT: pat
-    }
-  }
-}
-
 function readClaudeJsonAdoServer(): AdoServerConfig | null {
   try {
     const raw = readFileSync(join(homedir(), '.claude.json'), 'utf8')
