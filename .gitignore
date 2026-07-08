@@ -7,6 +7,12 @@ dist/
 # Vite / electron-vite
 .vite/
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Lavish annotation scratch
+.lavish/
+
 # Test artifacts
 coverage/
 playwright-report/

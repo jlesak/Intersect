@@ -1,10 +1,16 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { Preset } from '@common/domain'
+import { debounce } from '@common/debounce'
 import { makeSessionId } from '@common/ipc'
 import { createDataRouter } from './dataRouter'
 import * as ipc from './ipc'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
+
+// A font-size change restyles xterm instantly, but the follow-up refit + PTY winsize resize is
+// coalesced: dragging the settings slider must not fire a refit/resize per step across every open
+// terminal. The trailing call lands the final cols/rows once the size settles.
+const FONT_SIZE_REFIT_DELAY_MS = 120
 
 // Backpressure watermarks (bytes outstanding in xterm's write buffer). Crossing HIGH pauses the
 // child (XOFF); dropping under LOW resumes it (XON). Keeps a firehose from hanging the renderer.
@@ -26,6 +32,37 @@ interface View {
 // cursor survive. Keyed by sessionId. This lives OUTSIDE React's render tree by design.
 const views = new Map<string, View>()
 const router = createDataRouter()
+
+// The font size every terminal uses - the settings-driven override once set, the theme default
+// until then. New terminals are created with it; setTerminalFontSize restyles the live ones.
+let currentFontSize = XTERM_FONT_SIZE
+
+/**
+ * Apply a new font size to every live terminal immediately (the visible restyle is the live
+ * preview), and to every terminal created from now on. The heavier refit - recomputing cols/rows
+ * and pushing the PTY winsize - is debounced so a slider drag settles into a single resize per
+ * terminal instead of one per step.
+ */
+export function setTerminalFontSize(px: number): void {
+  currentFontSize = px
+  for (const [, view] of views) {
+    if (view.disposed) continue
+    view.term.options.fontSize = px
+  }
+  refitForFontSize()
+}
+
+const refitForFontSize = debounce(() => {
+  for (const [sessionId, view] of views) {
+    if (view.disposed || !view.opened) continue
+    try {
+      view.fit.fit()
+    } catch {
+      continue
+    }
+    ipc.resize(sessionId, view.term.cols, view.term.rows)
+  }
+}, FONT_SIZE_REFIT_DELAY_MS)
 
 // Exactly one listener per channel for the renderer's lifetime; the router demuxes by sessionId.
 let wired = false
@@ -57,7 +94,7 @@ export function ensureSession(
   const term = new Terminal({
     theme: xtermTheme,
     fontFamily: XTERM_FONT_FAMILY,
-    fontSize: XTERM_FONT_SIZE,
+    fontSize: currentFontSize,
     scrollback: XTERM_SCROLLBACK,
     cursorBlink: true,
     allowProposedApi: true

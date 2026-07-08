@@ -52,7 +52,8 @@ test('the 1:1 section sits between TODO and Workspaces and starts empty', async 
     '1:1',
     'Workspaces',
     'PR Review',
-    'Sessions'
+    'Sessions',
+    'Settings'
   ])
 
   await openOneOnOne(win)

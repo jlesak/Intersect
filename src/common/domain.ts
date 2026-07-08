@@ -414,3 +414,70 @@ export interface OtoStartInput {
   person: string
   vttPath?: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Settings - see docs/superpowers/specs/2026-07-06-settings-design.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Which session-status changes raise a native OS notification. `enabled` is the master switch:
+ * when off, no notification fires regardless of the per-status toggles. `sound` picks whether the
+ * notification plays the OS sound. The per-status defaults mirror the pre-settings behavior:
+ * waiting/done alert (they need the user), working is informational and stays quiet.
+ */
+export interface NotificationSettings {
+  enabled: boolean
+  working: boolean
+  waiting: boolean
+  done: boolean
+  sound: boolean
+}
+
+/**
+ * The Azure DevOps connection as configured in the UI. When saved, it takes precedence over the
+ * `~/.claude.json` MCP entry / `AZURE_DEVOPS_*` env resolution; those remain the fallback.
+ */
+export interface AdoSettings {
+  orgUrl: string
+  project: string
+  repository: string
+  pat: string
+}
+
+/**
+ * The live Azure DevOps fallback (`~/.claude.json` / `AZURE_DEVOPS_*` env) shown to the user as
+ * hints while the matching saved field is blank. The PAT itself is never sent to the renderer;
+ * `hasPat` only says whether the fallback supplies one, so the form can hint that a token is
+ * inherited without exposing it.
+ */
+export interface AdoFallback {
+  orgUrl: string
+  project: string
+  hasPat: boolean
+}
+
+export interface AppearanceSettings {
+  /** Font size (px) of every xterm terminal; applied to live instances immediately. */
+  terminalFontSize: number
+}
+
+/** All user settings fetched together, so a single call hydrates the whole section. */
+export interface AppSettings {
+  notifications: NotificationSettings
+  /** Only what the user actually entered; a blank field defers to `adoFallback` at resolve time. */
+  ado: AdoSettings
+  adoFallback: AdoFallback
+  appearance: AppearanceSettings
+}
+
+/** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */
+export const TERMINAL_FONT_SIZE_MIN = 10
+export const TERMINAL_FONT_SIZE_MAX = 20
+
+/**
+ * Outcome of an Azure DevOps test-connection request. A failure is a value (not a thrown error)
+ * because a rejected PAT is an expected answer the form renders inline, not an app fault.
+ */
+export type AdoConnectionResult =
+  | { ok: true; displayName: string }
+  | { ok: false; error: string }

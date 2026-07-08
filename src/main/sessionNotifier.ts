@@ -9,7 +9,9 @@ const KIND_TO_STATUS: Record<AttentionKind, SessionStatus> = {
 
 /**
  * Collaborators the notifier needs, all injected so the decision logic stays pure and testable.
- * `notify` performs the actual native OS notification (only ever called for 'waiting'/'done');
+ * `notify` performs the actual native OS notification - for 'waiting'/'done' alerts and for a
+ * session that just started 'working'; which of those actually reach the screen is the injected
+ * implementation's decision (it applies the user's notification settings).
  * `broadcastStatus` tells the renderer to recolor the tab for any status, including 'working';
  * `detect` recognises the app-private hook markers in a raw PTY chunk.
  */
@@ -39,18 +41,23 @@ export interface SessionNotifier {
  * keep the 'waiting'/'done' alerts quiet: a session the user is already viewing (window focused
  * and it is the active session) never alerts, and a session that already alerted stays silent
  * until the user acknowledges it by opening it - unless it escalates (done -> waiting re-alerts).
- * 'working' is purely informational: never deduped, suppressed, or sent as a native notification.
+ * 'working' recolors the tab on every prompt but reaches notify only on the transition into
+ * working (not on every Enter of an already-working session), under the same viewing suppression.
  */
 export function createSessionNotifier(deps: SessionNotifierDeps): SessionNotifier {
   let activeSessionId: string | null = null
   // The unacknowledged alert per session, by kind. Keyed by kind (not a plain flag) so an
   // escalation - e.g. an idle session that then needs a permission decision - re-alerts.
   const pending = new Map<string, AttentionKind>()
+  // Sessions currently working, so repeated prompts within one turn don't re-notify.
+  const working = new Set<string>()
 
   return {
     onChunk(sessionId, chunk) {
       const kind = deps.detect(sessionId, chunk)
       if (!kind) return
+      // Claude asked for attention, so the session is no longer working on the turn.
+      working.delete(sessionId)
       const status = KIND_TO_STATUS[kind]
       // The user is already looking at this session - nothing to draw them back to.
       if (deps.isWindowFocused() && sessionId === activeSessionId) return
@@ -63,7 +70,12 @@ export function createSessionNotifier(deps: SessionNotifierDeps): SessionNotifie
 
     onInput(sessionId) {
       pending.delete(sessionId)
+      const startedWorking = !working.has(sessionId)
+      working.add(sessionId)
       deps.broadcastStatus(sessionId, 'working')
+      if (!startedWorking) return
+      if (deps.isWindowFocused() && sessionId === activeSessionId) return
+      deps.notify(sessionId, 'working')
     },
 
     reportActive(sessionId) {
@@ -73,6 +85,7 @@ export function createSessionNotifier(deps: SessionNotifierDeps): SessionNotifie
 
     forget(sessionId) {
       pending.delete(sessionId)
+      working.delete(sessionId)
     }
   }
 }

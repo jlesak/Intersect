@@ -1,5 +1,5 @@
 export { SplitStage } from './components/SplitStage'
-export { disposeSession, disposeWorkspaceSessions } from './terminalController'
+export { disposeSession, disposeWorkspaceSessions, setTerminalFontSize } from './terminalController'
 export {
   onNotificationClicked,
   onSessionStatus,

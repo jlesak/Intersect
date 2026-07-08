@@ -248,11 +248,13 @@ is also why drafts survive restart (PROMPT persistence requirement) for free.
 
 ### 5.1 `adoClient.ts` - MCP client (read + publish)
 Long-lived `@modelcontextprotocol/sdk` `Client` over `StdioClientTransport`, spawning the ADO
-server **using the exact config from `~/.claude.json` `mcpServers.azureDevOps`** (command/args/env,
-incl. PAT), falling back to `process.env.AZURE_DEVOPS_*`. One persistent child; lazy connect on
-first use; `onclose`/`onerror` rebuild; per-call `{ timeout }`; `close()` on `before-quit`. Every
-tool result is a JSON text block -> `JSON.parse`. A tiny `callTool(name, args)` wrapper is the seam
-tests mock.
+server from `resolveAdoServerConfig`: the `~/.claude.json` `mcpServers.azureDevOps` entry supplies
+the launcher (command/args/env, incl. PAT), but each connection field (org URL, project, PAT) saved
+in the app's Settings slice overrides it per-field, and `process.env.AZURE_DEVOPS_*` is the final
+fallback. One persistent child; lazy connect on first use; `onclose`/`onerror` rebuild; saving
+changed ADO settings drops the child so the next call reconnects with the fresh config; per-call
+`{ timeout }`; `close()` on `before-quit`. Every tool result is a JSON text block -> `JSON.parse`.
+A tiny `callTool(name, args)` wrapper is the seam tests mock.
 
 ### 5.2 `adoService.ts` - domain mapping + "my PRs" fan-out
 - `getMyId()` = `get_me` -> user UUID (cached per process).
