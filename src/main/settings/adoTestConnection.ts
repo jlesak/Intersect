@@ -35,7 +35,9 @@ export async function testAdoConnection(
     })
 
   try {
-    const conn = await request(`${orgUrl}/_apis/connectionData?api-version=7.0`)
+    // connectionData belongs to the Location service, which only ships a preview version of this
+    // resource; an on-prem server rejects a plain released version with a preview-version error.
+    const conn = await request(`${orgUrl}/_apis/connectionData?api-version=7.0-preview.1`)
     if (!conn.ok) {
       const detail = errorDetail(await conn.text().catch(() => ''))
       return {
