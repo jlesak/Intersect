@@ -103,6 +103,7 @@ export function DiffViewer({
     const specs: ZoneSpec[] = []
     for (const t of threads) {
       if (t.isSystem || t.filePath !== diff.path || !t.line) continue
+      const replyKey = `reply:${t.threadId}`
       specs.push({
         key: `thread-${t.threadId}`,
         afterLine: t.line,
@@ -111,6 +112,8 @@ export function DiffViewer({
             thread={t}
             onReply={(body) => store().replyToThread(t.threadId, body)}
             onSetStatus={(status) => store().setThreadStatus(t.threadId, status)}
+            initialReply={store().commentDrafts[replyKey] ?? ''}
+            onReplyChange={(text) => store().setCommentDraft(replyKey, text)}
           />
         )
       })
@@ -129,16 +132,25 @@ export function DiffViewer({
       })
     }
     if (composerLine) {
+      const composerKey = `composer:${diff.path}:${composerLine}`
       specs.push({
         key: 'composer',
         afterLine: composerLine,
         node: (
           <CommentComposer
             label={`New comment · line ${composerLine}`}
+            initialBody={store().commentDrafts[composerKey] ?? ''}
+            onBodyChange={(text) => store().setCommentDraft(composerKey, text)}
             onSubmit={async (body) => {
-              if (await store().addComment(diff.path, composerLine, body)) setComposerLine(null)
+              if (await store().addComment(diff.path, composerLine, body)) {
+                store().setCommentDraft(composerKey, '')
+                setComposerLine(null)
+              }
             }}
-            onCancel={() => setComposerLine(null)}
+            onCancel={() => {
+              store().setCommentDraft(composerKey, '')
+              setComposerLine(null)
+            }}
           />
         )
       })

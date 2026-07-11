@@ -4,6 +4,7 @@ import { isThreadUnresolved } from '@common/prBoard'
 import { selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
+import { escapeShouldGoBack } from './escapeNav'
 import { FileTree } from './FileTree'
 import { OverviewTab } from './OverviewTab'
 import { PrVoteButtons } from './PrVoteButtons'
@@ -26,7 +27,9 @@ export function PrDetail() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') usePrInboxStore.getState().goBack()
+      if (e.key !== 'Escape') return
+      const running = usePrInboxStore.getState().review.status === 'running'
+      if (escapeShouldGoBack(running, e.target)) usePrInboxStore.getState().goBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

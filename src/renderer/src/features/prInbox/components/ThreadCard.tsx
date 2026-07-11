@@ -10,6 +10,13 @@ interface ThreadCardProps {
   /** 'overview' additionally shows the file:line chip that jumps to the code. */
   context?: 'inline' | 'overview'
   onOpenFile?(path: string, line: number | null): void
+  /**
+   * Seeds the reply input on mount. Callers that render this card inside a Monaco view zone
+   * (where a remount would otherwise wipe local state) pass the persisted draft here.
+   */
+  initialReply?: string
+  /** Called on every reply keystroke so the caller can persist the draft across remounts. */
+  onReplyChange?(text: string): void
 }
 
 const timeAgo = (ms: number): string => {
@@ -27,18 +34,25 @@ export function ThreadCard({
   onReply,
   onSetStatus,
   context = 'inline',
-  onOpenFile
+  onOpenFile,
+  initialReply = '',
+  onReplyChange
 }: ThreadCardProps) {
-  const [reply, setReply] = useState('')
+  const [reply, setReply] = useState(initialReply)
   const [busy, setBusy] = useState(false)
   const unresolved = isThreadUnresolved(thread)
+
+  const changeReply = (text: string): void => {
+    setReply(text)
+    onReplyChange?.(text)
+  }
 
   const submit = async (): Promise<void> => {
     const body = reply.trim()
     if (!body || busy) return
     setBusy(true)
     try {
-      if (await onReply(body)) setReply('')
+      if (await onReply(body)) changeReply('')
     } finally {
       setBusy(false)
     }
@@ -87,7 +101,7 @@ export function ThreadCard({
           value={reply}
           data-testid="pr-thread-reply"
           disabled={busy}
-          onChange={(e) => setReply(e.target.value)}
+          onChange={(e) => changeReply(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
             if (e.key === 'Escape') e.stopPropagation()

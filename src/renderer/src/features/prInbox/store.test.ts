@@ -80,6 +80,7 @@ beforeEach(() => {
       diffLoading: false,
       threads: [],
       drafts: [],
+      commentDrafts: {},
       review: { status: 'idle' },
       view: 'board',
       activeTab: 'files',
@@ -137,6 +138,26 @@ describe('prInboxStore', () => {
     expect(selectDrafts(s).map((d) => d.id)).toEqual(['d1'])
     expect(s.threads.map((t) => t.threadId)).toEqual([10])
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
+  })
+
+  test('setCommentDraft persists text and clears the entry when set empty', () => {
+    usePrInboxStore.getState().setCommentDraft('reply:10', 'half-typed')
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({ 'reply:10': 'half-typed' })
+    usePrInboxStore.getState().setCommentDraft('reply:10', '')
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({})
+  })
+
+  test('select discards any in-progress comment drafts from the previous PR', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)],
+      commentDrafts: { 'reply:10': 'stale' }
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([])
+    await usePrInboxStore.getState().select('repo', 1)
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({})
   })
 
   test('castVote replaces the cached PR with the returned row once ADO accepted the vote', async () => {

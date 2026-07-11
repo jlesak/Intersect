@@ -37,6 +37,13 @@ interface PrInboxState {
   diffLoading: boolean
   threads: PrThread[]
   drafts: DraftComment[]
+  /**
+   * In-progress inline reply/composer text keyed by a stable id (`reply:${threadId}` or
+   * `composer:${path}:${line}`). Lifted out of the Monaco view-zone portals so recreating the
+   * zones - which remounts every ThreadCard/composer when the anchor set changes - does not
+   * discard unsent text.
+   */
+  commentDrafts: Record<string, string>
   review: { status: 'idle' | 'running' }
   // The live review session's accumulated PTY output, buffered here so the terminal can replay the
   // full history on remount and capture output emitted before (or while) the view is mounted.
@@ -62,6 +69,8 @@ interface PrInboxState {
   replyToThread(threadId: number, body: string): Promise<boolean>
   /** Resolves to true only when ADO accepted the status change. */
   setThreadStatus(threadId: number, status: 'active' | 'fixed'): Promise<boolean>
+  /** Persist (or clear, when empty) the in-progress text for an inline reply/composer key. */
+  setCommentDraft(key: string, text: string): void
   /** Jump from an Overview thread to its code: Files tab, open the file, scroll to the line. */
   revealThread(path: string, line: number | null): void
   clearReveal(): void
@@ -164,6 +173,7 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
   diffLoading: false,
   threads: [],
   drafts: [],
+  commentDrafts: {},
   review: { status: 'idle' },
   reviewOutput: '',
 
@@ -199,7 +209,8 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
       fileDiff: null,
       diffLoading: false,
       threads: [],
-      drafts: []
+      drafts: [],
+      commentDrafts: {}
     })
     // Load the three sections independently so one failing call does not discard the others.
     const [changesR, draftsR, threadsR] = await Promise.allSettled([
@@ -281,6 +292,18 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
       reportError('Could not update the thread status', e)
       return false
     }
+  },
+
+  setCommentDraft(key, text) {
+    set((s) => {
+      if (!text) {
+        if (!(key in s.commentDrafts)) return s
+        const next = { ...s.commentDrafts }
+        delete next[key]
+        return { commentDrafts: next }
+      }
+      return { commentDrafts: { ...s.commentDrafts, [key]: text } }
+    })
   },
 
   revealThread(path, line) {

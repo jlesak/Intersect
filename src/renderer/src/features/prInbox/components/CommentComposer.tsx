@@ -4,15 +4,33 @@ interface CommentComposerProps {
   label: string
   onSubmit(body: string): Promise<void> | void
   onCancel(): void
+  /**
+   * Seeds the input on mount. Callers that render this composer inside a Monaco view zone (where a
+   * remount would otherwise wipe local state) pass the persisted draft here.
+   */
+  initialBody?: string
+  /** Called on every keystroke so the caller can persist the draft across remounts. */
+  onBodyChange?(text: string): void
 }
 
 /** Inline comment box (diff line or PR-level): Ctrl+Enter submits, Esc cancels. */
-export function CommentComposer({ label, onSubmit, onCancel }: CommentComposerProps) {
-  const [body, setBody] = useState('')
+export function CommentComposer({
+  label,
+  onSubmit,
+  onCancel,
+  initialBody = '',
+  onBodyChange
+}: CommentComposerProps) {
+  const [body, setBody] = useState(initialBody)
   const [busy, setBusy] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => ref.current?.focus(), [])
+
+  const changeBody = (text: string): void => {
+    setBody(text)
+    onBodyChange?.(text)
+  }
 
   const submit = async (): Promise<void> => {
     const text = body.trim()
@@ -35,7 +53,7 @@ export function CommentComposer({ label, onSubmit, onCancel }: CommentComposerPr
         value={body}
         disabled={busy}
         data-testid="pr-composer-input"
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => changeBody(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault()
