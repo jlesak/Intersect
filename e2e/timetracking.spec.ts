@@ -112,18 +112,18 @@ const dayColumn = (win: Page, day: string) => win.locator(`.ix-tt__day[data-day=
 // week without a highlighted column.
 const RUNS_ON_WEEKDAY = ![0, 6].includes(new Date().getDay())
 
-test('the section sits second in the rail and shows the week with auto cards in their days', async () => {
+test('the section sits third in the rail and shows the week with auto cards in their days', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir, buildProjectsFixture())
 
-  // Sidebar order: My Work, Time Tracking, TODO, 1:1, Workspaces, PR Review, Sessions,
+  // Sidebar order: Claude Code, My Work, Time Tracking, TODO, 1:1, PR Review, Sessions,
   // then Settings pinned in the footer rail.
   await expect(win.locator('.ix-rail__label')).toHaveText([
+    'Claude Code',
     'My Work',
     'Time Tracking',
     'TODO',
     '1:1',
-    'Workspaces',
     'PR Review',
     'Sessions',
     'Settings'

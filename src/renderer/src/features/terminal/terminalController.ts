@@ -13,7 +13,7 @@ import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from
 const FONT_SIZE_REFIT_DELAY_MS = 120
 
 // Backpressure watermarks (bytes outstanding in xterm's write buffer). Crossing HIGH pauses the
-// child (XOFF); dropping under LOW resumes it (XON). Keeps a firehose from hanging the renderer.
+// child pty; dropping under LOW resumes it. Keeps a firehose from hanging the renderer.
 const HIGH_WATER = 200_000
 const LOW_WATER = 50_000
 

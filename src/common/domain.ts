@@ -133,6 +133,11 @@ export interface PullRequest {
    * new changes since my review. Derived from the review watermark on every read; never persisted.
    */
   newChangesSinceMyReview: boolean
+  /**
+   * Unresolved, non-system comment threads counted at the last sync. Drives the author-side
+   * "needs my action" board signal; 0 when the thread fetch for this PR failed.
+   */
+  activeThreadCount: number
 }
 
 /** Which side of the diff a comment anchors to. Publishing supports 'right' only (ADO server). */
@@ -206,12 +211,24 @@ export interface FileDiff {
   tooLarge: boolean
 }
 
-/** An existing ADO comment thread (read-only display of prior review activity). */
+/** A comment written by me in the app and published to ADO immediately (no draft step). */
+export interface NewPrComment {
+  repositoryId: string
+  prId: number
+  /** Null anchors the comment to the PR itself instead of a file line. */
+  filePath: string | null
+  line: number | null
+  body: string
+}
+
+/** An existing ADO comment thread (prior review activity, replies and resolution included). */
 export interface PrThread {
   threadId: number
   filePath: string | null
   line: number | null
   status: string
+  /** True for ADO housekeeping threads (vote changes, policy updates); hidden from every view. */
+  isSystem: boolean
   comments: { authorName: string; body: string; publishedAt: number }[]
 }
 
@@ -343,23 +360,37 @@ export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>
 // TODO list - see docs/superpowers/specs/2026-07-06-todo-list-design.md
 // ---------------------------------------------------------------------------
 
+/** Todoist-style priority: 1 is the most urgent, 4 (the default) means no priority set. */
+export type TodoPriority = 1 | 2 | 3 | 4
+
 /**
  * One task on the personal TODO list - a lightweight note-to-self with no tie to workspaces or
  * Jira. `dueDay` is the optional local calendar day (`yyyy-mm-dd`) the task is due; `sortOrder`
- * is the manual position within the open list. A non-null `doneAt` (epoch ms) means the task is
- * done and orders the Done section, most recently completed first.
+ * is the creation-order tiebreaker used when priority and due day are equal (the open list has
+ * no manual ordering - it is derived from priority, then due day). A non-null `doneAt` (epoch ms)
+ * means the task is done and orders the Done section, most recently completed first.
  */
 export interface TodoTask {
   id: string
   text: string
+  description: string
   dueDay: string | null
+  priority: TodoPriority
   sortOrder: number
   doneAt: number | null
 }
 
+/** The fields editable in place via inline edit; an omitted field is left unchanged. */
+export interface TodoTaskPatch {
+  text?: string
+  description?: string
+  dueDay?: string | null
+  priority?: TodoPriority
+}
+
 /** Both TODO lists fetched together, so a single call hydrates the whole section. */
 export interface TodoLists {
-  /** Open tasks in manual order. */
+  /** Open tasks, ordered by priority then due date. */
   open: TodoTask[]
   /** Done tasks, most recently completed first. */
   done: TodoTask[]
@@ -481,3 +512,28 @@ export const TERMINAL_FONT_SIZE_MAX = 20
 export type AdoConnectionResult =
   | { ok: true; displayName: string }
   | { ok: false; error: string }
+
+// ---------------------------------------------------------------------------
+// Claude usage - sidebar panel showing Claude Code's own rate-limit usage
+// ---------------------------------------------------------------------------
+
+/** One rate-limit window's usage, as reported by Claude Code's own statusline JSON. */
+export interface ClaudeUsageWindow {
+  /** 0-100 integer percent of the window already used. */
+  usedPercent: number
+  /** Epoch seconds the window resets at. */
+  resetsAt: number
+}
+
+/**
+ * Claude Code's rate-limit usage for the signed-in user, captured from the statusline JSON Claude
+ * Code feeds the app-managed statusline command on every render. A window is null when the user
+ * is not on a Pro/Max subscription (Claude Code's statusline omits `rate_limits` entirely) or no
+ * snapshot has been captured yet. `capturedAt` is the local epoch-ms time the snapshot was
+ * written, for the sidebar's "as of HH:mm" staleness hint.
+ */
+export interface ClaudeUsage {
+  fiveHour: ClaudeUsageWindow | null
+  sevenDay: ClaudeUsageWindow | null
+  capturedAt: number
+}

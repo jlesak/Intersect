@@ -8,12 +8,12 @@ import { waitForTabsReady } from './waitForTabsReady'
 
 /**
  * The session the user is actively viewing: the active tab of the selected workspace while the
- * Workspaces section is on screen and its tabs have loaded. Null whenever no terminal is in view
+ * Claude Code section is on screen and its tabs have loaded. Null whenever no terminal is in view
  * (another section is open, nothing selected, or tabs still loading), so a background session's
  * signal is never mistaken for one the user is already watching.
  */
 function currentActiveSession(): string | null {
-  // activeSectionId === null resolves to the first main-owning section, which is Workspaces.
+  // activeSectionId === null resolves to the first main-owning section, which is Claude Code.
   const section = useShellStore.getState().activeSectionId
   if (section !== null && section !== WORKSPACES_SECTION_ID) return null
   const wsId = useWorkspacesStore.getState().selectedWorkspaceId

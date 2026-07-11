@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
@@ -20,9 +20,19 @@ import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
+import { applyLoginShellPath } from './loginShellPath'
 import { buildSpawn } from './pty/shell'
 import { createAttentionDetector } from './pty/attentionDetector'
-import { writeNotifSettings } from './pty/notifSettings'
+import { HOOK_SCRIPT_FILENAME, writeNotifHookScript, writeNotifSettings } from './pty/notifSettings'
+import {
+  USAGE_SNAPSHOT_FILENAME,
+  USAGE_STATUSLINE_SCRIPT_FILENAME,
+  resolveUserStatuslineCommand,
+  usageStatuslineCommand,
+  writeUsageStatuslineScript
+} from './usage/usageStatusline'
+import { createUsageService } from './usage/usageService'
+import { createUsageHandlers, registerUsageHandlers } from './ipc/usage.ipc'
 import { createSessionNotifier } from './sessionNotifier'
 import { createNotifyGate } from './notifyGate'
 import { createWorkspaceHandlers, registerWorkspaceHandlers } from './ipc/workspaces.ipc'
@@ -57,7 +67,8 @@ import { createOtoManager } from './oneOnOne/otoManager'
 import { createAdoClient } from './prInbox/adoClient'
 import { createAdoE2eStub } from './prInbox/adoE2eStub'
 import { createAdoService } from './prInbox/adoService'
-import { resolveAdoServerConfig, resolveMyIdentity, resolveVoteCredentials } from './prInbox/adoConfig'
+import { resolveAdoServerConfig, resolveVoteCredentials } from './prInbox/adoConfig'
+import { createIdentityResolver } from './prInbox/adoIdentity'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager } from './prInbox/worktreeManager'
 
@@ -95,25 +106,31 @@ function focusAndNavigate(sessionId: string): void {
   sendToRenderer(Channel.terminalNotificationClicked, { sessionId })
 }
 
-/** What each session status announces when its notification fires. */
+/**
+ * What each session status announces when its notification fires and Claude did not supply its own
+ * message (the `Stop` hook never carries one; `idle_prompt`/`permission_prompt` usually do).
+ */
 const STATUS_BODY: Record<SessionStatus, string> = {
   working: 'Started working',
   waiting: 'Needs your permission',
-  done: 'Waiting for your input'
+  done: 'Finished - waiting for your next prompt'
 }
 
 /**
  * Raise the native macOS notification for a session that wants the user. Title/subtitle name the
- * tab and its workspace so the user knows which of many sessions is calling; clicking it focuses
- * the app and navigates there. No-ops silently where the OS cannot show notifications (e.g. an
- * unsigned dev build) or the session can no longer be resolved.
+ * tab and its workspace so the user knows which of many sessions is calling; the body prefers
+ * Claude's own notification text (e.g. "Claude needs your permission to use Bash") when the hook
+ * supplied one, falling back to a generic status line otherwise. Clicking it focuses the app and
+ * navigates there. No-ops silently where the OS cannot show notifications (e.g. an unsigned dev
+ * build) or the session can no longer be resolved.
  */
 function showAttentionNotification(
   sessionId: string,
   status: SessionStatus,
   tabs: TabRepo,
   workspaces: WorkspaceRepo,
-  sound: boolean
+  sound: boolean,
+  message?: string
 ): void {
   if (!Notification.isSupported()) return
   const parsed = parseSessionId(sessionId)
@@ -123,7 +140,7 @@ function showAttentionNotification(
   const notification = new Notification({
     title: tab?.title ?? 'Claude Code',
     subtitle: ws?.name,
-    body: STATUS_BODY[status],
+    body: message ?? STATUS_BODY[status],
     silent: !sound
   })
   notification.on('click', () => focusAndNavigate(sessionId))
@@ -131,6 +148,24 @@ function showAttentionNotification(
   // fires 'failed' instead of a banner. Log it so a missing banner is diagnosable, not silent.
   notification.on('failed', (_e, error) => console.error('[intersect] notification failed:', error))
   notification.show()
+}
+
+/**
+ * The user's own statusline command from `~/.claude/settings.json`, falling back to
+ * `~/.claude/settings.local.json` per Claude Code's own precedence (local overrides
+ * shared/global), or null if neither configures one. Read once at boot and baked into the
+ * generated usage-statusline script, so the user's own statusline keeps rendering unchanged.
+ */
+function readUserStatuslineCommand(): string | null {
+  const claudeDir = join(homedir(), '.claude')
+  const readOrNull = (filename: string): string | null => {
+    try {
+      return readFileSync(join(claudeDir, filename), 'utf8')
+    } catch {
+      return null
+    }
+  }
+  return resolveUserStatuslineCommand(readOrNull('settings.json'), readOrNull('settings.local.json'))
 }
 
 /** The configured ADO default project, or a sensible fallback if ADO isn't configured yet. */
@@ -179,7 +214,7 @@ function createWindow(): void {
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
+function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapshotPath: string): void {
   const deps = defaultRepoDeps
   const workspaces = createWorkspaceRepo(database, deps)
   const tabs = createTabRepo(database, deps)
@@ -199,9 +234,12 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
       sendToRenderer(Channel.terminalSessionStatus, { sessionId, status }),
     notify: createNotifyGate(
       () => settings.getNotifications(),
-      (sessionId, status, sound) =>
-        showAttentionNotification(sessionId, status, tabs, workspaces, sound)
-    )
+      (sessionId, status, sound, message) =>
+        showAttentionNotification(sessionId, status, tabs, workspaces, sound, message)
+    ),
+    // The dock badge is the at-a-glance count of sessions awaiting interaction across every
+    // workspace, including ones not currently visible; it clears once every alert is acknowledged.
+    onPendingChanged: (count) => app.dock?.setBadge(count > 0 ? String(count) : '')
   })
 
   // Which preset each live session is (only a claude session's input drives the 'working' status).
@@ -274,11 +312,16 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR radar)
   // runs the real cache/watermark path without a live server; everything else stays unchanged.
   const adoStub = process.env.INTERSECT_E2E === '1' ? createAdoE2eStub(process.env) : null
+  // One resolver shared by sync and the vote fallback so the connectionData identity lookup runs at
+  // most once. An explicit INTERSECT_ADO_IDENTITY still overrides it without a network call.
+  const resolveIdentity = createIdentityResolver({
+    resolveCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
+  })
   const ado =
     adoStub ??
     createAdoService({
       client: adoClient,
-      resolveIdentity: () => resolveMyIdentity(),
+      resolveIdentity,
       projectId: () => safeDefaultProject(settings.getSavedAdo()),
       resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
@@ -306,7 +349,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
       ado,
       review,
       atomically: (fn) => tx(database, fn),
-      resolveIdentity: () => resolveMyIdentity()
+      resolveIdentity
     })
   )
   void review.pruneOnBoot().catch(() => {})
@@ -331,7 +374,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
   // --- TODO list slice: a personal task list living entirely in local SQLite ---
   // The repo is shared with the 1:1 slice, which fulltext-matches task texts (read-only).
   const todos = createTodoRepo(database, deps)
-  registerTodoHandlers(ipcMain, createTodoHandlers({ db: database, todos }))
+  registerTodoHandlers(ipcMain, createTodoHandlers({ todos }))
 
   // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT anywhere) ---
   // E2E runs get a stubbed backend: the section auto-fetches on first open (which is boot, since
@@ -354,6 +397,15 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     })
   )
   registerSystemHandlers(ipcMain, createSystemHandlers({ openExternal: (url) => shell.openExternal(url) }))
+
+  // --- Claude usage slice: sidebar panel showing Claude Code's own rate-limit usage ---
+  // usageSnapshotPath is '' when the statusline tee could not be wired at boot (see
+  // app.whenReady below); the panel then degrades to permanently-null usage rather than
+  // watching a bogus path. sendToRenderer pushes every fresh snapshot live, mirroring how
+  // session status is pushed.
+  const usage = usageSnapshotPath ? createUsageService({ snapshotPath: usageSnapshotPath }) : null
+  registerUsageHandlers(ipcMain, createUsageHandlers({ usage: usage ?? { get: () => null } }))
+  usage?.onChange((snapshot) => sendToRenderer(Channel.usageChanged, snapshot))
 
   // --- Settings slice: notification/ADO/appearance preferences persisted in local SQLite ---
   // Until the user saves ADO settings of their own, the form shows the effective config resolved
@@ -430,6 +482,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
     jiraFetcher.dispose()
     jiraLogin.dispose()
     oto.dispose()
+    usage?.dispose()
     debouncedAdoTeardown.cancel()
     void adoClient.close()
     db?.close()
@@ -439,20 +492,43 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string): void {
 
 app.whenReady().then(() => {
   ensureSpawnHelperExecutable()
+  // Launched from Finder/Dock, the app inherits only the bare /usr/bin:/bin PATH, so the ADO MCP
+  // server's `npx` launcher would fail with ENOENT. Fold in the login-shell PATH before any spawn.
+  applyLoginShellPath()
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   db = openDatabase(userDataDir)
   // The app-managed Claude Code settings that make claude emit attention markers into the PTY. If
   // it cannot be written, the feature degrades to nothing rather than blocking app launch, and the
   // empty path keeps `--settings` off the claude command (never pointing it at a missing file).
   let notifSettingsPath = ''
+  let usageSnapshotPath = ''
   try {
+    const hookScriptPath = join(userDataDir, HOOK_SCRIPT_FILENAME)
+    writeNotifHookScript(hookScriptPath)
+
+    // Usage-statusline tee: wired independently of the hook script, so a failure here still
+    // leaves attention notifications working - buildNotifSettings just omits `statusLine`.
+    let statusLineCommand: string | undefined
+    try {
+      const statuslineScriptPath = join(userDataDir, USAGE_STATUSLINE_SCRIPT_FILENAME)
+      writeUsageStatuslineScript(statuslineScriptPath, userDataDir, readUserStatuslineCommand())
+      statusLineCommand = usageStatuslineCommand(process.execPath, statuslineScriptPath)
+      usageSnapshotPath = join(userDataDir, USAGE_SNAPSHOT_FILENAME)
+    } catch {
+      statusLineCommand = undefined
+      usageSnapshotPath = ''
+    }
+
     const path = join(userDataDir, 'intersect-claude-notif.json')
-    writeNotifSettings(path)
+    writeNotifSettings(path, process.execPath, hookScriptPath, statusLineCommand)
     notifSettingsPath = path
   } catch {
+    // Nothing gets `--settings`, so statusLine never reaches claude either - keep the usage
+    // snapshot path empty too rather than watching a directory that will never be written to.
     notifSettingsPath = ''
+    usageSnapshotPath = ''
   }
-  wireIpc(db, notifSettingsPath)
+  wireIpc(db, notifSettingsPath, usageSnapshotPath)
   createWindow()
 
   app.on('activate', () => {

@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron'
 import { Channel, type IpcApi } from '@common/ipc'
-import type { PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
+import type { NewPrComment, PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
@@ -32,7 +32,7 @@ export interface PrInboxHandlerDeps {
    * entry of mine. Only a UUID identity can address the reviewers endpoint directly, and
    * resolution may throw when the identity is not configured.
    */
-  resolveIdentity?: () => AdoIdentity
+  resolveIdentity?: () => Promise<AdoIdentity>
   /** Warn surface for partial sync failures (defaults to console.warn). */
   warn?: (message: string) => void
 }
@@ -89,9 +89,9 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
   }
 
   /** My configured identity id, or null when it is missing, unresolvable, or not a UUID. */
-  const identityUuid = (): string | null => {
+  const identityUuid = async (): Promise<string | null> => {
     try {
-      return d.resolveIdentity?.().id ?? null
+      return (await d.resolveIdentity?.())?.id ?? null
     } catch {
       return null
     }
@@ -166,6 +166,27 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return d.ado.getThreads(repositoryId, prId)
     },
 
+    async addComment(input) {
+      await d.ado.publishComment({
+        repositoryId: input.repositoryId,
+        prId: input.prId,
+        filePath: input.filePath,
+        line: input.line,
+        body: input.body
+      })
+      return d.ado.getThreads(input.repositoryId, input.prId)
+    },
+
+    async replyToThread(repositoryId, prId, threadId, body) {
+      await d.ado.replyToThread({ repositoryId, prId, threadId, body })
+      return d.ado.getThreads(repositoryId, prId)
+    },
+
+    async setThreadStatus(repositoryId, prId, threadId, status) {
+      await d.ado.setThreadStatus({ repositoryId, prId, threadId, status })
+      return d.ado.getThreads(repositoryId, prId)
+    },
+
     async listDrafts(repositoryId, prId) {
       return d.drafts.listByPr(repositoryId, prId)
     },
@@ -232,7 +253,7 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       const pr = mustGetPr(repositoryId, prId)
       // My reviewer entry on the PR addresses the vote; a PR without one (I only author it, or the
       // row predates the column) falls back to my configured identity, which works only as a UUID.
-      const reviewerId = pr.myReviewerId ?? identityUuid()
+      const reviewerId = pr.myReviewerId ?? (await identityUuid())
       if (!reviewerId) {
         throw new Error(
           'Cannot vote: your reviewer identity on this PR is unknown. Sync the inbox, or set INTERSECT_ADO_IDENTITY to your ADO user GUID.'
@@ -283,6 +304,17 @@ export function registerPrInboxHandlers(ipcMain: IpcMain, h: PrInboxHandlers): v
   )
   ipcMain.handle(Channel.prInboxGetThreads, (_e, repositoryId: string, prId: number) =>
     h.getThreads(repositoryId, prId)
+  )
+  ipcMain.handle(Channel.prInboxAddComment, (_e, input: NewPrComment) => h.addComment(input))
+  ipcMain.handle(
+    Channel.prInboxReplyToThread,
+    (_e, repositoryId: string, prId: number, threadId: number, body: string) =>
+      h.replyToThread(repositoryId, prId, threadId, body)
+  )
+  ipcMain.handle(
+    Channel.prInboxSetThreadStatus,
+    (_e, repositoryId: string, prId: number, threadId: number, status: 'active' | 'fixed') =>
+      h.setThreadStatus(repositoryId, prId, threadId, status)
   )
   ipcMain.handle(Channel.prInboxListDrafts, (_e, repositoryId: string, prId: number) =>
     h.listDrafts(repositoryId, prId)

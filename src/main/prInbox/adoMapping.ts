@@ -145,7 +145,9 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: A
     myReviewerId: myReview?.id ? myReview.id : null,
     reviewers: (raw.reviewers ?? []).map(mapReviewer),
     // Derived from the review watermark by the read path (see reviewWatermark), never mapped here.
-    newChangesSinceMyReview: false
+    newChangesSinceMyReview: false,
+    // Enriched with the real unresolved-thread count by the sync (see adoService.syncMyPrs).
+    activeThreadCount: 0
   }
 }
 

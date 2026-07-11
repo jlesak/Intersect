@@ -1,12 +1,19 @@
+import { createElement } from 'react'
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { registerSidebarSection } from '@renderer/shared/registries/sidebarRegistry'
 import { IconInbox } from '@renderer/shared/ui/icons'
 import { PrInboxView } from './components/PrInboxView'
-import { PrList } from './components/PrList'
-import { usePrInboxStore } from './store'
+import { selectActionCount, usePrInboxStore } from './store'
 
 /** The PR Review section's registry id, exported so other slices can navigate to it. */
 export const PR_INBOX_SECTION_ID = 'prInbox'
+
+/** Live count of PRs needing my action, shown on the rail button. */
+function PrActionBadge() {
+  const count = usePrInboxStore(selectActionCount)
+  if (count === 0) return null
+  return createElement('span', { className: 'ix-rail__badge', 'data-testid': 'pr-badge' }, count)
+}
 
 /** Registers the PR-review sidebar section (owning the main area) and its commands. */
 export function registerPrInboxFeature(): void {
@@ -15,7 +22,7 @@ export function registerPrInboxFeature(): void {
     order: 1,
     label: 'PR Review',
     icon: IconInbox,
-    component: PrList,
+    badge: PrActionBadge,
     mainComponent: PrInboxView
   })
   registerCommand({

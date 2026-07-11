@@ -2,16 +2,17 @@ import { create } from 'zustand'
 import type {
   DraftComment,
   FileDiff,
-  NewManualDraft,
   PrChangeFile,
   PrThread,
   PrVote,
   PullRequest
 } from '@common/domain'
+import { boardColumn, isThreadUnresolved } from '@common/prBoard'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
+type ThreadFilter = 'active' | 'all' | 'resolved'
 
 /** The stable `${repositoryId}:${prId}` key a PR is stored and selected under. */
 export const prKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
@@ -23,6 +24,12 @@ interface PrInboxState {
   prsByKey: Record<string, PullRequest>
   order: string[]
   selectedKey: string | null
+  /** The main area shows the board, or the selected PR's detail. */
+  view: 'board' | 'detail'
+  activeTab: 'files' | 'overview'
+  threadFilter: ThreadFilter
+  /** File + line the Files tab should scroll to (set by Overview's file:line chip). */
+  pendingReveal: { path: string; line: number | null } | null
   // The selected PR's loaded detail.
   changes: PrChangeFile[]
   activeFilePath: string | null
@@ -39,8 +46,20 @@ interface PrInboxState {
    * should stay loud so a broken sync is never silently ignored. */
   sync(opts?: { quiet?: boolean }): Promise<void>
   select(repositoryId: string, prId: number): Promise<void>
+  /** Open the PR's detail from the board (select + switch view). */
+  openDetail(repositoryId: string, prId: number): Promise<void>
+  /** Back to the board (breadcrumb or Esc). */
+  goBack(): void
+  setTab(tab: 'files' | 'overview'): void
+  setThreadFilter(filter: ThreadFilter): void
+  /** Publish my own comment immediately; null path/line anchors it to the PR itself. */
+  addComment(filePath: string | null, line: number | null, body: string): Promise<void>
+  replyToThread(threadId: number, body: string): Promise<void>
+  setThreadStatus(threadId: number, status: 'active' | 'fixed'): Promise<void>
+  /** Jump from an Overview thread to its code: Files tab, open the file, scroll to the line. */
+  revealThread(path: string, line: number | null): void
+  clearReveal(): void
   openFile(path: string): Promise<void>
-  addManualDraft(input: NewManualDraft): Promise<void>
   editDraft(id: string, body: string): Promise<void>
   discardDraft(id: string): Promise<void>
   publishDraft(id: string): Promise<void>
@@ -68,6 +87,47 @@ export function selectDrafts(state: PrInboxState): DraftComment[] {
   return state.drafts
 }
 
+/**
+ * The board's three columns, newest PRs first within each. A pure function over the list (not a
+ * store selector) so components can memoize it - it returns fresh arrays on every call.
+ */
+export function groupBoardColumns(prs: PullRequest[]): {
+  action: PullRequest[]
+  waiting: PullRequest[]
+  approved: PullRequest[]
+} {
+  const cols = {
+    action: [] as PullRequest[],
+    waiting: [] as PullRequest[],
+    approved: [] as PullRequest[]
+  }
+  for (const pr of prs) cols[boardColumn(pr)].push(pr)
+  for (const list of Object.values(cols)) list.sort((a, b) => b.createdAt - a.createdAt)
+  return cols
+}
+
+/** The board's three columns computed from the store state (test seam over groupBoardColumns). */
+export function selectBoardColumns(state: PrInboxState): {
+  action: PullRequest[]
+  waiting: PullRequest[]
+  approved: PullRequest[]
+} {
+  return groupBoardColumns(selectPrList(state))
+}
+
+/** How many PRs currently need my action (the sidebar badge). */
+export function selectActionCount(state: PrInboxState): number {
+  return selectPrList(state).filter((pr) => boardColumn(pr) === 'action').length
+}
+
+/** Threads visible under the Overview filter; system threads never show. */
+export function selectFilteredThreads(state: PrInboxState): PrThread[] {
+  const real = state.threads.filter((t) => !t.isSystem)
+  if (state.threadFilter === 'active') return real.filter(isThreadUnresolved)
+  if (state.threadFilter === 'resolved') return real.filter((t) => !isThreadUnresolved(t))
+  return real
+}
+
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 const indexPrs = (prs: PullRequest[]): { prsByKey: Record<string, PullRequest>; order: string[] } => {
@@ -88,6 +148,10 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
   prsByKey: {},
   order: [],
   selectedKey: null,
+  view: 'board',
+  activeTab: 'files',
+  threadFilter: 'active',
+  pendingReveal: null,
   changes: [],
   activeFilePath: null,
   fileDiff: null,
@@ -151,6 +215,71 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     }
   },
 
+  async openDetail(repositoryId, prId) {
+    set({ view: 'detail', activeTab: 'files', threadFilter: 'active', pendingReveal: null })
+    await get().select(repositoryId, prId)
+  },
+
+  goBack() {
+    set({ view: 'board', selectedKey: null, pendingReveal: null })
+  },
+
+  setTab(tab) {
+    set({ activeTab: tab })
+  },
+
+  setThreadFilter(threadFilter) {
+    set({ threadFilter })
+  },
+
+  async addComment(filePath, line, body) {
+    const pr = selectSelectedPr(get())
+    if (!pr) return
+    try {
+      const threads = await api.addComment({
+        repositoryId: pr.repositoryId,
+        prId: pr.prId,
+        filePath,
+        line,
+        body
+      })
+      set({ threads })
+    } catch (e) {
+      reportError('Could not publish the comment to Azure DevOps', e)
+    }
+  },
+
+  async replyToThread(threadId, body) {
+    const pr = selectSelectedPr(get())
+    if (!pr) return
+    try {
+      const threads = await api.replyToThread(pr.repositoryId, pr.prId, threadId, body)
+      set({ threads })
+    } catch (e) {
+      reportError('Could not publish the reply to Azure DevOps', e)
+    }
+  },
+
+  async setThreadStatus(threadId, status) {
+    const pr = selectSelectedPr(get())
+    if (!pr) return
+    try {
+      const threads = await api.setThreadStatus(pr.repositoryId, pr.prId, threadId, status)
+      set({ threads })
+    } catch (e) {
+      reportError('Could not update the thread status', e)
+    }
+  },
+
+  revealThread(path, line) {
+    set({ activeTab: 'files', pendingReveal: { path, line } })
+    void get().openFile(path)
+  },
+
+  clearReveal() {
+    set({ pendingReveal: null })
+  },
+
   async openFile(path) {
     const pr = selectSelectedPr(get())
     if (!pr) return
@@ -164,16 +293,6 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     } catch (e) {
       set({ diffLoading: false })
       reportError('Could not load the file diff', e)
-    }
-  },
-
-  async addManualDraft(input) {
-    try {
-      const draft = await api.addManualDraft(input)
-      // The main process also broadcasts draftAdded; upsert here so the UI updates immediately.
-      set((s) => ({ drafts: upsertDraft(s.drafts, draft) }))
-    } catch (e) {
-      reportError('Could not add the comment', e)
     }
   },
 

@@ -13,6 +13,9 @@ async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
     env: { ...process.env, INTERSECT_E2E: '1', INTERSECT_E2E_ADO: 'radar' }
   })
   const win = await app.firstWindow()
+  await win.waitForSelector('.ix-wordmark__name')
+  // Boot lands on Claude Code, not My Work; switch to the section most of these tests start from.
+  await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
   return { app, win }
 }
 
@@ -38,9 +41,14 @@ test('voting on a reviewed PR activates the clicked button and survives a re-syn
   await expect(group.locator('.ix-pr-vote-btn--active-approved')).toHaveCount(1)
   await expect(group.locator('.ix-pr-vote-btn--active-approved')).toHaveText(/Approve/)
 
-  // A full re-sync round-trips the stub's mutated PR; the active vote must persist.
-  await win.locator('.ix-btn', { hasText: 'Sync' }).click()
-  await expect(group.locator('.ix-pr-vote-btn--active-approved')).toHaveCount(1)
+  // A full re-sync round-trips the stub's mutated PR; the active vote must persist. Sync lives
+  // on the board now, so step back, sync, and reopen the PR.
+  await win.getByTestId('pr-back').click()
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await expect(
+    win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
+  ).toHaveCount(1)
 
   await app.close()
 })
@@ -64,9 +72,13 @@ test('switching my vote moves the active state to the newly clicked button', asy
 test('an already-voted PR reflects my standing vote when opened', async () => {
   const { app, win } = await launch()
 
-  // PR 503 comes from the stub with my vote already 'approved'.
+  // PR 503 comes from the stub with my vote already 'approved'; it sits in the Approved column.
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
-  await win.locator('.ix-pr-row', { hasText: 'Extract the notification preferences screen' }).click()
+  await win.locator('.ix-btn', { hasText: 'Sync' }).click()
+  await win
+    .getByTestId('pr-card')
+    .filter({ hasText: 'Extract the notification preferences screen' })
+    .click()
   await expect(win.locator('.ix-pr-header__title')).toHaveText(
     'Extract the notification preferences screen'
   )

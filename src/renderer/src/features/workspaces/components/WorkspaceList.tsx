@@ -41,7 +41,7 @@ export function WorkspaceList() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <div className="ix-sidebar__section">
-        <span className="ix-eyebrow">Workspaces</span>
+        <span className="ix-eyebrow">Claude Code</span>
       </div>
 
       <div className="ix-sidebar__list">

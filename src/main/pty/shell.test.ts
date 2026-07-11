@@ -23,18 +23,18 @@ describe('buildSpawn', () => {
     expect(spec.initialCommand).toBeNull()
   })
 
-  test('claude preset carries claude as the initial command (typed into the shell)', () => {
-    expect(buildSpawn('claude', { env }).initialCommand).toBe('claude')
+  test('claude preset carries claude as the initial command (typed into the shell), preceded by disabling stty ixon', () => {
+    expect(buildSpawn('claude', { env }).initialCommand).toBe('stty -ixon; claude')
   })
 
   test('claude preset appends the quoted --settings path when one is given', () => {
     const spec = buildSpawn('claude', { env, notifSettingsPath: '/App Support/Intersect/n.json' })
-    expect(spec.initialCommand).toBe("claude --settings '/App Support/Intersect/n.json'")
+    expect(spec.initialCommand).toBe("stty -ixon; claude --settings '/App Support/Intersect/n.json'")
   })
 
   test('a --settings path with an apostrophe is safely escaped (no shell break)', () => {
     const spec = buildSpawn('claude', { env, notifSettingsPath: "/Users/O'Brien/n.json" })
-    expect(spec.initialCommand).toBe("claude --settings '/Users/O'\\''Brien/n.json'")
+    expect(spec.initialCommand).toBe("stty -ixon; claude --settings '/Users/O'\\''Brien/n.json'")
   })
 
   test('the notif settings path never leaks into the plain shell preset', () => {
@@ -48,17 +48,19 @@ describe('buildSpawn', () => {
       resumeSessionId: 'abc-123',
       notifSettingsPath: '/App Support/Intersect/n.json'
     })
-    expect(spec.initialCommand).toBe("claude --resume 'abc-123' --settings '/App Support/Intersect/n.json'")
+    expect(spec.initialCommand).toBe(
+      "stty -ixon; claude --resume 'abc-123' --settings '/App Support/Intersect/n.json'"
+    )
   })
 
   test('claude preset resumes without a settings path when none is given', () => {
     const spec = buildSpawn('claude', { env, resumeSessionId: 'abc-123' })
-    expect(spec.initialCommand).toBe("claude --resume 'abc-123'")
+    expect(spec.initialCommand).toBe("stty -ixon; claude --resume 'abc-123'")
   })
 
   test('a null/absent resume id leaves the claude command unchanged', () => {
-    expect(buildSpawn('claude', { env, resumeSessionId: null }).initialCommand).toBe('claude')
-    expect(buildSpawn('claude', { env }).initialCommand).toBe('claude')
+    expect(buildSpawn('claude', { env, resumeSessionId: null }).initialCommand).toBe('stty -ixon; claude')
+    expect(buildSpawn('claude', { env }).initialCommand).toBe('stty -ixon; claude')
   })
 
   test('the resume id never leaks into the plain shell preset', () => {
@@ -68,7 +70,11 @@ describe('buildSpawn', () => {
   test('a resume id with shell metacharacters is rejected, not interpolated', () => {
     const spec = buildSpawn('claude', { env, resumeSessionId: "x'; rm -rf ~ #" })
     // The malformed id is dropped entirely - the command resumes nothing rather than risk injection.
-    expect(spec.initialCommand).toBe('claude')
+    expect(spec.initialCommand).toBe('stty -ixon; claude')
+  })
+
+  test('the stty ixon disable never leaks into the plain shell preset', () => {
+    expect(buildSpawn('shell', { env }).initialCommand).toBeNull()
   })
 
   test('test mode uses a no-rc shell so E2E output is deterministic', () => {

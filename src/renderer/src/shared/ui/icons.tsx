@@ -145,6 +145,12 @@ export const IconLayoutGrid = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconFlag = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 2v12M4 3h8l-2 2.5L12 8H4" />
+  </svg>
+)
+
 export const IconSettings = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <circle cx="8" cy="8" r="2" />

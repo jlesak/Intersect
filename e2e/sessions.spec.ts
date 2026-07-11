@@ -68,8 +68,8 @@ async function launch(userDataDir: string, projectsDir: string): Promise<{ app: 
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
-  // Boot lands on My Work (the first section); these tests start from the Workspaces section.
-  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
+  // Boot lands on Claude Code (formerly labeled Workspaces), the section these tests start from.
+  await win.locator('.ix-rail__btn', { hasText: 'Claude Code' }).click()
   return { app, win }
 }
 
@@ -138,7 +138,7 @@ test('resume opens a Claude tab in a workspace for the session folder', async ()
   await win.locator('.ix-session-row', { hasText: 'Building the widget factory' }).click()
   await win.locator('.ix-transcript__header .ix-btn--primary', { hasText: 'Resume' }).click()
 
-  // Resume reveals the Workspaces section, auto-creates a workspace for the session's cwd, and
+  // Resume reveals the Claude Code section, auto-creates a workspace for the session's cwd, and
   // opens a Claude tab there (the tab + terminal exist regardless of whether `claude` is installed).
   await expect(win.locator('.ix-ws--active')).toBeVisible()
   await expect(win.locator('.ix-tab')).toHaveCount(1)

@@ -3,11 +3,6 @@ import { join, sep } from 'node:path'
 import * as pty from 'node-pty'
 import type { PtyProcess, SpawnFn, SpawnRequest } from './sessionManager'
 
-// XON/XOFF bytes matched to sessionManager.pause/resume. With handleFlowControl on, node-pty
-// intercepts these writes and pauses/resumes the child process at the source (backpressure).
-const XOFF = '\x13'
-const XON = '\x11'
-
 /** The one place node-pty is imported. Adapts its IPty to the PtyProcess the manager expects. */
 export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
   const proc = pty.spawn(req.file, req.args, {
@@ -15,10 +10,7 @@ export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
     cwd: req.cwd,
     cols: req.cols,
     rows: req.rows,
-    env: req.env,
-    handleFlowControl: true,
-    flowControlPause: XOFF,
-    flowControlResume: XON
+    env: req.env
   })
   return {
     pid: proc.pid,
@@ -30,6 +22,8 @@ export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
     },
     write: (data) => proc.write(data),
     resize: (cols, rows) => proc.resize(cols, rows),
+    pause: () => proc.pause(),
+    resume: () => proc.resume(),
     kill: () => proc.kill()
   }
 }

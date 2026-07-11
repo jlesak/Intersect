@@ -1,7 +1,7 @@
 import type {
   DraftComment,
   FileDiff,
-  NewManualDraft,
+  NewPrComment,
   PrChangeFile,
   PrThread,
   PrVote,
@@ -19,10 +19,22 @@ export const getFileDiff = (repositoryId: string, prId: number, filePath: string
   ipc().prInbox.getFileDiff(repositoryId, prId, filePath)
 export const getThreads = (repositoryId: string, prId: number): Promise<PrThread[]> =>
   ipc().prInbox.getThreads(repositoryId, prId)
+export const addComment = (input: NewPrComment): Promise<PrThread[]> =>
+  ipc().prInbox.addComment(input)
+export const replyToThread = (
+  repositoryId: string,
+  prId: number,
+  threadId: number,
+  body: string
+): Promise<PrThread[]> => ipc().prInbox.replyToThread(repositoryId, prId, threadId, body)
+export const setThreadStatus = (
+  repositoryId: string,
+  prId: number,
+  threadId: number,
+  status: 'active' | 'fixed'
+): Promise<PrThread[]> => ipc().prInbox.setThreadStatus(repositoryId, prId, threadId, status)
 export const listDrafts = (repositoryId: string, prId: number): Promise<DraftComment[]> =>
   ipc().prInbox.listDrafts(repositoryId, prId)
-export const addManualDraft = (input: NewManualDraft): Promise<DraftComment> =>
-  ipc().prInbox.addManualDraft(input)
 export const editDraft = (id: string, body: string): Promise<DraftComment> =>
   ipc().prInbox.editDraft(id, body)
 export const discardDraft = (id: string): Promise<void> => ipc().prInbox.discardDraft(id)

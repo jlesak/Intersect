@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DraftComment, OtoRun } from '@common/domain'
+import type { ClaudeUsage, DraftComment, OtoRun } from '@common/domain'
 import {
   Channel,
   type IpcApi,
@@ -66,6 +66,11 @@ const api: IpcApi = {
     getFileDiff: (repositoryId, prId, filePath) =>
       ipcRenderer.invoke(Channel.prInboxGetFileDiff, repositoryId, prId, filePath),
     getThreads: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxGetThreads, repositoryId, prId),
+    addComment: (input) => ipcRenderer.invoke(Channel.prInboxAddComment, input),
+    replyToThread: (repositoryId, prId, threadId, body) =>
+      ipcRenderer.invoke(Channel.prInboxReplyToThread, repositoryId, prId, threadId, body),
+    setThreadStatus: (repositoryId, prId, threadId, status) =>
+      ipcRenderer.invoke(Channel.prInboxSetThreadStatus, repositoryId, prId, threadId, status),
     listDrafts: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxListDrafts, repositoryId, prId),
     addManualDraft: (input) => ipcRenderer.invoke(Channel.prInboxAddManualDraft, input),
     editDraft: (id, body) => ipcRenderer.invoke(Channel.prInboxEditDraft, id, body),
@@ -108,10 +113,10 @@ const api: IpcApi = {
   },
   todo: {
     list: () => ipcRenderer.invoke(Channel.todoList),
-    add: (text, dueDay) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay),
+    add: (text, dueDay, priority) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay, priority),
+    update: (id, patch) => ipcRenderer.invoke(Channel.todoUpdate, id, patch),
     setDone: (id, done) => ipcRenderer.invoke(Channel.todoSetDone, id, done),
-    remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
-    reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
+    remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id)
   },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),
@@ -140,6 +145,14 @@ const api: IpcApi = {
     openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),
     // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.
     getPathForFile: (file) => webUtils.getPathForFile(file)
+  },
+  usage: {
+    get: () => ipcRenderer.invoke(Channel.usageGet),
+    onUsageChanged: (cb) => {
+      const listener = (_e: unknown, usage: ClaudeUsage | null): void => cb(usage)
+      ipcRenderer.on(Channel.usageChanged, listener)
+      return () => ipcRenderer.removeListener(Channel.usageChanged, listener)
+    }
   }
 }
 

@@ -24,6 +24,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   myReviewerId: null,
   reviewers: [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
   newChangesSinceMyReview: false,
+  activeThreadCount: 0,
   ...over
 })
 
@@ -44,6 +45,11 @@ describe('prCacheRepo', () => {
     expect(got?.reviewers).toEqual([
       { id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }
     ])
+  })
+
+  test('round-trips the active thread count', () => {
+    repo.replaceAll([pr({ activeThreadCount: 3 })])
+    expect(repo.get('repo-a', 100)?.activeThreadCount).toBe(3)
   })
 
   test('replaceAll clears the previous cache', () => {

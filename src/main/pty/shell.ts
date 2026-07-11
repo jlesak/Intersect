@@ -75,7 +75,9 @@ export function buildSpawn(preset: Preset, opts: BuildSpawnOptions = {}): SpawnS
  * The command typed into the ready shell. For claude, appends `--resume <id>` when resuming a past
  * session and the app-managed `--settings` file (both single-quoted, since ids are safe but the
  * userData path contains spaces) so Claude emits Intersect's attention markers alongside the user's
- * own hooks.
+ * own hooks. The command is prefixed with `stty -ixon;` to turn off the shell's own Ctrl+S/Ctrl+Q
+ * flow control, so Ctrl+S reaches Claude Code (which reads it in raw mode) instead of being
+ * swallowed by the kernel line discipline at the plain shell prompt before/after claude runs.
  */
 function resolveInitialCommand(
   preset: Preset,
@@ -85,7 +87,7 @@ function resolveInitialCommand(
   const base = PRESET_META[preset].initialCommand
   if (base === null) return null
   if (preset !== 'claude') return base
-  let command = base
+  let command = `stty -ixon; ${base}`
   // The resume id is a Claude session UUID (a `.jsonl` basename). It is already single-quoted below,
   // but since it becomes part of a command typed into a live shell, we additionally require it to be
   // a bare token; anything else is not a real session id and is dropped rather than interpolated.

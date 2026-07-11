@@ -11,13 +11,21 @@ export interface SidebarSection {
   order: number
   label: string
   icon: ComponentType
-  component: ComponentType
+  /** Renders inside the sidebar rail; omit when the section has no sidebar body. */
+  component?: ComponentType
+  /** Small live indicator rendered inside the section's rail button (e.g. an action count). */
+  badge?: ComponentType
   mainComponent?: ComponentType
   /**
    * Where the section's rail button lives: among the daily-use sections (default 'rail') or
    * pinned to the sidebar's bottom ('footer', for utilities like Settings).
    */
   placement?: 'rail' | 'footer'
+  /**
+   * Marks the section as the app's primary/main feature, giving its rail button a taller,
+   * visually heavier treatment than the other entries.
+   */
+  prominent?: boolean
 }
 
 const sections: SidebarSection[] = []

@@ -28,6 +28,8 @@ function fakePty(): FakePty {
     onExit: (cb) => exitCbs.push(cb),
     write: () => {},
     resize: () => {},
+    pause: () => {},
+    resume: () => {},
     kill: vi.fn(() => triggerExit(0)),
     triggerExit
   }
