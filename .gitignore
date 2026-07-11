@@ -32,6 +32,8 @@ npm-debug.log*
 /_*.cjs
 /_*.js
 /_*.mjs
+# Dev scratch directories (underscore-prefixed), e.g. verification screenshots
+/_*/
 e2e/diag.spec.ts
 
 e2e/screenshot.spec.ts
