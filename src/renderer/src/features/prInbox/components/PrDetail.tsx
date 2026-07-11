@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { isThreadUnresolved } from '@common/prBoard'
-import { selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
+import { prKey, selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
 import { escapeShouldGoBack } from './escapeNav'
@@ -81,6 +81,7 @@ export function PrDetail() {
   const threads = usePrInboxStore(useShallow((s) => s.threads))
   const drafts = usePrInboxStore(useShallow(selectDrafts))
   const reviewStatus = usePrInboxStore((s) => s.review.status)
+  const reviewPrKey = usePrInboxStore((s) => s.reviewPrKey)
   const reviewView = usePrInboxStore((s) => s.reviewView)
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function PrDetail() {
   }, [])
 
   if (!pr) return null
-  const running = reviewStatus === 'running'
+  const running = reviewStatus === 'running' && reviewPrKey === prKey(pr.repositoryId, pr.prId)
   const commentCount = threads.filter((t) => !t.isSystem && isThreadUnresolved(t)).length
 
   return (

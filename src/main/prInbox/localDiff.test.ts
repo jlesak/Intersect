@@ -143,6 +143,46 @@ describe('localFileDiff', () => {
   })
 })
 
+describe('localFileDiff with a blob larger than gitRaw maxBuffer', () => {
+  let dir: string
+  let target: string
+  let source: string
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ixdiff-huge-'))
+    await git(dir, ['init', '-q', '-b', 'main'])
+    await git(dir, ['config', 'user.email', 't@t'])
+    await git(dir, ['config', 'user.name', 'T'])
+    await git(dir, ['config', 'commit.gpgsign', 'false'])
+    await writeFile(join(dir, 'seed.txt'), 'seed\n')
+    await git(dir, ['add', '-A'])
+    await git(dir, ['commit', '-q', '-m', 'base'])
+    target = await git(dir, ['rev-parse', 'HEAD'])
+    // A blob above gitRaw's 32MB maxBuffer, so `git show` rejects with maxBuffer-exceeded.
+    await writeFile(join(dir, 'huge.txt'), 'x'.repeat(33 * 1024 * 1024))
+    await git(dir, ['add', '-A'])
+    await git(dir, ['commit', '-q', '-m', 'huge'])
+    source = await git(dir, ['rev-parse', 'HEAD'])
+  })
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('is flagged tooLarge instead of throwing a hard error', async () => {
+    const diff = await localFileDiff(dir, {
+      targetCommit: target,
+      sourceCommit: source,
+      filePath: '/huge.txt',
+      originalPath: null,
+      changeType: 'add'
+    })
+    expect(diff.tooLarge).toBe(true)
+    expect(diff.binary).toBe(false)
+    expect(diff.original).toBe('')
+    expect(diff.modified).toBe('')
+  })
+})
+
 describe('createLocalDiffService', () => {
   let repo: { dir: string; target: string; source: string }
 

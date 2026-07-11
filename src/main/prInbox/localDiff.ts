@@ -79,16 +79,32 @@ export interface FileDiffInput {
   changeType: PrChangeFile['changeType']
 }
 
+/** Thrown by showBlob when a blob exceeds gitRaw's maxBuffer, so localFileDiff can flag it oversize. */
+const BLOB_TOO_LARGE = Symbol('blob-too-large')
+
+/** True when a git failure is Node's maxBuffer-exceeded error (blob larger than gitRaw's cap). */
+function isMaxBufferError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return true
+    return /maxBuffer/i.test(err.message)
+  }
+  return false
+}
+
 /**
  * Read a blob at `commit:path`. A path that genuinely does not exist at that revision is a
- * legitimately-empty side (the file was added or deleted), so it returns ''. Every other git failure
- * (bad revision, unfetched commit, transient error) is rethrown rather than masked as an empty side,
- * so a wrong all-added/all-deleted diff is never shown during a review.
+ * legitimately-empty side (the file was added or deleted), so it returns ''. A blob larger than
+ * gitRaw's maxBuffer throws the BLOB_TOO_LARGE sentinel so the caller can render the oversize
+ * placeholder. Every other git failure (bad revision, unfetched commit, transient error) is rethrown
+ * rather than masked as an empty side, so a wrong all-added/all-deleted diff is never shown during a
+ * review.
  */
 async function showBlob(repoDir: string, commit: string, path: string): Promise<string> {
   return gitRaw(repoDir, ['show', `${commit}:${path}`]).catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err)
     if (/does not exist in|exists on disk, but not in/.test(msg)) return ''
+    if (isMaxBufferError(err)) throw BLOB_TOO_LARGE
     throw err
   })
 }
@@ -101,14 +117,30 @@ async function showBlob(repoDir: string, commit: string, path: string): Promise<
 export async function localFileDiff(repoDir: string, input: FileDiffInput): Promise<FileDiff> {
   const mergeBase = await git(repoDir, ['merge-base', input.targetCommit, input.sourceCommit])
   const gitPath = (p: string): string => p.replace(/^\//, '')
-  const original =
-    input.changeType === 'add'
-      ? ''
-      : await showBlob(repoDir, mergeBase, gitPath(input.originalPath ?? input.filePath))
-  const modified =
-    input.changeType === 'delete'
-      ? ''
-      : await showBlob(repoDir, input.sourceCommit, gitPath(input.filePath))
+  let original: string
+  let modified: string
+  try {
+    original =
+      input.changeType === 'add'
+        ? ''
+        : await showBlob(repoDir, mergeBase, gitPath(input.originalPath ?? input.filePath))
+    modified =
+      input.changeType === 'delete'
+        ? ''
+        : await showBlob(repoDir, input.sourceCommit, gitPath(input.filePath))
+  } catch (err) {
+    if (err === BLOB_TOO_LARGE) {
+      return {
+        path: input.filePath,
+        original: '',
+        modified: '',
+        language: langFromPath(input.filePath),
+        binary: false,
+        tooLarge: true
+      }
+    }
+    throw err
+  }
 
   const binary = isBinary(original) || isBinary(modified)
   const tooLarge = byteLen(original) > MAX_DIFF_BYTES || byteLen(modified) > MAX_DIFF_BYTES
