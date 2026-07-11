@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { describe, expect, test, vi } from 'vitest'
 import { extractShellPath, mergePath, resolveLoginShellPath } from './loginShellPath'
 
@@ -54,7 +55,7 @@ describe('resolveLoginShellPath', () => {
     // Exercises the actual shell-command string (not just a mocked runner), so a quoting/expansion
     // bug in it is caught. Uses /bin/sh with -c since -ilc needs an interactive tty.
     const run: (shell: string, args: string[]) => Promise<string> = async (_shell, args) =>
-      require('node:child_process').execFileSync('/bin/sh', ['-c', args[args.length - 1]], {
+      execFileSync('/bin/sh', ['-c', args[args.length - 1]], {
         encoding: 'utf8',
         env: { PATH: '/sentinel/bin:/usr/bin' }
       })
