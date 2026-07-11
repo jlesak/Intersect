@@ -98,8 +98,8 @@ contracts, and a new migration. No existing slice changes.
 - **Imperative terminal controller** - xterm instances live in a `Map` outside React and are
   attached/detached from panes, never remounted, so scrollback and cursor survive tab/layout
   switches. The data sink is registered before the PTY spawns so the first prompt is never lost.
-- **Backpressure** - the renderer watermarks xterm's write buffer and XOFF/XON's the child so a
-  firehose (`cat huge.log`) can't hang the UI.
+- **Backpressure** - the renderer watermarks xterm's write buffer and pauses/resumes the child PTY
+  so a firehose (`cat huge.log`) can't hang the UI.
 
 ### Testing
 
