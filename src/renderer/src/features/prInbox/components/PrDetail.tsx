@@ -87,8 +87,9 @@ export function PrDetail() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      const running = usePrInboxStore.getState().review.status === 'running'
-      if (escapeShouldGoBack(running, e.target)) usePrInboxStore.getState().goBack()
+      const state = usePrInboxStore.getState()
+      const running = state.review.status === 'running' && state.reviewPrKey === state.selectedKey
+      if (escapeShouldGoBack(running, e.target)) state.goBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -122,6 +123,12 @@ export function PrDetail() {
             <button
               type="button"
               className="ix-btn ix-btn--primary"
+              disabled={reviewPrKey !== null}
+              title={
+                reviewPrKey !== null
+                  ? 'A review is already running on another pull request - end it first.'
+                  : undefined
+              }
               onClick={() => void usePrInboxStore.getState().startReview()}
             >
               Review with Claude Code
