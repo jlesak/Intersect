@@ -75,24 +75,40 @@ export interface IdentityResolverDeps {
   fetchFn?: typeof fetch
 }
 
+export interface IdentityResolver {
+  /** Resolve the current identity, using the memoized result when one is cached. */
+  resolve: () => Promise<AdoIdentity>
+  /**
+   * Drop the memoized identity so the next resolve re-derives it. Called when saved ADO settings
+   * change, since a new account/PAT authenticates as a different person server-side.
+   */
+  invalidate: () => void
+}
+
 /**
  * A lazily-resolved, memoized identity. An explicit INTERSECT_ADO_IDENTITY override wins with no
  * network call; otherwise the PAT's own connectionData identity is used. The first successful
- * result is cached for the process lifetime; a failed lookup is never cached, so a later call
- * (after the VPN reconnects or the PAT is fixed) can still succeed without a restart.
+ * result is cached until invalidate() is called (on a saved-ADO-settings change) or the process
+ * ends; a failed lookup is never cached, so a later call (after the VPN reconnects or the PAT is
+ * fixed) can still succeed without a restart.
  */
-export function createIdentityResolver(deps: IdentityResolverDeps): () => Promise<AdoIdentity> {
+export function createIdentityResolver(deps: IdentityResolverDeps): IdentityResolver {
   const env = deps.env ?? process.env
   let cached: AdoIdentity | null = null
-  return async () => {
-    if (cached) return cached
-    const override = env.INTERSECT_ADO_IDENTITY?.trim()
-    if (override) {
-      cached = classifyIdentity(override)
+  return {
+    resolve: async () => {
+      if (cached) return cached
+      const override = env.INTERSECT_ADO_IDENTITY?.trim()
+      if (override) {
+        cached = classifyIdentity(override)
+        return cached
+      }
+      const { orgUrl, pat } = deps.resolveCredentials()
+      cached = await fetchConnectionIdentity(orgUrl, pat, { fetchFn: deps.fetchFn })
       return cached
+    },
+    invalidate: () => {
+      cached = null
     }
-    const { orgUrl, pat } = deps.resolveCredentials()
-    cached = await fetchConnectionIdentity(orgUrl, pat, { fetchFn: deps.fetchFn })
-    return cached
   }
 }

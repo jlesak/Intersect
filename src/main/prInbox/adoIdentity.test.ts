@@ -68,7 +68,7 @@ describe('createIdentityResolver', () => {
 
   test('an INTERSECT_ADO_IDENTITY override wins and makes no network call', async () => {
     const fetchFn = vi.fn<typeof fetch>()
-    const resolve = createIdentityResolver({
+    const { resolve } = createIdentityResolver({
       resolveCredentials: () => creds,
       env: { INTERSECT_ADO_IDENTITY: '6dc11d09-387d-4a25-8699-0dc709e21280' } as NodeJS.ProcessEnv,
       fetchFn
@@ -81,7 +81,7 @@ describe('createIdentityResolver', () => {
     const fetchFn = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ authenticatedUser: { id: 'uuid-1' } }))
-    const resolve = createIdentityResolver({
+    const { resolve } = createIdentityResolver({
       resolveCredentials: () => creds,
       env: {} as NodeJS.ProcessEnv,
       fetchFn
@@ -91,12 +91,28 @@ describe('createIdentityResolver', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1)
   })
 
+  test('invalidate drops the memoized identity so the next resolve re-derives it', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ authenticatedUser: { id: 'uuid-old' } }))
+      .mockResolvedValueOnce(jsonResponse({ authenticatedUser: { id: 'uuid-new' } }))
+    const { resolve, invalidate } = createIdentityResolver({
+      resolveCredentials: () => creds,
+      env: {} as NodeJS.ProcessEnv,
+      fetchFn
+    })
+    expect(await resolve()).toEqual({ id: 'uuid-old', displayName: undefined })
+    invalidate()
+    expect(await resolve()).toEqual({ id: 'uuid-new', displayName: undefined })
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+  })
+
   test('a failed lookup is not cached, so a later call can still succeed', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce(jsonResponse({ authenticatedUser: { id: 'uuid-2' } }))
-    const resolve = createIdentityResolver({
+    const { resolve } = createIdentityResolver({
       resolveCredentials: () => creds,
       env: {} as NodeJS.ProcessEnv,
       fetchFn

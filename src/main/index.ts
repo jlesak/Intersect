@@ -314,9 +314,10 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
   const adoStub = process.env.INTERSECT_E2E === '1' ? createAdoE2eStub(process.env) : null
   // One resolver shared by sync and the vote fallback so the connectionData identity lookup runs at
   // most once. An explicit INTERSECT_ADO_IDENTITY still overrides it without a network call.
-  const resolveIdentity = createIdentityResolver({
+  const identity = createIdentityResolver({
     resolveCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
   })
+  const resolveIdentity = identity.resolve
   const ado =
     adoStub ??
     createAdoService({
@@ -440,6 +441,9 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
       // a single teardown once the edit settles.
       adoSettingsChanged: () => {
         debouncedAdoTeardown()
+        // A new org/PAT authenticates as a different person, so the memoized connectionData
+        // identity must be dropped too; the next sync re-derives it from the fresh credentials.
+        identity.invalidate()
         return Promise.resolve()
       }
     })
