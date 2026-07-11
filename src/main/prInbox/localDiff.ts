@@ -30,7 +30,11 @@ function changeTypeOf(status: string): PrChangeFile['changeType'] {
   return 'edit'
 }
 
-/** Parse the tab-delimited `--name-status -M` output into change records. */
+/**
+ * Parse the tab-delimited `--name-status -M` output into change records. Paths are normalized to the
+ * Azure DevOps convention used everywhere else in the PR pipeline (leading slash), so thread
+ * matching, comment badges, and draft publishing all key off the same shape.
+ */
 export function parseNameStatus(raw: string): PrChangeFile[] {
   const changes: PrChangeFile[] = []
   for (const line of raw.split('\n')) {
@@ -39,9 +43,9 @@ export function parseNameStatus(raw: string): PrChangeFile[] {
     const changeType = changeTypeOf(status)
     if (changeType === 'rename') {
       const [originalPath, path] = paths
-      changes.push({ path, changeType, originalPath })
+      changes.push({ path: `/${path}`, changeType, originalPath: `/${originalPath}` })
     } else {
-      changes.push({ path: paths[0], changeType, originalPath: null })
+      changes.push({ path: `/${paths[0]}`, changeType, originalPath: null })
     }
   }
   return changes
@@ -75,9 +79,18 @@ export interface FileDiffInput {
   changeType: PrChangeFile['changeType']
 }
 
-/** Read a blob at `commit:path`, returning '' when the object does not exist at that revision. */
+/**
+ * Read a blob at `commit:path`. A path that genuinely does not exist at that revision is a
+ * legitimately-empty side (the file was added or deleted), so it returns ''. Every other git failure
+ * (bad revision, unfetched commit, transient error) is rethrown rather than masked as an empty side,
+ * so a wrong all-added/all-deleted diff is never shown during a review.
+ */
 async function showBlob(repoDir: string, commit: string, path: string): Promise<string> {
-  return gitRaw(repoDir, ['show', `${commit}:${path}`]).catch(() => '')
+  return gitRaw(repoDir, ['show', `${commit}:${path}`]).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (/does not exist in|exists on disk, but not in/.test(msg)) return ''
+    throw err
+  })
 }
 
 /**
@@ -87,12 +100,15 @@ async function showBlob(repoDir: string, commit: string, path: string): Promise<
  */
 export async function localFileDiff(repoDir: string, input: FileDiffInput): Promise<FileDiff> {
   const mergeBase = await git(repoDir, ['merge-base', input.targetCommit, input.sourceCommit])
+  const gitPath = (p: string): string => p.replace(/^\//, '')
   const original =
     input.changeType === 'add'
       ? ''
-      : await showBlob(repoDir, mergeBase, input.originalPath ?? input.filePath)
+      : await showBlob(repoDir, mergeBase, gitPath(input.originalPath ?? input.filePath))
   const modified =
-    input.changeType === 'delete' ? '' : await showBlob(repoDir, input.sourceCommit, input.filePath)
+    input.changeType === 'delete'
+      ? ''
+      : await showBlob(repoDir, input.sourceCommit, gitPath(input.filePath))
 
   const binary = isBinary(original) || isBinary(modified)
   const tooLarge = byteLen(original) > MAX_DIFF_BYTES || byteLen(modified) > MAX_DIFF_BYTES
@@ -114,8 +130,6 @@ export interface LocalDiffDeps {
 export interface LocalDiffService {
   getChanges(pr: PullRequest, workspaceFolders: string[]): Promise<PrChangeFile[]>
   getFileDiff(pr: PullRequest, filePath: string, workspaceFolders: string[]): Promise<FileDiff>
-  /** Drop the cached clone resolution for a PR (e.g. when its repo mapping may have changed). */
-  forget(repositoryId: string, prId: number): void
 }
 
 const prKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
@@ -182,10 +196,6 @@ export function createLocalDiffService(d: LocalDiffDeps): LocalDiffService {
         originalPath: change?.originalPath ?? null,
         changeType: change?.changeType ?? 'edit'
       })
-    },
-
-    forget(repositoryId, prId) {
-      repoDirByPr.delete(prKey(repositoryId, prId))
     }
   }
 }

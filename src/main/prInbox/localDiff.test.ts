@@ -66,13 +66,13 @@ describe('localChanges', () => {
     const changes = await localChanges(repo.dir, repo.target, repo.source)
     const byPath = new Map(changes.map((c) => [c.path, c]))
 
-    expect(byPath.get('a.txt')?.changeType).toBe('edit')
-    expect(byPath.get('added.txt')?.changeType).toBe('add')
-    expect(byPath.get('gone.txt')?.changeType).toBe('delete')
-    expect(byPath.get('renamed.txt')?.changeType).toBe('rename')
-    expect(byPath.get('renamed.txt')?.originalPath).toBe('keep.txt')
+    expect(byPath.get('/a.txt')?.changeType).toBe('edit')
+    expect(byPath.get('/added.txt')?.changeType).toBe('add')
+    expect(byPath.get('/gone.txt')?.changeType).toBe('delete')
+    expect(byPath.get('/renamed.txt')?.changeType).toBe('rename')
+    expect(byPath.get('/renamed.txt')?.originalPath).toBe('/keep.txt')
     // Target-only change never appears in the PR diff.
-    expect(byPath.has('target-only.txt')).toBe(false)
+    expect(byPath.has('/target-only.txt')).toBe(false)
   })
 })
 
@@ -99,7 +99,7 @@ describe('localFileDiff', () => {
   })
 
   test('edit shows merge-base content on the left and source content on the right', async () => {
-    const diff = await localFileDiff(repo.dir, input('a.txt', 'edit'))
+    const diff = await localFileDiff(repo.dir, input('/a.txt', 'edit'))
     expect(diff.original).toContain('alpha')
     expect(diff.original).not.toContain('edited')
     expect(diff.modified).toContain('alpha edited')
@@ -108,37 +108,37 @@ describe('localFileDiff', () => {
   })
 
   test('add has an empty left side', async () => {
-    const diff = await localFileDiff(repo.dir, input('added.txt', 'add'))
+    const diff = await localFileDiff(repo.dir, input('/added.txt', 'add'))
     expect(diff.original).toBe('')
     expect(diff.modified).toContain('new')
   })
 
   test('delete has an empty right side', async () => {
-    const diff = await localFileDiff(repo.dir, input('gone.txt', 'delete'))
+    const diff = await localFileDiff(repo.dir, input('/gone.txt', 'delete'))
     expect(diff.original).toContain('gone')
     expect(diff.modified).toBe('')
   })
 
   test('rename reads the left side from the original path at the merge base', async () => {
-    const diff = await localFileDiff(repo.dir, input('renamed.txt', 'rename', 'keep.txt'))
+    const diff = await localFileDiff(repo.dir, input('/renamed.txt', 'rename', '/keep.txt'))
     expect(diff.original).toContain('keep')
     expect(diff.modified).toContain('keep')
   })
 
   test('binary file is flagged and its content withheld', async () => {
-    const diff = await localFileDiff(repo.dir, input('bin.dat', 'add'))
+    const diff = await localFileDiff(repo.dir, input('/bin.dat', 'add'))
     expect(diff.binary).toBe(true)
     expect(diff.modified).toBe('')
   })
 
   test('oversize file is flagged and its content withheld', async () => {
-    const diff = await localFileDiff(repo.dir, input('big.txt', 'add'))
+    const diff = await localFileDiff(repo.dir, input('/big.txt', 'add'))
     expect(diff.tooLarge).toBe(true)
     expect(diff.modified).toBe('')
   })
 
   test('language is derived from the path', async () => {
-    const diff = await localFileDiff(repo.dir, input('a.txt', 'edit'))
+    const diff = await localFileDiff(repo.dir, input('/a.txt', 'edit'))
     expect(diff.language).toBe('plaintext')
   })
 })
@@ -169,7 +169,7 @@ describe('createLocalDiffService', () => {
     const svc = createLocalDiffService({ resolveRepoDir })
 
     const changes = await svc.getChanges(prFor(), ['/some/folder'])
-    expect(changes.some((c) => c.path === 'added.txt')).toBe(true)
+    expect(changes.some((c) => c.path === '/added.txt')).toBe(true)
 
     // A second call reuses the cached repo resolution rather than probing folders again.
     await svc.getChanges(prFor(), ['/some/folder'])
@@ -178,7 +178,7 @@ describe('createLocalDiffService', () => {
 
   test('getFileDiff returns both sides for a changed file', async () => {
     const svc = createLocalDiffService({ resolveRepoDir: async () => repo.dir })
-    const diff = await svc.getFileDiff(prFor(), 'a.txt', ['/some/folder'])
+    const diff = await svc.getFileDiff(prFor(), '/a.txt', ['/some/folder'])
     expect(diff.original).toContain('alpha')
     expect(diff.modified).toContain('alpha edited')
   })

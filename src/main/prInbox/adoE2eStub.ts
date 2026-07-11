@@ -107,8 +107,7 @@ export function createLocalDiffE2eStub(env: NodeJS.ProcessEnv): LocalDiffService
         binary: false,
         tooLarge: false
       }
-    },
-    forget() {}
+    }
   }
 }
 

@@ -103,7 +103,6 @@ function makeLocalDiff(over: Partial<LocalDiffService> = {}): LocalDiffService {
         tooLarge: false
       })
     ),
-    forget: vi.fn(),
     ...over
   }
 }
