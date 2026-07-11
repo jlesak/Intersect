@@ -45,6 +45,7 @@ async function makeRepo(): Promise<{
   await git(dir, ['mv', 'keep.txt', 'renamed.txt']) // rename
   await writeFile(join(dir, 'bin.dat'), Buffer.from([0x68, 0x00, 0x69])) // binary (NUL)
   await writeFile(join(dir, 'big.txt'), 'x'.repeat(600 * 1024)) // over MAX_DIFF_BYTES
+  await writeFile(join(dir, 'přílöha.txt'), 'diakritika\n') // non-ASCII path (core.quotePath)
   await git(dir, ['add', '-A'])
   await git(dir, ['commit', '-q', '-m', 'pr changes'])
   const source = await git(dir, ['rev-parse', 'HEAD'])
@@ -73,6 +74,13 @@ describe('localChanges', () => {
     expect(byPath.get('/renamed.txt')?.originalPath).toBe('/keep.txt')
     // Target-only change never appears in the PR diff.
     expect(byPath.has('/target-only.txt')).toBe(false)
+  })
+
+  test('non-ASCII paths round-trip unquoted (core.quotePath disabled)', async () => {
+    const changes = await localChanges(repo.dir, repo.target, repo.source)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+
+    expect(byPath.get('/přílöha.txt')?.changeType).toBe('add')
   })
 })
 
@@ -135,6 +143,11 @@ describe('localFileDiff', () => {
     const diff = await localFileDiff(repo.dir, input('/big.txt', 'add'))
     expect(diff.tooLarge).toBe(true)
     expect(diff.modified).toBe('')
+  })
+
+  test('non-ASCII path reads its blob (real UTF-8, not C-quoted)', async () => {
+    const diff = await localFileDiff(repo.dir, input('/přílöha.txt', 'add'))
+    expect(diff.modified).toContain('diakritika')
   })
 
   test('language is derived from the path', async () => {

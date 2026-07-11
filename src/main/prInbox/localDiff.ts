@@ -61,6 +61,8 @@ export async function localChanges(
   sourceCommit: string
 ): Promise<PrChangeFile[]> {
   const raw = await git(repoDir, [
+    '-c',
+    'core.quotePath=false',
     'diff',
     '--merge-base',
     '--name-status',
