@@ -497,8 +497,10 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
 app.whenReady().then(() => {
   ensureSpawnHelperExecutable()
   // Launched from Finder/Dock, the app inherits only the bare /usr/bin:/bin PATH, so the ADO MCP
-  // server's `npx` launcher would fail with ENOENT. Fold in the login-shell PATH before any spawn.
-  applyLoginShellPath()
+  // server's `npx` launcher would fail with ENOENT. Resolve the login-shell PATH off the main
+  // thread (a heavy dotfile must not delay window paint); the ADO client awaits this before its
+  // first non-PTY spawn, and PTYs run their own login shell and never depend on it.
+  void applyLoginShellPath()
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   db = openDatabase(userDataDir)
   // The app-managed Claude Code settings that make claude emit attention markers into the PTY. If

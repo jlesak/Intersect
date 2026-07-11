@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolveAdoServerConfig, type AdoServerConfig } from './adoConfig'
+import { applyLoginShellPath } from '../loginShellPath'
 
 const CALL_TIMEOUT_MS = 30_000
 
@@ -21,7 +22,8 @@ export interface AdoClient {
 }
 
 export function createAdoClient(
-  resolveConfig: () => AdoServerConfig = resolveAdoServerConfig
+  resolveConfig: () => AdoServerConfig = resolveAdoServerConfig,
+  ensureEnv: () => Promise<void> = applyLoginShellPath
 ): AdoClient {
   let conn: Connection | null = null
   let connecting: Promise<Connection> | null = null
@@ -31,6 +33,9 @@ export function createAdoClient(
     if (connecting) return connecting
     const config = resolveConfig()
     connecting = (async () => {
+      // Launched from Finder/Dock the app inherits only /usr/bin:/bin, so the server's `npx`
+      // launcher needs the login-shell PATH folded in before the child is spawned.
+      await ensureEnv()
       const transport = new StdioClientTransport({
         command: config.command,
         args: config.args,

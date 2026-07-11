@@ -33,11 +33,11 @@ describe('mergePath', () => {
 })
 
 describe('resolveLoginShellPath', () => {
-  test('runs the login shell and returns its parsed PATH', () => {
+  test('runs the login shell and returns its parsed PATH', async () => {
     const run = vi
-      .fn<(shell: string, args: string[]) => string>()
-      .mockReturnValue('__INTERSECT_PATH__/opt/homebrew/bin:/usr/bin__INTERSECT_PATH__')
-    const path = resolveLoginShellPath({ shell: '/bin/zsh', run })
+      .fn<(shell: string, args: string[]) => Promise<string>>()
+      .mockResolvedValue('__INTERSECT_PATH__/opt/homebrew/bin:/usr/bin__INTERSECT_PATH__')
+    const path = await resolveLoginShellPath({ shell: '/bin/zsh', run })
     expect(path).toBe('/opt/homebrew/bin:/usr/bin')
     const [shell, args] = run.mock.calls[0]
     expect(shell).toBe('/bin/zsh')
@@ -50,21 +50,21 @@ describe('resolveLoginShellPath', () => {
     expect(args[1]).not.toMatch(/\$PATH[A-Za-z0-9_]/)
   })
 
-  test('the built command, run through a real POSIX shell, yields that shell PATH', () => {
+  test('the built command, run through a real POSIX shell, yields that shell PATH', async () => {
     // Exercises the actual shell-command string (not just a mocked runner), so a quoting/expansion
     // bug in it is caught. Uses /bin/sh with -c since -ilc needs an interactive tty.
-    const run: (shell: string, args: string[]) => string = (_shell, args) =>
+    const run: (shell: string, args: string[]) => Promise<string> = async (_shell, args) =>
       require('node:child_process').execFileSync('/bin/sh', ['-c', args[args.length - 1]], {
         encoding: 'utf8',
         env: { PATH: '/sentinel/bin:/usr/bin' }
       })
-    expect(resolveLoginShellPath({ shell: '/bin/sh', run })).toBe('/sentinel/bin:/usr/bin')
+    expect(await resolveLoginShellPath({ shell: '/bin/sh', run })).toBe('/sentinel/bin:/usr/bin')
   })
 
-  test('returns null (best-effort) when launching the shell throws', () => {
-    const run = vi.fn<(shell: string, args: string[]) => string>().mockImplementation(() => {
-      throw new Error('shell blew up')
-    })
-    expect(resolveLoginShellPath({ shell: '/bin/zsh', run })).toBeNull()
+  test('returns null (best-effort) when launching the shell throws', async () => {
+    const run = vi.fn<(shell: string, args: string[]) => Promise<string>>().mockRejectedValue(
+      new Error('shell blew up')
+    )
+    expect(await resolveLoginShellPath({ shell: '/bin/zsh', run })).toBeNull()
   })
 })

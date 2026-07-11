@@ -1,5 +1,8 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { resolveShell } from './pty/shell'
+
+const execFileAsync = promisify(execFile)
 
 /**
  * Make CLI tools installed under Homebrew, nvm, or ~/.local/bin resolvable from subprocesses the
@@ -11,7 +14,7 @@ import { resolveShell } from './pty/shell'
 
 const PATH_DELIMITER = '__INTERSECT_PATH__'
 
-type ShellRunner = (shell: string, args: string[]) => string
+type ShellRunner = (shell: string, args: string[]) => Promise<string>
 
 /**
  * Extract the PATH a login shell printed between our delimiters. Delimiting the value lets us
@@ -39,28 +42,37 @@ export function mergePath(current: string | undefined, loginPath: string | null)
 /**
  * The PATH exported by the user's login+interactive shell, or null on any failure (or on Windows,
  * where the GUI PATH already carries the usual install locations). Best-effort with a short timeout
- * so a slow or wedged shell profile can never block startup.
+ * so a slow or wedged shell profile can never block startup. Runs the shell asynchronously so the
+ * main thread is never held while a heavy dotfile is sourced.
  */
-export function resolveLoginShellPath(opts: { shell?: string; run?: ShellRunner } = {}): string | null {
+export async function resolveLoginShellPath(opts: { shell?: string; run?: ShellRunner } = {}): Promise<string | null> {
   if (process.platform === 'win32') return null
   const shell = opts.shell ?? resolveShell()
   const run =
-    opts.run ??
-    ((s, args) => execFileSync(s, args, { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }))
+    opts.run ?? (async (s, args) => (await execFileAsync(s, args, { encoding: 'utf8', timeout: 5000 })).stdout)
   try {
     // ${PATH} is braced so the shell reads the PATH variable and not one named PATH + the
     // delimiter's leading underscores (which are valid in an identifier and would expand to empty).
-    const output = run(shell, ['-ilc', `printf '%s' "${PATH_DELIMITER}\${PATH}${PATH_DELIMITER}"`])
+    const output = await run(shell, ['-ilc', `printf '%s' "${PATH_DELIMITER}\${PATH}${PATH_DELIMITER}"`])
     return extractShellPath(output)
   } catch {
     return null
   }
 }
 
+let applied: Promise<void> | null = null
+
 /**
  * Resolve the login-shell PATH once and merge it into `process.env.PATH` so every subprocess the
- * app spawns afterwards inherits it. Best-effort and idempotent enough to call once at startup.
+ * app spawns afterwards inherits it. The resolution runs off the main thread; kick it off at
+ * startup without awaiting so window paint is never blocked, and await the returned promise from
+ * any non-PTY spawn site that needs the merged PATH. Memoized so the shell is launched at most once.
  */
-export function applyLoginShellPath(): void {
-  process.env.PATH = mergePath(process.env.PATH, resolveLoginShellPath())
+export function applyLoginShellPath(): Promise<void> {
+  if (!applied) {
+    applied = resolveLoginShellPath().then((loginPath) => {
+      process.env.PATH = mergePath(process.env.PATH, loginPath)
+    })
+  }
+  return applied
 }
