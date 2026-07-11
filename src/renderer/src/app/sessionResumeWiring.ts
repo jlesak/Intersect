@@ -17,7 +17,7 @@ async function findOrCreateWorkspace(cwd: string): Promise<Workspace | null> {
 }
 
 /**
- * Resume a past Claude Code session: reveal the Workspaces section, ensure a workspace for the
+ * Resume a past Claude Code session: reveal the Claude Code section, ensure a workspace for the
  * session's folder is selected and its tabs are loaded, then open a Claude tab that launches
  * `claude --resume <id>`. The tab persists its resume id, so the conversation is restored on the
  * next launch too, and carries the session's own title so it stays recognizable in the tab bar

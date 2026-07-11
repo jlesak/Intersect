@@ -224,6 +224,25 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE pr_cache ADD COLUMN my_reviewer_id TEXT;`)
     }
+  },
+  {
+    // Todoist-style TODO list: priority (1 = most urgent, defaulting to 4 = none) replaces manual
+    // drag-and-drop ordering, and description gives a task room for detail beyond its title.
+    version: 10,
+    up(db) {
+      db.exec(`
+        ALTER TABLE todo_task ADD COLUMN priority INTEGER NOT NULL DEFAULT 4;
+        ALTER TABLE todo_task ADD COLUMN description TEXT NOT NULL DEFAULT '';
+      `)
+    }
+  },
+  {
+    // PR board: unresolved comment threads counted at sync time, so the author-side "needs my
+    // action" signal is available without re-fetching every PR's threads on each read.
+    version: 11,
+    up(db) {
+      db.exec(`ALTER TABLE pr_cache ADD COLUMN active_thread_count INTEGER NOT NULL DEFAULT 0;`)
+    }
   }
 ]
 

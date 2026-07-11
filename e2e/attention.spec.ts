@@ -12,8 +12,8 @@ async function launch(userDataDir: string): Promise<{ app: ElectronApplication; 
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
-  // Boot lands on My Work (the first section); these tests exercise the Workspaces section.
-  await win.locator('.ix-rail__btn', { hasText: 'Workspaces' }).click()
+  // Boot lands on Claude Code (formerly labeled Workspaces), the section these tests exercise.
+  await win.locator('.ix-rail__btn', { hasText: 'Claude Code' }).click()
   return { app, win }
 }
 

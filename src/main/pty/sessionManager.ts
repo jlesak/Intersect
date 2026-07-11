@@ -11,6 +11,8 @@ export interface PtyProcess {
   onExit(cb: (e: { exitCode: number }) => void): void
   write(data: string): void
   resize(cols: number, rows: number): void
+  pause(): void
+  resume(): void
   kill(): void
 }
 
@@ -54,10 +56,6 @@ export interface SessionManager {
   killWorkspace(workspaceId: string): void
   killAll(): void
 }
-
-// XON/XOFF flow-control bytes (node-pty intercepts these when handleFlowControl is on).
-const XOFF = '\x13'
-const XON = '\x11'
 
 /**
  * Owns the live PTY sessions keyed by `${workspaceId}:${tabId}`. Every method that takes a
@@ -139,10 +137,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       sessions.get(sessionId)?.resize(cols, rows)
     },
     pause(sessionId) {
-      sessions.get(sessionId)?.write(XOFF)
+      sessions.get(sessionId)?.pause()
     },
     resume(sessionId) {
-      sessions.get(sessionId)?.write(XON)
+      sessions.get(sessionId)?.resume()
     },
     kill,
     killWorkspace(workspaceId) {

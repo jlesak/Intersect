@@ -11,7 +11,9 @@ const mocked = vi.mocked(api)
 const task = (id: string, over: Partial<TodoTask> = {}): TodoTask => ({
   id,
   text: `Task ${id}`,
+  description: '',
   dueDay: null,
+  priority: 4,
   sortOrder: 0,
   doneAt: null,
   ...over
@@ -71,9 +73,18 @@ describe('mutations reload both lists', () => {
     const created = task('n')
     mocked.add.mockResolvedValue(created)
     mocked.list.mockResolvedValue({ open: [created], done: [] })
-    await useTodoStore.getState().add('Task n', '2026-07-10')
-    expect(mocked.add).toHaveBeenCalledWith('Task n', '2026-07-10')
+    await useTodoStore.getState().add('Task n', '2026-07-10', 2)
+    expect(mocked.add).toHaveBeenCalledWith('Task n', '2026-07-10', 2)
     expect(useTodoStore.getState().open.map((t) => t.id)).toEqual(['n'])
+  })
+
+  test('update edits then reloads', async () => {
+    const updated = task('a', { text: 'edited', priority: 1 })
+    mocked.update.mockResolvedValue(updated)
+    mocked.list.mockResolvedValue({ open: [updated], done: [] })
+    await useTodoStore.getState().update('a', { text: 'edited', priority: 1 })
+    expect(mocked.update).toHaveBeenCalledWith('a', { text: 'edited', priority: 1 })
+    expect(useTodoStore.getState().open).toEqual([updated])
   })
 
   test('toggleDone(true) moves the task into done', async () => {
@@ -111,27 +122,5 @@ describe('mutations reload both lists', () => {
     await useTodoStore.getState().add('x', null)
     expect(useTodoStore.getState().open.map((t) => t.id)).toEqual(['kept'])
     expect(useTodoStore.getState().status).toBe('ready')
-  })
-})
-
-describe('reorder', () => {
-  test('applies the new order locally before the IPC call resolves', async () => {
-    useTodoStore.setState({ status: 'ready', open: [task('a'), task('b'), task('c')] })
-    let resolve!: (v: TodoTask[]) => void
-    mocked.reorder.mockReturnValue(new Promise((r) => (resolve = r)))
-    const pending = useTodoStore.getState().reorder(['c', 'a', 'b'])
-    expect(useTodoStore.getState().open.map((t) => t.id)).toEqual(['c', 'a', 'b'])
-    resolve([])
-    await pending
-    expect(mocked.reorder).toHaveBeenCalledWith(['c', 'a', 'b'])
-    expect(mocked.list).not.toHaveBeenCalled()
-  })
-
-  test('a failed reorder resyncs from main', async () => {
-    useTodoStore.setState({ status: 'ready', open: [task('a'), task('b')] })
-    mocked.reorder.mockRejectedValue(new Error('nope'))
-    mocked.list.mockResolvedValue({ open: [task('a'), task('b')], done: [] })
-    await useTodoStore.getState().reorder(['b', 'a'])
-    expect(useTodoStore.getState().open.map((t) => t.id)).toEqual(['a', 'b'])
   })
 })

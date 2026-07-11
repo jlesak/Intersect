@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { TodoTask } from '@common/domain'
+import type { TodoPriority, TodoTask, TodoTaskPatch } from '@common/domain'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -8,7 +8,7 @@ type Status = 'idle' | 'loading' | 'ready' | 'error'
 interface TodoState {
   status: Status
   error: string | null
-  /** Open tasks in manual order. */
+  /** Open tasks, ordered by priority then due date. */
   open: TodoTask[]
   /** Done tasks, most recently completed first. */
   done: TodoTask[]
@@ -16,11 +16,11 @@ interface TodoState {
   showDone: boolean
   load(): Promise<void>
   toggleShowDone(): void
-  add(text: string, dueDay: string | null): Promise<void>
+  add(text: string, dueDay: string | null, priority?: TodoPriority): Promise<void>
+  /** Edit any subset of a task's fields in place (inline editing). */
+  update(id: string, patch: TodoTaskPatch): Promise<void>
   toggleDone(id: string, done: boolean): Promise<void>
   remove(id: string): Promise<void>
-  /** Apply the new open order locally right away, then persist; a failure resyncs from main. */
-  reorder(orderedIds: string[]): Promise<void>
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -61,8 +61,12 @@ export const useTodoStore = create<TodoState>()((set, get) => {
       set((s) => ({ showDone: !s.showDone }))
     },
 
-    async add(text, dueDay) {
-      await mutate(() => api.add(text, dueDay), 'Could not add the task')
+    async add(text, dueDay, priority) {
+      await mutate(() => api.add(text, dueDay, priority), 'Could not add the task')
+    },
+
+    async update(id, patch) {
+      await mutate(() => api.update(id, patch), 'Could not save the task')
     },
 
     async toggleDone(id, done) {
@@ -71,20 +75,6 @@ export const useTodoStore = create<TodoState>()((set, get) => {
 
     async remove(id) {
       await mutate(() => api.remove(id), 'Could not delete the task')
-    },
-
-    async reorder(orderedIds) {
-      const byId = new Map(get().open.map((t) => [t.id, t]))
-      const next = orderedIds
-        .map((id) => byId.get(id))
-        .filter((t): t is TodoTask => t !== undefined)
-      set({ open: next })
-      try {
-        await api.reorder(orderedIds)
-      } catch (e) {
-        reportError('Could not save the new order', e)
-        await reload()
-      }
     }
   }
 })

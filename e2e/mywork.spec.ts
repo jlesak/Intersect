@@ -15,13 +15,16 @@ async function launch(
     env: { ...process.env, INTERSECT_E2E: '1', ...env }
   })
   const win = await app.firstWindow()
+  await win.waitForSelector('.ix-wordmark__name')
+  // Boot lands on Claude Code, not My Work; switch to the section these tests exercise.
+  await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
   return { app, win, userDataDir }
 }
 
 test('with no saved session, opening My Work starts the SSO login and then loads the board', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'auth' })
 
-  // Boot lands on My Work; the auth failure flips the section into the sign-in state.
+  // Opening My Work with the auth failure flips the section into the sign-in state.
   await expect(win.locator('.ix-mw-loading')).toContainText('Complete the SSO login')
 
   // The stub login succeeds and the automatic re-fetch renders the sample board.

@@ -3,7 +3,14 @@ import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/
 
 vi.mock('./ipc')
 import * as api from './ipc'
-import { prKey, selectDrafts, selectPrList, usePrInboxStore } from './store'
+import {
+  prKey,
+  selectBoardColumns,
+  selectDrafts,
+  selectFilteredThreads,
+  selectPrList,
+  usePrInboxStore
+} from './store'
 
 const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   prId,
@@ -25,6 +32,7 @@ const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {})
   myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
+  activeThreadCount: 0,
   ...over
 })
 
@@ -45,12 +53,14 @@ const draft = (id: string, over: Partial<DraftComment> = {}): DraftComment => ({
 })
 
 const change = (path: string): PrChangeFile => ({ path, changeType: 'edit', originalPath: null })
-const thread = (threadId: number): PrThread => ({
+const thread = (threadId: number, over: Partial<PrThread> = {}): PrThread => ({
   threadId,
   filePath: 'a.ts',
   line: 1,
   status: 'active',
-  comments: []
+  isSystem: false,
+  comments: [],
+  ...over
 })
 
 const mocked = vi.mocked(api)
@@ -70,7 +80,12 @@ beforeEach(() => {
       diffLoading: false,
       threads: [],
       drafts: [],
-      review: { status: 'idle' }
+      commentDrafts: {},
+      review: { status: 'idle' },
+      view: 'board',
+      activeTab: 'files',
+      threadFilter: 'active',
+      pendingReveal: null
     },
     false
   )
@@ -125,18 +140,24 @@ describe('prInboxStore', () => {
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
   })
 
-  test('addManualDraft appends the created draft', async () => {
-    mocked.addManualDraft.mockResolvedValue(draft('d2'))
-    await usePrInboxStore.getState().addManualDraft({
-      prId: 1,
-      repositoryId: 'repo',
-      filePath: 'a.ts',
-      line: 3,
-      side: 'right',
-      body: 'body'
+  test('setCommentDraft persists text and clears the entry when set empty', () => {
+    usePrInboxStore.getState().setCommentDraft('reply:10', 'half-typed')
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({ 'reply:10': 'half-typed' })
+    usePrInboxStore.getState().setCommentDraft('reply:10', '')
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({})
+  })
+
+  test('select discards any in-progress comment drafts from the previous PR', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)],
+      commentDrafts: { 'reply:10': 'stale' }
     })
-    expect(usePrInboxStore.getState().drafts.map((d) => d.id)).toEqual(['d2'])
-    expect(mocked.addManualDraft).toHaveBeenCalled()
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([])
+    await usePrInboxStore.getState().select('repo', 1)
+    expect(usePrInboxStore.getState().commentDrafts).toEqual({})
   })
 
   test('castVote replaces the cached PR with the returned row once ADO accepted the vote', async () => {
@@ -182,5 +203,156 @@ describe('prInboxStore', () => {
     expect(mocked.publishDraft).toHaveBeenCalledWith('d1')
     expect(d?.status).toBe('published')
     expect(d?.publishedThreadId).toBe(42)
+  })
+})
+
+describe('board navigation', () => {
+  test('openDetail loads the PR and switches view; goBack returns to board', async () => {
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([])
+    usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1) }, order: ['r:1'] })
+    await usePrInboxStore.getState().openDetail('r', 1)
+    expect(usePrInboxStore.getState().view).toBe('detail')
+    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().selectedKey).toBe('r:1')
+    usePrInboxStore.getState().goBack()
+    expect(usePrInboxStore.getState().view).toBe('board')
+    expect(usePrInboxStore.getState().selectedKey).toBeNull()
+  })
+})
+
+describe('selectBoardColumns', () => {
+  test('splits PRs by boardColumn, newest first', () => {
+    usePrInboxStore.setState({
+      prsByKey: {
+        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, createdAt: 10 }),
+        'r:2': pr('r', 2, { role: 'reviewer', myVote: 'approved', createdAt: 20 }),
+        'r:3': pr('r', 3, {
+          role: 'author',
+          createdAt: 30,
+          reviewers: [{ id: 'x', displayName: 'X', vote: 'approved', isRequired: false }]
+        }),
+        'r:4': pr('r', 4, { role: 'reviewer', myVote: null, createdAt: 40 })
+      },
+      order: ['r:1', 'r:2', 'r:3', 'r:4']
+    })
+    const cols = selectBoardColumns(usePrInboxStore.getState())
+    expect(cols.action.map((p) => p.prId)).toEqual([4, 1])
+    expect(cols.waiting.map((p) => p.prId)).toEqual([2])
+    expect(cols.approved.map((p) => p.prId)).toEqual([3])
+  })
+})
+
+describe('thread actions', () => {
+  beforeEach(() => {
+    usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1) }, order: ['r:1'], selectedKey: 'r:1' })
+  })
+
+  test('replyToThread refreshes threads from the response and signals success', async () => {
+    const fresh = [thread(42)]
+    mocked.replyToThread.mockResolvedValue(fresh)
+    const ok = await usePrInboxStore.getState().replyToThread(42, 'ok')
+    expect(ok).toBe(true)
+    expect(mocked.replyToThread).toHaveBeenCalledWith('r', 1, 42, 'ok')
+    expect(usePrInboxStore.getState().threads).toEqual(fresh)
+  })
+
+  test('replyToThread signals failure without clobbering threads', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    usePrInboxStore.setState({ threads: [thread(1)] })
+    mocked.replyToThread.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().replyToThread(42, 'ok')
+    expect(ok).toBe(false)
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([1])
+    error.mockRestore()
+  })
+
+  test('setThreadStatus refreshes threads and signals success', async () => {
+    mocked.setThreadStatus.mockResolvedValue([thread(42, { status: 'fixed' })])
+    const ok = await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
+    expect(ok).toBe(true)
+    expect(mocked.setThreadStatus).toHaveBeenCalledWith('r', 1, 42, 'fixed')
+    expect(usePrInboxStore.getState().threads[0].status).toBe('fixed')
+  })
+
+  test('setThreadStatus signals failure', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.setThreadStatus.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
+    expect(ok).toBe(false)
+    error.mockRestore()
+  })
+
+  test('addComment publishes, refreshes threads and signals success', async () => {
+    mocked.addComment.mockResolvedValue([thread(43)])
+    const ok = await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
+    expect(ok).toBe(true)
+    expect(mocked.addComment).toHaveBeenCalledWith({
+      repositoryId: 'r',
+      prId: 1,
+      filePath: '/a.cs',
+      line: 3,
+      body: 'new comment'
+    })
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toContain(43)
+  })
+
+  test('addComment signals failure so the composer can keep the typed text', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.addComment.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
+    expect(ok).toBe(false)
+    error.mockRestore()
+  })
+})
+
+describe('revealThread', () => {
+  test('switches to files tab, opens the file, remembers the line', () => {
+    mocked.getFileDiff.mockResolvedValue({
+      path: '/a.cs',
+      original: '',
+      modified: '',
+      language: 'plaintext',
+      binary: false,
+      tooLarge: false
+    })
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': pr('r', 1) },
+      order: ['r:1'],
+      selectedKey: 'r:1',
+      activeTab: 'overview'
+    })
+    usePrInboxStore.getState().revealThread('/a.cs', 12)
+    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().pendingReveal).toEqual({ path: '/a.cs', line: 12 })
+    expect(usePrInboxStore.getState().activeFilePath).toBe('/a.cs')
+    usePrInboxStore.getState().clearReveal()
+    expect(usePrInboxStore.getState().pendingReveal).toBeNull()
+  })
+})
+
+describe('selectFilteredThreads', () => {
+  const seed = (): void =>
+    usePrInboxStore.setState({
+      threads: [
+        thread(1, { status: 'active' }),
+        thread(2, { status: 'fixed' }),
+        thread(3, { status: 'active', isSystem: true })
+      ]
+    })
+
+  test('active filter hides resolved and system threads', () => {
+    seed()
+    usePrInboxStore.setState({ threadFilter: 'active' })
+    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1])
+  })
+
+  test('all shows everything except system; resolved shows only resolved', () => {
+    seed()
+    usePrInboxStore.setState({ threadFilter: 'all' })
+    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1, 2])
+    usePrInboxStore.setState({ threadFilter: 'resolved' })
+    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([2])
   })
 })

@@ -116,6 +116,37 @@ describe('migrations', () => {
     ).toBe('2026-07-10')
   })
 
+  test('pr_cache defaults active_thread_count to 0 for rows inserted without it', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 1)`
+    ).run()
+    const row = db
+      .prepare('SELECT active_thread_count AS c FROM pr_cache WHERE pr_id = 1')
+      .get() as { c: number }
+    expect(row.c).toBe(0)
+  })
+
+  test('the todo table defaults priority to 4 and description to empty for rows inserted without them', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO todo_task (id, text, due_day, sort_order, done_at, created_at)
+       VALUES ('t1', 'Order a monitor', NULL, 0, NULL, 1)`
+    ).run()
+    const row = db
+      .prepare("SELECT priority AS p, description AS d FROM todo_task WHERE id = 't1'")
+      .get() as { p: number; d: string }
+    expect(row.p).toBe(4)
+    expect(row.d).toBe('')
+  })
+
   test('deleting a workspace cascades to its tabs', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

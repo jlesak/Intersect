@@ -22,6 +22,7 @@ const pr = (prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
+  activeThreadCount: 0,
   ...over
 })
 

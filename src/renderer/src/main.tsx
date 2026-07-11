@@ -13,6 +13,7 @@ import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
+import { useUsageStore } from './features/usage'
 import { useWorkspacesStore } from './features/workspaces'
 
 // Registration is synchronous and must complete before first render so the shell can read the
@@ -34,6 +35,9 @@ void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
 // Listen for finished 1:1 runs pushed from main so the history refreshes live.
 useOneOnOneStore.getState().subscribe()
+// Load the last captured Claude usage snapshot and keep listening for fresh ones pushed from main.
+void useUsageStore.getState().hydrate()
+useUsageStore.getState().subscribe()
 // Mirror main's session-attention alerts into the pulse UI and report the viewed session back.
 wireAttention()
 // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice, app-layer).

@@ -26,7 +26,9 @@ describe('testAdoConnection', () => {
     expect(result).toEqual({ ok: true, displayName: 'Jan Lesák' })
 
     const [connUrl, connInit] = fetchFn.mock.calls[0] as [string, RequestInit]
-    expect(connUrl).toBe('https://devops.example.com/tfs/Collection/_apis/connectionData?api-version=7.0')
+    expect(connUrl).toBe(
+      'https://devops.example.com/tfs/Collection/_apis/connectionData?api-version=7.0-preview.1'
+    )
     expect((connInit.headers as Record<string, string>).Authorization).toBe(
       `Basic ${Buffer.from(':the-pat').toString('base64')}`
     )
@@ -53,8 +55,23 @@ describe('testAdoConnection', () => {
       fetchFn
     })
     expect(fetchFn.mock.calls[0][0]).toBe(
-      'https://devops.example.com/tfs/Collection/_apis/connectionData?api-version=7.0'
+      'https://devops.example.com/tfs/Collection/_apis/connectionData?api-version=7.0-preview.1'
     )
+  })
+
+  test('requests the connectionData probe with the -preview flag the resource requires', async () => {
+    // The connectionData resource of the Location service is preview-only; an on-prem server
+    // rejects a plain released version with VssInvalidPreviewVersionException (HTTP 400).
+    const preview400 = new Response(
+      JSON.stringify({
+        typeName: 'Microsoft.VisualStudio.Services.WebApi.VssInvalidPreviewVersionException',
+        message: "version '7.0' of the resource is under preview"
+      }),
+      { status: 400 }
+    )
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(preview400)
+    await testAdoConnection(input({ repository: '' }), { fetchFn })
+    expect(fetchFn.mock.calls[0][0]).toContain('api-version=7.0-preview')
   })
 
   test('maps a 401 to a rejected-PAT message without leaking the PAT', async () => {

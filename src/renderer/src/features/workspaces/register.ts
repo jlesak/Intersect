@@ -1,6 +1,6 @@
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { registerSidebarSection } from '@renderer/shared/registries/sidebarRegistry'
-import { IconFolder } from '@renderer/shared/ui/icons'
+import { IconClaude } from '@renderer/shared/ui/icons'
 import { WorkspaceList } from './components/WorkspaceList'
 import { WorkspaceView } from './components/WorkspaceView'
 import { useWorkspacesStore } from './store'
@@ -13,11 +13,12 @@ export const WORKSPACES_SECTION_ID = 'workspaces'
 export function registerWorkspacesFeature(): void {
   registerSidebarSection({
     id: WORKSPACES_SECTION_ID,
-    order: 0,
-    label: 'Workspaces',
-    icon: IconFolder,
+    order: -3,
+    label: 'Claude Code',
+    icon: IconClaude,
     component: WorkspaceList,
-    mainComponent: WorkspaceView
+    mainComponent: WorkspaceView,
+    prominent: true
   })
   registerCommand({
     id: 'workspaces.create',

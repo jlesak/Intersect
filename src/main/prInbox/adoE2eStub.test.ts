@@ -25,10 +25,32 @@ describe('adoE2eStub', () => {
     expect(prs.find((p) => p.prId === 501)?.myVote).toBeNull()
   })
 
-  test('publishing stays unavailable in the stub', async () => {
+  test('publishing adds a thread that later reads and syncs reflect', async () => {
     const stub = createAdoE2eStub({ INTERSECT_E2E_ADO: 'radar' })
-    await expect(
-      stub.publishComment({ repositoryId: 'e2e-repo', prId: 502, filePath: 'a.ts', line: 1, body: 'x' })
-    ).rejects.toThrow(/not available/i)
+    const threadId = await stub.publishComment({
+      repositoryId: 'e2e-repo',
+      prId: 502,
+      filePath: 'a.ts',
+      line: 1,
+      body: 'x'
+    })
+    const threads = await stub.getThreads('e2e-repo', 502)
+    expect(threads.map((t) => t.threadId)).toContain(threadId)
+    // The new unresolved thread shows up in the PR's sync-time count.
+    const { prs } = await stub.syncMyPrs()
+    expect(prs.find((p) => p.prId === 502)?.activeThreadCount).toBe(1)
+  })
+
+  test('reply appends to the thread and resolve flips its status', async () => {
+    const stub = createAdoE2eStub({ INTERSECT_E2E_ADO: 'radar' })
+    await stub.replyToThread({ repositoryId: 'e2e-repo', prId: 501, threadId: 9001, body: 'done' })
+    let threads = await stub.getThreads('e2e-repo', 501)
+    expect(threads.find((t) => t.threadId === 9001)?.comments).toHaveLength(2)
+    await stub.setThreadStatus({ repositoryId: 'e2e-repo', prId: 501, threadId: 9001, status: 'fixed' })
+    threads = await stub.getThreads('e2e-repo', 501)
+    expect(threads.find((t) => t.threadId === 9001)?.status).toBe('fixed')
+    // Resolving the only unresolved thread clears the author-side action signal.
+    const { prs } = await stub.syncMyPrs()
+    expect(prs.find((p) => p.prId === 501)?.activeThreadCount).toBe(0)
   })
 })

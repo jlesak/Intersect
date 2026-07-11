@@ -3,6 +3,7 @@ import type {
   AdoSettings,
   AppSettings,
   BootState,
+  ClaudeUsage,
   DraftComment,
   FileDiff,
   JiraBoardResult,
@@ -10,6 +11,7 @@ import type {
   Layout,
   NewManualDraft,
   NewManualTimeEntry,
+  NewPrComment,
   NotificationSettings,
   OtoRun,
   OtoStartInput,
@@ -26,7 +28,9 @@ import type {
   TimeEntrySource,
   TimeEntryUpdate,
   TodoLists,
+  TodoPriority,
   TodoTask,
+  TodoTaskPatch,
   Workspace
 } from './domain'
 
@@ -68,7 +72,7 @@ export interface IpcApi {
     ): Promise<{ ok: boolean }>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
-    /** Backpressure: ask main to XOFF/XON the child when the renderer buffer is over/under water. */
+    /** Backpressure: ask main to pause/resume the child pty when the renderer buffer is over/under water. */
     pause(sessionId: string): void
     resume(sessionId: string): void
     kill(sessionId: string): void
@@ -95,6 +99,17 @@ export interface IpcApi {
     getChanges(repositoryId: string, prId: number): Promise<PrChangeFile[]>
     getFileDiff(repositoryId: string, prId: number, filePath: string): Promise<FileDiff>
     getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
+    /** Publish my own comment immediately (ADO behaviour); returns the PR's fresh threads. */
+    addComment(input: NewPrComment): Promise<PrThread[]>
+    /** Reply into an existing thread under my identity; returns the PR's fresh threads. */
+    replyToThread(repositoryId: string, prId: number, threadId: number, body: string): Promise<PrThread[]>
+    /** Resolve ('fixed') or reactivate ('active') a thread; returns the PR's fresh threads. */
+    setThreadStatus(
+      repositoryId: string,
+      prId: number,
+      threadId: number,
+      status: 'active' | 'fixed'
+    ): Promise<PrThread[]>
     listDrafts(repositoryId: string, prId: number): Promise<DraftComment[]>
     addManualDraft(input: NewManualDraft): Promise<DraftComment>
     editDraft(id: string, body: string): Promise<DraftComment>
@@ -139,14 +154,15 @@ export interface IpcApi {
     deleteEntry(source: TimeEntrySource, id: string): Promise<void>
   }
   todo: {
-    /** Both TODO lists: open tasks in manual order, done tasks most recently completed first. */
+    /** Both TODO lists: open tasks ordered by priority then due date, done most recently first. */
     list(): Promise<TodoLists>
-    add(text: string, dueDay: string | null): Promise<TodoTask>
+    /** `priority` defaults to 4 (no priority) when omitted. */
+    add(text: string, dueDay: string | null, priority?: TodoPriority): Promise<TodoTask>
+    /** Edit any subset of a task's fields in place (inline editing). */
+    update(id: string, patch: TodoTaskPatch): Promise<TodoTask>
     /** Checking stamps the completion time; unchecking appends the task to the end of the open list. */
     setDone(id: string, done: boolean): Promise<TodoTask>
     remove(id: string): Promise<void>
-    /** Persist a manual reordering of the open list; returns it in the new order. */
-    reorder(orderedIds: string[]): Promise<TodoTask[]>
   }
   myWork: {
     /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
@@ -186,6 +202,12 @@ export interface IpcApi {
      * webUtils is preload-only) - it never crosses IPC and main does not implement it.
      */
     getPathForFile(file: File): string
+  }
+  usage: {
+    /** The last captured Claude Code rate-limit snapshot, or null if none has arrived yet. */
+    get(): Promise<ClaudeUsage | null>
+    /** Fired whenever a fresh statusline snapshot is captured. */
+    onUsageChanged(cb: (usage: ClaudeUsage | null) => void): () => void
   }
 }
 
@@ -260,6 +282,9 @@ export const Channel = {
   prInboxGetChanges: 'prInbox:getChanges',
   prInboxGetFileDiff: 'prInbox:getFileDiff',
   prInboxGetThreads: 'prInbox:getThreads',
+  prInboxAddComment: 'prInbox:addComment',
+  prInboxReplyToThread: 'prInbox:replyToThread',
+  prInboxSetThreadStatus: 'prInbox:setThreadStatus',
   prInboxListDrafts: 'prInbox:listDrafts',
   prInboxAddManualDraft: 'prInbox:addManualDraft',
   prInboxEditDraft: 'prInbox:editDraft',
@@ -287,9 +312,9 @@ export const Channel = {
   // todo (request/response)
   todoList: 'todo:list',
   todoAdd: 'todo:add',
+  todoUpdate: 'todo:update',
   todoSetDone: 'todo:setDone',
   todoRemove: 'todo:remove',
-  todoReorder: 'todo:reorder',
   // myWork (request/response)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',
@@ -306,7 +331,10 @@ export const Channel = {
   settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
   settingsTestAdoConnection: 'settings:testAdoConnection',
   // system (request/response)
-  systemOpenExternal: 'system:openExternal'
+  systemOpenExternal: 'system:openExternal',
+  // usage (request/response, plus a main -> renderer broadcast)
+  usageGet: 'usage:get',
+  usageChanged: 'usage:changed'
 } as const
 
 export type ChannelName = (typeof Channel)[keyof typeof Channel]

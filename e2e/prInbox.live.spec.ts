@@ -26,14 +26,14 @@ test('live: sync real PRs and render a diff', async () => {
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
 
   // Sync against real ADO.
-  await win.locator('.ix-btn', { hasText: 'Sync' }).click()
-  await expect(win.locator('.ix-pr-row').first()).toBeVisible({ timeout: 180_000 })
-  const count = await win.locator('.ix-pr-row').count()
+  await win.getByTestId('pr-sync').click()
+  await expect(win.getByTestId('pr-card').first()).toBeVisible({ timeout: 180_000 })
+  const count = await win.getByTestId('pr-card').count()
   console.log(`LIVE: synced ${count} pull request(s)`)
 
-  // Open the first PR and load its changed files.
-  await win.locator('.ix-pr-row').first().click()
-  const files = win.locator('.ix-pr-file')
+  // Open the first PR and load its changed-files tree.
+  await win.getByTestId('pr-card').first().click()
+  const files = win.getByTestId('tree-file')
   await expect(files.first()).toBeVisible({ timeout: 60_000 })
   const fileCount = await files.count()
   console.log(`LIVE: first PR has ${fileCount} changed file(s)`)

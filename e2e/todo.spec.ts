@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import type { TodoPriority } from '@common/domain'
 
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
@@ -36,27 +37,25 @@ async function openTodo(win: Page): Promise<void> {
 const openRows = (win: Page): Locator => win.locator('.ix-todo > .ix-todo__list > .ix-todo-item')
 const doneRows = (win: Page): Locator => win.locator('.ix-todo__done-drawer .ix-todo-item')
 
-/** Add a task through the add row, optionally picking a due day first. Enter submits. */
-async function addTask(win: Page, text: string, dueDay?: string): Promise<void> {
-  if (dueDay) {
+/**
+ * Add a task through the add row, optionally picking a due day and/or a priority first (the
+ * picker defaults to P4, so only non-default priorities need a click). Enter submits.
+ */
+async function addTask(
+  win: Page,
+  text: string,
+  opts: { dueDay?: string; priority?: TodoPriority } = {}
+): Promise<void> {
+  if (opts.priority !== undefined && opts.priority !== 4) {
+    await win.locator(`.ix-todo__add .ix-todo-prio-picker__chip[title="Priority ${opts.priority}"]`).click()
+  }
+  if (opts.dueDay) {
     await win.locator('.ix-btn[title="Add due date"]').click()
-    await win.locator('.ix-todo__date').fill(dueDay)
+    await win.locator('.ix-todo__date').fill(opts.dueDay)
   }
   const input = win.getByPlaceholder('Add a task… (Enter)')
   await input.fill(text)
   await input.press('Enter')
-}
-
-/** Drag the row's grip handle to just inside the top edge of the target row. */
-async function dragRowAbove(win: Page, row: Locator, target: Locator): Promise<void> {
-  await row.hover()
-  await row.locator('.ix-todo-item__drag').hover()
-  await win.mouse.down()
-  const box = (await target.boundingBox())!
-  // Two moves: the first starts the native drag, the second lands in the target's top half.
-  await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 })
-  await win.mouse.move(box.x + box.width / 2, box.y + 3, { steps: 4 })
-  await win.mouse.up()
 }
 
 test('adds tasks with Enter, with optional due dates, and marks overdue ones', async () => {
@@ -75,7 +74,7 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   await expect(win.locator('.ix-todo__empty')).toHaveCount(0)
 
   // Task due tomorrow: the date input appears on demand and collapses after submit.
-  await addTask(win, 'Check the deploy logs', dayFromToday(1))
+  await addTask(win, 'Check the deploy logs', { dueDay: dayFromToday(1) })
   await expect(win.locator('.ix-todo__date')).toHaveCount(0)
   await expect(openRows(win)).toHaveCount(2)
   const tomorrowRow = openRows(win).filter({ hasText: 'Check the deploy logs' })
@@ -83,15 +82,16 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   await expect(tomorrowRow.locator('.ix-todo-item__due--overdue')).toHaveCount(0)
 
   // Task due yesterday: labeled and styled as overdue.
-  await addTask(win, 'Update the dependencies', dayFromToday(-1))
+  await addTask(win, 'Update the dependencies', { dueDay: dayFromToday(-1) })
   const overdueRow = openRows(win).filter({ hasText: 'Update the dependencies' })
   await expect(overdueRow.locator('.ix-todo-item__due--overdue')).toHaveText(/yesterday/)
 
-  // New tasks append to the end of the list.
+  // All three share the same (default) priority, so they are ordered by due day ascending with
+  // the no-due-date task last - not by insertion order.
   await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText([
-    'Ask Marek about the review',
+    'Update the dependencies',
     'Check the deploy logs',
-    'Update the dependencies'
+    'Ask Marek about the review'
   ])
 
   await app.close()
@@ -160,24 +160,55 @@ test('delete works from the main list and from the Done drawer', async () => {
   await app.close()
 })
 
-test('drag and drop reorders the open list and the order survives a relaunch', async () => {
+test('open tasks are auto-sorted by priority, then due day, then creation order, and the order survives a relaunch', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const first = await launch(userDataDir)
   await openTodo(first.win)
 
-  await addTask(first.win, 'first')
-  await addTask(first.win, 'second')
-  await addTask(first.win, 'third')
-  await expect(openRows(first.win).locator('.ix-todo-item__text')).toHaveText(['first', 'second', 'third'])
+  // Same (default P4) priority, no due dates: falls back to creation order.
+  await addTask(first.win, 'first created')
+  await addTask(first.win, 'second created')
+  await expect(openRows(first.win).locator('.ix-todo-item__text')).toHaveText([
+    'first created',
+    'second created'
+  ])
 
-  // Drag "third" above "first".
-  await dragRowAbove(first.win, openRows(first.win).nth(2), openRows(first.win).nth(0))
-  await expect(openRows(first.win).locator('.ix-todo-item__text')).toHaveText(['third', 'first', 'second'])
+  // A P1 task added last still sorts to the very top - priority beats creation order.
+  await addTask(first.win, 'urgent', { priority: 1 })
+  await expect(openRows(first.win).locator('.ix-todo-item__text')).toHaveText([
+    'urgent',
+    'first created',
+    'second created'
+  ])
+  const urgentRow = openRows(first.win).filter({ hasText: 'urgent' })
+  await expect(urgentRow.locator('.ix-todo-item__check')).toHaveClass(/--p1/)
+  await expect(urgentRow.locator('.ix-todo-item__prio')).toHaveText('P1')
+
+  // Within a shared priority, an earlier due day sorts first and no due day sorts last.
+  await addTask(first.win, 'due later', { priority: 2, dueDay: dayFromToday(5) })
+  await addTask(first.win, 'due sooner', { priority: 2, dueDay: dayFromToday(1) })
+  await addTask(first.win, 'no due date', { priority: 2 })
+  await expect(openRows(first.win).locator('.ix-todo-item__text')).toHaveText([
+    'urgent',
+    'due sooner',
+    'due later',
+    'no due date',
+    'first created',
+    'second created'
+  ])
   await first.app.close()
 
-  // Same profile: the manual order was persisted, not just rendered.
+  // Same profile: the same tasks re-sort identically on the next boot - the order is derived from
+  // priority and due day every time, not a manually persisted position.
   const second = await launch(userDataDir)
   await openTodo(second.win)
-  await expect(openRows(second.win).locator('.ix-todo-item__text')).toHaveText(['third', 'first', 'second'])
+  await expect(openRows(second.win).locator('.ix-todo-item__text')).toHaveText([
+    'urgent',
+    'due sooner',
+    'due later',
+    'no due date',
+    'first created',
+    'second created'
+  ])
   await second.app.close()
 })

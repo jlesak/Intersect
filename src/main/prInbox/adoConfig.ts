@@ -93,9 +93,10 @@ function readClaudeJsonAdoServer(): AdoServerConfig | null {
 }
 
 /**
- * Credentials for Intersect's own direct REST calls (vote casting). Read from the same MCP server
- * config the ADO client spawn uses, so a PAT still lives in exactly one place. Resolved lazily per
- * call, so a missing/rotated configuration surfaces on the vote, not at boot.
+ * Credentials for Intersect's own direct REST calls (vote casting and the connectionData identity
+ * lookup). Read from the same MCP server config the ADO client spawn uses, so a PAT still lives in
+ * exactly one place. Resolved lazily per call, so a missing/rotated configuration surfaces at use,
+ * not at boot.
  */
 export function resolveVoteCredentials(saved?: AdoSettings | null): { orgUrl: string; pat: string } {
   const env = resolveAdoServerConfig(process.env, saved).env
@@ -103,31 +104,9 @@ export function resolveVoteCredentials(saved?: AdoSettings | null): { orgUrl: st
   const pat = env.AZURE_DEVOPS_PAT
   if (!orgUrl || !pat) {
     throw new Error(
-      'Azure DevOps voting is not configured. The azureDevOps MCP server entry must carry ' +
+      'Azure DevOps is not configured. The azureDevOps MCP server entry must carry ' +
         'AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT.'
     )
   }
   return { orgUrl, pat }
-}
-
-/**
- * Resolve who "I" am for filtering PRs. On-prem ADO Server has no get_me profile endpoint, so the
- * identity is taken from `INTERSECT_ADO_IDENTITY` (a UUID, a `domain\user` uniqueName, or a display
- * name); matching is then done client-side against creators/reviewers.
- */
-export function resolveMyIdentity(env: NodeJS.ProcessEnv = process.env): {
-  id?: string
-  uniqueName?: string
-  displayName?: string
-} {
-  const raw = env.INTERSECT_ADO_IDENTITY?.trim()
-  if (!raw) {
-    throw new Error(
-      'Set INTERSECT_ADO_IDENTITY to your Azure DevOps identity (UUID, domain\\user, or display name) ' +
-        'so Intersect can find the PRs you author or review.'
-    )
-  }
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(raw)) return { id: raw }
-  if (raw.includes('\\')) return { uniqueName: raw }
-  return { displayName: raw }
 }

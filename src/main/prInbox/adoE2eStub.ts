@@ -1,4 +1,5 @@
-import type { PrVote, PullRequest } from '@common/domain'
+import type { PrThread, PrVote, PullRequest } from '@common/domain'
+import { isThreadUnresolved } from '@common/prBoard'
 import type { AdoService, SyncResult } from './adoService'
 
 /**
@@ -18,7 +19,8 @@ const basePr = {
   status: 'active',
   targetRefName: 'refs/heads/main',
   targetCommitId: 'target-1',
-  newChangesSinceMyReview: false
+  newChangesSinceMyReview: false,
+  activeThreadCount: 0
 }
 
 function radarPrs(syncCount: number): PullRequest[] {
@@ -81,6 +83,44 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
   let syncCount = 0
   // Votes cast during this run, keyed by PR id, layered over the canned PRs on every sync.
   const castVotes = new Map<number, { reviewerId: string; vote: PrVote }>()
+  // Threads per PR, mutated by comment/reply/resolve during the run so the full review loop
+  // (comment -> reply -> resolve, board thread counts) is exercisable offline.
+  const threadsByPr = new Map<number, PrThread[]>([
+    [
+      501,
+      [
+        {
+          threadId: 9001,
+          filePath: '/src/app/sync/rateLimiter.ts',
+          line: 12,
+          status: 'active',
+          isSystem: false,
+          comments: [
+            {
+              authorName: 'Marek Kral',
+              body: 'Should the limit be configurable?',
+              publishedAt: Date.now() - 3_600_000
+            }
+          ]
+        },
+        {
+          threadId: 9002,
+          filePath: null,
+          line: null,
+          status: 'unknown',
+          isSystem: true,
+          comments: [
+            {
+              authorName: 'ADO',
+              body: 'Policy status has been updated',
+              publishedAt: Date.now() - 7_200_000
+            }
+          ]
+        }
+      ]
+    ]
+  ])
+  let nextThreadId = 9100
 
   function applyVotes(prs: PullRequest[]): PullRequest[] {
     return prs.map((pr) => {
@@ -94,33 +134,74 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
     })
   }
 
+  function applyThreadCounts(prs: PullRequest[]): PullRequest[] {
+    return prs.map((pr) => ({
+      ...pr,
+      activeThreadCount: (threadsByPr.get(pr.prId) ?? []).filter(
+        (t) => !t.isSystem && isThreadUnresolved(t)
+      ).length
+    }))
+  }
+
   return {
     async syncMyPrs(): Promise<SyncResult> {
       syncCount += 1
-      return { prs: mode === 'radar' ? applyVotes(radarPrs(syncCount)) : [], failedRepos: [] }
+      return {
+        prs: mode === 'radar' ? applyThreadCounts(applyVotes(radarPrs(syncCount))) : [],
+        failedRepos: []
+      }
     },
 
     async getChanges() {
-      return []
+      if (mode !== 'radar') return []
+      return [
+        { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null },
+        { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null },
+        { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null },
+        { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null }
+      ]
     },
 
     async getFileDiff(input) {
       return {
         path: input.filePath,
-        original: '',
-        modified: '',
-        language: 'plaintext',
+        original: 'const limit = 10\n',
+        modified: 'const limit = 25\nconst burst = 5\n',
+        language: 'typescript',
         binary: false,
         tooLarge: false
       }
     },
 
-    async getThreads() {
-      return []
+    async getThreads(_repositoryId, prId) {
+      return threadsByPr.get(prId) ?? []
     },
 
-    async publishComment() {
-      throw new Error('Publishing is not available in the E2E stub')
+    async publishComment(input) {
+      const threadId = nextThreadId++
+      const threads = threadsByPr.get(input.prId) ?? []
+      threads.push({
+        threadId,
+        filePath: input.filePath,
+        line: input.line,
+        status: 'active',
+        isSystem: false,
+        comments: [{ authorName: 'Jan Lesak', body: input.body, publishedAt: Date.now() }]
+      })
+      threadsByPr.set(input.prId, threads)
+      return threadId
+    },
+
+    async replyToThread(input) {
+      const thread = (threadsByPr.get(input.prId) ?? []).find((t) => t.threadId === input.threadId)
+      if (!thread) throw new Error(`Unknown thread ${input.threadId} in the E2E stub`)
+      thread.comments.push({ authorName: 'Jan Lesak', body: input.body, publishedAt: Date.now() })
+    },
+
+    async setThreadStatus(input) {
+      const thread = (threadsByPr.get(input.prId) ?? []).find((t) => t.threadId === input.threadId)
+      if (!thread) throw new Error(`Unknown thread ${input.threadId} in the E2E stub`)
+      thread.status = input.status
     },
 
     async castVote(_repositoryId, prId, reviewerId, vote) {

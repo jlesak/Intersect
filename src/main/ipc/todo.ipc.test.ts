@@ -14,13 +14,27 @@ describe('todo handlers', () => {
   beforeEach(() => {
     db = makeTestDb()
     todos = createTodoRepo(db, makeTestDeps())
-    h = createTodoHandlers({ db, todos })
+    h = createTodoHandlers({ todos })
   })
 
   test('add creates an open task and list returns both lists', async () => {
     const task = await h.add('Ask Marek about the review', '2026-07-10')
     expect(task.text).toBe('Ask Marek about the review')
+    expect(task.priority).toBe(4)
     expect(await h.list()).toEqual({ open: [task], done: [] })
+  })
+
+  test('add passes an explicit priority through to the repo', async () => {
+    const task = await h.add('urgent', null, 1)
+    expect(task.priority).toBe(1)
+  })
+
+  test('update edits a task in place', async () => {
+    const a = await h.add('a', null)
+    const updated = await h.update(a.id, { text: 'b', priority: 2, description: 'detail' })
+    expect(updated.text).toBe('b')
+    expect(updated.priority).toBe(2)
+    expect(updated.description).toBe('detail')
   })
 
   test('setDone moves a task between the lists in both directions', async () => {
@@ -45,26 +59,15 @@ describe('todo handlers', () => {
     expect((await h.list()).open).toEqual([])
   })
 
-  test('reorder persists the new open order atomically', async () => {
-    const a = await h.add('a', null)
-    const b = await h.add('b', null)
-    const c = await h.add('c', null)
-    const reordered = await h.reorder([c.id, a.id, b.id])
-    expect(reordered.map((t) => t.id)).toEqual([c.id, a.id, b.id])
-    expect((await h.list()).open.map((t) => t.id)).toEqual([c.id, a.id, b.id])
-    // The handler owns the transaction; nothing must be left open afterwards.
-    expect(db.isTransaction).toBe(false)
-  })
-
   test('a repo validation error crosses as a message-only Error', async () => {
     await expect(h.add('   ', null)).rejects.toThrow(/must not be empty/i)
     await expect(h.add('task', 'not-a-day')).rejects.toThrow(/invalid due day/i)
     await expect(h.setDone('nope', true)).rejects.toThrow(/not found/i)
+    await expect(h.update('nope', { text: 'x' })).rejects.toThrow(/not found/i)
   })
 
   test('wraps a non-Error throw into an Error with a message', async () => {
     const throwing = createTodoHandlers({
-      db,
       todos: {
         ...todos,
         listOpen: () => {
@@ -77,7 +80,7 @@ describe('todo handlers', () => {
 })
 
 describe('registerTodoHandlers', () => {
-  test('binds the five request/response channels to the handlers', async () => {
+  test('binds the request/response channels to the handlers', async () => {
     const registered = new Map<string, (...args: unknown[]) => unknown>()
     const ipcMain = {
       handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
@@ -85,12 +88,18 @@ describe('registerTodoHandlers', () => {
       }
     }
     const db = makeTestDb()
-    const h = createTodoHandlers({ db, todos: createTodoRepo(db, makeTestDeps()) })
+    const h = createTodoHandlers({ todos: createTodoRepo(db, makeTestDeps()) })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerTodoHandlers(ipcMain as any, h)
 
     expect([...registered.keys()].sort()).toEqual(
-      [Channel.todoList, Channel.todoAdd, Channel.todoSetDone, Channel.todoRemove, Channel.todoReorder].sort()
+      [
+        Channel.todoList,
+        Channel.todoAdd,
+        Channel.todoUpdate,
+        Channel.todoSetDone,
+        Channel.todoRemove
+      ].sort()
     )
 
     const added = (await registered.get(Channel.todoAdd)!({}, 'buy a monitor', null)) as TodoTask

@@ -5,7 +5,9 @@ import { matchTodoMentions } from './todoMentions'
 const task = (id: string, text: string): TodoTask => ({
   id,
   text,
+  description: '',
   dueDay: null,
+  priority: 4,
   sortOrder: 0,
   doneAt: null
 })

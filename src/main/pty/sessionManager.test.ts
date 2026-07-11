@@ -7,6 +7,9 @@ interface FakePty extends PtyProcess {
   emit(data: string): void
   writes: string[]
   killed: boolean
+  paused: boolean
+  pauseCalls: number
+  resumeCalls: number
 }
 
 function makeFakePty(): FakePty {
@@ -16,10 +19,21 @@ function makeFakePty(): FakePty {
     pid: 4242,
     writes: [],
     killed: false,
+    paused: false,
+    pauseCalls: 0,
+    resumeCalls: 0,
     onData: (cb) => dataCbs.push(cb),
     onExit: (cb) => exitCbs.push(cb),
     write: (d) => pty.writes.push(d),
     resize: () => {},
+    pause: () => {
+      pty.paused = true
+      pty.pauseCalls += 1
+    },
+    resume: () => {
+      pty.paused = false
+      pty.resumeCalls += 1
+    },
     kill: () => {
       pty.killed = true
       exitCbs.forEach((cb) => cb({ exitCode: 0 }))
@@ -141,11 +155,23 @@ describe('sessionManager', () => {
     expect(notices.join('')).toMatch(/not found/i)
   })
 
-  test('pause and resume send XOFF / XON to the pty', () => {
+  test('pause and resume call the pty native pause/resume, not a written byte', () => {
     h.mgr.spawn('w1:t1', 'shell', '/repo', 80, 24)
     h.mgr.pause('w1:t1')
     h.mgr.resume('w1:t1')
-    expect(h.spawned[0].pty.writes).toEqual(['\x13', '\x11'])
+    const pty = h.spawned[0].pty
+    expect(pty.pauseCalls).toBe(1)
+    expect(pty.resumeCalls).toBe(1)
+    expect(pty.writes).toEqual([])
+  })
+
+  test('Ctrl+S typed by the user is forwarded verbatim to the pty and does not pause the session', () => {
+    h.mgr.spawn('w1:t1', 'shell', '/repo', 80, 24)
+    h.mgr.write('w1:t1', '\x13')
+    const pty = h.spawned[0].pty
+    expect(pty.writes).toEqual(['\x13'])
+    expect(pty.paused).toBe(false)
+    expect(pty.pauseCalls).toBe(0)
   })
 
   test('forwards the resume session id to buildSpec so a resumed tab launches claude --resume', () => {

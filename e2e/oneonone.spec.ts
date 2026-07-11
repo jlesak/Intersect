@@ -41,16 +41,16 @@ async function stubVttDialog(app: ElectronApplication, vttPath: string): Promise
   }, vttPath)
 }
 
-test('the 1:1 section sits between TODO and Workspaces and starts empty', async () => {
+test('the 1:1 section sits between TODO and PR Review and starts empty', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir)
 
   await expect(win.locator('.ix-rail__label')).toHaveText([
+    'Claude Code',
     'My Work',
     'Time Tracking',
     'TODO',
     '1:1',
-    'Workspaces',
     'PR Review',
     'Sessions',
     'Settings'

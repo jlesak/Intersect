@@ -35,11 +35,17 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
+  activeThreadCount: 0,
   ...over
 })
 
 function makeAdo(over: Partial<AdoService> = {}): { ado: AdoService; calls: Record<string, unknown[]> } {
-  const calls: Record<string, unknown[]> = { publishComment: [], syncMyPrs: [] }
+  const calls: Record<string, unknown[]> = {
+    publishComment: [],
+    syncMyPrs: [],
+    replyToThread: [],
+    setThreadStatus: []
+  }
   const ado: AdoService = {
     syncMyPrs: vi.fn(async (): Promise<SyncResult> => ({ prs: [pr()], failedRepos: [] })),
     getChanges: vi.fn(
@@ -59,6 +65,12 @@ function makeAdo(over: Partial<AdoService> = {}): { ado: AdoService; calls: Reco
     publishComment: vi.fn(async (input) => {
       calls.publishComment.push(input)
       return 5555
+    }),
+    replyToThread: vi.fn(async (input) => {
+      calls.replyToThread.push(input)
+    }),
+    setThreadStatus: vi.fn(async (input) => {
+      calls.setThreadStatus.push(input)
     }),
     castVote: vi.fn(async () => {}),
     ...over
@@ -106,7 +118,7 @@ describe('prInbox handlers', () => {
     review?: ReviewManager
     warn?: (m: string) => void
     atomically?: <T>(fn: () => T) => T
-    resolveIdentity?: () => AdoIdentity
+    resolveIdentity?: () => Promise<AdoIdentity>
   } = {}): { h: PrInboxHandlers; ado: ReturnType<typeof makeAdo> } {
     const ado = overrides.ado ?? makeAdo()
     const h = createPrInboxHandlers({
@@ -407,7 +419,7 @@ describe('prInbox handlers', () => {
   })
 
   test('castVote falls back to my configured UUID identity when the PR has no reviewer entry of mine', async () => {
-    const { h, ado } = handlers({ resolveIdentity: () => ({ id: 'my-uuid' }) })
+    const { h, ado } = handlers({ resolveIdentity: () => Promise.resolve({ id: 'my-uuid' }) })
     prCache.replaceAll([pr({ myReviewerId: null })])
     const updated = await h.castVote('repo-a', 100, 'approved')
     expect(ado.ado.castVote).toHaveBeenCalledWith('repo-a', 100, 'my-uuid', 'approved')
@@ -415,7 +427,7 @@ describe('prInbox handlers', () => {
   })
 
   test('castVote refuses when neither a reviewer entry nor a UUID identity exists', async () => {
-    const { h, ado } = handlers({ resolveIdentity: () => ({ displayName: 'Jan' }) })
+    const { h, ado } = handlers({ resolveIdentity: () => Promise.resolve({ displayName: 'Jan' }) })
     prCache.replaceAll([pr({ myReviewerId: null })])
     await expect(h.castVote('repo-a', 100, 'approved')).rejects.toThrow(/reviewer identity .* is unknown/i)
     expect(ado.ado.castVote).not.toHaveBeenCalled()
@@ -423,9 +435,7 @@ describe('prInbox handlers', () => {
 
   test('castVote treats a throwing identity resolution as unresolvable', async () => {
     const { h } = handlers({
-      resolveIdentity: () => {
-        throw new Error('INTERSECT_ADO_IDENTITY is not set')
-      }
+      resolveIdentity: () => Promise.reject(new Error('identity lookup failed'))
     })
     prCache.replaceAll([pr({ myReviewerId: null })])
     await expect(h.castVote('repo-a', 100, 'approved')).rejects.toThrow(/reviewer identity .* is unknown/i)
@@ -479,6 +489,41 @@ describe('prInbox handlers', () => {
   test('startReview on an unknown PR throws to sync first', async () => {
     const { h } = handlers()
     await expect(h.startReview('repo-a', 999)).rejects.toThrow(/sync first/i)
+  })
+
+  test('addComment publishes immediately and returns fresh threads', async () => {
+    const fresh: PrThread[] = [
+      { threadId: 1, filePath: 'src/a.ts', line: 3, status: 'active', isSystem: false, comments: [] }
+    ]
+    const ado = makeAdo({ getThreads: vi.fn(async () => fresh) })
+    const { h } = handlers({ ado })
+    const threads = await h.addComment({
+      repositoryId: 'repo-a',
+      prId: 100,
+      filePath: 'src/a.ts',
+      line: 3,
+      body: 'looks off'
+    })
+    expect(ado.calls.publishComment[0]).toMatchObject({
+      filePath: 'src/a.ts',
+      line: 3,
+      body: 'looks off'
+    })
+    expect(threads).toEqual(fresh)
+  })
+
+  test('replyToThread and setThreadStatus return fresh threads', async () => {
+    const fresh: PrThread[] = [
+      { threadId: 42, filePath: null, line: null, status: 'fixed', isSystem: false, comments: [] }
+    ]
+    const ado = makeAdo({ getThreads: vi.fn(async () => fresh) })
+    const { h } = handlers({ ado })
+    const afterReply = await h.replyToThread('repo-a', 100, 42, 'reply body')
+    expect(ado.calls.replyToThread[0]).toMatchObject({ threadId: 42, body: 'reply body' })
+    expect(afterReply).toEqual(fresh)
+    const afterStatus = await h.setThreadStatus('repo-a', 100, 42, 'fixed')
+    expect(ado.calls.setThreadStatus[0]).toMatchObject({ threadId: 42, status: 'fixed' })
+    expect(afterStatus).toEqual(fresh)
   })
 })
 
