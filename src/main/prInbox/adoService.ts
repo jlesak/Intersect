@@ -30,6 +30,12 @@ export interface AdoServiceDeps {
   resolveIdentity: () => Promise<AdoIdentity>
   /** Resolved lazily per call so a project changed in Settings applies without a restart. */
   projectId: () => string
+  /**
+   * The last-known unresolved thread count for a PR, read from the cache. Used to preserve the
+   * board's author-side signal when a single PR's thread fetch fails mid-sync, instead of
+   * clobbering the persisted count with 0.
+   */
+  priorThreadCount: (repositoryId: string, prId: number) => number
   /** Org URL + PAT for the direct REST vote call, resolved lazily per vote (see adoVote). */
   resolveVoteCredentials: () => { orgUrl: string; pat: string }
   /** Injected in tests to fake the vote HTTP round-trip. */
@@ -168,7 +174,8 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
       }
       const merged = mergeMyPrs(prs)
       // Thread counts feed the board's author-side "needs my action" signal. One PR's failure
-      // must not fail the sync; that PR just reads as having no unresolved comments this round.
+      // must not fail the sync; carry that PR's last-known count forward so a transient thread
+      // fetch does not clear the board signal until the next fully-successful sync.
       const enriched = await Promise.all(
         merged.map(async (pr) => {
           try {
@@ -177,7 +184,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
             return { ...pr, activeThreadCount: count }
           } catch (err) {
             console.warn(`Thread fetch failed for PR ${pr.prId} in ${pr.repositoryName}`, err)
-            return pr
+            return { ...pr, activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId) }
           }
         })
       )

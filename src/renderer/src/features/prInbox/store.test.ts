@@ -228,24 +228,45 @@ describe('thread actions', () => {
     usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1) }, order: ['r:1'], selectedKey: 'r:1' })
   })
 
-  test('replyToThread refreshes threads from the response', async () => {
+  test('replyToThread refreshes threads from the response and signals success', async () => {
     const fresh = [thread(42)]
     mocked.replyToThread.mockResolvedValue(fresh)
-    await usePrInboxStore.getState().replyToThread(42, 'ok')
+    const ok = await usePrInboxStore.getState().replyToThread(42, 'ok')
+    expect(ok).toBe(true)
     expect(mocked.replyToThread).toHaveBeenCalledWith('r', 1, 42, 'ok')
     expect(usePrInboxStore.getState().threads).toEqual(fresh)
   })
 
-  test('setThreadStatus refreshes threads', async () => {
+  test('replyToThread signals failure without clobbering threads', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    usePrInboxStore.setState({ threads: [thread(1)] })
+    mocked.replyToThread.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().replyToThread(42, 'ok')
+    expect(ok).toBe(false)
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([1])
+    error.mockRestore()
+  })
+
+  test('setThreadStatus refreshes threads and signals success', async () => {
     mocked.setThreadStatus.mockResolvedValue([thread(42, { status: 'fixed' })])
-    await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
+    const ok = await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
+    expect(ok).toBe(true)
     expect(mocked.setThreadStatus).toHaveBeenCalledWith('r', 1, 42, 'fixed')
     expect(usePrInboxStore.getState().threads[0].status).toBe('fixed')
   })
 
-  test('addComment publishes and refreshes threads', async () => {
+  test('setThreadStatus signals failure', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.setThreadStatus.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
+    expect(ok).toBe(false)
+    error.mockRestore()
+  })
+
+  test('addComment publishes, refreshes threads and signals success', async () => {
     mocked.addComment.mockResolvedValue([thread(43)])
-    await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
+    const ok = await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
+    expect(ok).toBe(true)
     expect(mocked.addComment).toHaveBeenCalledWith({
       repositoryId: 'r',
       prId: 1,
@@ -254,6 +275,14 @@ describe('thread actions', () => {
       body: 'new comment'
     })
     expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toContain(43)
+  })
+
+  test('addComment signals failure so the composer can keep the typed text', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.addComment.mockRejectedValue(new Error('boom'))
+    const ok = await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
+    expect(ok).toBe(false)
+    error.mockRestore()
   })
 })
 

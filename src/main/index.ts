@@ -324,6 +324,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
       client: adoClient,
       resolveIdentity,
       projectId: () => safeDefaultProject(settings.getSavedAdo()),
+      priorThreadCount: (repositoryId, prId) =>
+        prCache.get(repositoryId, prId)?.activeThreadCount ?? 0,
       resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
 

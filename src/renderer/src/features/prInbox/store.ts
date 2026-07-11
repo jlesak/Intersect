@@ -52,10 +52,16 @@ interface PrInboxState {
   goBack(): void
   setTab(tab: 'files' | 'overview'): void
   setThreadFilter(filter: ThreadFilter): void
-  /** Publish my own comment immediately; null path/line anchors it to the PR itself. */
-  addComment(filePath: string | null, line: number | null, body: string): Promise<void>
-  replyToThread(threadId: number, body: string): Promise<void>
-  setThreadStatus(threadId: number, status: 'active' | 'fixed'): Promise<void>
+  /**
+   * Publish my own comment immediately; null path/line anchors it to the PR itself. Resolves to
+   * true only when ADO accepted the write, so the caller can keep the composer open (preserving
+   * the typed text) on failure instead of discarding it.
+   */
+  addComment(filePath: string | null, line: number | null, body: string): Promise<boolean>
+  /** Resolves to true only when ADO accepted the reply, so the caller can keep the input on failure. */
+  replyToThread(threadId: number, body: string): Promise<boolean>
+  /** Resolves to true only when ADO accepted the status change. */
+  setThreadStatus(threadId: number, status: 'active' | 'fixed'): Promise<boolean>
   /** Jump from an Overview thread to its code: Files tab, open the file, scroll to the line. */
   revealThread(path: string, line: number | null): void
   clearReveal(): void
@@ -234,7 +240,7 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
 
   async addComment(filePath, line, body) {
     const pr = selectSelectedPr(get())
-    if (!pr) return
+    if (!pr) return false
     try {
       const threads = await api.addComment({
         repositoryId: pr.repositoryId,
@@ -244,30 +250,36 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
         body
       })
       set({ threads })
+      return true
     } catch (e) {
       reportError('Could not publish the comment to Azure DevOps', e)
+      return false
     }
   },
 
   async replyToThread(threadId, body) {
     const pr = selectSelectedPr(get())
-    if (!pr) return
+    if (!pr) return false
     try {
       const threads = await api.replyToThread(pr.repositoryId, pr.prId, threadId, body)
       set({ threads })
+      return true
     } catch (e) {
       reportError('Could not publish the reply to Azure DevOps', e)
+      return false
     }
   },
 
   async setThreadStatus(threadId, status) {
     const pr = selectSelectedPr(get())
-    if (!pr) return
+    if (!pr) return false
     try {
       const threads = await api.setThreadStatus(pr.repositoryId, pr.prId, threadId, status)
       set({ threads })
+      return true
     } catch (e) {
       reportError('Could not update the thread status', e)
+      return false
     }
   },
 

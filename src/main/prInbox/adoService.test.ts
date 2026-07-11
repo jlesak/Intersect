@@ -18,10 +18,11 @@ function fakeClient(handlers: Record<string, ToolHandler>): AdoClient {
   }
 }
 
-const deps = (client: AdoClient) => ({
+const deps = (client: AdoClient, priorThreadCount: (r: string, p: number) => number = () => 0) => ({
   client,
   resolveIdentity: async () => ({ id: 'me-uuid', displayName: 'Me', uniqueName: 'me@x' }),
   projectId: () => 'SPOT',
+  priorThreadCount,
   resolveVoteCredentials: () => ({ orgUrl: 'https://o', pat: 'p' })
 })
 
@@ -172,7 +173,25 @@ describe('syncMyPrs thread enrichment', () => {
     expect(prs[0].activeThreadCount).toBe(1)
   })
 
-  test('a failing thread fetch degrades to 0 without failing the sync', async () => {
+  test('a failing thread fetch preserves the last-known count instead of resetting to 0', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          list_repositories: [{ id: 'repo-1', name: 'repo' }],
+          list_pull_requests: (args) => ({ value: args.reviewerId ? [rawPr] : [] }),
+          get_pull_request_comments: () => {
+            throw new Error('boom')
+          }
+        }),
+        (_repositoryId, prId) => (prId === 9 ? 3 : 0)
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs).toHaveLength(1)
+    expect(prs[0].activeThreadCount).toBe(3)
+  })
+
+  test('a failing thread fetch degrades to 0 when there is no cached count', async () => {
     const svc = createAdoService(
       deps(
         fakeClient({

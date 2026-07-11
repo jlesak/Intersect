@@ -48,8 +48,7 @@ export function OverviewTab() {
         <CommentComposer
           label="New PR-level comment"
           onSubmit={async (body) => {
-            await usePrInboxStore.getState().addComment(null, null, body)
-            setComposing(false)
+            if (await usePrInboxStore.getState().addComment(null, null, body)) setComposing(false)
           }}
           onCancel={() => setComposing(false)}
         />

@@ -4,8 +4,9 @@ import { isThreadUnresolved } from '@common/prBoard'
 
 interface ThreadCardProps {
   thread: PrThread
-  onReply(body: string): Promise<void> | void
-  onSetStatus(status: 'active' | 'fixed'): Promise<void> | void
+  /** Resolves to false when the reply was not accepted, so the input keeps the typed text. */
+  onReply(body: string): Promise<boolean>
+  onSetStatus(status: 'active' | 'fixed'): Promise<boolean>
   /** 'overview' additionally shows the file:line chip that jumps to the code. */
   context?: 'inline' | 'overview'
   onOpenFile?(path: string, line: number | null): void
@@ -37,8 +38,7 @@ export function ThreadCard({
     if (!body || busy) return
     setBusy(true)
     try {
-      await onReply(body)
-      setReply('')
+      if (await onReply(body)) setReply('')
     } finally {
       setBusy(false)
     }

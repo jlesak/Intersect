@@ -136,8 +136,7 @@ export function DiffViewer({
           <CommentComposer
             label={`New comment · line ${composerLine}`}
             onSubmit={async (body) => {
-              await store().addComment(diff.path, composerLine, body)
-              setComposerLine(null)
+              if (await store().addComment(diff.path, composerLine, body)) setComposerLine(null)
             }}
             onCancel={() => setComposerLine(null)}
           />
