@@ -1,6 +1,7 @@
-import type { PrThread, PrVote, PullRequest } from '@common/domain'
+import type { FileDiff, PrChangeFile, PrThread, PrVote, PullRequest } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
 import type { AdoService, SyncResult } from './adoService'
+import type { LocalDiffService } from './localDiff'
 
 /**
  * Deterministic Azure DevOps backend for E2E runs, so the PR radar and inbox can be exercised
@@ -78,6 +79,39 @@ function radarPrs(syncCount: number): PullRequest[] {
   ]
 }
 
+/**
+ * Deterministic diff engine for E2E runs, standing in for the local-git service (which would need a
+ * real clone on disk). Mirrors the canned changed files the inbox specs assert on in `radar` mode.
+ */
+export function createLocalDiffE2eStub(env: NodeJS.ProcessEnv): LocalDiffService {
+  const mode = env.INTERSECT_E2E_ADO ?? 'empty'
+  const changes: PrChangeFile[] =
+    mode === 'radar'
+      ? [
+          { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null },
+          { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null },
+          { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null },
+          { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null }
+        ]
+      : []
+  return {
+    async getChanges() {
+      return changes
+    },
+    async getFileDiff(_pr, filePath): Promise<FileDiff> {
+      return {
+        path: filePath,
+        original: 'const limit = 10\n',
+        modified: 'const limit = 25\nconst burst = 5\n',
+        language: 'typescript',
+        binary: false,
+        tooLarge: false
+      }
+    },
+    forget() {}
+  }
+}
+
 export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
   const mode = env.INTERSECT_E2E_ADO ?? 'empty'
   let syncCount = 0
@@ -149,27 +183,6 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
       return {
         prs: mode === 'radar' ? applyThreadCounts(applyVotes(radarPrs(syncCount))) : [],
         failedRepos: []
-      }
-    },
-
-    async getChanges() {
-      if (mode !== 'radar') return []
-      return [
-        { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null },
-        { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null },
-        { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null },
-        { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null }
-      ]
-    },
-
-    async getFileDiff(input) {
-      return {
-        path: input.filePath,
-        original: 'const limit = 10\n',
-        modified: 'const limit = 25\nconst burst = 5\n',
-        language: 'typescript',
-        binary: false,
-        tooLarge: false
       }
     },
 

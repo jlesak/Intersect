@@ -70,6 +70,12 @@ describe('buildReviewSpawnSpec', () => {
     expect(prompt).toMatch(/record_draft_comment/)
   })
 
+  test('appends the Czech review guide (language + concise style) alongside the security prompt', () => {
+    const prompt = flagValue(buildReviewSpawnSpec(base).args, '--append-system-prompt') ?? ''
+    expect(prompt).toMatch(/česky/i)
+    expect(prompt).toMatch(/bez\s+štítk/i)
+  })
+
   test('voting stays out of the AI review: no vote or ADO tool is allowed, only the draft MCP server', () => {
     for (const tool of REVIEW_ALLOWED_TOOLS) {
       expect(tool).not.toMatch(/vote|azure|devops|pull_?request|reviewer/i)

@@ -12,6 +12,7 @@ import { createPrCacheRepo, type PrCacheRepo } from '../db/prCacheRepo'
 import { createPrReviewWatermarkRepo, type PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { AdoService, SyncResult } from '../prInbox/adoService'
+import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { applyMyVote, buildReviewContext, createPrInboxHandlers, type PrInboxHandlers } from './prInbox.ipc'
 
@@ -48,19 +49,6 @@ function makeAdo(over: Partial<AdoService> = {}): { ado: AdoService; calls: Reco
   }
   const ado: AdoService = {
     syncMyPrs: vi.fn(async (): Promise<SyncResult> => ({ prs: [pr()], failedRepos: [] })),
-    getChanges: vi.fn(
-      async (): Promise<PrChangeFile[]> => [{ path: 'src/a.ts', changeType: 'edit', originalPath: null }]
-    ),
-    getFileDiff: vi.fn(
-      async (): Promise<FileDiff> => ({
-        path: 'src/a.ts',
-        original: 'old',
-        modified: 'new',
-        language: 'typescript',
-        binary: false,
-        tooLarge: false
-      })
-    ),
     getThreads: vi.fn(async (): Promise<PrThread[]> => []),
     publishComment: vi.fn(async (input) => {
       calls.publishComment.push(input)
@@ -100,6 +88,26 @@ function makeReview(over: Partial<ReviewManager> = {}): ReviewManager {
   }
 }
 
+function makeLocalDiff(over: Partial<LocalDiffService> = {}): LocalDiffService {
+  return {
+    getChanges: vi.fn(
+      async (): Promise<PrChangeFile[]> => [{ path: 'src/a.ts', changeType: 'edit', originalPath: null }]
+    ),
+    getFileDiff: vi.fn(
+      async (): Promise<FileDiff> => ({
+        path: 'src/a.ts',
+        original: 'old',
+        modified: 'new',
+        language: 'typescript',
+        binary: false,
+        tooLarge: false
+      })
+    ),
+    forget: vi.fn(),
+    ...over
+  }
+}
+
 describe('prInbox handlers', () => {
   let prCache: PrCacheRepo
   let drafts: DraftCommentRepo
@@ -115,23 +123,27 @@ describe('prInbox handlers', () => {
 
   function handlers(overrides: {
     ado?: ReturnType<typeof makeAdo>
+    localDiff?: LocalDiffService
     review?: ReviewManager
     warn?: (m: string) => void
     atomically?: <T>(fn: () => T) => T
     resolveIdentity?: () => Promise<AdoIdentity>
-  } = {}): { h: PrInboxHandlers; ado: ReturnType<typeof makeAdo> } {
+  } = {}): { h: PrInboxHandlers; ado: ReturnType<typeof makeAdo>; localDiff: LocalDiffService } {
     const ado = overrides.ado ?? makeAdo()
+    const localDiff = overrides.localDiff ?? makeLocalDiff()
     const h = createPrInboxHandlers({
       prCache,
       drafts,
       watermarks,
       ado: ado.ado,
+      localDiff,
+      workspaceFolders: () => ['/clone'],
       review: overrides.review ?? makeReview(),
       atomically: overrides.atomically ?? ((fn) => fn()),
       resolveIdentity: overrides.resolveIdentity,
       warn: overrides.warn
     })
-    return { h, ado }
+    return { h, ado, localDiff }
   }
 
   test('sync fetches, caches, and returns the fresh list', async () => {
@@ -261,12 +273,14 @@ describe('prInbox handlers', () => {
     expect(afterRecovery.find((p) => p.prId === 200)?.newChangesSinceMyReview).toBe(true)
   })
 
-  test('getFileDiff resolves the change type and diff base commits from the cached PR', async () => {
-    const { h, ado } = handlers()
+  test('getFileDiff delegates to the local diff engine for the cached PR', async () => {
+    const { h, localDiff } = handlers()
     prCache.replaceAll([pr()])
     await h.getFileDiff('repo-a', 100, 'src/a.ts')
-    expect(ado.ado.getFileDiff).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceCommit: 'src-sha', targetCommit: 'tgt-sha', changeType: 'edit' })
+    expect(localDiff.getFileDiff).toHaveBeenCalledWith(
+      expect.objectContaining({ prId: 100, sourceCommitId: 'src-sha', targetCommitId: 'tgt-sha' }),
+      'src/a.ts',
+      ['/clone']
     )
   })
 

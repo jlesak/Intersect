@@ -75,13 +75,18 @@ beforeEach(() => {
       order: [],
       selectedKey: null,
       changes: [],
+      changesError: null,
       activeFilePath: null,
       fileDiff: null,
       diffLoading: false,
       threads: [],
+      threadsLoaded: false,
       drafts: [],
       commentDrafts: {},
       review: { status: 'idle' },
+      reviewView: 'terminal',
+      reviewPrKey: null,
+      reviewOutput: '',
       view: 'board',
       activeTab: 'files',
       threadFilter: 'active',
@@ -126,18 +131,49 @@ describe('prInboxStore', () => {
     warn.mockRestore()
   })
 
-  test('select loads changes, drafts and threads for the PR', async () => {
+  test('select loads changes and drafts but defers threads (lazy)', async () => {
     usePrInboxStore.setState({ prsByKey: { [prKey('repo', 1)]: pr('repo', 1) }, order: [prKey('repo', 1)] })
     mocked.getChanges.mockResolvedValue([change('a.ts')])
     mocked.listDrafts.mockResolvedValue([draft('d1')])
-    mocked.getThreads.mockResolvedValue([thread(10)])
     await usePrInboxStore.getState().select('repo', 1)
     const s = usePrInboxStore.getState()
     expect(s.selectedKey).toBe(prKey('repo', 1))
     expect(s.changes.map((c) => c.path)).toEqual(['a.ts'])
     expect(selectDrafts(s).map((d) => d.id)).toEqual(['d1'])
-    expect(s.threads.map((t) => t.threadId)).toEqual([10])
+    expect(s.threads).toEqual([])
+    expect(s.threadsLoaded).toBe(false)
+    // Opening the PR must not pay for the foreign-comment fetch.
+    expect(mocked.getThreads).not.toHaveBeenCalled()
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
+  })
+
+  test('threads load lazily on first Overview open, and are not refetched', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)],
+      selectedKey: prKey('repo', 1)
+    })
+    mocked.getThreads.mockResolvedValue([thread(10)])
+    usePrInboxStore.getState().setTab('overview')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
+    expect(usePrInboxStore.getState().threadsLoaded).toBe(true)
+    // Switch away and back: no second fetch.
+    usePrInboxStore.getState().setTab('files')
+    usePrInboxStore.getState().setTab('overview')
+    await Promise.resolve()
+    expect(mocked.getThreads).toHaveBeenCalledTimes(1)
+  })
+
+  test('select records a changesError inline when the diff cannot load (e.g. no local clone)', async () => {
+    usePrInboxStore.setState({ prsByKey: { [prKey('repo', 1)]: pr('repo', 1) }, order: [prKey('repo', 1)] })
+    mocked.getChanges.mockRejectedValue(new Error('No local clone found for repository "repo".'))
+    mocked.listDrafts.mockResolvedValue([])
+    await usePrInboxStore.getState().select('repo', 1)
+    const s = usePrInboxStore.getState()
+    expect(s.changes).toEqual([])
+    expect(s.changesError).toMatch(/No local clone/)
   })
 
   test('setCommentDraft persists text and clears the entry when set empty', () => {
@@ -219,6 +255,63 @@ describe('board navigation', () => {
     usePrInboxStore.getState().goBack()
     expect(usePrInboxStore.getState().view).toBe('board')
     expect(usePrInboxStore.getState().selectedKey).toBeNull()
+  })
+})
+
+describe('review session', () => {
+  beforeEach(() => {
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': pr('r', 1) },
+      order: ['r:1'],
+      selectedKey: 'r:1'
+    })
+    mocked.startReview.mockResolvedValue({
+      id: 'rs-1',
+      prId: 1,
+      repositoryId: 'r',
+      repoDir: '/clone',
+      worktreePath: '/wt',
+      status: 'running',
+      createdAt: 0
+    })
+    mocked.endReview.mockResolvedValue(undefined)
+  })
+
+  test('startReview marks the PR under review and opens the terminal view', async () => {
+    await usePrInboxStore.getState().startReview()
+    const s = usePrInboxStore.getState()
+    expect(s.review.status).toBe('running')
+    expect(s.reviewPrKey).toBe('r:1')
+    expect(s.reviewView).toBe('terminal')
+  })
+
+  test('a running session survives going back to the board', async () => {
+    await usePrInboxStore.getState().startReview()
+    usePrInboxStore.setState({ reviewOutput: 'partial output' })
+    usePrInboxStore.getState().goBack()
+    const s = usePrInboxStore.getState()
+    expect(s.view).toBe('board')
+    expect(s.review.status).toBe('running')
+    expect(s.reviewPrKey).toBe('r:1')
+    expect(s.reviewOutput).toBe('partial output')
+  })
+
+  test('setReviewView toggles between terminal and changes', async () => {
+    await usePrInboxStore.getState().startReview()
+    usePrInboxStore.getState().setReviewView('changes')
+    expect(usePrInboxStore.getState().reviewView).toBe('changes')
+    usePrInboxStore.getState().setReviewView('terminal')
+    expect(usePrInboxStore.getState().reviewView).toBe('terminal')
+  })
+
+  test('endReview clears the session, its PR marker and the buffer', async () => {
+    await usePrInboxStore.getState().startReview()
+    usePrInboxStore.setState({ reviewOutput: 'x' })
+    await usePrInboxStore.getState().endReview()
+    const s = usePrInboxStore.getState()
+    expect(s.review.status).toBe('idle')
+    expect(s.reviewPrKey).toBeNull()
+    expect(s.reviewOutput).toBe('')
   })
 })
 

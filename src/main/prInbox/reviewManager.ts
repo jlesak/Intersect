@@ -9,6 +9,7 @@ import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { ReviewSessionRepo } from '../db/reviewSessionRepo'
 import type { PtyProcess, SpawnFn } from '../pty/sessionManager'
 import { handleDraftMessage, parseDraftPayload, type DraftContext } from './draftMessage'
+import { REVIEW_GUIDE } from './reviewGuide'
 import { buildReviewSpawnSpec } from './reviewSpawn'
 import type { WorktreeManager } from './worktreeManager'
 
@@ -64,9 +65,10 @@ function hygienicEnv(): Record<string, string> {
 }
 
 const REVIEW_PROMPT =
-  'Review the pull request whose changes are checked out in this worktree. Read REVIEW_CONTEXT.md ' +
-  'for the summary and the list of changed files, examine the diffs, and record each review comment ' +
-  'with the record_draft_comment tool (one call per comment). Do not attempt to publish anything.'
+  'Zrecenzuj pull request, jehož změny jsou checkoutnuté v tomto worktree. Postupuj podle ' +
+  'REVIEW_GUIDE.md. V REVIEW_CONTEXT.md je shrnutí a seznam změněných souborů; projdi diffy a ' +
+  'každý komentář zaznamenej nástrojem record_draft_comment (jedno volání na jeden komentář, ' +
+  'česky). Nic nepublikuj.'
 
 export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
   let live: Live | null = null
@@ -115,6 +117,7 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         })
 
         await writeFile(join(worktreePath, 'REVIEW_CONTEXT.md'), contextMarkdown, 'utf8')
+        await writeFile(join(worktreePath, 'REVIEW_GUIDE.md'), REVIEW_GUIDE, 'utf8')
 
         // Unix socket kept short and in tmp (macOS caps socket paths at ~104 bytes).
         socketPath = join(tmpdir(), `jrv-${session.id.slice(0, 8)}.sock`)

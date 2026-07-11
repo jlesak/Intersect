@@ -846,6 +846,11 @@
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+.ix-chip--review {
+  color: #8fce9b;
+  border-color: rgba(143, 206, 155, 0.5);
+  background: rgba(143, 206, 155, 0.12);
+}
 .ix-rail__badge {
   margin-left: auto;
   min-width: 17px;
@@ -981,6 +986,12 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 240px 1fr;
+}
+.ix-pr-detail--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
 }
 .ix-pr-files {
   display: flex;
