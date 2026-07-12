@@ -1,4 +1,4 @@
-import type { FileDiff, PrChangeFile, PrThread, PrVote, PullRequest } from '@common/domain'
+import type { PrThread, PrVote, PullRequest } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
 import type { AdoClient } from './adoClient'
 import {
@@ -10,10 +10,8 @@ import {
   type AdoRawPullRequest
 } from './adoMapping'
 import { castVote as castVoteRest, type CastVoteOptions } from './adoVote'
-import { langFromPath } from './language'
 
 const PAGE_SIZE = 100
-const MAX_DIFF_BYTES = 512 * 1024
 
 interface ListResult {
   count?: number
@@ -49,15 +47,6 @@ export interface SyncResult {
 
 export interface AdoService {
   syncMyPrs(): Promise<SyncResult>
-  getChanges(repositoryId: string, prId: number): Promise<PrChangeFile[]>
-  getFileDiff(input: {
-    repositoryId: string
-    filePath: string
-    originalPath: string | null
-    sourceCommit: string
-    targetCommit: string
-    changeType: PrChangeFile['changeType']
-  }): Promise<FileDiff>
   getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
   /** Post a new comment thread; null filePath/line anchors it to the PR itself. */
   publishComment(input: {
@@ -191,42 +180,6 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
       return { prs: enriched, failedRepos }
     },
 
-    async getChanges(repositoryId, prId) {
-      const res = await d.client.callTool<{ files?: RawChangeFile[]; changes?: RawChangeFile[] }>(
-        'get_pull_request_changes',
-        { repositoryId, pullRequestId: prId, projectId: d.projectId() }
-      )
-      const files = res.files ?? res.changes ?? []
-      return files.map(toChangeFile)
-    },
-
-    async getFileDiff(input) {
-      const modified =
-        input.changeType === 'delete'
-          ? ''
-          : await fetchContent(d, input.repositoryId, input.filePath, input.sourceCommit)
-      const original =
-        input.changeType === 'add'
-          ? ''
-          : await fetchContent(
-              d,
-              input.repositoryId,
-              input.originalPath ?? input.filePath,
-              input.targetCommit
-            )
-
-      const binary = isBinary(original) || isBinary(modified)
-      const tooLarge = byteLen(original) > MAX_DIFF_BYTES || byteLen(modified) > MAX_DIFF_BYTES
-      return {
-        path: input.filePath,
-        original: binary || tooLarge ? '' : original,
-        modified: binary || tooLarge ? '' : modified,
-        language: langFromPath(input.filePath),
-        binary,
-        tooLarge
-      }
-    },
-
     async getThreads(repositoryId, prId) {
       return fetchThreads(repositoryId, prId)
     },
@@ -280,27 +233,6 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
 
 // --- raw ADO shapes + defensive mappers -------------------------------------
 
-interface RawChangeFile {
-  path?: string
-  changeType?: string
-  originalPath?: string
-  sourceServerItem?: string
-  item?: { path?: string }
-}
-
-function toChangeFile(raw: RawChangeFile): PrChangeFile {
-  const path = raw.path ?? raw.item?.path ?? ''
-  const ct = (raw.changeType ?? '').toLowerCase()
-  const changeType: PrChangeFile['changeType'] = ct.includes('add')
-    ? 'add'
-    : ct.includes('delete')
-      ? 'delete'
-      : ct.includes('rename')
-        ? 'rename'
-        : 'edit'
-  return { path, changeType, originalPath: raw.originalPath ?? raw.sourceServerItem ?? null }
-}
-
 interface RawThread {
   id?: number
   threadId?: number
@@ -344,41 +276,3 @@ function toThread(raw: RawThread): PrThread {
   }
 }
 
-async function fetchContent(
-  d: AdoServiceDeps,
-  repositoryId: string,
-  path: string,
-  commit: string
-): Promise<string> {
-  try {
-    const res = await d.client.callTool<{ content?: string } | string>('get_file_content', {
-      repositoryId,
-      projectId: d.projectId(),
-      path,
-      version: commit,
-      versionType: 'commit'
-    })
-    if (typeof res === 'string') return res
-    return res.content ?? ''
-  } catch (err) {
-    // Only a genuine "file not present at this version" is a legitimately empty side. Any other
-    // failure (timeout, auth, transient) must surface, not silently render a wrong (all-added or
-    // all-deleted) diff during a review.
-    const msg = err instanceof Error ? err.message : String(err)
-    if (/not found|404|does not exist|could not be found|no such|TF401174/i.test(msg)) return ''
-    throw err
-  }
-}
-
-function byteLen(s: string): number {
-  return Buffer.byteLength(s, 'utf8')
-}
-
-/** Heuristic: a NUL character in the first chunk means the file is binary. */
-function isBinary(s: string): boolean {
-  const head = s.slice(0, 8000)
-  for (let i = 0; i < head.length; i++) {
-    if (head.charCodeAt(i) === 0) return true
-  }
-  return false
-}

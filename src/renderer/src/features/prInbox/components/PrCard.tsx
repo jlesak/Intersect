@@ -1,6 +1,6 @@
 import type { PrReviewer, PullRequest } from '@common/domain'
 import { boardReason } from '@common/prBoard'
-import { usePrInboxStore } from '../store'
+import { prKey, usePrInboxStore } from '../store'
 
 /** Compact relative age (e.g. "3d", "2h", "just now") from an epoch-ms timestamp. */
 function relativeAge(createdAt: number): string {
@@ -34,6 +34,7 @@ function VoteChip({ reviewer }: { reviewer: PrReviewer }) {
 /** One PR on the board: title, origin, why it sits in its column, and the reviewers' votes. */
 export function PrCard({ pr, urgent }: { pr: PullRequest; urgent: boolean }) {
   const reason = boardReason(pr)
+  const reviewing = usePrInboxStore((s) => s.reviewPrKey === prKey(pr.repositoryId, pr.prId))
   const open = (): void => void usePrInboxStore.getState().openDetail(pr.repositoryId, pr.prId)
   return (
     <div
@@ -55,6 +56,11 @@ export function PrCard({ pr, urgent }: { pr: PullRequest; urgent: boolean }) {
       </div>
       <div className="ix-board-card__row">
         <span className="ix-chip">{pr.role === 'author' ? 'Author' : 'Reviewer'}</span>
+        {reviewing && (
+          <span className="ix-chip ix-chip--review" data-testid="pr-card-reviewing">
+            ● reviewing
+          </span>
+        )}
         {reason && <span className={`ix-chip${urgent ? ' ix-chip--accent' : ''}`}>{reason}</span>}
         {pr.reviewers.length > 0 && (
           <span className="ix-board-card__votes">

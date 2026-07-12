@@ -32,10 +32,14 @@ interface PrInboxState {
   pendingReveal: { path: string; line: number | null } | null
   // The selected PR's loaded detail.
   changes: PrChangeFile[]
+  /** Why the changed-files list could not load (e.g. no local clone), shown inline in the Files view. */
+  changesError: string | null
   activeFilePath: string | null
   fileDiff: FileDiff | null
   diffLoading: boolean
   threads: PrThread[]
+  /** Foreign PR threads load lazily (on first Overview open), so opening a PR stays cheap. */
+  threadsLoaded: boolean
   drafts: DraftComment[]
   /**
    * In-progress inline reply/composer text keyed by a stable id (`reply:${threadId}` or
@@ -45,6 +49,17 @@ interface PrInboxState {
    */
   commentDrafts: Record<string, string>
   review: { status: 'idle' | 'running' }
+  /**
+   * Which face of a running review the detail shows. Decoupled from `review.status` so the session
+   * keeps running while the user reads the drafted changes and switches back to the terminal.
+   */
+  reviewView: 'terminal' | 'changes'
+  /**
+   * The `${repositoryId}:${prId}` key of the PR whose review session is live, or null. Survives
+   * leaving the detail for the board, so the board can flag it and the user can return to the
+   * running terminal.
+   */
+  reviewPrKey: string | null
   // The live review session's accumulated PTY output, buffered here so the terminal can replay the
   // full history on remount and capture output emitted before (or while) the view is mounted.
   reviewOutput: string
@@ -58,6 +73,8 @@ interface PrInboxState {
   /** Back to the board (breadcrumb or Esc). */
   goBack(): void
   setTab(tab: 'files' | 'overview'): void
+  /** Fetch the selected PR's foreign threads once (idempotent); used on first Overview open. */
+  loadThreads(): Promise<void>
   setThreadFilter(filter: ThreadFilter): void
   /**
    * Publish my own comment immediately; null path/line anchors it to the PR itself. Resolves to
@@ -82,6 +99,8 @@ interface PrInboxState {
   castVote(vote: PrVote): Promise<void>
   startReview(): Promise<void>
   endReview(): Promise<void>
+  /** Switch the running review's detail between the terminal and the drafted changes. */
+  setReviewView(view: 'terminal' | 'changes'): void
   reviewInput(data: string): void
   reviewResize(cols: number, rows: number): void
   subscribe(): () => void
@@ -168,13 +187,17 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
   threadFilter: 'active',
   pendingReveal: null,
   changes: [],
+  changesError: null,
   activeFilePath: null,
   fileDiff: null,
   diffLoading: false,
   threads: [],
+  threadsLoaded: false,
   drafts: [],
   commentDrafts: {},
   review: { status: 'idle' },
+  reviewView: 'terminal',
+  reviewPrKey: null,
   reviewOutput: '',
 
   async hydrate() {
@@ -205,30 +228,32 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     set({
       selectedKey: key,
       changes: [],
+      changesError: null,
       activeFilePath: null,
       fileDiff: null,
       diffLoading: false,
       threads: [],
+      threadsLoaded: false,
       drafts: [],
       commentDrafts: {}
     })
-    // Load the three sections independently so one failing call does not discard the others.
-    const [changesR, draftsR, threadsR] = await Promise.allSettled([
+    // Load only what the Files view needs up front; foreign threads load lazily on Overview open.
+    const [changesR, draftsR] = await Promise.allSettled([
       api.getChanges(repositoryId, prId),
-      api.listDrafts(repositoryId, prId),
-      api.getThreads(repositoryId, prId)
+      api.listDrafts(repositoryId, prId)
     ])
     // Ignore a stale response if the selection changed while awaiting; also suppress the error toast
     // for a PR the user has already left.
     if (get().selectedKey !== key) return
     const next: Partial<PrInboxState> = {}
     if (changesR.status === 'fulfilled') next.changes = changesR.value
+    else next.changesError = message(changesR.reason)
     if (draftsR.status === 'fulfilled') next.drafts = draftsR.value
-    if (threadsR.status === 'fulfilled') next.threads = threadsR.value
     set(next)
-    const failed = [changesR, draftsR, threadsR].find((r) => r.status === 'rejected')
-    if (failed && failed.status === 'rejected') {
-      reportError('Could not load the pull request', failed.reason)
+    // A missing local clone surfaces inline in the Files view (changesError); only a drafts failure
+    // needs the toast here.
+    if (draftsR.status === 'rejected') {
+      reportError('Could not load the pull request', draftsR.reason)
     }
   },
 
@@ -243,6 +268,21 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
 
   setTab(tab) {
     set({ activeTab: tab })
+    if (tab === 'overview' && !get().threadsLoaded) void get().loadThreads()
+  },
+
+  async loadThreads() {
+    const pr = selectSelectedPr(get())
+    if (!pr || get().threadsLoaded) return
+    const key = get().selectedKey
+    try {
+      const threads = await api.getThreads(pr.repositoryId, pr.prId)
+      // Drop a stale response if the user switched PRs while awaiting.
+      if (get().selectedKey !== key) return
+      set({ threads, threadsLoaded: true })
+    } catch (e) {
+      reportError('Could not load the pull request comments', e)
+    }
   },
 
   setThreadFilter(threadFilter) {
@@ -376,8 +416,14 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     if (!pr) return
     try {
       await api.startReview(pr.repositoryId, pr.prId)
-      // Start the buffer clean so the new session's output is not appended to a prior one's.
-      set({ review: { status: 'running' }, reviewOutput: '' })
+      // Start the buffer clean so the new session's output is not appended to a prior one's, and
+      // open on the terminal; the drafts view is one toggle away.
+      set({
+        review: { status: 'running' },
+        reviewPrKey: prKey(pr.repositoryId, pr.prId),
+        reviewView: 'terminal',
+        reviewOutput: ''
+      })
     } catch (e) {
       reportError('Could not start the review session', e)
     }
@@ -389,8 +435,12 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     } catch (e) {
       reportError('Could not end the review session', e)
     } finally {
-      set({ review: { status: 'idle' }, reviewOutput: '' })
+      set({ review: { status: 'idle' }, reviewPrKey: null, reviewView: 'terminal', reviewOutput: '' })
     }
+  },
+
+  setReviewView(view) {
+    set({ reviewView: view })
   },
 
   reviewInput(data) {
@@ -412,7 +462,7 @@ export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
     // Buffer review PTY output here (subscribe runs once at module scope, before any review is
     // started) so nothing emitted before the terminal mounts - including the initial banner - is lost.
     const offData = api.onReviewData((data) => set((s) => ({ reviewOutput: s.reviewOutput + data })))
-    const offExit = api.onReviewExit(() => set({ review: { status: 'idle' } }))
+    const offExit = api.onReviewExit(() => set({ review: { status: 'idle' }, reviewPrKey: null }))
     return () => {
       offDraft()
       offData()

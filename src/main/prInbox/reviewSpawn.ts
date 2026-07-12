@@ -10,6 +10,7 @@
  *  3. `--setting-sources` pinned so ambient user/project settings cannot widen the allowlist.
  *  4. an appended read-only/draft-only system prompt (guidance only, not the enforcement).
  */
+import { REVIEW_GUIDE } from './reviewGuide'
 
 /** The only tools the review session may use: read the worktree + record drafts. */
 export const REVIEW_ALLOWED_TOOLS = [
@@ -98,7 +99,7 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
       '--permission-mode',
       'dontAsk',
       '--append-system-prompt',
-      REVIEW_SYSTEM_PROMPT,
+      `${REVIEW_SYSTEM_PROMPT}\n\n${REVIEW_GUIDE}`,
       opts.prompt
     ]
   }

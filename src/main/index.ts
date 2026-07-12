@@ -65,10 +65,11 @@ import { createOtoRunRepo } from './db/otoRunRepo'
 import { createOtoE2eStub } from './oneOnOne/otoE2eStub'
 import { createOtoManager } from './oneOnOne/otoManager'
 import { createAdoClient } from './prInbox/adoClient'
-import { createAdoE2eStub } from './prInbox/adoE2eStub'
+import { createAdoE2eStub, createLocalDiffE2eStub } from './prInbox/adoE2eStub'
 import { createAdoService } from './prInbox/adoService'
 import { resolveAdoServerConfig, resolveVoteCredentials } from './prInbox/adoConfig'
 import { createIdentityResolver } from './prInbox/adoIdentity'
+import { createLocalDiffService } from './prInbox/localDiff'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager } from './prInbox/worktreeManager'
 
@@ -329,12 +330,22 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
       resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
 
+  const worktrees = createWorktreeManager()
+  const workspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
+  // E2E runs stub the diff engine too (no real clone on disk); production reads from local git.
+  const localDiff =
+    process.env.INTERSECT_E2E === '1'
+      ? createLocalDiffE2eStub(process.env)
+      : createLocalDiffService({
+          resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders)
+        })
+
   const review = createReviewManager({
     reviewSessions,
     drafts,
     prCache,
-    worktrees: createWorktreeManager(),
-    workspaceFolders: () => workspaces.list().map((w) => w.folderPath),
+    worktrees,
+    workspaceFolders,
     spawn: nodePtySpawn,
     sendData: (data) => sendToRenderer(Channel.prInboxReviewData, data),
     sendExit: (exitCode) => sendToRenderer(Channel.prInboxReviewExit, exitCode),
@@ -350,6 +361,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
       drafts,
       watermarks: prReviewWatermarks,
       ado,
+      localDiff,
+      workspaceFolders,
       review,
       atomically: (fn) => tx(database, fn),
       resolveIdentity

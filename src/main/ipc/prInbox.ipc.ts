@@ -6,6 +6,7 @@ import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import type { AdoIdentity } from '../prInbox/adoMapping'
 import type { AdoService } from '../prInbox/adoService'
+import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
 
@@ -20,6 +21,10 @@ export interface PrInboxHandlerDeps {
   drafts: DraftCommentRepo
   watermarks: PrReviewWatermarkRepo
   ado: AdoService
+  /** Local-git diff engine: PR changes and per-file diffs read from the clone, not Azure DevOps. */
+  localDiff: LocalDiffService
+  /** The clone folders to search for a PR's repo (from the workspaces slice). */
+  workspaceFolders: () => string[]
   review: ReviewManager
   /**
    * Run the sync's cache and watermark writes as one transaction, so a crash mid-sync cannot
@@ -145,21 +150,13 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
     },
 
     async getChanges(repositoryId, prId) {
-      return d.ado.getChanges(repositoryId, prId)
+      const pr = mustGetPr(repositoryId, prId)
+      return d.localDiff.getChanges(pr, d.workspaceFolders())
     },
 
     async getFileDiff(repositoryId, prId, filePath) {
       const pr = mustGetPr(repositoryId, prId)
-      const changes = await d.ado.getChanges(repositoryId, prId)
-      const change = changes.find((c) => c.path === filePath)
-      return d.ado.getFileDiff({
-        repositoryId,
-        filePath,
-        originalPath: change?.originalPath ?? null,
-        sourceCommit: pr.sourceCommitId,
-        targetCommit: pr.targetCommitId,
-        changeType: change?.changeType ?? 'edit'
-      })
+      return d.localDiff.getFileDiff(pr, filePath, d.workspaceFolders())
     },
 
     async getThreads(repositoryId, prId) {
@@ -215,7 +212,8 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
         throw new Error('Only right-side (new file) comments can be published to Azure DevOps.')
       }
       // Reject comments anchored to a file that is not part of the PR (e.g. a hallucinated path).
-      const changes = await d.ado.getChanges(draft.repositoryId, draft.prId)
+      const draftPr = mustGetPr(draft.repositoryId, draft.prId)
+      const changes = await d.localDiff.getChanges(draftPr, d.workspaceFolders())
       if (!changes.some((c) => c.path === draft.filePath)) {
         throw new Error(`Draft anchors to "${draft.filePath}", which is not changed in this PR.`)
       }
@@ -274,7 +272,7 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
 
     async startReview(repositoryId, prId) {
       const pr = mustGetPr(repositoryId, prId)
-      const changes = await d.ado.getChanges(repositoryId, prId)
+      const changes = await d.localDiff.getChanges(pr, d.workspaceFolders())
       const context = buildReviewContext(pr, changes)
       return d.review.start(pr, context, DEFAULT_COLS, DEFAULT_ROWS)
     },
