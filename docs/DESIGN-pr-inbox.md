@@ -266,17 +266,38 @@ A tiny `callTool(name, args)` wrapper is the seam tests mock.
      pool + spinner). Merge/dedupe by `(repositoryId, prId)`; `role='author'` if I'm the creator else
      `'reviewer'`.
   3. Map each to `PullRequest`; reviewers/votes from the PR payload (`mapVote(code)`).
-- `getChanges` -> `get_pull_request_changes` -> `PrChangeFile[]` (path, changeType, originalPath).
-- `getFileDiff` -> derive the two sides: modified = `get_file_content(repo, path, version=sourceRef)`,
-  original = `get_file_content(repo, originalPath ?? path, version=targetRef)` (empty string for
-  add/delete on the missing side). `language` = detected from path.
 - `getThreads` -> `get_pull_request_comments` -> `PrThread[]`.
+
+Changed-file lists and per-file diffs no longer come from ADO; they are read from the local clone
+(§5.3). `adoService` keeps only the fan-out sync, `getThreads`, and the guarded `publishComment`.
 - `publishComment(repoId, prId, filePath, line, body)` -> `add_pull_request_comment(pullRequestId,
   content, repositoryId, filePath, lineNumber:line, status:'active')`. **Right side / single line
   only** (server limitation); returns the new `threadId`.
 
 Pure `adoMapping.ts` (vote code -> `PrVote`, PR json -> `PullRequest`, dedupe/role) is unit-tested;
 the client I/O is not.
+
+### 5.3 `localDiff.ts` - diffs from the local clone (via `git.ts`)
+Changed files and per-file diffs are computed locally against the reused clone, not fetched from
+Azure DevOps. `git.ts` is a thin promisified `execFile('git', ['-C', repoDir, ...])` helper (no shell
+-> no injection) with a lock-retry variant for the user's live clone. `createLocalDiffService`
+resolves each PR to its clone once (cached `resolveRepoDir`, shared with the worktree matcher §6),
+fetches the PR's source/target commits if not already present, then answers from git objects:
+- `getChanges` -> `git diff --merge-base --name-status -M <targetCommit> <sourceCommit>` (three-dot,
+  so target-side commits not part of the PR are excluded, matching the ADO web diff) -> `PrChangeFile[]`
+  (path, changeType, originalPath for renames).
+- `getFileDiff` -> resolve the merge base, then `git show <mergeBase>:<path>` (original side) and
+  `git show <sourceCommit>:<path>` (modified side); `''` for the missing side of an add/delete, and
+  a path that genuinely does not exist at that revision maps to `''`. Any other git failure surfaces
+  rather than masking a wrong all-added/all-deleted diff. `language` = detected from path.
+- Paths keep the ADO leading-slash convention (`/path`) so thread matching, comment badges, and draft
+  publishing all key off the same shape; git commands strip the slash and set `core.quotePath=false`
+  so non-ASCII paths round-trip.
+- Binary (NUL heuristic) or oversize (either side over 512 KiB, or a blob past git's `maxBuffer`)
+  content is withheld and flagged (`binary`/`tooLarge`) for a placeholder, never loaded into Monaco.
+
+Requires a local clone: `resolveRepoDir` throws a clear "add a workspace" message when none matches,
+which the detail pane surfaces as an inline **Diff unavailable** notice.
 
 ---
 
@@ -510,17 +531,21 @@ gap. The unit-tested pure unit becomes `handleDraftMessage(repo, sessionCtx, pay
 payload -> repo create); the draft server itself is thin I/O. New channel `prInbox:draftAdded`
 (broadcast) + `onDraftAdded(cb)` in `IpcApi.prInbox`.
 
-### 14.3 Diff from the authoritative PR changes, with edge-case handling
-- `getChanges` uses `get_pull_request_changes` for the file list + `changeType` (+ `originalPath`
-  for renames) - the authoritative, correctly-based change set.
-- `getFileDiff` fetches full sides by **commit SHA** (`versionType:'commit'`): modified at the PR
-  source commit, original at the PR merge-base commit (resolved from the PR payload;
-  `lastMergeSourceCommit` etc.). Falls back to branch names only if SHAs are unavailable, with a
-  logged known-limitation. The exact PR-payload field names are confirmed against a real PR via the
-  live ADO MCP tools before finalizing.
-- Edge cases: `add` -> original = `''` (no fetch); `delete` -> modified = `''` (no fetch); a
-  `get_file_content` 404 on a missing side is caught -> `''`; **binary** files (detected by
-  content/type) and files over a size cap render a placeholder in the UI, never loaded into Monaco.
+### 14.3 Diff from the local clone (three-dot merge-base), with edge-case handling
+Superseded the original ADO-content plan: changed files and per-file diffs are read from the reused
+local clone via `localDiff.ts` + the `git.ts` helper (§5.3), not from `get_pull_request_changes` /
+`get_file_content`.
+- `getChanges` uses `git diff --merge-base --name-status -M <targetCommit> <sourceCommit>` for the
+  file list + `changeType` (+ `originalPath` for renames) - three-dot, so target-side commits not in
+  the PR are excluded, matching the ADO web diff.
+- `getFileDiff` reads full sides from git objects: modified = `git show <sourceCommit>:<path>`,
+  original = `git show <mergeBase>:<path>` (merge base of target and source, so the left side is the
+  PR's baseline rather than the target tip). Requires the commits locally; they are fetched on demand
+  when absent.
+- Edge cases: `add` -> original = `''` (no read); `delete` -> modified = `''` (no read); a path that
+  genuinely does not exist at that revision -> `''`, while any other git failure surfaces instead of
+  masking a wrong all-added/all-deleted diff; **binary** files (NUL heuristic) and files over the size
+  cap (or past git's `maxBuffer`) render a placeholder in the UI, never loaded into Monaco.
 
 ### 14.4 Fan-out correctness
 - **Pagination**: `list_pull_requests` defaults `top=10`; loop `skip += top` (top=100) until a page
