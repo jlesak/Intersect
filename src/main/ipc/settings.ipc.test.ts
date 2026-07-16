@@ -138,6 +138,21 @@ describe('settings handlers', () => {
     expect(settings.getReview()).toEqual({ prompt })
   })
 
+  test('setReview rejects a malformed payload instead of persisting it', async () => {
+    await expect(h.setReview({ prompt: 42 } as unknown as { prompt: string })).rejects.toThrow(
+      /must be a string/
+    )
+    await expect(h.setReview(null as unknown as { prompt: string })).rejects.toThrow(
+      /must be a string/
+    )
+    expect(settings.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
+  })
+
+  test('setReview persists only the prompt field, dropping extra keys', async () => {
+    await h.setReview({ prompt: 'clean', extra: 'junk' } as unknown as { prompt: string })
+    expect(settings.getReview()).toEqual({ prompt: 'clean' })
+  })
+
   test('testAdoConnection probes the given form values without saving them', async () => {
     const typed: AdoSettings = { orgUrl: 'https://t', project: 'p', repository: 'r', pat: 'typed' }
     expect(await h.testAdoConnection(typed)).toEqual({ ok: true, displayName: 'Jan' })

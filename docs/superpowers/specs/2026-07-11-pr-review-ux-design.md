@@ -5,12 +5,15 @@ Approved 2026-07-11 via brainstorming interview.
 > **Current-state supersession (2026-07-16, issues #32 and #33):** The fixed Czech methodology and
 > locked review sandbox below describe the original decision, not current behavior. PR Review now
 > starts the user's ordinary interactive Claude Code via the same login shell as Sessions and in the
-> PR worktree, so normal user/project/local configuration, CLAUDE.md files, skills, agents, plugins,
-> hooks, MCP servers, and permissions load. Intersect merges in only its local draft MCP config; it
-> no longer uses strict MCP, closed tool lists, `dontAsk`, empty setting sources, or injected deny
-> settings. The initial prompt is configurable in Settings, with the Czech guide retained only as
-> the default. Findings intended for the PR still go through `record_draft_comment` as local drafts,
-> and Azure DevOps publishing remains an explicit human-approved action in Intersect.
+> PR worktree, so normal **user** configuration, CLAUDE.md files, skills, agents, plugins, hooks,
+> MCP servers, and permissions load. Project and local setting sources stay off
+> (`--setting-sources user`) because in the review worktree they come from the untrusted PR branch,
+> and secrets (Azure DevOps PAT, `*_PAT/TOKEN/SECRET/PASSWORD`) are stripped from the spawn
+> environment. Intersect merges in only its local draft MCP config; it no longer uses strict MCP,
+> closed tool lists, `dontAsk`, or injected deny settings. The initial prompt is configurable in
+> Settings, with the Czech guide retained only as the default (a blank saved prompt falls back to
+> it at spawn). Findings intended for the PR still go through `record_draft_comment` as local
+> drafts, and Azure DevOps publishing remains an explicit human-approved action in Intersect.
 
 ## Goal
 

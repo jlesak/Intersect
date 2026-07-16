@@ -128,7 +128,10 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 
     setReview: (review) =>
       surface(() => {
-        d.settings.setReview(review)
+        if (typeof review?.prompt !== 'string') {
+          throw new Error('Review prompt must be a string')
+        }
+        d.settings.setReview({ prompt: review.prompt })
         return current()
       }),
 

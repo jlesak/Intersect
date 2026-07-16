@@ -1,8 +1,12 @@
 /**
  * Pure builder for the interactive Claude Code session used to review a pull request. Reviews use
  * the same login-shell launch as ordinary Claude Sessions so the shell resolves the user's Claude
- * version and Claude loads its normal user, project and local configuration. The only extra runtime
- * input is Intersect's local draft MCP server plus review guidance.
+ * version and Claude loads its normal user configuration (settings, CLAUDE.md, plugins, skills,
+ * MCP servers). Project and local setting sources are excluded: in the review worktree they belong
+ * to the untrusted PR branch, so a hostile PR could otherwise inject instructions or widen
+ * permissions in the very session reviewing it. Secrets are stripped from the spawn environment
+ * for the same reason (ANTHROPIC_/CLAUDE_ auth vars stay so the session can authenticate). The
+ * only extra runtime input is Intersect's local draft MCP server plus review guidance.
  */
 import { buildSpawn } from '../pty/shell'
 
@@ -42,6 +46,18 @@ function assertEnvironmentValue(name: string, value: string): void {
   if (value.includes('\0')) throw new Error(`${name} cannot contain NUL.`)
 }
 
+/** Keys that must never enter the review session's environment (Azure DevOps PAT and any secret). */
+const SECRET_ENV = /^AZURE_DEVOPS_|(^|_)(PAT|TOKEN|SECRET|PASSWORD)($|_)/i
+
+function stripSecrets(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (SECRET_ENV.test(key) && !/^(ANTHROPIC|CLAUDE)_/i.test(key)) continue
+    out[key] = value
+  }
+  return out
+}
+
 export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   const shellSpec = buildSpawn('claude', { shell: opts.shell, env: opts.env })
   if (!shellSpec.initialCommand) {
@@ -52,7 +68,8 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   assertEnvironmentValue('Review MCP config path', opts.mcpConfigPath)
 
   const initialCommand =
-    `${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+    `${shellSpec.initialCommand} --setting-sources user ` +
+    `--mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
     `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
 
   return {
@@ -61,7 +78,7 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
     cwd: opts.worktreePath,
     initialCommand,
     env: {
-      ...shellSpec.env,
+      ...stripSecrets(shellSpec.env),
       [REVIEW_MCP_CONFIG_ENV]: opts.mcpConfigPath,
       [REVIEW_SYSTEM_PROMPT_ENV]: REVIEW_SYSTEM_PROMPT,
       [REVIEW_PROMPT_ENV]: opts.prompt

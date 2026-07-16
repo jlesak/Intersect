@@ -38,14 +38,44 @@ describe('buildReviewSpawnSpec', () => {
     expect(spec.env.INTERSECT_REVIEW_MCP_CONFIG).toBe('/wt/abc/.intersect-review-mcp.json')
     for (const isolationFlag of [
       '--strict-mcp-config',
-      '--setting-sources',
-      '--settings',
+      '--settings ',
       '--allowed-tools',
       '--disallowed-tools',
       '--permission-mode'
     ]) {
       expect(command).not.toContain(isolationFlag)
     }
+  })
+
+  test('loads only user setting sources, never the untrusted PR branch project/local config', () => {
+    const spec = buildReviewSpawnSpec(base)
+
+    expect(spec.initialCommand).toContain('--setting-sources user ')
+    expect(spec.initialCommand).not.toContain('project')
+    expect(spec.initialCommand).not.toContain('local')
+  })
+
+  test('strips credentials from the environment while keeping Claude auth vars', () => {
+    const spec = buildReviewSpawnSpec({
+      ...base,
+      env: {
+        ...base.env,
+        AZURE_DEVOPS_EXT_PAT: 'ado-secret',
+        GITHUB_TOKEN: 'gh-secret',
+        NPM_SECRET: 'npm-secret',
+        DB_PASSWORD: 'db-secret',
+        ANTHROPIC_API_KEY: 'anthropic-key',
+        CLAUDE_CODE_OAUTH_TOKEN: 'claude-token'
+      }
+    })
+
+    expect(spec.env.AZURE_DEVOPS_EXT_PAT).toBeUndefined()
+    expect(spec.env.GITHUB_TOKEN).toBeUndefined()
+    expect(spec.env.NPM_SECRET).toBeUndefined()
+    expect(spec.env.DB_PASSWORD).toBeUndefined()
+    expect(spec.env.ANTHROPIC_API_KEY).toBe('anthropic-key')
+    expect(spec.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('claude-token')
+    expect(spec.env.PATH).toBe('/usr/bin')
   })
 
   test('keeps the review interactive and directs findings to local drafts for human approval', () => {
@@ -70,7 +100,8 @@ describe('buildReviewSpawnSpec', () => {
     const spec = buildReviewSpawnSpec({ ...base, prompt })
 
     expect(spec.initialCommand).toBe(
-      'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
+      'stty -ixon; claude --setting-sources user ' +
+        '--mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
         '--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT" -- "$INTERSECT_REVIEW_PROMPT"'
     )
     expect(spec.initialCommand).not.toContain("O'Brien")
