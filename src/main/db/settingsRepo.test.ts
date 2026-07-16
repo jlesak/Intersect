@@ -5,6 +5,7 @@ import {
   createSettingsRepo,
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_NOTIFICATION_SETTINGS,
+  DEFAULT_REVIEW_SETTINGS,
   type SettingsRepo
 } from './settingsRepo'
 
@@ -20,6 +21,7 @@ describe('settingsRepo', () => {
   test('returns the defaults when nothing was ever saved', () => {
     expect(repo.getNotifications()).toEqual(DEFAULT_NOTIFICATION_SETTINGS)
     expect(repo.getAppearance()).toEqual(DEFAULT_APPEARANCE_SETTINGS)
+    expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
     expect(repo.getSavedAdo()).toBeNull()
   })
 
@@ -48,8 +50,38 @@ describe('settingsRepo', () => {
       'not json'
     )
     db.prepare('INSERT INTO app_state (key, value) VALUES (?, ?)').run('settings.appearance', '[]')
+    db.prepare('INSERT INTO app_state (key, value) VALUES (?, ?)').run(
+      'settings.review',
+      'not json either'
+    )
     expect(repo.getNotifications()).toEqual(DEFAULT_NOTIFICATION_SETTINGS)
     expect(repo.getAppearance()).toEqual(DEFAULT_APPEARANCE_SETTINGS)
+    expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
+  })
+
+  test('review prompt round-trips verbatim, including whitespace and the user language', () => {
+    const prompt = '  Review this in English.\n\nZachovej přesné mezery.  \n'
+    repo.setReview({ prompt })
+    expect(repo.getReview()).toEqual({ prompt })
+
+    repo.setReview({ prompt: '' })
+    expect(repo.getReview()).toEqual({ prompt: '' })
+  })
+
+  test('review prompt falls back when the document is missing, corrupt, or non-string', () => {
+    expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
+
+    db.prepare('INSERT INTO app_state (key, value) VALUES (?, ?)').run(
+      'settings.review',
+      JSON.stringify({ prompt: 42 })
+    )
+    expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
+
+    db.prepare('UPDATE app_state SET value = ? WHERE key = ?').run(
+      JSON.stringify({ unrelated: true }),
+      'settings.review'
+    )
+    expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
   })
 
   test('ado settings round-trip and overwrite', () => {
@@ -79,7 +111,10 @@ describe('settingsRepo', () => {
   test('saving one category does not touch the others', () => {
     repo.setAdo({ orgUrl: 'https://x', project: 'p', repository: 'r', pat: 't' })
     repo.setNotifications({ ...DEFAULT_NOTIFICATION_SETTINGS, enabled: false })
+    repo.setReview({ prompt: 'My review prompt' })
     expect(repo.getSavedAdo()?.orgUrl).toBe('https://x')
     expect(repo.getAppearance()).toEqual(DEFAULT_APPEARANCE_SETTINGS)
+    expect(repo.getNotifications().enabled).toBe(false)
+    expect(repo.getReview()).toEqual({ prompt: 'My review prompt' })
   })
 })

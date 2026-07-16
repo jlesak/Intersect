@@ -20,6 +20,7 @@ import type {
   PrThread,
   PrVote,
   PullRequest,
+  ReviewSettings,
   ReviewSession,
   SessionSummary,
   SessionTranscript,
@@ -188,6 +189,7 @@ export interface IpcApi {
     setNotifications(notifications: NotificationSettings): Promise<AppSettings>
     setAdo(ado: AdoSettings): Promise<AppSettings>
     setTerminalFontSize(px: number): Promise<AppSettings>
+    setReview(review: ReviewSettings): Promise<AppSettings>
     /**
      * Hit the real Azure DevOps API with exactly the given (possibly unsaved) form values and
      * report who the PAT authenticates as, or a readable failure. Never touches saved settings.
@@ -329,6 +331,7 @@ export const Channel = {
   settingsSetNotifications: 'settings:setNotifications',
   settingsSetAdo: 'settings:setAdo',
   settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
+  settingsSetReview: 'settings:setReview',
   settingsTestAdoConnection: 'settings:testAdoConnection',
   // system (request/response)
   systemOpenExternal: 'system:openExternal',

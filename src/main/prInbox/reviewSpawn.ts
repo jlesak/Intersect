@@ -1,106 +1,66 @@
 /**
- * Pure builder for the guardrailed `claude` spawn spec used by the AI review session. Kept free of
- * Electron / node-pty so the guardrail can be asserted in a unit test without spawning anything.
- *
- * The guarantee that the session cannot publish to Azure DevOps rests on, in order:
- *  1. `--strict-mcp-config` + a config that contains ONLY the local intersectReview draft server, so
- *     no Azure DevOps tool exists in the session at all.
- *  2. a closed `--allowed-tools` allowlist plus `--permission-mode dontAsk` (anything not allowed is
- *     denied without prompting).
- *  3. `--setting-sources` pinned so ambient user/project settings cannot widen the allowlist.
- *  4. an appended read-only/draft-only system prompt (guidance only, not the enforcement).
+ * Pure builder for the interactive Claude Code session used to review a pull request. Reviews use
+ * the same login-shell launch as ordinary Claude Sessions so the shell resolves the user's Claude
+ * version and Claude loads its normal user, project and local configuration. The only extra runtime
+ * input is Intersect's local draft MCP server plus review guidance.
  */
-import { REVIEW_GUIDE } from './reviewGuide'
-
-/** The only tools the review session may use: read the worktree + record drafts. */
-export const REVIEW_ALLOWED_TOOLS = [
-  'Read',
-  'Grep',
-  'Glob',
-  'mcp__intersectReview__record_draft_comment'
-]
-
-/**
- * Hard denials. The closed allowlist under `dontAsk` already blocks these, but denying them
- * explicitly is a version-independent second layer: `--disallowed-tools` overrides even an ambient
- * allow rule. Includes every tool that could reach the network or spawn work (egress paths) so a
- * prompt-injected session cannot exfiltrate what it reads, in addition to write/shell tools.
- */
-export const REVIEW_DISALLOWED_TOOLS = [
-  'Bash',
-  'Write',
-  'Edit',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'Task'
-]
-
-/**
- * Read paths denied to the review session so it cannot pull secrets into model context. Reads are
- * otherwise unscoped under `dontAsk`; this closes the obvious credential files (deny beats allow).
- * Defense in depth alongside stripping secrets from the spawn env - not a full sandbox.
- */
-export const REVIEW_DENY_READ_GLOBS = [
-  'Read(//**/.claude.json)',
-  'Read(//**/.claude/**)',
-  'Read(//**/.ssh/**)',
-  'Read(//**/.aws/**)',
-  'Read(//**/.gnupg/**)',
-  'Read(//**/.netrc)',
-  'Read(//**/.config/**)',
-  'Read(//**/.npmrc)',
-  'Read(//etc/**)'
-]
+import { buildSpawn } from '../pty/shell'
 
 export const REVIEW_SYSTEM_PROMPT =
-  'You are performing a READ-ONLY pull request review of the code checked out in this worktree. ' +
-  'Read the changed files (see REVIEW_CONTEXT.md for the PR summary and the list of changed files). ' +
-  'You must NOT attempt to publish, post, edit, comment on, or otherwise modify anything in Azure ' +
-  'DevOps or on disk. To leave a review comment, call the record_draft_comment tool - one call per ' +
-  'comment, anchored to a file path and a line on the RIGHT (new) side of the diff. Your comments ' +
-  'reach the human only through that tool; prose in your replies is not captured.'
+  'Record every finding intended for the pull request with the record_draft_comment tool, one call ' +
+  'per finding, so it remains a local draft for human approval. Never publish review findings or ' +
+  'comments yourself. Prose in your replies is not captured as a draft.'
 
 export interface ReviewSpawnOptions {
-  claudePath: string
   worktreePath: string
   mcpConfigPath: string
   prompt: string
-  /**
-   * Which of user/project/local settings to load. Empty string loads NONE - the default - so
-   * ambient `permissions.allow` rules cannot widen the session.
-   */
-  settingSources?: string
+  /** Deterministic override for tests; production resolves $SHELL. */
+  shell?: string
+  /** Environment to sanitize and pass to the login shell; defaults to process.env. */
+  env?: Record<string, string | undefined>
 }
 
 export interface SpawnSpec {
   file: string
   args: string[]
   cwd: string
+  /** Typed exactly once after the login shell first emits output. */
+  initialCommand: string
+  env: Record<string, string>
+}
+
+const REVIEW_PROMPT_ENV = 'INTERSECT_REVIEW_PROMPT'
+const REVIEW_MCP_CONFIG_ENV = 'INTERSECT_REVIEW_MCP_CONFIG'
+const REVIEW_SYSTEM_PROMPT_ENV = 'INTERSECT_REVIEW_SYSTEM_PROMPT'
+
+function assertEnvironmentValue(name: string, value: string): void {
+  if (value.includes('\0')) throw new Error(`${name} cannot contain NUL.`)
 }
 
 export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
-  const settings = JSON.stringify({ permissions: { deny: REVIEW_DENY_READ_GLOBS } })
+  const shellSpec = buildSpawn('claude', { shell: opts.shell, env: opts.env })
+  if (!shellSpec.initialCommand) {
+    throw new Error('Claude shell spawn did not provide an initial command.')
+  }
+
+  assertEnvironmentValue('Review prompt', opts.prompt)
+  assertEnvironmentValue('Review MCP config path', opts.mcpConfigPath)
+
+  const initialCommand =
+    `${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+    `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
+
   return {
-    file: opts.claudePath,
+    file: shellSpec.file,
+    args: shellSpec.args,
     cwd: opts.worktreePath,
-    args: [
-      '--mcp-config',
-      opts.mcpConfigPath,
-      '--strict-mcp-config',
-      '--setting-sources',
-      opts.settingSources ?? '',
-      '--settings',
-      settings,
-      '--allowed-tools',
-      REVIEW_ALLOWED_TOOLS.join(' '),
-      '--disallowed-tools',
-      REVIEW_DISALLOWED_TOOLS.join(' '),
-      '--permission-mode',
-      'dontAsk',
-      '--append-system-prompt',
-      `${REVIEW_SYSTEM_PROMPT}\n\n${REVIEW_GUIDE}`,
-      opts.prompt
-    ]
+    initialCommand,
+    env: {
+      ...shellSpec.env,
+      [REVIEW_MCP_CONFIG_ENV]: opts.mcpConfigPath,
+      [REVIEW_SYSTEM_PROMPT_ENV]: REVIEW_SYSTEM_PROMPT,
+      [REVIEW_PROMPT_ENV]: opts.prompt
+    }
   }
 }

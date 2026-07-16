@@ -3014,6 +3014,19 @@
   color: var(--text-dim);
 }
 
+/* The PR-review prompt is intentionally a roomy, vertically-resizable plain-text editor. */
+.ix-settings__prompt-hint {
+  margin: -2px 0 2px;
+}
+.ix-settings__prompt {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 /* toggle switch */
 .ix-toggle {
   position: relative;

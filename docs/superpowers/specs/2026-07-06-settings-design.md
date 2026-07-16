@@ -3,6 +3,11 @@
 Byznys/produktová specifikace nové vertical slice v Intersectu. Datum: 2026-07-06.
 Status: **schváleno k implementaci** (interview + Lavish UI/UX review, schváleno beze změn).
 
+> **Aktuální stav — 2026-07-16, issue #32:** Původní čtyřkategorický scope níže byl
+> rozšířen o pátou kategorii **PR Review**. Obsahuje víceřádkový prompt, který se
+> perzistuje doslovně (včetně jazyka a whitespace), a akci pro obnovení vestavěného výchozího
+> promptu. Zbytek dokumentu zachovává historický rozsah a akceptační kritéria původní slice.
+
 ## 1. Problém a cíl
 
 Intersect dnes nemá žádnou obrazovku nastavení — notifikace, ADO připojení apod. jsou buď

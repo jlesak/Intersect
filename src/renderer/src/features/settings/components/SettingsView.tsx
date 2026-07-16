@@ -10,6 +10,7 @@ import { useSettingsStore } from '../store'
 const CATEGORIES = [
   { id: 'notif', label: 'Notifikace' },
   { id: 'ado', label: 'Azure DevOps' },
+  { id: 'review', label: 'PR Review' },
   { id: 'keys', label: 'Klávesové zkratky' },
   { id: 'appearance', label: 'Vzhled' }
 ] as const
@@ -53,6 +54,9 @@ export function SettingsView() {
           </div>
           <div className={pane('ado')}>
             <AdoPane />
+          </div>
+          <div className={pane('review')}>
+            <ReviewPane />
           </div>
           <div className={pane('keys')}>
             <ShortcutsPane />
@@ -198,6 +202,38 @@ function AdoPane() {
           <span className="ix-settings__test-msg ix-settings__test-msg--err">✗ {adoTest.error}</span>
         )}
       </div>
+    </>
+  )
+}
+
+function ReviewPane() {
+  const prompt = useSettingsStore((s) => s.review.prompt)
+
+  return (
+    <>
+      <div className="ix-settings__title">PR Review</div>
+      <div className="ix-set-field">
+        <label htmlFor="ix-set-review-prompt">Prompt pro AI review</label>
+        <div id="ix-set-review-prompt-hint" className="ix-set-row__hint ix-settings__prompt-hint">
+          Tento text se pošle review session jako hlavní zadání. Můžeš ho kompletně nahradit
+          v libovolném jazyce.
+        </div>
+        <textarea
+          id="ix-set-review-prompt"
+          className="ix-input ix-settings__prompt"
+          aria-describedby="ix-set-review-prompt-hint"
+          spellCheck={true}
+          value={prompt}
+          onChange={(e) => void useSettingsStore.getState().setReviewPrompt(e.target.value)}
+        />
+      </div>
+      <button
+        type="button"
+        className="ix-btn"
+        onClick={() => void useSettingsStore.getState().resetReviewPrompt()}
+      >
+        Obnovit výchozí prompt
+      </button>
     </>
   )
 }

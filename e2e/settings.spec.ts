@@ -29,7 +29,7 @@ async function flipToggle(win: Page, label: string): Promise<void> {
     .click()
 }
 
-test('Settings opens from the footer rail with four categories and the notification defaults', async () => {
+test('Settings opens from the footer rail with five categories and the notification defaults', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir)
   await openSettings(win)
@@ -37,6 +37,7 @@ test('Settings opens from the footer rail with four categories and the notificat
   await expect(win.locator('.ix-settings__nav-btn')).toHaveText([
     'Notifikace',
     'Azure DevOps',
+    'PR Review',
     'Klávesové zkratky',
     'Vzhled'
   ])
@@ -92,8 +93,9 @@ test('test connection reports the authenticated user inline', async () => {
   await app.close()
 })
 
-test('notification, ADO, and font-size changes survive a relaunch', async () => {
+test('notification, ADO, PR-review prompt, and font-size changes survive a relaunch', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const reviewPrompt = '  Review this pull request in English.\n\nKeep this exact spacing.  \n'
   const first = await launch(userDataDir)
   await openSettings(first.win)
 
@@ -102,6 +104,9 @@ test('notification, ADO, and font-size changes survive a relaunch', async () => 
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await first.win.locator('#ix-set-ado-repository').fill('spot-repo')
+
+  await first.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
+  await first.win.locator('#ix-set-review-prompt').fill(reviewPrompt)
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   const slider = first.win.locator('#ix-set-font-size')
@@ -116,6 +121,13 @@ test('notification, ADO, and font-size changes survive a relaunch', async () => 
   await expect(second.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await expect(second.win.locator('#ix-set-ado-repository')).toHaveValue('spot-repo')
+  await second.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
+  await expect(second.win.locator('#ix-set-review-prompt')).toHaveValue(reviewPrompt)
+
+  // Leave no custom prompt behind if this user-data directory is retained for troubleshooting.
+  await second.win.getByRole('button', { name: 'Obnovit výchozí prompt' }).click()
+  await expect(second.win.locator('#ix-set-review-prompt')).toHaveValue(/^Zrecenzuj pull request/)
+
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await expect(second.win.locator('.ix-set-slider__value')).toHaveText('20px')
   await second.app.close()

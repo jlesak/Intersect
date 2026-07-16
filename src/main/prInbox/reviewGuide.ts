@@ -1,8 +1,8 @@
 /**
- * Versioned review methodology for the in-app AI review session, in Czech. It is both appended to
- * the session's system prompt and written into the worktree as REVIEW_GUIDE.md. It governs how the
- * session writes its draft comments; the security guarantees (read-only, no publishing) live in
- * reviewSpawn's REVIEW_SYSTEM_PROMPT and the sandbox flags, not here.
+ * Default review methodology, in Czech. It is written into the worktree as REVIEW_GUIDE.md and the
+ * default configurable review prompt asks Claude to read it. Custom prompts are free to use another
+ * language or methodology. Publishing remains outside Claude: reviewSpawn's minimal invariant asks
+ * it to record findings as local drafts for human approval.
  */
 export const REVIEW_GUIDE = `# Průvodce code review
 

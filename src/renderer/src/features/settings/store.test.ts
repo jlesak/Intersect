@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { AppSettings } from '@common/domain'
+import { DEFAULT_PR_REVIEW_PROMPT, type AppSettings } from '@common/domain'
 
 vi.mock('./ipc')
 vi.mock('@renderer/shared/ui/toast')
@@ -13,6 +13,7 @@ const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   ado: { orgUrl: 'https://devops.example.com', project: 'SPOT', repository: 'app', pat: 'pat-1' },
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },
   appearance: { terminalFontSize: 14 },
+  review: { prompt: 'Review precisely.' },
   ...over
 })
 
@@ -25,6 +26,7 @@ const reset = (): void => {
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: '', project: '', hasPat: false },
       terminalFontSize: 12.5,
+      review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
       adoTest: { status: 'idle' }
     },
     false
@@ -38,6 +40,7 @@ beforeEach(() => {
   mocked.setNotifications.mockResolvedValue(settings())
   mocked.setAdo.mockResolvedValue(settings())
   mocked.setTerminalFontSize.mockResolvedValue(settings())
+  mocked.setReview.mockResolvedValue(settings())
 })
 
 describe('load', () => {
@@ -49,6 +52,7 @@ describe('load', () => {
     expect(s.ado.orgUrl).toBe('https://devops.example.com')
     expect(s.adoFallback).toEqual({ orgUrl: 'https://fallback', project: 'FB', hasPat: true })
     expect(s.terminalFontSize).toBe(14)
+    expect(s.review).toEqual({ prompt: 'Review precisely.' })
   })
 
   test('sets error status when the IPC call fails', async () => {
@@ -105,6 +109,44 @@ describe('setTerminalFontSize', () => {
     s.commitTerminalFontSize()
     expect(mocked.setTerminalFontSize).toHaveBeenCalledTimes(1)
     expect(mocked.setTerminalFontSize).toHaveBeenCalledWith(13)
+  })
+})
+
+describe('review prompt', () => {
+  test('updates locally at once and immediately persists the exact text', async () => {
+    const prompt = '  Review in English.\n\nKeep whitespace.  \n'
+    const pending = useSettingsStore.getState().setReviewPrompt(prompt)
+
+    expect(useSettingsStore.getState().review.prompt).toBe(prompt)
+    expect(mocked.setReview).toHaveBeenCalledTimes(1)
+    expect(mocked.setReview).toHaveBeenCalledWith({ prompt })
+    await pending
+  })
+
+  test('every edit is sent immediately so navigation or app quit cannot strand a debounce', async () => {
+    const s = useSettingsStore.getState()
+    const saves = [
+      s.setReviewPrompt('first'),
+      s.setReviewPrompt('second'),
+      s.setReviewPrompt('poslední')
+    ]
+
+    expect(mocked.setReview).toHaveBeenCalledTimes(3)
+    expect(mocked.setReview).toHaveBeenNthCalledWith(1, { prompt: 'first' })
+    expect(mocked.setReview).toHaveBeenNthCalledWith(2, { prompt: 'second' })
+    expect(mocked.setReview).toHaveBeenNthCalledWith(3, { prompt: 'poslední' })
+    await Promise.all(saves)
+  })
+
+  test('reset restores and immediately persists the shared default', async () => {
+    await useSettingsStore.getState().setReviewPrompt('custom')
+    mocked.setReview.mockClear()
+    const pending = useSettingsStore.getState().resetReviewPrompt()
+
+    expect(useSettingsStore.getState().review.prompt).toBe(DEFAULT_PR_REVIEW_PROMPT)
+    expect(mocked.setReview).toHaveBeenCalledTimes(1)
+    expect(mocked.setReview).toHaveBeenCalledWith({ prompt: DEFAULT_PR_REVIEW_PROMPT })
+    await pending
   })
 })
 

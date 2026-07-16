@@ -24,9 +24,12 @@ export interface ReviewManagerDeps {
   sendData: (data: string) => void
   sendExit: (exitCode: number) => void
   onDraft: (draft: DraftComment) => void
-  claudePath: string
+  /** Read when each review starts so Settings changes apply without restarting Intersect. */
+  reviewPrompt: () => string
   /** Absolute path to the built draft MCP server (out/main/draftServer.js). */
   draftServerPath: string
+  /** Test seam; production uses node:net createServer. */
+  createSocketServer?: typeof createServer
 }
 
 interface Live {
@@ -47,28 +50,6 @@ export interface ReviewManager {
   /** On boot, reclaim any worktrees a previous run left behind. */
   pruneOnBoot(): Promise<void>
 }
-
-/** Keys that must never enter the review session's environment (Azure DevOps PAT and any secret). */
-const SECRET_ENV = /^AZURE_DEVOPS_|(^|_)(PAT|TOKEN|SECRET|PASSWORD)($|_)/i
-
-function hygienicEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v === undefined || k.startsWith('ELECTRON_')) continue
-    // Strip credentials so a prompt-injected read/leak of the process env yields nothing useful.
-    // ANTHROPIC_/CLAUDE_ auth vars are kept so the session can authenticate.
-    if (SECRET_ENV.test(k) && !/^(ANTHROPIC|CLAUDE)_/i.test(k)) continue
-    env[k] = v
-  }
-  env.TERM = 'xterm-256color'
-  return env
-}
-
-const REVIEW_PROMPT =
-  'Zrecenzuj pull request, jehož změny jsou checkoutnuté v tomto worktree. Postupuj podle ' +
-  'REVIEW_GUIDE.md. V REVIEW_CONTEXT.md je shrnutí a seznam změněných souborů; projdi diffy a ' +
-  'každý komentář zaznamenej nástrojem record_draft_comment (jedno volání na jeden komentář, ' +
-  'česky). Nic nepublikuj.'
 
 export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
   let live: Live | null = null
@@ -128,7 +109,7 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
           reviewSessionId: session.id
         }
         const sid = session.id
-        socketServer = createServer((conn) => {
+        socketServer = (d.createSocketServer ?? createServer)((conn) => {
           conn.on('error', () => {}) // a peer reset on session kill must not crash main
           let buffer = ''
           conn.on('data', (chunk) => {
@@ -174,10 +155,9 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         await writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 })
 
         const spec = buildReviewSpawnSpec({
-          claudePath: d.claudePath,
           worktreePath,
           mcpConfigPath,
-          prompt: REVIEW_PROMPT
+          prompt: d.reviewPrompt()
         })
         const proc = d.spawn({
           file: spec.file,
@@ -185,13 +165,20 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
           cwd: spec.cwd,
           cols,
           rows,
-          env: hygienicEnv()
+          env: spec.env
         })
 
         const current: Live = { session, proc, socketServer, socketPath, mcpConfigPath }
         live = current
 
-        proc.onData((data) => d.sendData(data))
+        let initialWritten = false
+        proc.onData((data) => {
+          d.sendData(data)
+          if (!initialWritten) {
+            initialWritten = true
+            proc.write(`${spec.initialCommand}\r`)
+          }
+        })
         proc.onExit(({ exitCode }) => {
           if (!disposed) d.reviewSessions.setStatus(session!.id, exitCode === 0 ? 'completed' : 'failed')
           void cleanup(current)

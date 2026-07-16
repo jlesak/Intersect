@@ -6,6 +6,7 @@ import {
   createSettingsRepo,
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_NOTIFICATION_SETTINGS,
+  DEFAULT_REVIEW_SETTINGS,
   type SettingsRepo
 } from '../db/settingsRepo'
 import { createSettingsHandlers, registerSettingsHandlers } from './settings.ipc'
@@ -42,7 +43,8 @@ describe('settings handlers', () => {
       notifications: DEFAULT_NOTIFICATION_SETTINGS,
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: FALLBACK_ADO.orgUrl, project: FALLBACK_ADO.project, hasPat: true },
-      appearance: DEFAULT_APPEARANCE_SETTINGS
+      appearance: DEFAULT_APPEARANCE_SETTINGS,
+      review: DEFAULT_REVIEW_SETTINGS
     })
   })
 
@@ -129,6 +131,13 @@ describe('settings handlers', () => {
     await expect(h.setTerminalFontSize(Number.NaN)).rejects.toThrow(/must be a number/)
   })
 
+  test('setReview preserves the prompt exactly and returns the fresh settings', async () => {
+    const prompt = '  Please review in English.\nDo not trim this line.  \n'
+    const result = await h.setReview({ prompt })
+    expect(result.review).toEqual({ prompt })
+    expect(settings.getReview()).toEqual({ prompt })
+  })
+
   test('testAdoConnection probes the given form values without saving them', async () => {
     const typed: AdoSettings = { orgUrl: 'https://t', project: 'p', repository: 'r', pat: 'typed' }
     expect(await h.testAdoConnection(typed)).toEqual({ ok: true, displayName: 'Jan' })
@@ -153,7 +162,7 @@ describe('settings handlers', () => {
 })
 
 describe('registerSettingsHandlers', () => {
-  test('binds the five request/response channels to the handlers', async () => {
+  test('binds the six request/response channels to the handlers', async () => {
     const registered = new Map<string, (...args: unknown[]) => unknown>()
     const ipcMain = {
       handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
@@ -175,6 +184,7 @@ describe('registerSettingsHandlers', () => {
         Channel.settingsSetNotifications,
         Channel.settingsSetAdo,
         Channel.settingsSetTerminalFontSize,
+        Channel.settingsSetReview,
         Channel.settingsTestAdoConnection
       ].sort()
     )
@@ -183,5 +193,11 @@ describe('registerSettingsHandlers', () => {
       appearance: { terminalFontSize: number }
     }
     expect(updated.appearance.terminalFontSize).toBe(15)
+
+    const prompt = 'Review in my language\n'
+    const reviewed = (await registered.get(Channel.settingsSetReview)!({}, { prompt })) as {
+      review: { prompt: string }
+    }
+    expect(reviewed.review.prompt).toBe(prompt)
   })
 })
