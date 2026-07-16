@@ -38,6 +38,7 @@ describe('buildReviewSpawnSpec', () => {
     expect(spec.env.INTERSECT_REVIEW_MCP_CONFIG).toBe('/wt/abc/.intersect-review-mcp.json')
     for (const isolationFlag of [
       '--strict-mcp-config',
+      '--setting-sources',
       '--settings ',
       '--allowed-tools',
       '--disallowed-tools',
@@ -47,12 +48,10 @@ describe('buildReviewSpawnSpec', () => {
     }
   })
 
-  test('loads only user setting sources, never the untrusted PR branch project/local config', () => {
+  test('keeps the ordinary user, project, and local setting sources available', () => {
     const spec = buildReviewSpawnSpec(base)
 
-    expect(spec.initialCommand).toContain('--setting-sources user ')
-    expect(spec.initialCommand).not.toContain('project')
-    expect(spec.initialCommand).not.toContain('local')
+    expect(spec.initialCommand).not.toContain('--setting-sources')
   })
 
   test('strips credentials from the environment while keeping Claude auth vars', () => {
@@ -100,8 +99,7 @@ describe('buildReviewSpawnSpec', () => {
     const spec = buildReviewSpawnSpec({ ...base, prompt })
 
     expect(spec.initialCommand).toBe(
-      'stty -ixon; claude --setting-sources user ' +
-        '--mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
+      'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
         '--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT" -- "$INTERSECT_REVIEW_PROMPT"'
     )
     expect(spec.initialCommand).not.toContain("O'Brien")

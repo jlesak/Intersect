@@ -4,12 +4,12 @@
 > fixed-Czech-prompt decisions preserved later in this historical design are no longer current.
 > PR Review now launches the user's ordinary interactive Claude Code through the same login shell
 > as Sessions, in the PR worktree. Claude therefore resolves from the user's shell and loads the
-> standard **user** settings, CLAUDE.md files, skills, agents, plugins, hooks, MCP servers, and
-> permissions. Project and local setting sources are pinned off (`--setting-sources user`) because
-> in the review worktree they belong to the untrusted PR branch, and credentials (Azure DevOps PAT,
-> `*_PAT/TOKEN/SECRET/PASSWORD`) are stripped from the spawn environment. Intersect adds its local
-> draft MCP config without strict mode or closed tool lists. The initial prompt is configurable in
-> Settings (the Czech guide is only the default; a blank saved prompt falls back to it at spawn).
+> standard user/project/local settings, CLAUDE.md files, skills, agents, plugins, hooks, MCP servers,
+> and permissions. Credentials (Azure DevOps PAT, `*_PAT/TOKEN/SECRET/PASSWORD`) are stripped from
+> the spawn environment. Intersect adds its local draft MCP config without strict mode, closed tool
+> lists, or setting-source restrictions. The initial prompt is fully editable and persisted
+> verbatim in Settings, including an intentional empty or whitespace-only value; the Czech guide is
+> only the resettable default.
 > Claude records PR findings as local drafts; publishing to Azure DevOps still requires explicit
 > human approval through Intersect.
 

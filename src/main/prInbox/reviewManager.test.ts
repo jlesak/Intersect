@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import type { Server as NetServer } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { DEFAULT_PR_REVIEW_PROMPT, type PullRequest, type ReviewSession } from '@common/domain'
+import type { PullRequest, ReviewSession } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { ReviewSessionRepo } from '../db/reviewSessionRepo'
@@ -200,13 +200,13 @@ describe('reviewManager', () => {
     expect(h.pty.writes[0]).not.toContain('Initial review prompt.')
   })
 
-  test('a blank saved prompt falls back to the default prompt at spawn time', async () => {
-    h.setReviewPrompt('  \n\t ')
+  test.each(['', '  \n\t '])('preserves an intentionally blank prompt at spawn time', async (prompt) => {
+    h.setReviewPrompt(prompt)
 
     await h.manager.start(pr, '# Review context', 80, 24)
     h.pty.emitData('shell prompt')
 
-    expect(h.spawned[0].env.INTERSECT_REVIEW_PROMPT).toBe(DEFAULT_PR_REVIEW_PROMPT)
+    expect(h.spawned[0].env.INTERSECT_REVIEW_PROMPT).toBe(prompt)
   })
 
   test('preserves interactive input, resize, and terminal output forwarding', async () => {

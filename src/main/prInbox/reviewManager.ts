@@ -3,12 +3,7 @@ import { createServer, type Server as NetServer } from 'node:net'
 import { chmod, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  DEFAULT_PR_REVIEW_PROMPT,
-  type DraftComment,
-  type PullRequest,
-  type ReviewSession
-} from '@common/domain'
+import type { DraftComment, PullRequest, ReviewSession } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { ReviewSessionRepo } from '../db/reviewSessionRepo'
@@ -159,11 +154,10 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         }
         await writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 })
 
-        const savedPrompt = d.reviewPrompt()
         const spec = buildReviewSpawnSpec({
           worktreePath,
           mcpConfigPath,
-          prompt: savedPrompt.trim() ? savedPrompt : DEFAULT_PR_REVIEW_PROMPT
+          prompt: d.reviewPrompt()
         })
         const proc = d.spawn({
           file: spec.file,

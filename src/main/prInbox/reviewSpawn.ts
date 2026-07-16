@@ -1,12 +1,10 @@
 /**
  * Pure builder for the interactive Claude Code session used to review a pull request. Reviews use
  * the same login-shell launch as ordinary Claude Sessions so the shell resolves the user's Claude
- * version and Claude loads its normal user configuration (settings, CLAUDE.md, plugins, skills,
- * MCP servers). Project and local setting sources are excluded: in the review worktree they belong
- * to the untrusted PR branch, so a hostile PR could otherwise inject instructions or widen
- * permissions in the very session reviewing it. Secrets are stripped from the spawn environment
- * for the same reason (ANTHROPIC_/CLAUDE_ auth vars stay so the session can authenticate). The
- * only extra runtime input is Intersect's local draft MCP server plus review guidance.
+ * version and Claude loads its normal user, project, and local configuration (settings, CLAUDE.md,
+ * plugins, skills, agents, hooks, MCP servers, and permissions). Secrets are stripped from the
+ * spawn environment (ANTHROPIC_/CLAUDE_ auth vars stay so the session can authenticate). The only
+ * extra runtime input is Intersect's local draft MCP server plus review guidance.
  */
 import { buildSpawn } from '../pty/shell'
 
@@ -68,8 +66,7 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   assertEnvironmentValue('Review MCP config path', opts.mcpConfigPath)
 
   const initialCommand =
-    `${shellSpec.initialCommand} --setting-sources user ` +
-    `--mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+    `${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
     `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
 
   return {
