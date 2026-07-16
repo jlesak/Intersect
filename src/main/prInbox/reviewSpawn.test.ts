@@ -21,7 +21,7 @@ describe('buildReviewSpawnSpec', () => {
     expect(spec.file).toBe('/bin/zsh')
     expect(spec.args).toEqual(['-l'])
     expect(spec.cwd).toBe('/wt/abc')
-    expect(spec.initialCommand).toMatch(/^stty -ixon; claude /)
+    expect(spec.initialCommand).toContain('stty -ixon; claude ')
     expect(spec.env).toMatchObject({
       PATH: '/usr/bin',
       TERM: 'xterm-256color',
@@ -77,6 +77,27 @@ describe('buildReviewSpawnSpec', () => {
     expect(spec.env.PATH).toBe('/usr/bin')
   })
 
+  test('scrubs credentials the login profile re-exports before launching claude', () => {
+    const spec = buildReviewSpawnSpec(base)
+    const scrub = spec.initialCommand.split('; stty -ixon')[0]
+
+    // The scrub runs first, so a dotfile-exported PAT is unset before claude sees the environment.
+    expect(spec.initialCommand).toMatch(/^for _iv in \$\(typeset \+x\); do /)
+    expect(spec.initialCommand).toContain('unset $_iv')
+    expect(scrub).toContain('AZURE_DEVOPS_*')
+    expect(scrub).toContain('*_TOKEN')
+    expect(scrub).toContain('PASSWORD')
+    // Anthropic/Claude auth vars are exempted so the session can still authenticate.
+    expect(scrub).toContain('ANTHROPIC_*|CLAUDE_*) ;;')
+  })
+
+  test('uses the bash exported-name enumeration when the shell is bash', () => {
+    const spec = buildReviewSpawnSpec({ ...base, shell: '/bin/bash' })
+
+    expect(spec.initialCommand).toMatch(/^for _iv in \$\(compgen -A export\); do /)
+    expect(spec.initialCommand).not.toContain('typeset +x')
+  })
+
   test('keeps the review interactive and directs findings to local drafts for human approval', () => {
     const spec = buildReviewSpawnSpec(base)
     const command = spec.initialCommand
@@ -99,7 +120,11 @@ describe('buildReviewSpawnSpec', () => {
     const spec = buildReviewSpawnSpec({ ...base, prompt })
 
     expect(spec.initialCommand).toBe(
-      'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
+      'for _iv in $(typeset +x); do case $_iv in ANTHROPIC_*|CLAUDE_*) ;; ' +
+        'AZURE_DEVOPS_*|PAT|PAT_*|*_PAT|*_PAT_*|TOKEN|TOKEN_*|*_TOKEN|*_TOKEN_*|' +
+        'SECRET|SECRET_*|*_SECRET|*_SECRET_*|PASSWORD|PASSWORD_*|*_PASSWORD|*_PASSWORD_*) ' +
+        'unset $_iv 2>/dev/null;; esac; done; ' +
+        'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
         '--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT" -- "$INTERSECT_REVIEW_PROMPT"'
     )
     expect(spec.initialCommand).not.toContain("O'Brien")

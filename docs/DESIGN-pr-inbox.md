@@ -6,7 +6,10 @@
 > as Sessions, in the PR worktree. Claude therefore resolves from the user's shell and loads the
 > standard user/project/local settings, CLAUDE.md files, skills, agents, plugins, hooks, MCP servers,
 > and permissions. Credentials (Azure DevOps PAT, `*_PAT/TOKEN/SECRET/PASSWORD`) are stripped from
-> the spawn environment. Intersect adds its local draft MCP config without strict mode, closed tool
+> the spawn environment and, because the login shell (`-l`) re-sources the user's profile and would
+> re-export any credentials their dotfiles define, are also unset in the live shell after the profile
+> loads and immediately before `claude` starts (`ANTHROPIC_/CLAUDE_` auth vars are preserved by both
+> layers). Intersect adds its local draft MCP config without strict mode, closed tool
 > lists, or setting-source restrictions. The initial prompt is fully editable and persisted
 > verbatim in Settings, including an intentional empty or whitespace-only value; the Czech guide is
 > only the resettable default.

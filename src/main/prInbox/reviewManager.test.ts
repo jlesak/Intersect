@@ -179,7 +179,7 @@ describe('reviewManager', () => {
     h.pty.emitData('claude output')
 
     expect(h.pty.writes).toHaveLength(1)
-    expect(h.pty.writes[0]).toMatch(/^stty -ixon; claude /)
+    expect(h.pty.writes[0]).toContain('stty -ixon; claude ')
     expect(h.pty.writes[0]).toContain('--mcp-config')
     expect(h.spawned[0].env.INTERSECT_REVIEW_SYSTEM_PROMPT).toContain('record_draft_comment')
     expect(h.pty.writes[0]).toMatch(/\r$/)
@@ -217,7 +217,7 @@ describe('reviewManager', () => {
     h.pty.emitData('ready')
 
     expect(h.pty.writes[0]).toBe('answer\r')
-    expect(h.pty.writes[1]).toMatch(/^stty -ixon; claude /)
+    expect(h.pty.writes[1]).toContain('stty -ixon; claude ')
     expect(h.pty.resizes).toEqual([{ cols: 140, rows: 48 }])
     expect(h.sentData).toEqual(['ready'])
   })

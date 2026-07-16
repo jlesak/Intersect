@@ -2,9 +2,15 @@
  * Pure builder for the interactive Claude Code session used to review a pull request. Reviews use
  * the same login-shell launch as ordinary Claude Sessions so the shell resolves the user's Claude
  * version and Claude loads its normal user, project, and local configuration (settings, CLAUDE.md,
- * plugins, skills, agents, hooks, MCP servers, and permissions). Secrets are stripped from the
- * spawn environment (ANTHROPIC_/CLAUDE_ auth vars stay so the session can authenticate). The only
- * extra runtime input is Intersect's local draft MCP server plus review guidance.
+ * plugins, skills, agents, hooks, MCP servers, and permissions).
+ *
+ * Secrets are kept out of the review in two layers, because the login shell (`-l`) re-sources the
+ * user's profile and would otherwise re-export any credentials their dotfiles define after the
+ * spawn environment was sanitized: (1) they are stripped from the spawn environment, and (2) a
+ * scrubbing command unsets every credential-shaped variable in the live shell after the profile
+ * has loaded and immediately before `claude` starts. ANTHROPIC_/CLAUDE_ auth vars are preserved by
+ * both layers so the session can authenticate. The only extra runtime input is Intersect's local
+ * draft MCP server plus review guidance.
  */
 import { buildSpawn } from '../pty/shell'
 
@@ -44,16 +50,44 @@ function assertEnvironmentValue(name: string, value: string): void {
   if (value.includes('\0')) throw new Error(`${name} cannot contain NUL.`)
 }
 
+/** Substrings that mark a variable name as credential-shaped, at a `_`/start/end boundary. */
+const SECRET_ENV_TOKENS = ['PAT', 'TOKEN', 'SECRET', 'PASSWORD']
+
 /** Keys that must never enter the review session's environment (Azure DevOps PAT and any secret). */
-const SECRET_ENV = /^AZURE_DEVOPS_|(^|_)(PAT|TOKEN|SECRET|PASSWORD)($|_)/i
+const SECRET_ENV = new RegExp(`^AZURE_DEVOPS_|(^|_)(${SECRET_ENV_TOKENS.join('|')})($|_)`, 'i')
+
+/** Auth vars the session needs to reach Anthropic; exempt from stripping and scrubbing. */
+const AUTH_ENV = /^(ANTHROPIC|CLAUDE)_/i
 
 function stripSecrets(env: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
-    if (SECRET_ENV.test(key) && !/^(ANTHROPIC|CLAUDE)_/i.test(key)) continue
+    if (SECRET_ENV.test(key) && !AUTH_ENV.test(key)) continue
     out[key] = value
   }
   return out
+}
+
+/**
+ * A shell command that unsets every credential-shaped variable in the current shell, run after the
+ * login profile has loaded so it also removes secrets the user's dotfiles export (which the spawn
+ * environment strip cannot see). ANTHROPIC_/CLAUDE_ auth vars are kept so the session authenticates.
+ * Exported names are enumerated per shell family (bash `compgen -A export`, otherwise zsh
+ * `typeset +x`), so no environment values are parsed.
+ */
+function buildSecretScrubCommand(shellFile: string): string {
+  const tokenGlobs = SECRET_ENV_TOKENS.flatMap((token) => [
+    token,
+    `${token}_*`,
+    `*_${token}`,
+    `*_${token}_*`
+  ])
+  const secretGlob = ['AZURE_DEVOPS_*', ...tokenGlobs].join('|')
+  const names = shellFile.includes('bash') ? '$(compgen -A export)' : '$(typeset +x)'
+  return (
+    `for _iv in ${names}; do case $_iv in ANTHROPIC_*|CLAUDE_*) ;; ` +
+    `${secretGlob}) unset $_iv 2>/dev/null;; esac; done`
+  )
 }
 
 export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
@@ -65,8 +99,9 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   assertEnvironmentValue('Review prompt', opts.prompt)
   assertEnvironmentValue('Review MCP config path', opts.mcpConfigPath)
 
+  const scrub = buildSecretScrubCommand(shellSpec.file)
   const initialCommand =
-    `${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+    `${scrub}; ${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
     `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
 
   return {
