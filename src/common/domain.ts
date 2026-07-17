@@ -155,7 +155,7 @@ export const DRAFT_SOURCES = ['claude', 'manual'] as const
 export type DraftSource = (typeof DRAFT_SOURCES)[number]
 
 /**
- * A review comment that has NOT reached Azure DevOps. Created either by the guardrailed Claude
+ * A review comment that has NOT reached Azure DevOps. Created either by the interactive Claude
  * session (via the draft MCP server) or by me manually on the diff. Only an explicitly approved
  * draft is published, under my identity, by Intersect's own code.
  */
@@ -492,6 +492,21 @@ export interface AppearanceSettings {
   terminalFontSize: number
 }
 
+/**
+ * The initial user prompt sent to the interactive PR-review session. Kept in the shared domain so
+ * the main process and the Settings reset action always use exactly the same text.
+ */
+export const DEFAULT_PR_REVIEW_PROMPT =
+  'Zrecenzuj pull request, jehož změny jsou checkoutnuté v tomto worktree. Postupuj podle ' +
+  'REVIEW_GUIDE.md. V REVIEW_CONTEXT.md je shrnutí a seznam změněných souborů; projdi diffy a ' +
+  'každý komentář zaznamenej nástrojem record_draft_comment (jedno volání na jeden komentář, ' +
+  'česky). Nic nepublikuj.'
+
+export interface ReviewSettings {
+  /** Preserved verbatim: users may replace the prompt with any language, whitespace, or content. */
+  prompt: string
+}
+
 /** All user settings fetched together, so a single call hydrates the whole section. */
 export interface AppSettings {
   notifications: NotificationSettings
@@ -499,6 +514,7 @@ export interface AppSettings {
   ado: AdoSettings
   adoFallback: AdoFallback
   appearance: AppearanceSettings
+  review: ReviewSettings
 }
 
 /** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */

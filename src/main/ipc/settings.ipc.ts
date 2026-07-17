@@ -5,7 +5,8 @@ import {
   type AdoConnectionResult,
   type AdoSettings,
   type AppSettings,
-  type NotificationSettings
+  type NotificationSettings,
+  type ReviewSettings
 } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { SettingsRepo } from '../db/settingsRepo'
@@ -56,7 +57,8 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         project: fallback.project,
         hasPat: fallback.pat.trim() !== ''
       },
-      appearance: d.settings.getAppearance()
+      appearance: d.settings.getAppearance(),
+      review: d.settings.getReview()
     }
   }
 
@@ -124,6 +126,15 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         return current()
       }),
 
+    setReview: (review) =>
+      surface(() => {
+        if (typeof review?.prompt !== 'string') {
+          throw new Error('Review prompt must be a string')
+        }
+        d.settings.setReview({ prompt: review.prompt })
+        return current()
+      }),
+
     testAdoConnection: (ado) => surface(() => d.testConnection(effectiveAdo(ado)))
   }
 }
@@ -137,6 +148,7 @@ export function registerSettingsHandlers(ipcMain: IpcMain, h: IpcApi['settings']
   ipcMain.handle(Channel.settingsSetTerminalFontSize, (_e, px: number) =>
     h.setTerminalFontSize(px)
   )
+  ipcMain.handle(Channel.settingsSetReview, (_e, review: ReviewSettings) => h.setReview(review))
   ipcMain.handle(Channel.settingsTestAdoConnection, (_e, ado: AdoSettings) =>
     h.testAdoConnection(ado)
   )

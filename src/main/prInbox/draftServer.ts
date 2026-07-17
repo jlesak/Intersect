@@ -1,8 +1,9 @@
 /**
- * Intersect-owned MCP server, spawned by the guardrailed `claude` review session as its ONLY MCP
- * server. Its single tool, `record_draft_comment`, forwards the draft to the Intersect main process
- * over a Unix-domain socket. It has NO Azure DevOps access and no database access - it cannot
- * publish anything. Runs under plain `node` (no electron / no node:sqlite import).
+ * Intersect-owned MCP server, added to the interactive `claude` review session alongside the
+ * user's own MCP servers. Its single tool, `record_draft_comment`, forwards the draft to the
+ * Intersect main process over a Unix-domain socket. It has NO Azure DevOps access and no database
+ * access - it cannot publish anything. Runs under plain `node` (no electron / no node:sqlite
+ * import).
  */
 import { createConnection, type Socket } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'

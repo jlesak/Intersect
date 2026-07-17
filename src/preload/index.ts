@@ -139,6 +139,7 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),
     setAdo: (ado) => ipcRenderer.invoke(Channel.settingsSetAdo, ado),
     setTerminalFontSize: (px) => ipcRenderer.invoke(Channel.settingsSetTerminalFontSize, px),
+    setReview: (review) => ipcRenderer.invoke(Channel.settingsSetReview, review),
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
   system: {

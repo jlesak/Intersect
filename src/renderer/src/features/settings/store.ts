@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { AdoFallback, AdoSettings, NotificationSettings } from '@common/domain'
+import {
+  DEFAULT_PR_REVIEW_PROMPT,
+  type AdoFallback,
+  type AdoSettings,
+  type NotificationSettings,
+  type ReviewSettings
+} from '@common/domain'
 import { debounce } from '@common/debounce'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
@@ -26,6 +32,7 @@ interface SettingsState {
   /** Live fallback shown as form hints while a saved field is blank; never carries the PAT. */
   adoFallback: AdoFallback
   terminalFontSize: number
+  review: ReviewSettings
   adoTest: AdoTestState
   load(): Promise<void>
   /** Flip one notification toggle; persists immediately so nothing is ever lost. */
@@ -43,6 +50,10 @@ interface SettingsState {
    */
   setTerminalFontSize(px: number): void
   commitTerminalFontSize(): void
+  /** Update locally and persist immediately so navigation or app quit cannot lose the edit. */
+  setReviewPrompt(prompt: string): Promise<void>
+  /** Restore and immediately persist the shared built-in prompt. */
+  resetReviewPrompt(): Promise<void>
   /** Probe Azure DevOps with the current form values (saved or not) and record the outcome. */
   testConnection(): Promise<void>
 }
@@ -83,6 +94,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     ado: EMPTY_ADO,
     adoFallback: EMPTY_ADO_FALLBACK,
     terminalFontSize: 12.5,
+    review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
     adoTest: { status: 'idle' },
 
     async load() {
@@ -95,7 +107,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
           notifications: settings.notifications,
           ado: settings.ado,
           adoFallback: settings.adoFallback,
-          terminalFontSize: settings.appearance.terminalFontSize
+          terminalFontSize: settings.appearance.terminalFontSize,
+          review: settings.review
         })
       } catch (e) {
         set({ status: 'error', error: message(e) })
@@ -121,6 +134,19 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
 
     commitTerminalFontSize() {
       persistFontSize.flush()
+    },
+
+    async setReviewPrompt(prompt) {
+      set({ review: { prompt } })
+      await persist(() => api.setReview({ prompt }), 'Could not save the PR review prompt')
+    },
+
+    async resetReviewPrompt() {
+      set({ review: { prompt: DEFAULT_PR_REVIEW_PROMPT } })
+      await persist(
+        () => api.setReview({ prompt: DEFAULT_PR_REVIEW_PROMPT }),
+        'Could not reset the PR review prompt'
+      )
     },
 
     async testConnection() {

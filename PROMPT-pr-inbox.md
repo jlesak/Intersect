@@ -1,5 +1,14 @@
 # Build "PR Review Inbox" — Intersect Slice 2
 
+> **Current-state supersession (2026-07-16, issues #32 and #33):** Key Technical Decision 2 below
+> is partially superseded. The review session is now the user's ordinary interactive Claude Code,
+> loading normal user settings, MCP servers, and permissions, so its toolset is no longer closed to
+> the draft server. Intersect still adds the local draft MCP server, the appended system prompt
+> still directs findings to `record_draft_comment` as local drafts, and all publishing to Azure
+> DevOps still happens only from Intersect's own code after my explicit approval. The initial
+> review prompt is now configurable in Settings (issue #32). See the supersession note in
+> `docs/DESIGN-pr-inbox.md` for current review-session behavior.
+
 ## Context and Vision
 
 Intersect's MVP (workspace & terminal manager) is done. This prompt scopes the next vertical

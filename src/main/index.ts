@@ -350,7 +350,7 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
     sendData: (data) => sendToRenderer(Channel.prInboxReviewData, data),
     sendExit: (exitCode) => sendToRenderer(Channel.prInboxReviewExit, exitCode),
     onDraft: (draft) => sendToRenderer(Channel.prInboxDraftAdded, draft),
-    claudePath: resolveClaudePath(),
+    reviewPrompt: () => settings.getReview().prompt,
     draftServerPath: join(__dirname, 'draftServer.js')
   })
 

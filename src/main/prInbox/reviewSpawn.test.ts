@@ -1,88 +1,149 @@
 import { describe, expect, test } from 'vitest'
-import {
-  buildReviewSpawnSpec,
-  REVIEW_ALLOWED_TOOLS,
-  REVIEW_DISALLOWED_TOOLS
-} from './reviewSpawn'
+import { buildReviewSpawnSpec } from './reviewSpawn'
 
 const base = {
-  claudePath: '/Users/me/.local/bin/claude',
+  shell: '/bin/zsh',
+  env: {
+    SHELL: '/bin/zsh',
+    PATH: '/usr/bin',
+    CLAUDE_PLUGIN_SETTING: 'ambient-value',
+    ELECTRON_RUN_AS_NODE: '1'
+  },
   worktreePath: '/wt/abc',
   mcpConfigPath: '/wt/abc/.intersect-review-mcp.json',
   prompt: 'Review this PR.'
 }
 
-/** Read the value that follows a flag in the args array. */
-function flagValue(args: string[], flag: string): string | undefined {
-  const i = args.indexOf(flag)
-  return i >= 0 ? args[i + 1] : undefined
-}
-
 describe('buildReviewSpawnSpec', () => {
-  test('spawns claude in the worktree', () => {
+  test('launches the ordinary shell-resolved Claude Code in the PR worktree', () => {
     const spec = buildReviewSpawnSpec(base)
-    expect(spec.file).toBe(base.claudePath)
+
+    expect(spec.file).toBe('/bin/zsh')
+    expect(spec.args).toEqual(['-l'])
     expect(spec.cwd).toBe('/wt/abc')
-    expect(spec.args.at(-1)).toBe('Review this PR.')
+    expect(spec.initialCommand).toContain('stty -ixon; claude ')
+    expect(spec.env).toMatchObject({
+      PATH: '/usr/bin',
+      TERM: 'xterm-256color',
+      CLAUDE_PLUGIN_SETTING: 'ambient-value'
+    })
+    expect(spec.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
 
-  test('uses only our MCP config (strict) so no Azure DevOps tool exists in the session', () => {
-    const { args } = buildReviewSpawnSpec(base)
-    expect(flagValue(args, '--mcp-config')).toBe(base.mcpConfigPath)
-    expect(args).toContain('--strict-mcp-config')
-  })
+  test('adds the local draft MCP server without suppressing normal Claude configuration', () => {
+    const spec = buildReviewSpawnSpec(base)
+    const command = spec.initialCommand
 
-  test('pins setting-sources to none by default so ambient allow rules cannot widen the session', () => {
-    const { args } = buildReviewSpawnSpec(base)
-    expect(args).toContain('--setting-sources')
-    expect(flagValue(args, '--setting-sources')).toBe('')
-  })
-
-  test('closed allowlist under dontAsk: only read + draft tools, no ADO write tool', () => {
-    const { args } = buildReviewSpawnSpec(base)
-    expect(flagValue(args, '--permission-mode')).toBe('dontAsk')
-    const allowed = flagValue(args, '--allowed-tools') ?? ''
-    expect(allowed).toBe(REVIEW_ALLOWED_TOOLS.join(' '))
-    expect(allowed).toContain('mcp__intersectReview__record_draft_comment')
-    // Guarantee: no azureDevOps tool is ever allowed.
-    expect(allowed).not.toMatch(/azureDevOps/i)
-  })
-
-  test('hard-denies shell/write/edit AND every network/egress tool', () => {
-    const denied = flagValue(buildReviewSpawnSpec(base).args, '--disallowed-tools') ?? ''
-    expect(denied).toBe(REVIEW_DISALLOWED_TOOLS.join(' '))
-    for (const tool of ['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Task']) {
-      expect(denied.split(' ')).toContain(tool)
+    expect(command).toContain('--mcp-config "$INTERSECT_REVIEW_MCP_CONFIG"')
+    expect(spec.env.INTERSECT_REVIEW_MCP_CONFIG).toBe('/wt/abc/.intersect-review-mcp.json')
+    for (const isolationFlag of [
+      '--strict-mcp-config',
+      '--setting-sources',
+      '--settings ',
+      '--allowed-tools',
+      '--disallowed-tools',
+      '--permission-mode'
+    ]) {
+      expect(command).not.toContain(isolationFlag)
     }
   })
 
-  test('denies reads of credential files via a --settings deny list', () => {
-    const settings = flagValue(buildReviewSpawnSpec(base).args, '--settings') ?? '{}'
-    const parsed = JSON.parse(settings) as { permissions?: { deny?: string[] } }
-    const deny = parsed.permissions?.deny ?? []
-    expect(deny.some((r) => r.includes('.claude.json'))).toBe(true)
-    expect(deny.some((r) => r.includes('.ssh'))).toBe(true)
+  test('keeps the ordinary user, project, and local setting sources available', () => {
+    const spec = buildReviewSpawnSpec(base)
+
+    expect(spec.initialCommand).not.toContain('--setting-sources')
   })
 
-  test('appends a read-only/draft-only system prompt', () => {
-    const prompt = flagValue(buildReviewSpawnSpec(base).args, '--append-system-prompt') ?? ''
-    expect(prompt).toMatch(/READ-ONLY/)
-    expect(prompt).toMatch(/record_draft_comment/)
+  test('strips credentials from the environment while keeping Claude auth vars', () => {
+    const spec = buildReviewSpawnSpec({
+      ...base,
+      env: {
+        ...base.env,
+        AZURE_DEVOPS_EXT_PAT: 'ado-secret',
+        GITHUB_TOKEN: 'gh-secret',
+        NPM_SECRET: 'npm-secret',
+        DB_PASSWORD: 'db-secret',
+        ANTHROPIC_API_KEY: 'anthropic-key',
+        CLAUDE_CODE_OAUTH_TOKEN: 'claude-token'
+      }
+    })
+
+    expect(spec.env.AZURE_DEVOPS_EXT_PAT).toBeUndefined()
+    expect(spec.env.GITHUB_TOKEN).toBeUndefined()
+    expect(spec.env.NPM_SECRET).toBeUndefined()
+    expect(spec.env.DB_PASSWORD).toBeUndefined()
+    expect(spec.env.ANTHROPIC_API_KEY).toBe('anthropic-key')
+    expect(spec.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('claude-token')
+    expect(spec.env.PATH).toBe('/usr/bin')
   })
 
-  test('appends the Czech review guide (language + concise style) alongside the security prompt', () => {
-    const prompt = flagValue(buildReviewSpawnSpec(base).args, '--append-system-prompt') ?? ''
-    expect(prompt).toMatch(/česky/i)
-    expect(prompt).toMatch(/bez\s+štítk/i)
+  test('scrubs credentials the login profile re-exports before launching claude', () => {
+    const spec = buildReviewSpawnSpec(base)
+    const scrub = spec.initialCommand.split('; stty -ixon')[0]
+
+    // The scrub runs first, so a dotfile-exported PAT is unset before claude sees the environment.
+    expect(spec.initialCommand).toMatch(/^for _iv in \$\(typeset \+x\); do /)
+    expect(spec.initialCommand).toContain('unset $_iv')
+    expect(scrub).toContain('AZURE_DEVOPS_*')
+    expect(scrub).toContain('*_TOKEN')
+    expect(scrub).toContain('PASSWORD')
+    // Anthropic/Claude auth vars are exempted so the session can still authenticate.
+    expect(scrub).toContain('ANTHROPIC_*|CLAUDE_*) ;;')
   })
 
-  test('voting stays out of the AI review: no vote or ADO tool is allowed, only the draft MCP server', () => {
-    for (const tool of REVIEW_ALLOWED_TOOLS) {
-      expect(tool).not.toMatch(/vote|azure|devops|pull_?request|reviewer/i)
-    }
-    // The only MCP tool the session may call is the local draft recorder - the strict MCP config
-    // exposes intersectReview alone, so no other server (and no vote surface) exists at all.
-    const mcpTools = REVIEW_ALLOWED_TOOLS.filter((t) => t.startsWith('mcp__'))
-    expect(mcpTools).toEqual(['mcp__intersectReview__record_draft_comment'])
+  test('uses the bash exported-name enumeration when the shell is bash', () => {
+    const spec = buildReviewSpawnSpec({ ...base, shell: '/bin/bash' })
+
+    expect(spec.initialCommand).toMatch(/^for _iv in \$\(compgen -A export\); do /)
+    expect(spec.initialCommand).not.toContain('typeset +x')
+  })
+
+  test('keeps the review interactive and directs findings to local drafts for human approval', () => {
+    const spec = buildReviewSpawnSpec(base)
+    const command = spec.initialCommand
+
+    expect(command).not.toMatch(/(?:^|\s)(?:--print|-p)(?:\s|$)/)
+    expect(command).toContain('--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT"')
+    expect(spec.env.INTERSECT_REVIEW_SYSTEM_PROMPT).toMatch(/record_draft_comment/)
+    expect(spec.env.INTERSECT_REVIEW_SYSTEM_PROMPT).toMatch(/human approval/i)
+    expect(spec.env.INTERSECT_REVIEW_SYSTEM_PROMPT).toMatch(/never publish/i)
+    expect(spec.env.INTERSECT_REVIEW_PROMPT).toBe('Review this PR.')
+    // The review methodology/language comes from the supplied prompt. A fixed Czech guide here
+    // would silently override the user's custom prompt.
+    expect(spec.env.INTERSECT_REVIEW_SYSTEM_PROMPT).not.toMatch(
+      /Průvodce code review|výhradně česky/
+    )
+  })
+
+  test('keeps a long arbitrary prompt out of canonical PTY input and preserves it exactly in env', () => {
+    const prompt = `${"Review O'Brien's $(change) and `backticks`.\n".repeat(500)}control:\u0003`
+    const spec = buildReviewSpawnSpec({ ...base, prompt })
+
+    expect(spec.initialCommand).toBe(
+      'for _iv in $(typeset +x); do case $_iv in ANTHROPIC_*|CLAUDE_*) ;; ' +
+        'AZURE_DEVOPS_*|PAT|PAT_*|*_PAT|*_PAT_*|TOKEN|TOKEN_*|*_TOKEN|*_TOKEN_*|' +
+        'SECRET|SECRET_*|*_SECRET|*_SECRET_*|PASSWORD|PASSWORD_*|*_PASSWORD|*_PASSWORD_*) ' +
+        'unset $_iv 2>/dev/null;; esac; done; ' +
+        'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
+        '--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT" -- "$INTERSECT_REVIEW_PROMPT"'
+    )
+    expect(spec.initialCommand).not.toContain("O'Brien")
+    expect(spec.initialCommand).not.toContain('$(change)')
+    expect(spec.env.INTERSECT_REVIEW_PROMPT).toBe(prompt)
+    expect(spec.initialCommand).toMatch(/ -- "\$INTERSECT_REVIEW_PROMPT"$/)
+  })
+
+  test('rejects only NUL, which process environment values cannot represent', () => {
+    expect(() => buildReviewSpawnSpec({ ...base, prompt: 'Review this\0ignore me' })).toThrow(/NUL/)
+    expect(() =>
+      buildReviewSpawnSpec({ ...base, mcpConfigPath: '/wt/config\0.json' })
+    ).toThrow(/NUL/)
+  })
+
+  test('separates the prompt from CLI options so a leading dash stays prompt text', () => {
+    const spec = buildReviewSpawnSpec({ ...base, prompt: '--print this phrase verbatim' })
+
+    expect(spec.env.INTERSECT_REVIEW_PROMPT).toBe('--print this phrase verbatim')
+    expect(spec.initialCommand).toMatch(/ -- "\$INTERSECT_REVIEW_PROMPT"$/)
   })
 })

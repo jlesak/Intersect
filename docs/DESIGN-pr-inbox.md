@@ -1,5 +1,21 @@
 # Intersect - Design (Slice 2: PR Review Inbox)
 
+> **Current-state supersession (2026-07-16, issues #32 and #33):** The locked-sandbox and
+> fixed-Czech-prompt decisions preserved later in this historical design are no longer current.
+> PR Review now launches the user's ordinary interactive Claude Code through the same login shell
+> as Sessions, in the PR worktree. Claude therefore resolves from the user's shell and loads the
+> standard user/project/local settings, CLAUDE.md files, skills, agents, plugins, hooks, MCP servers,
+> and permissions. Credentials (Azure DevOps PAT, `*_PAT/TOKEN/SECRET/PASSWORD`) are stripped from
+> the spawn environment and, because the login shell (`-l`) re-sources the user's profile and would
+> re-export any credentials their dotfiles define, are also unset in the live shell after the profile
+> loads and immediately before `claude` starts (`ANTHROPIC_/CLAUDE_` auth vars are preserved by both
+> layers). Intersect adds its local draft MCP config without strict mode, closed tool
+> lists, or setting-source restrictions. The initial prompt is fully editable and persisted
+> verbatim in Settings, including an intentional empty or whitespace-only value; the Czech guide is
+> only the resettable default.
+> Claude records PR findings as local drafts; publishing to Azure DevOps still requires explicit
+> human approval through Intersect.
+
 Additive vertical slice over the MVP (see `DESIGN.md`). Consolidates Azure DevOps pull
 requests where I am author or reviewer, renders their diffs (Monaco), and runs an
 AI-assisted review as an isolated, guardrailed **classic (interactive) Claude Code session**
