@@ -113,10 +113,11 @@ const api: IpcApi = {
   },
   todo: {
     list: () => ipcRenderer.invoke(Channel.todoList),
-    add: (text, dueDay, priority) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay, priority),
+    add: (text, dueDay) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay),
     update: (id, patch) => ipcRenderer.invoke(Channel.todoUpdate, id, patch),
     setDone: (id, done) => ipcRenderer.invoke(Channel.todoSetDone, id, done),
-    remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id)
+    remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
+    reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
   },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),

@@ -46,6 +46,7 @@ Mockup: `.lavish/todo-mockup.html` (schváleno beze změn).
 - Plochý seznam úkolů: drag handle, checkbox, text, volitelný termín (červeně pokud po termínu),
   smazat na hover.
 - Odkaz "Zobrazit hotové (N)" nahoře rozbalí/schová sekci s odškrtnutými úkoly.
+- Obnovený hotový úkol se deterministicky přidá na konec otevřeného seznamu.
 
 ## 5. Akceptační kritéria
 
@@ -56,3 +57,4 @@ Mockup: `.lavish/todo-mockup.html` (schváleno beze změn).
 5. Úkoly lze přeuspořádat drag & drop.
 6. Úkol lze smazat (v hlavním i v sekci Hotové).
 7. Úkol po termínu je vizuálně odlišený (např. červený termín).
+8. Obnovení hotového úkolu ho přidá na konec ručně seřazeného otevřeného seznamu.

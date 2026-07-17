@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { TodoPriority, TodoTask, TodoTaskPatch } from '@common/domain'
 import type { RepoDeps } from './deps'
+import { tx } from './tx'
 
 interface TodoRow {
   id: string
@@ -28,21 +29,21 @@ function toTask(row: TodoRow): TodoTask {
 /** The only due-day shape the list ever stores: a local calendar day key. */
 const DUE_DAY = /^\d{4}-\d{2}-\d{2}$/
 
-const PRIORITIES: TodoPriority[] = [1, 2, 3, 4]
-
 export interface TodoRepo {
-  /** Open tasks, ordered by priority then due date (earliest first, no due date last). */
+  /** Open tasks in persisted manual order. */
   listOpen(): TodoTask[]
   /** Done tasks, most recently completed first. */
   listDone(): TodoTask[]
   /** Create an open task at the end of the list. Text must be non-empty after trimming. */
-  create(text: string, dueDay: string | null, priority?: TodoPriority): TodoTask
+  create(text: string, dueDay: string | null): TodoTask
   /** Edit any subset of a task's fields in place. Validates like create. */
   update(id: string, patch: TodoTaskPatch): TodoTask
   /** Checking stamps the completion time; unchecking appends the task to the end of the open list. */
   setDone(id: string, done: boolean): TodoTask
   /** Hard delete - a dismissed task has nothing to resurrect from. */
   remove(id: string): void
+  /** Replace the complete open ordering in one transaction. */
+  reorder(orderedIds: string[]): TodoTask[]
 }
 
 export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
@@ -62,10 +63,7 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
 
   const listOpen = (): TodoTask[] => {
     const rows = db
-      .prepare(
-        `SELECT * FROM todo_task WHERE done_at IS NULL
-         ORDER BY priority ASC, due_day IS NULL, due_day ASC, sort_order ASC`
-      )
+      .prepare('SELECT * FROM todo_task WHERE done_at IS NULL ORDER BY sort_order, created_at, id')
       .all() as unknown as TodoRow[]
     return rows.map(toTask)
   }
@@ -80,16 +78,15 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
       return rows.map(toTask)
     },
 
-    create(text, dueDay, priority = 4) {
+    create(text, dueDay) {
       const trimmed = text.trim()
       if (!trimmed) throw new Error('Task text must not be empty')
       if (dueDay !== null && !DUE_DAY.test(dueDay)) throw new Error(`Invalid due day: ${dueDay}`)
-      if (!PRIORITIES.includes(priority)) throw new Error(`Invalid priority: ${priority}`)
       const id = deps.newId()
       db.prepare(
-        `INSERT INTO todo_task (id, text, description, due_day, priority, sort_order, done_at, created_at)
-         VALUES (?,?,?,?,?,?,?,?)`
-      ).run(id, trimmed, '', dueDay, priority, nextOpenOrder(), null, deps.now())
+        `INSERT INTO todo_task (id, text, description, due_day, sort_order, done_at, created_at)
+         VALUES (?,?,?,?,?,?,?)`
+      ).run(id, trimmed, '', dueDay, nextOpenOrder(), null, deps.now())
       return mustGet(id)
     },
 
@@ -114,12 +111,6 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
         sets.push('due_day = ?')
         params.push(patch.dueDay)
       }
-      if (patch.priority !== undefined) {
-        if (!PRIORITIES.includes(patch.priority)) throw new Error(`Invalid priority: ${patch.priority}`)
-        sets.push('priority = ?')
-        params.push(patch.priority)
-      }
-
       if (sets.length > 0) {
         params.push(id)
         db.prepare(`UPDATE todo_task SET ${sets.join(', ')} WHERE id = ?`).run(...params)
@@ -140,6 +131,28 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
 
     remove(id) {
       db.prepare('DELETE FROM todo_task WHERE id = ?').run(id)
+    },
+
+    reorder(orderedIds) {
+      const currentIds = listOpen().map((task) => task.id)
+      const uniqueIds = new Set(orderedIds)
+      const currentSet = new Set(currentIds)
+      const exactSet =
+        orderedIds.length === currentIds.length &&
+        uniqueIds.size === orderedIds.length &&
+        orderedIds.every((id) => currentSet.has(id))
+      if (!exactSet) throw new Error('Reorder must contain every open task exactly once')
+
+      return tx(db, () => {
+        const update = db.prepare(
+          'UPDATE todo_task SET sort_order = ? WHERE id = ? AND done_at IS NULL'
+        )
+        orderedIds.forEach((id, index) => {
+          const result = update.run(index, id)
+          if (result.changes !== 1) throw new Error(`Open task not found while reordering: ${id}`)
+        })
+        return listOpen()
+      })
     }
   }
 }

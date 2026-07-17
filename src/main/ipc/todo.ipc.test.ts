@@ -24,16 +24,10 @@ describe('todo handlers', () => {
     expect(await h.list()).toEqual({ open: [task], done: [] })
   })
 
-  test('add passes an explicit priority through to the repo', async () => {
-    const task = await h.add('urgent', null, 1)
-    expect(task.priority).toBe(1)
-  })
-
   test('update edits a task in place', async () => {
     const a = await h.add('a', null)
-    const updated = await h.update(a.id, { text: 'b', priority: 2, description: 'detail' })
+    const updated = await h.update(a.id, { text: 'b', description: 'detail' })
     expect(updated.text).toBe('b')
-    expect(updated.priority).toBe(2)
     expect(updated.description).toBe('detail')
   })
 
@@ -57,6 +51,14 @@ describe('todo handlers', () => {
     const a = await h.add('a', null)
     await h.remove(a.id)
     expect((await h.list()).open).toEqual([])
+  })
+
+  test('reorder persists and returns the complete manual order', async () => {
+    const a = await h.add('a', null)
+    const b = await h.add('b', null)
+    const reordered = await h.reorder([b.id, a.id])
+    expect(reordered.map((task) => task.id)).toEqual([b.id, a.id])
+    expect((await h.list()).open).toEqual(reordered)
   })
 
   test('a repo validation error crosses as a message-only Error', async () => {
@@ -98,7 +100,8 @@ describe('registerTodoHandlers', () => {
         Channel.todoAdd,
         Channel.todoUpdate,
         Channel.todoSetDone,
-        Channel.todoRemove
+        Channel.todoRemove,
+        Channel.todoReorder
       ].sort()
     )
 
@@ -106,5 +109,9 @@ describe('registerTodoHandlers', () => {
     expect(added.text).toBe('buy a monitor')
     const lists = (await registered.get(Channel.todoList)!({})) as { open: TodoTask[] }
     expect(lists.open.map((t) => t.text)).toEqual(['buy a monitor'])
+
+    await registered.get(Channel.todoAdd)!({}, 'second', null)
+    const reordered = (await registered.get(Channel.todoReorder)!({}, ['id-2', 'id-1'])) as TodoTask[]
+    expect(reordered.map((task) => task.text)).toEqual(['second', 'buy a monitor'])
   })
 })

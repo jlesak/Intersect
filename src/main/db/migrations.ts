@@ -243,6 +243,31 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE pr_cache ADD COLUMN active_thread_count INTEGER NOT NULL DEFAULT 0;`)
     }
+  },
+  {
+    // Restore manual TODO ordering. Seed it exactly once from the priority-era order users saw,
+    // with stable fallbacks for malformed legacy rows that happen to share a sort_order.
+    version: 12,
+    up(db) {
+      db.exec(`
+        WITH ordered AS (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   ORDER BY priority ASC,
+                            due_day IS NULL,
+                            due_day ASC,
+                            sort_order ASC,
+                            created_at ASC,
+                            id ASC
+                 ) - 1 AS manual_order
+          FROM todo_task
+          WHERE done_at IS NULL
+        )
+        UPDATE todo_task
+        SET sort_order = (SELECT manual_order FROM ordered WHERE ordered.id = todo_task.id)
+        WHERE done_at IS NULL;
+      `)
+    }
   }
 ]
 

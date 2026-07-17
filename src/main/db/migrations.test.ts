@@ -147,6 +147,64 @@ describe('migrations', () => {
     expect(row.d).toBe('')
   })
 
+  test('priority-era TODO rows seed one exact manual order without losing content', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    const insert = db.prepare(
+      `INSERT INTO todo_task
+         (id, text, description, due_day, priority, sort_order, done_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    insert.run('p4', 'No priority', 'keep p4', null, 4, 0, null, 100)
+    insert.run('p2-none', 'No due day', 'keep none', null, 2, 1, null, 101)
+    insert.run('p2-later', 'Later', 'keep later', '2026-08-01', 2, 2, null, 102)
+    insert.run('p1', 'Urgent', 'keep urgent', null, 1, 3, null, 103)
+    insert.run('p2-sooner', 'Sooner', 'keep sooner', '2026-07-20', 2, 4, null, 104)
+    insert.run('tie-b', 'Tie B', 'keep tie b', null, 3, 7, null, 105)
+    insert.run('tie-a', 'Tie A', 'keep tie a', null, 3, 7, null, 105)
+    insert.run('done', 'Completed', 'keep done', '2026-01-01', 1, 77, 999, 99)
+
+    // The fixture represents a database whose last applied migration was the priority-era schema.
+    db.exec('PRAGMA user_version = 11')
+    runMigrations(db)
+
+    const open = db
+      .prepare(
+        `SELECT id, text, description, due_day AS dueDay, priority, sort_order AS sortOrder,
+                done_at AS doneAt, created_at AS createdAt
+         FROM todo_task WHERE done_at IS NULL ORDER BY sort_order`
+      )
+      .all() as unknown as Array<Record<string, unknown>>
+    expect(open.map((row) => row.id)).toEqual([
+      'p1',
+      'p2-sooner',
+      'p2-later',
+      'p2-none',
+      'tie-a',
+      'tie-b',
+      'p4'
+    ])
+    expect(open.map((row) => row.sortOrder)).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(open.find((row) => row.id === 'p2-sooner')).toEqual({
+      id: 'p2-sooner',
+      text: 'Sooner',
+      description: 'keep sooner',
+      dueDay: '2026-07-20',
+      priority: 2,
+      sortOrder: 1,
+      doneAt: null,
+      createdAt: 104
+    })
+    expect(
+      db.prepare("SELECT sort_order AS n, description AS d FROM todo_task WHERE id = 'done'").get()
+    ).toEqual({ n: 77, d: 'keep done' })
+    expect((db.prepare('SELECT count(*) AS n FROM todo_task').get() as { n: number }).n).toBe(8)
+
+    const snapshot = db.prepare('SELECT * FROM todo_task ORDER BY id').all()
+    runMigrations(db)
+    expect(db.prepare('SELECT * FROM todo_task ORDER BY id').all()).toEqual(snapshot)
+  })
+
   test('deleting a workspace cascades to its tabs', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)
