@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import {
+  GLOBAL_JIRA_SOURCE,
   JIRA_COLUMNS,
-  type JiraBoardResult,
+  type JiraBoardSnapshot,
   type JiraColumn,
-  type JiraErrorKind,
-  type JiraIssue
+  type JiraIssue,
+  type JiraIssueSnapshot,
+  type JiraSyncErrorKind
 } from '@common/domain'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { reportError } from '@renderer/shared/ui/toast'
@@ -14,13 +16,15 @@ type Status = 'idle' | 'loading' | 'login' | 'ready' | 'error'
 
 interface MyWorkState {
   status: Status
-  /** Distinguishes the SSO-expired error card from a generic failure. */
-  errorKind: JiraErrorKind | null
+  /** Distinguishes the SSO-expired error from not-configured/network/server/other failures. */
+  errorKind: JiraSyncErrorKind | null
   error: string | null
-  /** Every unresolved issue assigned to me, as the main process last fetched it. */
-  issues: JiraIssue[]
-  /** When the shown board was fetched (epoch ms), for the "Last refreshed" subtitle; null before
-   * the first successful fetch. Also the marker that stale data exists to fall back to. */
+  /** True when the last fetch was cut short by the pagination ceiling (issues may be missing). */
+  partial: boolean
+  /** Every issue of the global board still present remotely, as the core last cached it. */
+  issues: JiraIssueSnapshot[]
+  /** When the shown board was last successfully fetched (epoch ms); null before the first
+   * successful fetch. Also the marker that a last-good board exists to fall back to. */
   fetchedAt: number | null
   /** Set once hydrate has kicked off the shared ADO sync, so it runs once per app session. */
   prSyncStarted: boolean
@@ -29,8 +33,11 @@ interface MyWorkState {
   pendingPrOpen: { repositoryId: string; prId: number } | null
   hydrate(): Promise<void>
   refresh(): Promise<void>
-  /** Run the interactive SSO login (headed browser window), then fetch a fresh board. */
+  /** Run the interactive SSO login (headed browser window), then fetch a fresh board. Only ever
+   * invoked from an explicit user click - an auth failure never opens the login by itself. */
   loginAndRefresh(): Promise<void>
+  /** Listen for completed background refreshes pushed from the core; returns an unsubscribe fn. */
+  subscribe(): () => void
   /** Open the issue in the system default browser (no in-app navigation). */
   openIssue(issue: JiraIssue): void
   /** Ask the app shell to show this PR in the PR Inbox section (recorded as intent only). */
@@ -64,64 +71,44 @@ export function formatRelativeTime(timestamp: number, now: number = Date.now()):
 }
 
 export const useMyWorkStore = create<MyWorkState>()((set, get) => {
-  /** Land a failed fetch: keep a stale board visible (with a toast) or show the error state. */
-  const fail = (kind: JiraErrorKind, msg: string): void => {
+  /**
+   * Land a board envelope from the core. A board that fetched at least once renders alongside
+   * any sync error (the error shows as an inline warning); an error with nothing to fall back
+   * to is the full error state. An empty cold-start envelope means the core's background
+   * refresh is still running - the loading state holds until the change push delivers it.
+   */
+  const apply = (board: JiraBoardSnapshot): void => {
+    if (board.fetchedAt === null && board.error === null) {
+      set({ status: 'loading' })
+      return
+    }
+    if (board.fetchedAt === null && board.error !== null) {
+      set({
+        status: 'error',
+        error: board.error.message,
+        errorKind: board.error.kind,
+        issues: [],
+        fetchedAt: null,
+        partial: false
+      })
+      return
+    }
+    set({
+      status: 'ready',
+      issues: board.issues.filter((issue) => !issue.absent),
+      fetchedAt: board.fetchedAt,
+      partial: board.partial,
+      error: board.error?.message ?? null,
+      errorKind: board.error?.kind ?? null
+    })
+  }
+
+  /** Land a rejected IPC call: keep a stale board visible, or show the error state. */
+  const fail = (kind: JiraSyncErrorKind, msg: string): void => {
     if (get().fetchedAt !== null) {
-      // A previous board exists: keep showing it and surface the failure as a toast.
-      set({ status: 'ready' })
-      reportError('Could not refresh Jira issues', new Error(msg))
+      set({ status: 'ready', error: msg, errorKind: kind })
     } else {
       set({ status: 'error', error: msg, errorKind: kind })
-    }
-  }
-
-  /**
-   * One fetch attempt. An auth failure means there is no usable SSO session, so (once per attempt)
-   * the interactive login is started automatically and a successful login retries with a forced
-   * fresh fetch. A second auth failure lands as an error rather than looping.
-   */
-  const attempt = async (fetch: () => Promise<JiraBoardResult>, allowLogin: boolean): Promise<void> => {
-    try {
-      const result = await fetch()
-      if (result.ok) {
-        set({
-          status: 'ready',
-          issues: result.issues,
-          fetchedAt: result.fetchedAt,
-          error: null,
-          errorKind: null
-        })
-        return
-      }
-      if (result.kind === 'auth' && allowLogin) {
-        await loginThenFetch(result.message)
-        return
-      }
-      fail(result.kind, result.message)
-    } catch (e) {
-      fail('other', message(e))
-    }
-  }
-
-  /** Force a fresh Jira fetch; any board already on screen stays visible while it runs. */
-  const refreshJira = async (): Promise<void> => {
-    set({ status: 'loading' })
-    await attempt(() => api.refresh(), true)
-  }
-
-  /** Run the headed-browser SSO login; a completed login is followed by one forced fresh fetch. */
-  const loginThenFetch = async (fallbackMessage: string): Promise<void> => {
-    set({ status: 'login' })
-    try {
-      const login = await api.login()
-      if (login.ok) {
-        set({ status: 'loading' })
-        await attempt(() => api.refresh(), false)
-      } else {
-        fail('auth', login.message || fallbackMessage)
-      }
-    } catch (e) {
-      fail('auth', message(e))
     }
   }
 
@@ -129,6 +116,7 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
     status: 'idle',
     errorKind: null,
     error: null,
+    partial: false,
     issues: [],
     fetchedAt: null,
     prSyncStarted: false,
@@ -143,14 +131,13 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
         set({ prSyncStarted: true })
         void usePrInboxStore.getState().sync({ quiet: true })
       }
-      set({ status: 'loading', error: null, errorKind: null })
-      await attempt(() => api.list(), true)
-      // A board served from the persisted snapshot may be old; refresh it in the background
-      // (the stale board stays on screen) unless it is fresh enough to be this session's fetch.
-      // Jira only: the PR sync for this session was already started above.
-      const s = get()
-      if (s.status === 'ready' && s.fetchedAt !== null && Date.now() - s.fetchedAt > 60_000) {
-        void refreshJira()
+      if (get().fetchedAt === null) set({ status: 'loading' })
+      try {
+        // The core paints its cache immediately and refreshes in the background when stale;
+        // the completion push (see subscribe) re-runs this fetch to land the fresh board.
+        apply(await api.list())
+      } catch (e) {
+        fail('other', message(e))
       }
     },
 
@@ -158,12 +145,36 @@ export const useMyWorkStore = create<MyWorkState>()((set, get) => {
       // One Refresh serves both halves of the section: the Jira board and the PR radar run in
       // parallel, and prInbox.sync reports its own failures (never rethrows) - no double toast.
       const prSync = usePrInboxStore.getState().sync()
-      await refreshJira()
+      set({ status: 'loading' })
+      try {
+        apply(await api.refresh())
+      } catch (e) {
+        fail('other', message(e))
+      }
       await prSync
     },
 
     async loginAndRefresh() {
-      await loginThenFetch('The Jira login was not completed.')
+      set({ status: 'login' })
+      try {
+        const login = await api.login()
+        if (login.ok) {
+          set({ status: 'loading' })
+          apply(await api.refresh())
+        } else {
+          fail('auth', login.message || 'The Jira login was not completed.')
+        }
+      } catch (e) {
+        fail('auth', message(e))
+      }
+    },
+
+    subscribe() {
+      return api.onChanged((event) => {
+        if (event.sourceKey !== GLOBAL_JIRA_SOURCE) return
+        // A background refresh finished; pick up its outcome quietly (no loading flicker).
+        api.list().then(apply, () => {})
+      })
     },
 
     openIssue(issue) {

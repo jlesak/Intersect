@@ -6,7 +6,7 @@ import type {
   ClaudeUsage,
   DraftComment,
   FileDiff,
-  JiraBoardResult,
+  JiraBoardSnapshot,
   JiraLoginResult,
   Layout,
   NewManualDraft,
@@ -223,12 +223,22 @@ export interface IpcApi {
     reorder(orderedIds: string[]): Promise<TodoTask[]>
   }
   myWork: {
-    /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
-    list(): Promise<JiraBoardResult>
-    /** Force a fresh board fetch (a new hidden session), ignoring the cache. */
-    refresh(): Promise<JiraBoardResult>
+    /**
+     * The global "assigned to me" board from the read-model cache, immediately. A stale cache
+     * (older than five minutes) also starts one shared background refresh; its completion is
+     * announced via onChanged so the caller can refetch.
+     */
+    list(): Promise<JiraBoardSnapshot>
+    /** Force one direct Jira fetch of the global board (joining a refresh already in flight). */
+    refresh(): Promise<JiraBoardSnapshot>
     /** Interactive SSO login: opens a headed browser window and resolves once it completes. */
     login(): Promise<JiraLoginResult>
+    /** One project's own board (its JQL filter or board URL), with the same cache semantics as list. */
+    projectBoard(projectId: string): Promise<JiraBoardSnapshot>
+    /** Force one direct Jira fetch of the project's board. */
+    refreshProject(projectId: string): Promise<JiraBoardSnapshot>
+    /** Fired when a source's background refresh completes, so the shown board can refetch. */
+    onChanged(cb: (event: MyWorkChangedEvent) => void): () => void
   }
   oneOnOne: {
     /** The full run history, newest first. */
@@ -339,6 +349,11 @@ export interface TerminalNotificationClickEvent {
   sessionId: string
 }
 
+/** Broadcast when a Jira source's background refresh completes (successfully or not). */
+export interface MyWorkChangedEvent {
+  sourceKey: string
+}
+
 /**
  * Lifecycle of the headless core process that owns the database, PTYs, and background
  * services. `starting` covers fork + bootstrap; `restarting` means the core died and an
@@ -447,10 +462,13 @@ export const Channel = {
   todoSetDone: 'todo:setDone',
   todoRemove: 'todo:remove',
   todoReorder: 'todo:reorder',
-  // myWork (request/response)
+  // myWork (request/response, plus a main -> renderer broadcast for refresh completion)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',
   myWorkLogin: 'myWork:login',
+  myWorkProjectBoard: 'myWork:projectBoard',
+  myWorkRefreshProject: 'myWork:refreshProject',
+  myWorkChanged: 'myWork:changed',
   // oneOnOne (request/response, plus a main -> renderer broadcast)
   oneOnOneList: 'oneOnOne:list',
   oneOnOneStart: 'oneOnOne:start',

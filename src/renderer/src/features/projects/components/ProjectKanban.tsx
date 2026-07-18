@@ -1,17 +1,93 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JiraIssue } from '@common/domain'
 import { effectiveProject, indexOverrides, resolveJiraProject } from '@common/projectAssign'
-import { JiraBoard, JiraBoardSkeleton, useMyWorkStore } from '@renderer/features/myWork'
+import {
+  JiraBoard,
+  JiraBoardSkeleton,
+  useMyWorkStore,
+  useProjectBoard
+} from '@renderer/features/myWork'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconRefresh } from '@renderer/shared/ui/icons'
 import { selectActiveProjects, useProjectsStore } from '../store'
 
 /**
- * The Kanban entry point of a project context: the My Work board narrowed to the issues this
- * project's Jira configuration selects (manual pins always win). The board data itself is the
- * global My Work fetch - this panel only assigns and filters, it never fetches per project.
+ * The Kanban entry point of a project context. A project with its own Jira configuration (a JQL
+ * filter or a board URL) gets its own directly synced board; without one, the panel narrows the
+ * global My Work board to the issues assigned to this project (manual pins always win).
  */
 export function ProjectKanban({ projectId }: { projectId: string | null }) {
+  const project = useProjectsStore((s) =>
+    projectId !== null ? s.projects.find((p) => p.id === projectId) : undefined
+  )
+  if (projectId !== null && project && (project.jiraJql || project.jiraBoardUrl)) {
+    return <ProjectOwnBoard projectId={projectId} />
+  }
+  return <GlobalFilteredKanban projectId={projectId} />
+}
+
+/** A project's own board, served from the core's per-project Jira source. */
+function ProjectOwnBoard({ projectId }: { projectId: string }) {
+  const { board, refreshing, refresh } = useProjectBoard(projectId)
+
+  if (board === null || (board.fetchedAt === null && board.error === null)) {
+    return <JiraBoardSkeleton />
+  }
+
+  if (board.fetchedAt === null && board.error !== null) {
+    const auth = board.error.kind === 'auth'
+    return (
+      <div className="ix-empty">
+        <span className="ix-eyebrow">Kanban</span>
+        <div className="ix-empty__title">Board unavailable</div>
+        <p className="ix-empty__hint">{board.error.message}</p>
+        <button
+          type="button"
+          className="ix-btn"
+          onClick={() =>
+            void (auth
+              ? useMyWorkStore
+                  .getState()
+                  .loginAndRefresh()
+                  .then(() => refresh())
+              : refresh())
+          }
+        >
+          <IconRefresh /> {auth ? 'Log in to Jira' : 'Retry'}
+        </button>
+      </div>
+    )
+  }
+
+  const issues = board.issues.filter((issue) => !issue.absent)
+  return (
+    <div className="ix-ctx__panel">
+      <div className="ix-ctx__toolbar" style={{ alignItems: 'center', gap: 10 }}>
+        {board.error !== null && (
+          <span className="ix-ctx__hint">Could not refresh: {board.error.message}</span>
+        )}
+        {board.partial && (
+          <span className="ix-ctx__hint">Jira returned a partial result; issues may be missing.</span>
+        )}
+        <button type="button" className="ix-btn ix-btn--ghost" disabled={refreshing} onClick={refresh}>
+          <IconRefresh /> Refresh
+        </button>
+      </div>
+      {issues.length === 0 ? (
+        <div className="ix-empty">
+          <span className="ix-eyebrow">Kanban</span>
+          <div className="ix-empty__title">No issues here</div>
+          <p className="ix-empty__hint">The project’s Jira query returned no unresolved issues.</p>
+        </div>
+      ) : (
+        <JiraBoard issues={issues} />
+      )}
+    </div>
+  )
+}
+
+/** The global My Work board narrowed to this project's issues via bindings and manual pins. */
+function GlobalFilteredKanban({ projectId }: { projectId: string | null }) {
   const status = useMyWorkStore((s) => s.status)
   const error = useMyWorkStore((s) => s.error)
   const issues = useMyWorkStore((s) => s.issues)

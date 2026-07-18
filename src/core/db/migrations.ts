@@ -375,6 +375,80 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_hook_events_session ON hook_events(session_id, received_at);
       `)
     }
+  },
+  {
+    // Direct Jira sync: the per-source issue read model replacing the single-row board snapshot.
+    // Each source ('global', or 'project:<id>' for a project's own JQL/board query) keeps one row
+    // per issue - a stable identity for session <-> ticket <-> project links - plus one sync-state
+    // row carrying the last successful fetch time and the last error. Issues missing from the
+    // latest fetch are marked absent, never deleted. The legacy global board seeds the new model
+    // so nothing already cached is lost, then the legacy table is dropped.
+    version: 17,
+    up(db) {
+      db.exec(`
+        CREATE TABLE jira_issue_cache (
+          source_key TEXT NOT NULL,
+          issue_key  TEXT NOT NULL,
+          data_json  TEXT NOT NULL,
+          fetched_at INTEGER NOT NULL,
+          absent     INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (source_key, issue_key)
+        );
+
+        CREATE TABLE jira_sync_state (
+          source_key    TEXT PRIMARY KEY,
+          fetched_at    INTEGER,
+          partial       INTEGER NOT NULL DEFAULT 0,
+          error_kind    TEXT,
+          error_message TEXT
+        );
+      `)
+
+      const legacy = db
+        .prepare(`SELECT issues_json, fetched_at FROM my_work_cache WHERE key = 'board'`)
+        .get() as { issues_json: string; fetched_at: number } | undefined
+      if (legacy) {
+        try {
+          const issues = JSON.parse(legacy.issues_json) as Array<{
+            key: string
+            url: string
+            summary: string
+            column: string
+            priority: string | null
+            updatedAt: number
+          }>
+          const insert = db.prepare(
+            `INSERT OR REPLACE INTO jira_issue_cache (source_key, issue_key, data_json, fetched_at, absent)
+             VALUES ('global', ?, ?, ?, 0)`
+          )
+          for (const issue of issues) {
+            if (!issue || typeof issue.key !== 'string' || issue.key === '') continue
+            // The legacy snapshot never carried the raw remote fields; seed them as unknown.
+            const snapshot = {
+              ...issue,
+              description: null,
+              rawStatus: '',
+              rawPriority: null,
+              assignee: null,
+              epicKey: null,
+              epicSummary: null,
+              estimateSeconds: null,
+              components: [],
+              fetchedAt: legacy.fetched_at,
+              absent: false
+            }
+            insert.run(issue.key, JSON.stringify(snapshot), legacy.fetched_at)
+          }
+          db.prepare(
+            `INSERT INTO jira_sync_state (source_key, fetched_at, partial) VALUES ('global', ?, 0)`
+          ).run(legacy.fetched_at)
+        } catch {
+          // An unreadable legacy snapshot seeds nothing; the first direct fetch rebuilds it.
+        }
+      }
+
+      db.exec('DROP TABLE my_work_cache;')
+    }
   }
 ]
 

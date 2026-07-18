@@ -1,18 +1,26 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { JiraBoardResult, JiraLoginResult } from '@common/domain'
+import type { JiraBoardSnapshot, JiraLoginResult } from '@common/domain'
 import { Channel } from '@common/ipc'
-import type { JiraIndex } from '../myWork/jiraIndex'
 import type { JiraLogin } from '../myWork/jiraLogin'
+import type { JiraSyncEngine } from '../myWork/jiraSyncEngine'
 import { createMyWorkHandlers, myWorkWireRoutes } from './myWork.ipc'
 
-const board: JiraBoardResult = { ok: true, issues: [], fetchedAt: 1 }
-const refreshed: JiraBoardResult = { ok: true, issues: [], fetchedAt: 2 }
+const board = (sourceKey: string, fetchedAt: number): JiraBoardSnapshot => ({
+  sourceKey,
+  issues: [],
+  fetchedAt,
+  partial: false,
+  error: null
+})
+
+const cached = board('global', 1)
+const refreshed = board('global', 2)
 const loggedIn: JiraLoginResult = { ok: true }
 
-function makeIndex(over: Partial<JiraIndex> = {}): JiraIndex {
+function makeEngine(over: Partial<JiraSyncEngine> = {}): JiraSyncEngine {
   return {
-    list: vi.fn(async () => board),
-    refresh: vi.fn(async () => refreshed),
+    getBoard: vi.fn(async (sourceKey: string) => (sourceKey === 'global' ? cached : board(sourceKey, 1))),
+    refresh: vi.fn(async (sourceKey: string) => (sourceKey === 'global' ? refreshed : board(sourceKey, 2))),
     ...over
   }
 }
@@ -26,58 +34,87 @@ function makeLogin(over: Partial<JiraLogin> = {}): JiraLogin {
 }
 
 describe('myWork handlers', () => {
-  test('list delegates to the index', async () => {
-    const index = makeIndex()
-    const h = createMyWorkHandlers({ index, login: makeLogin() })
-    expect(await h.list()).toBe(board)
-    expect(index.list).toHaveBeenCalledOnce()
+  test('list serves the global source from the engine', async () => {
+    const engine = makeEngine()
+    const h = createMyWorkHandlers({ engine, login: makeLogin() })
+    expect(await h.list()).toBe(cached)
+    expect(engine.getBoard).toHaveBeenCalledWith('global')
   })
 
-  test('refresh delegates to the index', async () => {
-    const index = makeIndex()
-    const h = createMyWorkHandlers({ index, login: makeLogin() })
+  test('refresh forces the global source', async () => {
+    const engine = makeEngine()
+    const h = createMyWorkHandlers({ engine, login: makeLogin() })
     expect(await h.refresh()).toBe(refreshed)
-    expect(index.refresh).toHaveBeenCalledOnce()
+    expect(engine.refresh).toHaveBeenCalledWith('global')
+  })
+
+  test('projectBoard and refreshProject address the project source key', async () => {
+    const engine = makeEngine()
+    const h = createMyWorkHandlers({ engine, login: makeLogin() })
+    expect((await h.projectBoard('p1')).sourceKey).toBe('project:p1')
+    expect(engine.getBoard).toHaveBeenCalledWith('project:p1')
+    expect((await h.refreshProject('p1')).sourceKey).toBe('project:p1')
+    expect(engine.refresh).toHaveBeenCalledWith('project:p1')
   })
 
   test('login delegates to the interactive login', async () => {
     const login = makeLogin()
-    const h = createMyWorkHandlers({ index: makeIndex(), login })
+    const h = createMyWorkHandlers({ engine: makeEngine(), login })
     expect(await h.login()).toBe(loggedIn)
     expect(login.login).toHaveBeenCalledOnce()
   })
 
-  test('a failed fetch travels as data, not as a thrown error', async () => {
-    const failure: JiraBoardResult = { ok: false, kind: 'auth', message: 'expired' }
+  test('a failed sync travels inside the envelope, not as a thrown error', async () => {
+    const failed: JiraBoardSnapshot = {
+      sourceKey: 'global',
+      issues: [],
+      fetchedAt: null,
+      partial: false,
+      error: { kind: 'auth', message: 'expired' }
+    }
     const h = createMyWorkHandlers({
-      index: makeIndex({ list: vi.fn(async () => failure) }),
+      engine: makeEngine({ getBoard: vi.fn(async () => failed) }),
       login: makeLogin()
     })
-    expect(await h.list()).toBe(failure)
+    expect(await h.list()).toBe(failed)
+  })
+
+  test('the handler surface exposes no Jira mutation or worklog operation', () => {
+    const h = createMyWorkHandlers({ engine: makeEngine(), login: makeLogin() })
+    expect(Object.keys(h).sort()).toEqual(
+      ['list', 'login', 'projectBoard', 'refresh', 'refreshProject'].sort()
+    )
   })
 
   test('wraps a non-Error throw into an Error with a message', async () => {
-    const index = makeIndex({
-      list: vi.fn(async () => {
+    const engine = makeEngine({
+      getBoard: vi.fn(async () => {
         throw 'boom'
       })
     })
-    const h = createMyWorkHandlers({ index, login: makeLogin() })
+    const h = createMyWorkHandlers({ engine, login: makeLogin() })
     await expect(h.list()).rejects.toThrow(/boom/)
   })
 })
 
 describe('myWorkWireRoutes', () => {
   test('binds all request/response channels to the handlers', async () => {
-    const h = createMyWorkHandlers({ index: makeIndex(), login: makeLogin() })
+    const h = createMyWorkHandlers({ engine: makeEngine(), login: makeLogin() })
     const routes = myWorkWireRoutes(h)
-    const call = (channel: string): unknown => (routes[channel] as () => unknown)()
 
     expect(Object.keys(routes).sort()).toEqual(
-      [Channel.myWorkList, Channel.myWorkRefresh, Channel.myWorkLogin].sort()
+      [
+        Channel.myWorkList,
+        Channel.myWorkRefresh,
+        Channel.myWorkLogin,
+        Channel.myWorkProjectBoard,
+        Channel.myWorkRefreshProject
+      ].sort()
     )
-    expect(await call(Channel.myWorkList)).toBe(board)
-    expect(await call(Channel.myWorkRefresh)).toBe(refreshed)
-    expect(await call(Channel.myWorkLogin)).toBe(loggedIn)
+    expect(await (routes[Channel.myWorkList] as () => unknown)()).toBe(cached)
+    expect(await (routes[Channel.myWorkRefresh] as () => unknown)()).toBe(refreshed)
+    expect(await (routes[Channel.myWorkLogin] as () => unknown)()).toBe(loggedIn)
+    const projectBoard = routes[Channel.myWorkProjectBoard] as (id: string) => Promise<JiraBoardSnapshot>
+    expect((await projectBoard('p1')).sourceKey).toBe('project:p1')
   })
 })

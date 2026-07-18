@@ -4,6 +4,7 @@ import {
   Channel,
   type CoreStatus,
   type IpcApi,
+  type MyWorkChangedEvent,
   type TerminalDataEvent,
   type TerminalExitEvent,
   type TerminalNotificationClickEvent,
@@ -148,7 +149,14 @@ const api: IpcApi = {
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),
     refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),
-    login: () => ipcRenderer.invoke(Channel.myWorkLogin)
+    login: () => ipcRenderer.invoke(Channel.myWorkLogin),
+    projectBoard: (projectId) => ipcRenderer.invoke(Channel.myWorkProjectBoard, projectId),
+    refreshProject: (projectId) => ipcRenderer.invoke(Channel.myWorkRefreshProject, projectId),
+    onChanged: (cb) => {
+      const listener = (_e: unknown, event: MyWorkChangedEvent): void => cb(event)
+      ipcRenderer.on(Channel.myWorkChanged, listener)
+      return () => ipcRenderer.removeListener(Channel.myWorkChanged, listener)
+    }
   },
   oneOnOne: {
     list: () => ipcRenderer.invoke(Channel.oneOnOneList),

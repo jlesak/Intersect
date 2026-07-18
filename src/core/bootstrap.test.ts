@@ -203,6 +203,62 @@ describe('createCoreRuntime', () => {
     expect(badgePush?.payload).toEqual({ count: 1 })
   })
 
+  describe('my work direct sync', () => {
+    interface BoardEnvelope {
+      sourceKey: string
+      issues: { key: string; absent: boolean }[]
+      fetchedAt: number | null
+      partial: boolean
+      error: { kind: string; message: string } | null
+    }
+
+    test('a board refresh runs entirely in-process: no PTY, no hidden Claude session', async () => {
+      const rt = boot({ INTERSECT_E2E_JIRA: 'board' })
+      const board = (await rt.handleRequest(Channel.myWorkRefresh, [])) as BoardEnvelope
+      expect(board.sourceKey).toBe('global')
+      expect(board.error).toBeNull()
+      expect(board.fetchedAt).not.toBeNull()
+      expect(board.issues.map((i) => i.key)).toEqual(['FID2507-3', 'FID2507-2', 'FID2507-1'])
+      // The zero-Claude guarantee: the whole sync never touched the spawn seam.
+      expect(fake.procs).toHaveLength(0)
+    })
+
+    test('a completed refresh announces myWork:changed with its source key', async () => {
+      const rt = boot({ INTERSECT_E2E_JIRA: 'board' })
+      await rt.handleRequest(Channel.myWorkRefresh, [])
+      expect(pushes).toContainEqual({
+        channel: Channel.myWorkChanged,
+        payload: { sourceKey: 'global' }
+      })
+    })
+
+    test('the cached board survives a restart and a failing fetch keeps it (last-good retention)', async () => {
+      const first = boot({ INTERSECT_E2E_JIRA: 'board' })
+      await first.handleRequest(Channel.myWorkRefresh, [])
+      first.shutdown()
+
+      const second = boot({ INTERSECT_E2E_JIRA: 'error' })
+      // The persisted board paints immediately, fresh enough that no refresh starts.
+      const cached = (await second.handleRequest(Channel.myWorkList, [])) as BoardEnvelope
+      expect(cached.issues).toHaveLength(3)
+      expect(cached.error).toBeNull()
+
+      // A forced refresh fails, but the last-good issues stay next to the error.
+      const failed = (await second.handleRequest(Channel.myWorkRefresh, [])) as BoardEnvelope
+      expect(failed.issues).toHaveLength(3)
+      expect(failed.error).toMatchObject({ kind: 'other' })
+      expect(fake.procs).toHaveLength(0)
+    })
+
+    test('a project without Jira configuration answers not-configured without fetching', async () => {
+      const rt = boot({ INTERSECT_E2E_JIRA: 'board' })
+      const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
+      const board = (await rt.handleRequest(Channel.myWorkProjectBoard, [ws.id])) as BoardEnvelope
+      expect(board.sourceKey).toBe(`project:${ws.id}`)
+      expect(board.error).toMatchObject({ kind: 'not-configured' })
+    })
+  })
+
   describe('terminal reattach', () => {
     const spawnShellTab = async (rt: CoreRuntime): Promise<string> => {
       const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }

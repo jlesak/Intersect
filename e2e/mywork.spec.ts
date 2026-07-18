@@ -21,13 +21,19 @@ async function launch(
   return { app, win, userDataDir }
 }
 
-test('with no saved session, opening My Work starts the SSO login and then loads the board', async () => {
+test('with no saved session, My Work offers the login without opening it, and a click loads the board', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'auth' })
 
-  // Opening My Work with the auth failure flips the section into the sign-in state.
-  await expect(win.locator('.ix-mw-loading')).toContainText('Complete the SSO login')
+  // The auth failure renders the error card with the login action - never an automatic login.
+  await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
+  await expect(win.locator('.ix-mw-error__body')).toContainText('no active Jira SSO session')
+  const loginButton = win.locator('.ix-mw-error button', { hasText: 'Log in to Jira' })
+  await expect(loginButton).toBeVisible()
 
-  // The stub login succeeds and the automatic re-fetch renders the sample board.
+  // Only the explicit click starts the SSO login; the stub login succeeds and the follow-up
+  // fetch renders the sample board.
+  await loginButton.click()
+  await expect(win.locator('.ix-mw-loading')).toContainText('Complete the SSO login')
   await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
   await expect(win.locator('.ix-mw-col--todo .ix-mw-card2 .ix-mw-key')).toHaveText('FID2507-1')
   await expect(win.locator('.ix-mw-col--progress .ix-mw-card2 .ix-mw-key')).toHaveText('FID2507-2')
@@ -37,12 +43,14 @@ test('with no saved session, opening My Work starts the SSO login and then loads
   await app.close()
 })
 
-test('an abandoned login shows the auth error card with a log-in action', async () => {
+test('an abandoned login returns to the auth error card with the log-in action', async () => {
   const { app, win } = await launch({
     INTERSECT_E2E_JIRA: 'auth',
     INTERSECT_E2E_JIRA_LOGIN: 'fail'
   })
 
+  await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
+  await win.locator('.ix-mw-error button', { hasText: 'Log in to Jira' }).click()
   await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
   await expect(win.locator('.ix-mw-error__body')).toContainText('no active Jira SSO session')
   await expect(win.locator('.ix-mw-error button')).toHaveText(/Log in to Jira/)

@@ -1,42 +1,55 @@
-import type { JiraBoardResult, JiraIssue, JiraLoginResult } from '@common/domain'
+import type { JiraLoginResult } from '@common/domain'
+import type { JiraFetchResult } from './jiraClient'
+import type { JiraRemoteIssue } from './jiraMapping'
 
 /**
- * Deterministic My Work backend for E2E runs, so the UI's states can be exercised without a real
- * Jira session or a hidden Claude session. `INTERSECT_E2E_JIRA` picks the first fetch's outcome:
- * `empty` (default), `board`, `auth`, or `error`. In `auth` mode a stub login succeeds (unless
- * `INTERSECT_E2E_JIRA_LOGIN=fail`) and flips subsequent fetches to `board`, mirroring the real
- * login-then-refresh flow end to end.
+ * Deterministic Jira fetch backend for E2E runs, plugged in at the adapter seam so the real sync
+ * engine, cache repo, and migrations still run without a Jira session or network access.
+ * `INTERSECT_E2E_JIRA` picks the first fetch's outcome: `empty` (default), `board`, `auth`, or
+ * `error`. In `auth` mode a stub login succeeds (unless `INTERSECT_E2E_JIRA_LOGIN=fail`) and
+ * flips subsequent fetches to `board`, mirroring the real login-then-refresh flow end to end.
  */
 export interface JiraE2eStub {
-  fetchBoard(): Promise<JiraBoardResult>
+  fetchBoard(): Promise<JiraFetchResult>
   login(): Promise<JiraLoginResult>
 }
 
-const SAMPLE_ISSUES: JiraIssue[] = [
-  {
+const remoteIssue = (over: Partial<JiraRemoteIssue> & Pick<JiraRemoteIssue, 'key'>): JiraRemoteIssue => ({
+  summary: '',
+  description: null,
+  rawStatus: 'To Do',
+  rawPriority: null,
+  assignee: null,
+  epicKey: null,
+  epicSummary: null,
+  estimateSeconds: null,
+  components: [],
+  updatedAt: Date.now(),
+  ...over
+})
+
+const SAMPLE_ISSUES: JiraRemoteIssue[] = [
+  remoteIssue({
     key: 'FID2507-1',
-    url: 'https://jira.skoda.vwgroup.com/browse/FID2507-1',
     summary: 'Prepare the release notes',
-    column: 'todo',
-    priority: 'medium',
+    rawStatus: 'To Do',
+    rawPriority: 'Medium',
     updatedAt: Date.now() - 60 * 60_000
-  },
-  {
+  }),
+  remoteIssue({
     key: 'FID2507-2',
-    url: 'https://jira.skoda.vwgroup.com/browse/FID2507-2',
     summary: 'Implement the login flow',
-    column: 'progress',
-    priority: 'high',
+    rawStatus: 'In Progress',
+    rawPriority: 'High',
     updatedAt: Date.now() - 30 * 60_000
-  },
-  {
+  }),
+  remoteIssue({
     key: 'FID2507-3',
-    url: 'https://jira.skoda.vwgroup.com/browse/FID2507-3',
     summary: 'Verify the board states',
-    column: 'review',
-    priority: 'low',
+    rawStatus: 'In Review',
+    rawPriority: 'Low',
     updatedAt: Date.now() - 5 * 60_000
-  }
+  })
 ]
 
 export function createJiraE2eStub(env: NodeJS.ProcessEnv): JiraE2eStub {
@@ -49,9 +62,9 @@ export function createJiraE2eStub(env: NodeJS.ProcessEnv): JiraE2eStub {
         case 'error':
           return { ok: false, kind: 'other', message: 'Stubbed fetch failure' }
         case 'board':
-          return { ok: true, issues: SAMPLE_ISSUES, fetchedAt: Date.now() }
+          return { ok: true, issues: SAMPLE_ISSUES, partial: false }
         default:
-          return { ok: true, issues: [], fetchedAt: Date.now() }
+          return { ok: true, issues: [], partial: false }
       }
     },
     async login() {
