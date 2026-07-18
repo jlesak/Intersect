@@ -335,6 +335,26 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Resizable terminal layouts: each project remembers its own pane shares per layout type.
+    // `project_key` is a project id or the literal 'other' (the virtual bucket for unassigned
+    // workspaces), deliberately without a foreign key so the Other bucket persists too; the
+    // owning project's rows are cleaned up by the project-removal handler instead. `shares` is
+    // a JSON share shape validated on every read, so a corrupt row degrades to equal shares
+    // rather than blocking startup.
+    version: 15,
+    up(db) {
+      db.exec(`
+        CREATE TABLE project_terminal_layouts (
+          project_key TEXT NOT NULL,
+          layout      TEXT NOT NULL,
+          shares      TEXT NOT NULL,
+          updated_at  INTEGER NOT NULL,
+          PRIMARY KEY (project_key, layout)
+        );
+      `)
+    }
   }
 ]
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { Channel, type IpcApi } from '@common/ipc'
 import { createProjectOverrideRepo } from '../db/projectOverrideRepo'
 import type { ProjectRepo } from '../db/projectRepo'
+import { createTerminalLayoutRepo } from '../db/terminalLayoutRepo'
 import { makeTestDeps } from '../db/testkit'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import { makeHandlerContext } from './handlerTestkit'
@@ -17,7 +18,8 @@ function makeHandlers(): {
     projects: ctx.projects,
     pathDeps: ctx.pathDeps,
     workspaces: ctx.workspaces,
-    overrides: createProjectOverrideRepo(ctx.db, makeTestDeps())
+    overrides: createProjectOverrideRepo(ctx.db, makeTestDeps()),
+    terminalLayouts: createTerminalLayoutRepo(ctx.db, makeTestDeps())
   })
   return { projects: ctx.projects, workspaces: ctx.workspaces, h }
 }
@@ -114,6 +116,37 @@ describe('project handlers', () => {
   test('listWorktrees rejects for an unknown project', async () => {
     await expect(h.listWorktrees('missing')).rejects.toThrow('Project not found')
   })
+
+  test('terminal layouts round-trip per project key, normalizing on write', async () => {
+    await h.setTerminalLayout('p1', 'columns', [70, 30])
+    await h.setTerminalLayout('p1', 'grid', {
+      columns: [60, 40],
+      leftRows: [5, 95],
+      rightRows: [20, 80]
+    })
+    await h.setTerminalLayout('other', 'columns', [40, 60])
+    expect(await h.getTerminalLayouts('p1')).toEqual({
+      columns: [70, 30],
+      grid: { columns: [60, 40], leftRows: [10, 90], rightRows: [20, 80] }
+    })
+    expect(await h.getTerminalLayouts('other')).toEqual({ columns: [40, 60] })
+    expect(await h.getTerminalLayouts('unseen')).toEqual({})
+  })
+
+  test('setTerminalLayout rejects a layout without pane shares', async () => {
+    await expect(h.setTerminalLayout('p1', 'single' as never, [50, 50])).rejects.toThrow(
+      'no pane shares'
+    )
+  })
+
+  test('removing a project drops its terminal layouts but keeps the Other bucket', async () => {
+    const p = await h.create('SPOT', '/repos/spot')
+    await h.setTerminalLayout(p.id, 'columns', [70, 30])
+    await h.setTerminalLayout('other', 'columns', [20, 80])
+    await h.remove(p.id)
+    expect(await h.getTerminalLayouts(p.id)).toEqual({})
+    expect(await h.getTerminalLayouts('other')).toEqual({ columns: [20, 80] })
+  })
 })
 
 describe('projectsWireRoutes', () => {
@@ -138,7 +171,9 @@ describe('projectsWireRoutes', () => {
         Channel.projectsListOverrides,
         Channel.projectsSetOverride,
         Channel.projectsClearOverride,
-        Channel.projectsListWorktrees
+        Channel.projectsListWorktrees,
+        Channel.projectsGetTerminalLayouts,
+        Channel.projectsSetTerminalLayout
       ].sort()
     )
   })

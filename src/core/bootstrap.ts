@@ -63,6 +63,7 @@ import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrac
 import { createTodoRepo } from './db/todoRepo'
 import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
+import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
@@ -381,7 +382,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     projects,
     pathDeps: projectPathDeps,
     workspaces,
-    overrides: createProjectOverrideRepo(db, repoDeps)
+    overrides: createProjectOverrideRepo(db, repoDeps),
+    terminalLayouts: createTerminalLayoutRepo(db, repoDeps)
   })
 
   // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---

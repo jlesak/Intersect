@@ -38,7 +38,11 @@ const api: IpcApi = {
     setOverride: (kind, key, projectId) =>
       ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
     clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
-    listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id)
+    listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id),
+    getTerminalLayouts: (projectKey) =>
+      ipcRenderer.invoke(Channel.projectsGetTerminalLayouts, projectKey),
+    setTerminalLayout: (projectKey, layout, shares) =>
+      ipcRenderer.invoke(Channel.projectsSetTerminalLayout, projectKey, layout, shares)
   },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),

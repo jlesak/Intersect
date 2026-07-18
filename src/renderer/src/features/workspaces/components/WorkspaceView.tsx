@@ -51,6 +51,7 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
         <SplitStage
           workspaceId={selected.id}
           cwd={selected.folderPath}
+          projectKey={selected.projectId ?? 'other'}
           layout={layout}
           activeTabId={activeTabId}
           tabs={tabs}
