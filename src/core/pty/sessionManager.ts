@@ -34,7 +34,7 @@ export interface SessionManagerDeps {
     exit(event: TerminalExitEvent): void
   }
   /** Defaults to buildSpawn; injected so tests stay independent of shell resolution. */
-  buildSpec?: (preset: Preset, resumeSessionId?: string | null) => SpawnSpec
+  buildSpec?: (preset: Preset, resumeSessionId: string | null | undefined, sessionId: string) => SpawnSpec
   fileExists?: (path: string) => boolean
   homedir?: () => string
 }
@@ -67,7 +67,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   const sessions = new Map<string, PtyProcess>()
   const starting = new Set<string>()
   const buildSpec =
-    deps.buildSpec ?? ((preset: Preset, resumeSessionId?: string | null) => buildSpawn(preset, { resumeSessionId }))
+    deps.buildSpec ??
+    ((preset: Preset, resumeSessionId: string | null | undefined, sessionId: string) =>
+      buildSpawn(preset, { resumeSessionId, instanceId: sessionId }))
   const fileExists = deps.fileExists ?? existsSync
   const homedir = deps.homedir ?? osHomedir
 
@@ -89,7 +91,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         notice = `\r\n[intersect] "${cwd}" not found - started in ${effectiveCwd}\r\n`
       }
 
-      const spec = buildSpec(preset, resumeSessionId)
+      const spec = buildSpec(preset, resumeSessionId, sessionId)
       const proc = deps.spawn({
         file: spec.file,
         args: spec.args,

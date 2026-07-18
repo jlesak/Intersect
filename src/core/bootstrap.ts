@@ -30,7 +30,15 @@ import { createSessionManager } from './pty/sessionManager'
 import type { SpawnFn } from './pty/sessionManager'
 import { buildSpawn } from './pty/shell'
 import { createAttentionDetector } from './pty/attentionDetector'
-import { HOOK_SCRIPT_FILENAME, writeNotifHookScript, writeNotifSettings } from './pty/notifSettings'
+import { writeNotifSettings } from './pty/notifSettings'
+import { startHookListener, resolvePortRange, type HookListenerHandle } from './hooks/hookListener'
+import {
+  LISTENER_SIDECAR_FILENAME,
+  readOrCreateToken,
+  writeListenerSidecar
+} from './hooks/listenerSidecar'
+import { createSessionLifecycleService } from './hooks/sessionLifecycleService'
+import { createHookEventRepo, HOOK_EVENT_RETENTION_MS } from './db/hookEventRepo'
 import {
   USAGE_SNAPSHOT_FILENAME,
   USAGE_STATUSLINE_SCRIPT_FILENAME,
@@ -169,16 +177,16 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
 
   const db: DatabaseSync = openDatabase(userDataDir)
 
-  // The app-managed Claude Code settings that make claude emit attention markers into the
-  // PTY. If they cannot be written, the feature degrades to nothing rather than blocking
-  // boot, and the empty path keeps `--settings` off the claude command.
+  // The app-managed Claude Code settings that wire each claude session's lifecycle hooks to
+  // the bundled hook helper (a sibling script in this output directory). If they cannot be
+  // written, the feature degrades to nothing rather than blocking boot, and the empty path
+  // keeps `--settings` off the claude command.
   let notifSettingsPath = ''
   let usageSnapshotPath = ''
   try {
-    const hookScriptPath = join(userDataDir, HOOK_SCRIPT_FILENAME)
-    writeNotifHookScript(hookScriptPath)
+    const hookHelperPath = join(__dirname, 'hookHelper.js')
 
-    // Usage-statusline tee: wired independently of the hook script, so a failure here still
+    // Usage-statusline tee: wired independently of the hooks, so a failure here still
     // leaves attention notifications working - buildNotifSettings just omits `statusLine`.
     let statusLineCommand: string | undefined
     try {
@@ -192,7 +200,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     }
 
     const path = join(userDataDir, 'intersect-claude-notif.json')
-    writeNotifSettings(path, execPath, hookScriptPath, statusLineCommand)
+    writeNotifSettings(path, execPath, hookHelperPath, userDataDir, statusLineCommand)
     notifSettingsPath = path
   } catch {
     notifSettingsPath = ''
@@ -219,13 +227,17 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // so a settings change applies immediately.
   const detector = createAttentionDetector()
   const notifier = createSessionNotifier({
-    detect: (sessionId, chunk) => detector.push(sessionId, chunk),
+    detect: (sessionId, chunk) => {
+      const alert = detector.push(sessionId, chunk)
+      if (alert) console.log(`[lifecycle] ${sessionId}: '${alert.kind}' alert (source: marker)`)
+      return alert
+    },
     isWindowFocused: () => windowFocused,
-    broadcastStatus: (sessionId, status) =>
-      emitPush(Channel.terminalSessionStatus, { sessionId, status }),
+    broadcastStatus: (sessionId, status, risk) =>
+      emitPush(Channel.terminalSessionStatus, { sessionId, status, ...(risk ? { risk } : {}) }),
     notify: createNotifyGate(
       () => settings.getNotifications(),
-      (sessionId, status, sound, message) => {
+      (sessionId, status, sound, message, risk) => {
         // Resolve the tab and workspace here, where the repos live; main just displays it.
         const parsed = parseSessionId(sessionId)
         const tab = parsed ? tabs.getById(parsed.tabId) : undefined
@@ -234,7 +246,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
           sessionId,
           title: tab?.title ?? 'Claude Code',
           subtitle: ws?.name,
-          body: message ?? STATUS_BODY[status],
+          // A dangerous permission request must be recognizable from the banner alone.
+          body: (risk === 'dangerous' ? '[dangerous] ' : '') + (message ?? STATUS_BODY[status]),
           silent: !sound
         }
         emitPush(NATIVE_NOTIFICATION_PUSH, request)
@@ -252,26 +265,83 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // Which preset each live session is (only a claude session's input drives 'working').
   const presetsBySession = new Map<string, Preset>()
 
+  // Hook lifecycle: raw event persistence with real retention, plus the per-session state
+  // machine fed by the authenticated listener below. Alerts flow through the one notifier so
+  // hook and marker paths share dedupe, presence gating, and the dock badge.
+  const hookEvents = createHookEventRepo(db, repoDeps)
+  hookEvents.pruneOlderThan(Date.now() - HOOK_EVENT_RETENTION_MS)
+  const hookRetentionTimer = setInterval(
+    () => hookEvents.pruneOlderThan(Date.now() - HOOK_EVENT_RETENTION_MS),
+    6 * 60 * 60 * 1000
+  )
+
+  const lifecycle = createSessionLifecycleService({
+    appendRawEvent: (sessionId, eventName, payload) =>
+      hookEvents.append(sessionId, eventName, payload),
+    storeClaudeSessionId: (sessionId, claudeSessionId) => {
+      const parsed = parseSessionId(sessionId)
+      if (parsed) tabs.setResumeSessionId(parsed.tabId, claudeSessionId)
+    },
+    alert: (sessionId, status, message, risk) => notifier.onAlert(sessionId, status, message, risk),
+    markWorking: (sessionId) => notifier.onInput(sessionId),
+    log: (message) => console.log(message)
+  })
+
+  // The authenticated localhost listener the hook helper posts to. Its failure to start is
+  // never a boot failure - the PTY marker fallback keeps attention working, listener-less.
+  // The sidecar advertising the bound port is written only after a successful bind.
+  let hookListenerHandle: HookListenerHandle | null = null
+  let hookListenerStopped = false
+  try {
+    const hookToken = readOrCreateToken(userDataDir)
+    void startHookListener({
+      token: hookToken,
+      portRange: resolvePortRange(env),
+      onEvent: (event, body, instanceId) => lifecycle.onHookEvent(event, body, instanceId)
+    })
+      .then((handle) => {
+        // Shutdown can win the race against the bind; close the late listener right away.
+        if (hookListenerStopped) {
+          void handle.stop()
+          return
+        }
+        hookListenerHandle = handle
+        writeListenerSidecar(join(userDataDir, LISTENER_SIDECAR_FILENAME), {
+          port: handle.port,
+          writtenAt: Date.now()
+        })
+      })
+      .catch((err) => {
+        console.warn('[lifecycle] hook listener failed to start; marker fallback active:', err)
+      })
+  } catch (err) {
+    console.warn('[lifecycle] hook listener setup failed; marker fallback active:', err)
+  }
+
   const sessions = createSessionManager({
     spawn: deps.spawn,
-    // Every PTY chunk also feeds the attention detector; exit clears its per-session state.
+    // PTY chunks feed the marker detector only while the session has not proven its hook
+    // wiring - once hook events flow, hooks are authoritative and markers stand down. PTY
+    // exit is always authoritative for the lifecycle regardless of hook health.
     send: {
       data: (event) => {
         emitPush(Channel.terminalData, event)
-        notifier.onChunk(event.sessionId, event.data)
+        if (!lifecycle.isHookHealthy(event.sessionId)) notifier.onChunk(event.sessionId, event.data)
       },
       exit: (event) => {
         emitPush(Channel.terminalExit, event)
+        lifecycle.onPtyExit(event.sessionId, event.exitCode)
         notifier.forget(event.sessionId)
         detector.forget(event.sessionId)
         presetsBySession.delete(event.sessionId)
       }
     },
-    buildSpec: (preset, resumeSessionId) =>
+    buildSpec: (preset, resumeSessionId, sessionId) =>
       buildSpawn(preset, {
         testMode: isE2e,
         notifSettingsPath,
-        resumeSessionId
+        resumeSessionId,
+        instanceId: sessionId
       })
   })
 
@@ -295,10 +365,16 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     ...baseTerminalHandlers,
     spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
       presetsBySession.set(id, preset)
+      // Only claude sessions live in the hook lifecycle; the recorded spawn cwd is what the
+      // nested-session guard compares every hook payload's cwd against.
+      if (preset === 'claude') lifecycle.onSpawn(id, cwd)
       return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows, resumeSessionId)
     },
     write: (id, data) => {
-      if (presetsBySession.get(id) === 'claude' && data.includes('\r')) notifier.onInput(id)
+      if (presetsBySession.get(id) === 'claude' && data.includes('\r')) {
+        notifier.onInput(id)
+        lifecycle.onUserInput(id)
+      }
       baseTerminalHandlers.write(id, data)
     }
   }
@@ -502,6 +578,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const shutdown = (): void => {
     if (shutdownDone) return
     shutdownDone = true
+    // Stop accepting hook posts (and the retention timer) before the DB goes away.
+    hookListenerStopped = true
+    void hookListenerHandle?.stop().catch(() => {})
+    clearInterval(hookRetentionTimer)
     sessions.killAll()
     review.shutdown()
     jiraFetcher.dispose()

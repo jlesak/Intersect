@@ -1,22 +1,26 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NATIVE_DOCK_BADGE_PUSH, WINDOW_FOCUS_CHANGED } from '@common/coreBridge'
 import { Channel } from '@common/ipc'
 import type { PtyProcess, SpawnFn } from './pty/sessionManager'
-import { buildMarker, PERMISSION_TOKEN } from './pty/attentionMarkers'
+import { buildMarker, PERMISSION_TOKEN, STOP_TOKEN } from './pty/attentionMarkers'
+import { readListenerSidecar } from './hooks/listenerSidecar'
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
 
 /** A recording PTY fake: enough surface for the session manager, no native module. */
-function makeFakeSpawn(): { spawn: SpawnFn; procs: FakeProc[] } {
+function makeFakeSpawn(): { spawn: SpawnFn; procs: FakeProc[]; envs: Record<string, string>[] } {
   const procs: FakeProc[] = []
-  const spawn: SpawnFn = () => {
+  const envs: Record<string, string>[] = []
+  const spawn: SpawnFn = (req) => {
     const proc = makeFakeProc()
     procs.push(proc)
+    envs.push(req.env)
     return proc.pty
   }
-  return { spawn, procs }
+  return { spawn, procs, envs }
 }
 
 interface FakeProc {
@@ -57,11 +61,11 @@ describe('createCoreRuntime', () => {
   let fake: ReturnType<typeof makeFakeSpawn>
   let runtime: CoreRuntime | null
 
-  const boot = (): CoreRuntime => {
+  const boot = (env: NodeJS.ProcessEnv = {}): CoreRuntime => {
     runtime = createCoreRuntime({
       userDataDir: dir,
       execPath: process.execPath,
-      env: { INTERSECT_E2E: '1' },
+      env: { INTERSECT_E2E: '1', INTERSECT_HOOK_PORT_RANGE: '18100-18119', ...env },
       emitPush: (channel, payload) => pushes.push({ channel, payload }),
       spawn: fake.spawn,
       ensureSpawnHelper: () => {},
@@ -197,5 +201,210 @@ describe('createCoreRuntime', () => {
     const badgePush = pushes.find((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
     expect(statusPush?.payload).toMatchObject({ sessionId })
     expect(badgePush?.payload).toEqual({ count: 1 })
+  })
+
+  describe('hook lifecycle', () => {
+    /** Wait until the runtime's async listener bind published its sidecar, then read it. */
+    const listenerInfo = async (): Promise<{ port: number; token: string }> => {
+      const sidecarPath = join(dir, 'listener.json')
+      await vi.waitFor(() => {
+        if (!existsSync(sidecarPath)) throw new Error('sidecar not written yet')
+      })
+      const sidecar = readListenerSidecar(sidecarPath)
+      if (!sidecar) throw new Error('unreadable sidecar')
+      return { port: sidecar.port, token: readFileSync(join(dir, 'hook-token'), 'utf8').trim() }
+    }
+
+    const postHook = (
+      port: number,
+      event: string,
+      headers: Record<string, string>,
+      body: unknown
+    ): Promise<number> =>
+      new Promise((resolve, reject) => {
+        const payload = JSON.stringify(body)
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: `/hooks/${event}`,
+            agent: false,
+            headers: { 'content-type': 'application/json', ...headers }
+          },
+          (res) => {
+            res.resume()
+            res.on('end', () => resolve(res.statusCode ?? 0))
+          }
+        )
+        req.on('error', reject)
+        req.end(payload)
+      })
+
+    const spawnClaudeTab = async (
+      rt: CoreRuntime
+    ): Promise<{ sessionId: string; wsId: string; tabId: string }> => {
+      const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'claude', null])) as {
+        id: string
+      }
+      const sessionId = `${ws.id}:${tab.id}`
+      await rt.handleRequest(Channel.terminalSpawn, [sessionId, 'claude', dir, 80, 24, null])
+      return { sessionId, wsId: ws.id, tabId: tab.id }
+    }
+
+    test('injects the session id as INTERSECT_INSTANCE_ID into the claude spawn env only', async () => {
+      const rt = boot()
+      const { sessionId, wsId } = await spawnClaudeTab(rt)
+      expect(fake.envs[0].INTERSECT_INSTANCE_ID).toBe(sessionId)
+
+      const shellTab = (await rt.handleRequest(Channel.tabsCreate, [wsId, 'shell', null])) as {
+        id: string
+      }
+      await rt.handleRequest(Channel.terminalSpawn, [
+        `${wsId}:${shellTab.id}`,
+        'shell',
+        dir,
+        80,
+        24,
+        null
+      ])
+      expect(fake.envs[1].INTERSECT_INSTANCE_ID).toBeUndefined()
+    })
+
+    test('an authenticated permission hook drives the waiting status with risk metadata', async () => {
+      const rt = boot()
+      const { sessionId } = await spawnClaudeTab(rt)
+      const { port, token } = await listenerInfo()
+
+      const status = await postHook(
+        port,
+        'NotificationPermission',
+        { authorization: `Bearer ${token}`, 'x-intersect-instance': sessionId },
+        { cwd: dir, message: 'Claude needs your permission to use Bash' }
+      )
+      expect(status).toBe(204)
+      const statusPush = pushes.find((p) => p.channel === Channel.terminalSessionStatus)
+      expect(statusPush?.payload).toEqual({ sessionId, status: 'waiting', risk: 'unknown' })
+      const badgePush = pushes.find((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
+      expect(badgePush?.payload).toEqual({ count: 1 })
+    })
+
+    test('a wrong bearer token is rejected and produces no status change', async () => {
+      const rt = boot()
+      const { sessionId } = await spawnClaudeTab(rt)
+      const { port } = await listenerInfo()
+
+      const status = await postHook(
+        port,
+        'Stop',
+        { authorization: 'Bearer wrong', 'x-intersect-instance': sessionId },
+        { cwd: dir }
+      )
+      expect(status).toBe(401)
+      expect(pushes.find((p) => p.channel === Channel.terminalSessionStatus)).toBeUndefined()
+    })
+
+    test('SessionStart persists the captured claude session UUID onto the tab row', async () => {
+      const rt = boot()
+      const { sessionId, wsId, tabId } = await spawnClaudeTab(rt)
+      const { port, token } = await listenerInfo()
+
+      await postHook(
+        port,
+        'SessionStart',
+        { authorization: `Bearer ${token}`, 'x-intersect-instance': sessionId },
+        { session_id: 'claude-uuid-1', cwd: dir }
+      )
+      const tabs = (await rt.handleRequest(Channel.tabsListByWorkspace, [wsId])) as {
+        id: string
+        resumeSessionId: string | null
+      }[]
+      expect(tabs.find((t) => t.id === tabId)?.resumeSessionId).toBe('claude-uuid-1')
+    })
+
+    test('a nested different-cwd SessionStart cannot alter the tab resume id or state', async () => {
+      const rt = boot()
+      const { sessionId, wsId, tabId } = await spawnClaudeTab(rt)
+      const { port, token } = await listenerInfo()
+
+      const status = await postHook(
+        port,
+        'SessionStart',
+        { authorization: `Bearer ${token}`, 'x-intersect-instance': sessionId },
+        { session_id: 'foreign-uuid', cwd: '/private/tmp' }
+      )
+      expect(status).toBe(204)
+      const tabs = (await rt.handleRequest(Channel.tabsListByWorkspace, [wsId])) as {
+        id: string
+        resumeSessionId: string | null
+      }[]
+      expect(tabs.find((t) => t.id === tabId)?.resumeSessionId).toBeNull()
+      expect(pushes.find((p) => p.channel === Channel.terminalSessionStatus)).toBeUndefined()
+    })
+
+    test('hooks win conflicts: once hook events flow, PTY markers are ignored for the session', async () => {
+      const rt = boot()
+      const { sessionId } = await spawnClaudeTab(rt)
+      const { port, token } = await listenerInfo()
+
+      await postHook(
+        port,
+        'Stop',
+        { authorization: `Bearer ${token}`, 'x-intersect-instance': sessionId },
+        { cwd: dir }
+      )
+      const donePushes = pushes.filter((p) => p.channel === Channel.terminalSessionStatus)
+      expect(donePushes).toHaveLength(1)
+      expect(donePushes[0].payload).toEqual({ sessionId, status: 'done' })
+
+      // The helper also prints the marker for Stop; the now hook-healthy session must not
+      // process it a second time through the fallback detector.
+      fake.procs[0].emitData(buildMarker(STOP_TOKEN))
+      fake.procs[0].emitData(buildMarker(PERMISSION_TOKEN))
+      expect(pushes.filter((p) => p.channel === Channel.terminalSessionStatus)).toHaveLength(1)
+    })
+
+    test('without hook events the marker fallback works even when no listener port binds', async () => {
+      // Occupy the single allowed port so the runtime's listener cannot bind at all.
+      const blocker = http.createServer(() => {})
+      await new Promise<void>((r) => blocker.listen(18150, '127.0.0.1', () => r()))
+      try {
+        const rt = boot({ INTERSECT_HOOK_PORT_RANGE: '18150-18150' })
+        const { sessionId } = await spawnClaudeTab(rt)
+        // Boot survives, no sidecar appears, and the marker path still drives attention.
+        fake.procs[0].emitData(buildMarker(PERMISSION_TOKEN))
+        const statusPush = pushes.find((p) => p.channel === Channel.terminalSessionStatus)
+        expect(statusPush?.payload).toEqual({ sessionId, status: 'waiting' })
+        expect(existsSync(join(dir, 'listener.json'))).toBe(false)
+      } finally {
+        await new Promise<void>((r) => blocker.close(() => r()))
+      }
+    })
+
+    test('shutdown stops the listener so its port is released', async () => {
+      const rt = boot()
+      await spawnClaudeTab(rt)
+      const { port } = await listenerInfo()
+      rt.shutdown()
+      await expect(
+        postHook(port, 'Stop', { authorization: 'Bearer x', 'x-intersect-instance': 'i' }, {})
+      ).rejects.toThrow()
+    })
+
+    test('duplicate hook events do not stack duplicate attention', async () => {
+      const rt = boot()
+      const { sessionId } = await spawnClaudeTab(rt)
+      const { port, token } = await listenerInfo()
+      const auth = { authorization: `Bearer ${token}`, 'x-intersect-instance': sessionId }
+
+      await postHook(port, 'Stop', auth, { cwd: dir })
+      await postHook(port, 'Stop', auth, { cwd: dir })
+      await postHook(port, 'NotificationIdle', auth, { cwd: dir, message: 'idle' })
+      // One badge increment in total: repeats and the idle backstop map to the same 'done'.
+      const badgePushes = pushes.filter((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
+      expect(badgePushes).toHaveLength(1)
+      expect(badgePushes[0].payload).toEqual({ count: 1 })
+    })
   })
 })

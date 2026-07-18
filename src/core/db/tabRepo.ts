@@ -34,6 +34,12 @@ export interface TabRepo {
   reorder(workspaceId: string, orderedIds: string[]): Tab[]
   setPaneSlot(id: string, slot: number | null): Tab
   setPaneSlots(assignments: { id: string; paneSlot: number | null }[]): void
+  /**
+   * Persist the Claude session UUID the tab's live session is currently writing, so a
+   * respawn after restart resumes the same conversation. Tolerates an unknown tab id
+   * (hook events can outlive a deleted tab) as a silent no-op.
+   */
+  setResumeSessionId(id: string, resumeSessionId: string | null): void
   /** Clear the given pane slot for every tab of the workspace except `exceptId`. */
   clearPaneSlot(workspaceId: string, slot: number, exceptId: string): void
 }
@@ -105,6 +111,10 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       mustGet(id)
       db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?').run(slot, id)
       return mustGet(id)
+    },
+
+    setResumeSessionId(id, resumeSessionId) {
+      db.prepare('UPDATE tabs SET resume_session_id = ? WHERE id = ?').run(resumeSessionId, id)
     },
 
     setPaneSlots(assignments) {

@@ -28,6 +28,13 @@ export interface BuildSpawnOptions {
    * `claude --resume <id> ...` so the tab reopens that past conversation. Ignored by the shell preset.
    */
   resumeSessionId?: string | null
+  /**
+   * The stable Intersect session id (`workspaceId:tabId`) injected as INTERSECT_INSTANCE_ID
+   * into the claude preset's environment, so the hook helper can tag every lifecycle event
+   * with the session it belongs to. Ignored by the shell preset - only a managed claude
+   * session may carry an instance identity.
+   */
+  instanceId?: string
 }
 
 /** The user's default shell, falling back to zsh (macOS default). */
@@ -45,6 +52,8 @@ function sanitizeEnv(env: EnvInput): Record<string, string> {
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue
     if (key.startsWith('ELECTRON_')) continue
+    // Never inherit a stale instance identity; buildSpawn re-injects the right one below.
+    if (key === 'INTERSECT_INSTANCE_ID') continue
     out[key] = value
   }
   out.TERM = 'xterm-256color'
@@ -63,11 +72,14 @@ export function buildSpawn(preset: Preset, opts: BuildSpawnOptions = {}): SpawnS
 
   const args = opts.testMode ? (isBash ? ['--norc', '--noprofile', '-i'] : ['-f']) : ['-l']
 
+  const env = sanitizeEnv(opts.env ?? process.env)
+  if (preset === 'claude' && opts.instanceId) env.INTERSECT_INSTANCE_ID = opts.instanceId
+
   return {
     file,
     args,
     initialCommand: resolveInitialCommand(preset, opts.notifSettingsPath, opts.resumeSessionId),
-    env: sanitizeEnv(opts.env ?? process.env)
+    env
   }
 }
 

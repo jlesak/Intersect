@@ -174,6 +174,52 @@ describe('sessionNotifier', () => {
     expect(h.notify).toHaveBeenCalledTimes(2)
   })
 
+  describe('onAlert (hook-lifecycle entry point)', () => {
+    it('broadcasts and notifies through the same pipeline, carrying the risk metadata', () => {
+      const h = harness()
+      h.notifier.onAlert('w:a', 'waiting', 'perm?', 'dangerous')
+      expect(h.broadcastStatus).toHaveBeenCalledWith('w:a', 'waiting', 'dangerous')
+      expect(h.notify).toHaveBeenCalledWith('w:a', 'waiting', 'perm?', 'dangerous')
+    })
+
+    it('omits the risk argument entirely when none is given', () => {
+      const h = harness()
+      h.notifier.onAlert('w:a', 'done')
+      expect(h.broadcastStatus).toHaveBeenCalledWith('w:a', 'done')
+      expect(h.notify).toHaveBeenCalledWith('w:a', 'done', undefined)
+    })
+
+    it('dedupes duplicate hook alerts of the same status (no duplicate attention)', () => {
+      const h = harness()
+      h.notifier.onAlert('w:a', 'done')
+      h.notifier.onAlert('w:a', 'done')
+      expect(h.notify).toHaveBeenCalledTimes(1)
+    })
+
+    it('shares dedupe state with the marker path - a marker after a hook alert stays silent', () => {
+      const h = harness() // detect maps WANT -> idle -> 'done'
+      h.notifier.onAlert('w:a', 'done')
+      h.notifier.onChunk('w:a', 'WANT')
+      expect(h.notify).toHaveBeenCalledTimes(1)
+    })
+
+    it('suppresses notify (but still repaints) for the actively viewed session', () => {
+      const h = harness({ focused: true })
+      h.notifier.reportActive('w:a')
+      h.notifier.onAlert('w:a', 'waiting', 'perm?', 'unknown')
+      expect(h.broadcastStatus).toHaveBeenCalledWith('w:a', 'waiting', 'unknown')
+      expect(h.notify).not.toHaveBeenCalled()
+    })
+
+    it('escalates done -> waiting exactly like the marker path', () => {
+      const h = harness()
+      h.notifier.onAlert('w:a', 'done')
+      h.notifier.onAlert('w:a', 'waiting', 'perm?', 'unknown')
+      expect(h.notify).toHaveBeenCalledTimes(2)
+      expect(h.notify).toHaveBeenLastCalledWith('w:a', 'waiting', 'perm?', 'unknown')
+    })
+  })
+
   describe('onInput', () => {
     it('broadcasts working and notifies once on the transition into working', () => {
       const h = harness()

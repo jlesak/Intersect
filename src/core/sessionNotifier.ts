@@ -1,4 +1,4 @@
-import type { SessionStatus } from '@common/ipc'
+import type { PermissionRisk, SessionStatus } from '@common/ipc'
 import type { AttentionAlert } from './pty/attentionDetector'
 import type { AttentionKind } from './pty/attentionMarkers'
 
@@ -14,7 +14,8 @@ const KIND_TO_STATUS: Record<AttentionKind, SessionStatus> = {
  * `notify` performs the actual native OS notification - for 'waiting'/'done' alerts and for a
  * session that just started 'working'; which of those actually reach the screen is the injected
  * implementation's decision (it applies the user's notification settings). `message`, when given,
- * is Claude's own notification text and should be preferred over a generic body.
+ * is Claude's own notification text and should be preferred over a generic body; `risk`, when
+ * given, is the permission request's risk classification and rides along as display metadata.
  * `broadcastStatus` tells the renderer to recolor the tab for any status, including 'working';
  * `detect` recognises the app-private hook markers in a raw PTY chunk.
  * `onPendingChanged` reports how many sessions currently hold an unacknowledged waiting/done
@@ -22,8 +23,8 @@ const KIND_TO_STATUS: Record<AttentionKind, SessionStatus> = {
  */
 export interface SessionNotifierDeps {
   detect(sessionId: string, chunk: string): AttentionAlert | null
-  notify(sessionId: string, status: SessionStatus, message?: string): void
-  broadcastStatus(sessionId: string, status: SessionStatus): void
+  notify(sessionId: string, status: SessionStatus, message?: string, risk?: PermissionRisk): void
+  broadcastStatus(sessionId: string, status: SessionStatus, risk?: PermissionRisk): void
   isWindowFocused(): boolean
   onPendingChanged(count: number): void
 }
@@ -31,6 +32,12 @@ export interface SessionNotifierDeps {
 export interface SessionNotifier {
   /** Feed a raw PTY output chunk; may raise an alert if it signals the session wants input. */
   onChunk(sessionId: string, chunk: string): void
+  /**
+   * Raise an attention alert directly (the hook-lifecycle path, which needs no marker
+   * detection), through exactly the same dedupe/presence/badge logic as the marker path -
+   * so a hook event and a marker for the same state can never double-alert.
+   */
+  onAlert(sessionId: string, status: SessionStatus, message?: string, risk?: PermissionRisk): void
   /**
    * The user submitted a prompt to a Claude session: mark it 'working' and drop any stale
    * unacknowledged alert from the previous turn (it no longer describes the session's state).
@@ -86,26 +93,38 @@ export function createSessionNotifier(deps: SessionNotifierDeps): SessionNotifie
     if (pending.delete(sessionId)) deps.onPendingChanged(pending.size)
   }
 
+  function onAlert(
+    sessionId: string,
+    status: SessionStatus,
+    message?: string,
+    risk?: PermissionRisk
+  ): void {
+    // Claude asked for attention, so the session is no longer working on the turn.
+    working.delete(sessionId)
+    // Repaint the tab for the new status regardless of viewing/dedup - that part is always welcome.
+    if (risk === undefined) deps.broadcastStatus(sessionId, status)
+    else deps.broadcastStatus(sessionId, status, risk)
+    // The user is already looking at this session - they saw it happen, nothing more to alert.
+    if (deps.isWindowFocused() && sessionId === activeSessionId) {
+      acked.set(sessionId, status)
+      return
+    }
+    // Already flagged (pending or already-acked) with the same status - don't stack a repeat alert.
+    if (pending.get(sessionId) === status || acked.get(sessionId) === status) return
+    acked.delete(sessionId)
+    setPending(sessionId, status)
+    if (risk === undefined) deps.notify(sessionId, status, message)
+    else deps.notify(sessionId, status, message, risk)
+  }
+
   return {
     onChunk(sessionId, chunk) {
       const alert = deps.detect(sessionId, chunk)
       if (!alert) return
-      // Claude asked for attention, so the session is no longer working on the turn.
-      working.delete(sessionId)
-      const status = KIND_TO_STATUS[alert.kind]
-      // Repaint the tab for the new status regardless of viewing/dedup - that part is always welcome.
-      deps.broadcastStatus(sessionId, status)
-      // The user is already looking at this session - they saw it happen, nothing more to alert.
-      if (deps.isWindowFocused() && sessionId === activeSessionId) {
-        acked.set(sessionId, status)
-        return
-      }
-      // Already flagged (pending or already-acked) with the same status - don't stack a repeat alert.
-      if (pending.get(sessionId) === status || acked.get(sessionId) === status) return
-      acked.delete(sessionId)
-      setPending(sessionId, status)
-      deps.notify(sessionId, status, alert.message)
+      onAlert(sessionId, KIND_TO_STATUS[alert.kind], alert.message)
     },
+
+    onAlert,
 
     onInput(sessionId) {
       clearPending(sessionId)
