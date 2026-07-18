@@ -360,15 +360,15 @@ export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>
 // TODO list - see docs/superpowers/specs/2026-07-06-todo-list-design.md
 // ---------------------------------------------------------------------------
 
-/** Todoist-style priority: 1 is the most urgent, 4 (the default) means no priority set. */
+/** Legacy persisted priority. Kept only so priority-era rows can round-trip without data loss. */
 export type TodoPriority = 1 | 2 | 3 | 4
 
 /**
  * One task on the personal TODO list - a lightweight note-to-self with no tie to workspaces or
  * Jira. `dueDay` is the optional local calendar day (`yyyy-mm-dd`) the task is due; `sortOrder`
- * is the creation-order tiebreaker used when priority and due day are equal (the open list has
- * no manual ordering - it is derived from priority, then due day). A non-null `doneAt` (epoch ms)
- * means the task is done and orders the Done section, most recently completed first.
+ * is its persisted manual position in the open list. `priority` is compatibility-only and never
+ * affects approved behavior. A non-null `doneAt` (epoch ms) means the task is done and orders the
+ * Done section, most recently completed first.
  */
 export interface TodoTask {
   id: string
@@ -385,12 +385,11 @@ export interface TodoTaskPatch {
   text?: string
   description?: string
   dueDay?: string | null
-  priority?: TodoPriority
 }
 
 /** Both TODO lists fetched together, so a single call hydrates the whole section. */
 export interface TodoLists {
-  /** Open tasks, ordered by priority then due date. */
+  /** Open tasks in persisted manual order. */
   open: TodoTask[]
   /** Done tasks, most recently completed first. */
   done: TodoTask[]

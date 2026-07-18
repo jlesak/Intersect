@@ -1,50 +1,23 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
-import type { TodoPriority, TodoTask, TodoTaskPatch } from '@common/domain'
+import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
+import type { TodoTask, TodoTaskPatch } from '@common/domain'
 import { dayKeyOf } from '@common/week'
-import { IconCalendar, IconFlag, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
+import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { formatDueDay, isOverdue } from '../due'
 
-const PRIORITIES: TodoPriority[] = [1, 2, 3, 4]
-
-/** Priority 4 means "no priority" and gets the neutral look everywhere - no class, no label. */
-const PRIORITY_CLASS: Record<TodoPriority, string> = { 1: '--p1', 2: '--p2', 3: '--p3', 4: '' }
-
-/**
- * The P1-P4 chip picker shared by the add row and the inline editor. Each chip is a small flag
- * tinted by its own priority color, regardless of which priority is currently selected.
- */
-export function PriorityPicker({
-  value,
-  onChange
-}: {
-  value: TodoPriority
-  onChange(priority: TodoPriority): void
-}) {
-  return (
-    <span className="ix-todo-prio-picker">
-      {PRIORITIES.map((p) => (
-        <button
-          key={p}
-          type="button"
-          className={`ix-todo-prio-picker__chip ix-todo-prio-picker__chip${PRIORITY_CLASS[p]}${
-            p === value ? ' ix-todo-prio-picker__chip--selected' : ''
-          }`}
-          title={`Priority ${p}`}
-          onClick={() => onChange(p)}
-        >
-          <IconFlag width={10} height={10} strokeWidth={1.8} />
-        </button>
-      ))}
-    </span>
-  )
+export interface TodoItemDrag {
+  position: number
+  total: number
+  dragging: boolean
+  draggable: boolean
+  onHandleMouseDown(): void
+  onKeyboardMove(delta: -1 | 1): void
+  onDragStart(e: DragEvent<HTMLDivElement>): void
+  onDragOver(e: DragEvent<HTMLDivElement>): void
+  onDrop(e: DragEvent<HTMLDivElement>): void
+  onDragEnd(): void
 }
 
-/**
- * One row of the TODO list. Collapsed, it shows a priority-tinted checkbox, the title, an
- * optional single-line description, and a meta row (due label, priority label for P1-P3). A done
- * row keeps its checkbox filled so unchecking works from the Done drawer, and is never editable.
- * Expanded (open rows only), it becomes an inline editor for every field.
- */
+/** One TODO row, including inline editing and accessible manual-order controls for open tasks. */
 export function TodoItem({
   task,
   done,
@@ -53,7 +26,8 @@ export function TodoItem({
   onDelete,
   onStartEdit,
   onCancelEdit,
-  onSave
+  onSave,
+  drag
 }: {
   task: TodoTask
   done: boolean
@@ -63,6 +37,7 @@ export function TodoItem({
   onStartEdit?(): void
   onCancelEdit?(): void
   onSave?(patch: TodoTaskPatch): void
+  drag?: TodoItemDrag
 }) {
   const today = dayKeyOf(Date.now())
   const overdue = !done && task.dueDay !== null && isOverdue(task.dueDay, today)
@@ -70,33 +45,20 @@ export function TodoItem({
   const [draftText, setDraftText] = useState(task.text)
   const [draftDescription, setDraftDescription] = useState(task.description)
   const [draftDueDay, setDraftDueDay] = useState(task.dueDay ?? '')
-  const [draftPriority, setDraftPriority] = useState<TodoPriority>(task.priority)
 
-  // Re-seed the draft from the canonical task every time this row enters edit mode.
   useEffect(() => {
     if (!editing) return
     setDraftText(task.text)
     setDraftDescription(task.description)
     setDraftDueDay(task.dueDay ?? '')
-    setDraftPriority(task.priority)
-  }, [editing])
+  }, [editing, task.text, task.description, task.dueDay])
 
   function save(): void {
     const trimmed = draftText.trim()
     if (!trimmed) return
-    onSave?.({
-      text: trimmed,
-      description: draftDescription,
-      dueDay: draftDueDay || null,
-      priority: draftPriority
-    })
+    onSave?.({ text: trimmed, description: draftDescription, dueDay: draftDueDay || null })
   }
 
-  // Handled on the editor container rather than per-field, so Enter/Escape work from any focused
-  // control (text fields, the date input, a priority chip) - not just the two text inputs. A
-  // button's own click already carries the right meaning for Enter (Cancel must still cancel, a
-  // priority chip just selects), so buttons are left to their native activation instead of being
-  // forced through save() here; Escape has no such native behavior, so it always cancels.
   function onEditorKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
     const isButton = (e.target as HTMLElement).tagName === 'BUTTON'
     if (e.key === 'Enter' && !isButton) save()
@@ -105,7 +67,8 @@ export function TodoItem({
 
   if (editing) {
     return (
-      <div className="ix-todo-item ix-todo-item--editing" onKeyDown={onEditorKeyDown}>
+      <div className="ix-todo-item ix-todo-item--editing" role="listitem" onKeyDown={onEditorKeyDown}>
+        <span className="ix-todo-item__drag-spacer" aria-hidden />
         <span className="ix-todo-item__check-spacer" />
         <span className="ix-todo-item__editor">
           <input
@@ -122,7 +85,6 @@ export function TodoItem({
             onChange={(e) => setDraftDescription(e.target.value)}
           />
           <span className="ix-todo-item__editor-row">
-            <PriorityPicker value={draftPriority} onChange={setDraftPriority} />
             <input
               type="date"
               className="ix-input ix-todo__date"
@@ -145,12 +107,51 @@ export function TodoItem({
 
   return (
     <div
-      className={`ix-todo-item${done ? ' ix-todo-item--done' : ''}`}
+      className={`ix-todo-item${done ? ' ix-todo-item--done' : ''}${
+        drag?.dragging ? ' ix-todo-item--dragging' : ''
+      }`}
+      role="listitem"
+      draggable={drag?.draggable ?? false}
       onClick={!done ? onStartEdit : undefined}
+      onDragStart={drag?.onDragStart}
+      onDragOver={drag?.onDragOver}
+      onDrop={drag?.onDrop}
+      onDragEnd={drag?.onDragEnd}
     >
+      {drag ? (
+        <button
+          type="button"
+          className="ix-todo-item__drag"
+          aria-label={`Move ${task.text}, position ${drag.position} of ${drag.total}. Use Up and Down arrow keys to reorder.`}
+          aria-keyshortcuts="ArrowUp ArrowDown"
+          title="Drag to reorder; use Up/Down arrow keys"
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            drag.onHandleMouseDown()
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+            e.preventDefault()
+            e.stopPropagation()
+            drag.onKeyboardMove(e.key === 'ArrowUp' ? -1 : 1)
+          }}
+        >
+          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden>
+            <circle cx="2" cy="2" r="1.3" />
+            <circle cx="8" cy="2" r="1.3" />
+            <circle cx="2" cy="7" r="1.3" />
+            <circle cx="8" cy="7" r="1.3" />
+            <circle cx="2" cy="12" r="1.3" />
+            <circle cx="8" cy="12" r="1.3" />
+          </svg>
+        </button>
+      ) : (
+        <span className="ix-todo-item__drag-spacer" aria-hidden />
+      )}
       <button
         type="button"
-        className={`ix-todo-item__check ix-todo-item__check${PRIORITY_CLASS[task.priority]}`}
+        className="ix-todo-item__check"
         title={done ? 'Mark as not done' : 'Mark as done'}
         onClick={(e) => {
           e.stopPropagation()
@@ -164,19 +165,12 @@ export function TodoItem({
         {task.description !== '' && (
           <span className="ix-todo-item__description">{task.description}</span>
         )}
-        {(task.dueDay !== null || task.priority < 4) && (
+        {task.dueDay !== null && (
           <span className="ix-todo-item__meta">
-            {task.dueDay !== null && (
-              <span className={`ix-todo-item__due${overdue ? ' ix-todo-item__due--overdue' : ''}`}>
-                <IconCalendar width={10} height={10} strokeWidth={1.8} />
-                {formatDueDay(task.dueDay, today)}
-              </span>
-            )}
-            {task.priority < 4 && (
-              <span className={`ix-todo-item__prio ix-todo-item__prio${PRIORITY_CLASS[task.priority]}`}>
-                P{task.priority}
-              </span>
-            )}
+            <span className={`ix-todo-item__due${overdue ? ' ix-todo-item__due--overdue' : ''}`}>
+              <IconCalendar width={10} height={10} strokeWidth={1.8} />
+              {formatDueDay(task.dueDay, today)}
+            </span>
           </span>
         )}
       </span>

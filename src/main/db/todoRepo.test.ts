@@ -31,11 +31,6 @@ describe('todoRepo', () => {
     expect(task.dueDay).toBeNull()
   })
 
-  test('create accepts an explicit priority', () => {
-    const task = repo.create('urgent', null, 1)
-    expect(task.priority).toBe(1)
-  })
-
   test('create rejects empty and whitespace-only text with a message-only error', () => {
     expect(() => repo.create('', null)).toThrow(/must not be empty/i)
     expect(() => repo.create('   ', null)).toThrow(/must not be empty/i)
@@ -44,13 +39,6 @@ describe('todoRepo', () => {
   test('create rejects a malformed due day', () => {
     expect(() => repo.create('task', '10.07.2026')).toThrow(/invalid due day/i)
     expect(() => repo.create('task', '2026-7-1')).toThrow(/invalid due day/i)
-  })
-
-  test('create rejects an out-of-range priority', () => {
-    // @ts-expect-error - deliberately out of range to exercise runtime validation
-    expect(() => repo.create('task', null, 0)).toThrow(/invalid priority/i)
-    // @ts-expect-error - deliberately out of range to exercise runtime validation
-    expect(() => repo.create('task', null, 5)).toThrow(/invalid priority/i)
   })
 
   test('each new task is appended to the end of the open list', () => {
@@ -72,49 +60,34 @@ describe('todoRepo', () => {
   })
 
   describe('listOpen ordering', () => {
-    test('orders by priority first, most urgent (P1) before least (P4)', () => {
-      repo.create('low', null, 4)
-      repo.create('urgent', null, 1)
-      repo.create('medium', null, 3)
-      repo.create('high', null, 2)
-      expect(repo.listOpen().map((t) => t.text)).toEqual(['urgent', 'high', 'medium', 'low'])
-    })
+    test('uses only manual sort_order, regardless of legacy priority and due day', () => {
+      const first = repo.create('first', null)
+      const second = repo.create('second', '2026-12-31')
+      const third = repo.create('third', '2026-01-01')
+      db.prepare('UPDATE todo_task SET priority = 1 WHERE id = ?').run(third.id)
+      db.prepare('UPDATE todo_task SET priority = 2 WHERE id = ?').run(second.id)
 
-    test('within a priority, orders by due date, earliest first', () => {
-      repo.create('later', '2026-07-20', 2)
-      repo.create('sooner', '2026-07-10', 2)
-      repo.create('soonest', '2026-07-01', 2)
-      expect(repo.listOpen().map((t) => t.text)).toEqual(['soonest', 'sooner', 'later'])
-    })
-
-    test('within a priority, a task with no due day sorts after every dated task', () => {
-      repo.create('no due day', null, 2)
-      repo.create('has due day', '2026-12-31', 2)
-      expect(repo.listOpen().map((t) => t.text)).toEqual(['has due day', 'no due day'])
-    })
-
-    test('falls back to creation order when priority and due day both tie', () => {
-      repo.create('first', '2026-07-10', 3)
-      repo.create('second', '2026-07-10', 3)
-      expect(repo.listOpen().map((t) => t.text)).toEqual(['first', 'second'])
+      repo.reorder([second.id, first.id, third.id])
+      expect(repo.listOpen().map((t) => t.text)).toEqual(['second', 'first', 'third'])
     })
   })
 
   describe('update', () => {
     test('edits any subset of fields, leaving the rest untouched', () => {
-      const task = repo.create('a', '2026-07-10', 3)
+      const task = repo.create('a', '2026-07-10')
+      db.prepare('UPDATE todo_task SET priority = 3 WHERE id = ?').run(task.id)
       const updated = repo.update(task.id, { text: 'b' })
       expect(updated.text).toBe('b')
       expect(updated.dueDay).toBe('2026-07-10')
       expect(updated.priority).toBe(3)
     })
 
-    test('updates description, due day, and priority', () => {
+    test('updates description and due day without changing compatibility-only priority', () => {
       const task = repo.create('a', null)
+      db.prepare('UPDATE todo_task SET priority = 1 WHERE id = ?').run(task.id)
       const updated = repo.update(task.id, {
         description: 'more detail',
-        dueDay: '2026-08-01',
-        priority: 1
+        dueDay: '2026-08-01'
       })
       expect(updated.description).toBe('more detail')
       expect(updated.dueDay).toBe('2026-08-01')
@@ -133,11 +106,9 @@ describe('todoRepo', () => {
       expect(() => repo.update(task.id, { text: '   ' })).toThrow(/must not be empty/i)
     })
 
-    test('rejects a malformed due day and an out-of-range priority', () => {
+    test('rejects a malformed due day', () => {
       const task = repo.create('a', null)
       expect(() => repo.update(task.id, { dueDay: 'not-a-day' })).toThrow(/invalid due day/i)
-      // @ts-expect-error - deliberately out of range to exercise runtime validation
-      expect(() => repo.update(task.id, { priority: 0 })).toThrow(/invalid priority/i)
     })
 
     test('an empty patch is a no-op that still returns the canonical task', () => {
@@ -192,5 +163,53 @@ describe('todoRepo', () => {
     repo.remove(b.id)
     expect(repo.listOpen()).toEqual([])
     expect(repo.listDone()).toEqual([])
+  })
+
+  describe('reorder', () => {
+    test('rewrites every open sortOrder and returns the persisted canonical order', () => {
+      const a = repo.create('a', null)
+      const b = repo.create('b', null)
+      const c = repo.create('c', null)
+
+      const reordered = repo.reorder([c.id, a.id, b.id])
+
+      expect(reordered.map((task) => task.id)).toEqual([c.id, a.id, b.id])
+      expect(reordered.map((task) => task.sortOrder)).toEqual([0, 1, 2])
+      expect(repo.listOpen()).toEqual(reordered)
+    })
+
+    test('requires every open id exactly once and never accepts done ids', () => {
+      const a = repo.create('a', null)
+      const b = repo.create('b', null)
+      const done = repo.create('done', null)
+      repo.setDone(done.id, true)
+
+      expect(() => repo.reorder([a.id])).toThrow(/every open task exactly once/i)
+      expect(() => repo.reorder([a.id, a.id])).toThrow(/every open task exactly once/i)
+      expect(() => repo.reorder([a.id, done.id])).toThrow(/every open task exactly once/i)
+      expect(() => repo.reorder([a.id, 'missing'])).toThrow(/every open task exactly once/i)
+      expect(repo.listOpen().map((task) => task.id)).toEqual([a.id, b.id])
+    })
+
+    test('rolls back the complete ordering when any write fails', () => {
+      const a = repo.create('a', null)
+      const b = repo.create('b', null)
+      const c = repo.create('c', null)
+      db.exec(`
+        CREATE TRIGGER fail_todo_reorder
+        BEFORE UPDATE OF sort_order ON todo_task
+        WHEN NEW.id = '${b.id}'
+        BEGIN
+          SELECT RAISE(ABORT, 'injected reorder failure');
+        END;
+      `)
+
+      expect(() => repo.reorder([c.id, b.id, a.id])).toThrow(/injected reorder failure/i)
+      expect(repo.listOpen().map((task) => [task.id, task.sortOrder])).toEqual([
+        [a.id, 0],
+        [b.id, 1],
+        [c.id, 2]
+      ])
+    })
   })
 })

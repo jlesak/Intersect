@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { TodoPriority, TodoTask, TodoTaskPatch } from '@common/domain'
+import type { TodoTask, TodoTaskPatch } from '@common/domain'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -8,7 +8,7 @@ type Status = 'idle' | 'loading' | 'ready' | 'error'
 interface TodoState {
   status: Status
   error: string | null
-  /** Open tasks, ordered by priority then due date. */
+  /** Open tasks in persisted manual order. */
   open: TodoTask[]
   /** Done tasks, most recently completed first. */
   done: TodoTask[]
@@ -16,16 +16,20 @@ interface TodoState {
   showDone: boolean
   load(): Promise<void>
   toggleShowDone(): void
-  add(text: string, dueDay: string | null, priority?: TodoPriority): Promise<void>
+  add(text: string, dueDay: string | null): Promise<void>
   /** Edit any subset of a task's fields in place (inline editing). */
   update(id: string, patch: TodoTaskPatch): Promise<void>
   toggleDone(id: string, done: boolean): Promise<void>
   remove(id: string): Promise<void>
+  /** Apply the new order immediately, then persist it; failures resync from main. */
+  reorder(orderedIds: string[]): Promise<void>
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 export const useTodoStore = create<TodoState>()((set, get) => {
+  let reorderRevision = 0
+
   async function reload(): Promise<void> {
     try {
       const lists = await api.list()
@@ -37,6 +41,7 @@ export const useTodoStore = create<TodoState>()((set, get) => {
 
   /** Run a mutation, then re-read both lists so the section always shows main's truth. */
   async function mutate(op: () => Promise<unknown>, failure: string): Promise<void> {
+    reorderRevision += 1
     try {
       await op()
     } catch (e) {
@@ -53,6 +58,7 @@ export const useTodoStore = create<TodoState>()((set, get) => {
     showDone: false,
 
     async load() {
+      reorderRevision += 1
       if (get().status === 'idle') set({ status: 'loading', error: null })
       await reload()
     },
@@ -61,8 +67,8 @@ export const useTodoStore = create<TodoState>()((set, get) => {
       set((s) => ({ showDone: !s.showDone }))
     },
 
-    async add(text, dueDay, priority) {
-      await mutate(() => api.add(text, dueDay, priority), 'Could not add the task')
+    async add(text, dueDay) {
+      await mutate(() => api.add(text, dueDay), 'Could not add the task')
     },
 
     async update(id, patch) {
@@ -75,6 +81,31 @@ export const useTodoStore = create<TodoState>()((set, get) => {
 
     async remove(id) {
       await mutate(() => api.remove(id), 'Could not delete the task')
+    },
+
+    async reorder(orderedIds) {
+      const open = get().open
+      const byId = new Map(open.map((task) => [task.id, task]))
+      const exactOrder =
+        orderedIds.length === open.length &&
+        new Set(orderedIds).size === orderedIds.length &&
+        orderedIds.every((id) => byId.has(id))
+      if (!exactOrder) {
+        reportError('Could not save the new order', new Error('Invalid local task order'))
+        return
+      }
+
+      const revision = ++reorderRevision
+      set({
+        open: orderedIds.map((id, sortOrder) => ({ ...byId.get(id)!, sortOrder }))
+      })
+      try {
+        const canonical = await api.reorder(orderedIds)
+        if (revision === reorderRevision) set({ open: canonical, error: null })
+      } catch (e) {
+        reportError('Could not save the new order', e)
+        if (revision === reorderRevision) await reload()
+      }
     }
   }
 })

@@ -29,7 +29,6 @@ import type {
   TimeEntrySource,
   TimeEntryUpdate,
   TodoLists,
-  TodoPriority,
   TodoTask,
   TodoTaskPatch,
   Workspace
@@ -155,15 +154,16 @@ export interface IpcApi {
     deleteEntry(source: TimeEntrySource, id: string): Promise<void>
   }
   todo: {
-    /** Both TODO lists: open tasks ordered by priority then due date, done most recently first. */
+    /** Both TODO lists: open tasks in manual order, done most recently first. */
     list(): Promise<TodoLists>
-    /** `priority` defaults to 4 (no priority) when omitted. */
-    add(text: string, dueDay: string | null, priority?: TodoPriority): Promise<TodoTask>
+    add(text: string, dueDay: string | null): Promise<TodoTask>
     /** Edit any subset of a task's fields in place (inline editing). */
     update(id: string, patch: TodoTaskPatch): Promise<TodoTask>
     /** Checking stamps the completion time; unchecking appends the task to the end of the open list. */
     setDone(id: string, done: boolean): Promise<TodoTask>
     remove(id: string): Promise<void>
+    /** Persist the complete open-task order atomically and return the canonical list. */
+    reorder(orderedIds: string[]): Promise<TodoTask[]>
   }
   myWork: {
     /** The cached My Work Jira board; the first call fetches it via a hidden Claude Code session. */
@@ -317,6 +317,7 @@ export const Channel = {
   todoUpdate: 'todo:update',
   todoSetDone: 'todo:setDone',
   todoRemove: 'todo:remove',
+  todoReorder: 'todo:reorder',
   // myWork (request/response)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',

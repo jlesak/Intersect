@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron'
-import type { TodoPriority, TodoTaskPatch } from '@common/domain'
+import type { TodoTaskPatch } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { TodoRepo } from '../db/todoRepo'
 
@@ -26,20 +26,19 @@ async function surface<T>(op: () => T | Promise<T>): Promise<T> {
 export function createTodoHandlers(d: TodoHandlerDeps): IpcApi['todo'] {
   return {
     list: () => surface(() => ({ open: d.todos.listOpen(), done: d.todos.listDone() })),
-    add: (text, dueDay, priority) => surface(() => d.todos.create(text, dueDay, priority)),
+    add: (text, dueDay) => surface(() => d.todos.create(text, dueDay)),
     update: (id, patch) => surface(() => d.todos.update(id, patch)),
     setDone: (id, done) => surface(() => d.todos.setDone(id, done)),
-    remove: (id) => surface(() => d.todos.remove(id))
+    remove: (id) => surface(() => d.todos.remove(id)),
+    reorder: (orderedIds) => surface(() => d.todos.reorder(orderedIds))
   }
 }
 
 export function registerTodoHandlers(ipcMain: IpcMain, h: IpcApi['todo']): void {
   ipcMain.handle(Channel.todoList, () => h.list())
-  ipcMain.handle(
-    Channel.todoAdd,
-    (_e, text: string, dueDay: string | null, priority?: TodoPriority) => h.add(text, dueDay, priority)
-  )
+  ipcMain.handle(Channel.todoAdd, (_e, text: string, dueDay: string | null) => h.add(text, dueDay))
   ipcMain.handle(Channel.todoUpdate, (_e, id: string, patch: TodoTaskPatch) => h.update(id, patch))
   ipcMain.handle(Channel.todoSetDone, (_e, id: string, done: boolean) => h.setDone(id, done))
   ipcMain.handle(Channel.todoRemove, (_e, id: string) => h.remove(id))
+  ipcMain.handle(Channel.todoReorder, (_e, orderedIds: string[]) => h.reorder(orderedIds))
 }

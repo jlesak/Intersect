@@ -1,14 +1,24 @@
-import { useEffect, useState } from 'react'
-import type { TodoPriority } from '@common/domain'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { IconCalendar } from '@renderer/shared/ui/icons'
 import { useTodoStore } from '../store'
-import { PriorityPicker, TodoItem } from './TodoItem'
+import { TodoItem } from './TodoItem'
+
+/** Move one id to an insertion index, accounting for the removal shift. */
+function moveId(ids: string[], id: string, insertionIndex: number): string[] {
+  const from = ids.indexOf(id)
+  if (from < 0) return ids
+  const requestedIndex = from < insertionIndex ? insertionIndex - 1 : insertionIndex
+  const to = Math.max(0, Math.min(ids.length - 1, requestedIndex))
+  if (from === to) return ids
+  const next = [...ids]
+  next.splice(from, 1)
+  next.splice(to, 0, id)
+  return next
+}
 
 /**
- * The TODO section's main region: head (title + Done drawer toggle), the add row, the open list
- * (ordered by priority then due date - no manual reordering), and the collapsed-by-default Done
- * drawer. All persistence goes through the store; local state is only the add form and which row
- * (if any) is currently expanded into its inline editor.
+ * The TODO section's main region. Open tasks use persisted manual ordering; pointer and keyboard
+ * interactions both submit the complete order through the optimistic store.
  */
 export function TodoView() {
   const open = useTodoStore((s) => s.open)
@@ -19,32 +29,94 @@ export function TodoView() {
 
   const [text, setText] = useState('')
   const [dueDay, setDueDay] = useState('')
-  const [priority, setPriority] = useState<TodoPriority>(4)
   const [showDate, setShowDate] = useState(false)
-
-  // Only one row can be expanded into its inline editor at a time.
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [armedId, setArmedId] = useState<string | null>(null)
+  const [reorderStatus, setReorderStatus] = useState('')
+  const dropIndexRef = useRef<number | null>(null)
 
   useEffect(() => {
     void useTodoStore.getState().load()
   }, [])
 
+  useEffect(() => {
+    if (armedId === null) return
+    const disarm = (): void => setArmedId(null)
+    window.addEventListener('mouseup', disarm)
+    return () => window.removeEventListener('mouseup', disarm)
+  }, [armedId])
+
   function submit(): void {
     const trimmed = text.trim()
     if (!trimmed) return
-    void useTodoStore.getState().add(trimmed, dueDay || null, priority)
+    void useTodoStore.getState().add(trimmed, dueDay || null)
     setText('')
     setDueDay('')
-    setPriority(4)
     setShowDate(false)
   }
 
   function toggleDateInput(): void {
     setShowDate((shown) => {
-      // Hiding the input also drops a picked date, so no invisible due day rides along on add.
       if (shown) setDueDay('')
       return !shown
     })
+  }
+
+  function persistOrder(ids: string[], movedId: string): void {
+    const position = ids.indexOf(movedId) + 1
+    const task = open.find((candidate) => candidate.id === movedId)
+    if (position < 1 || !task) return
+    setReorderStatus(`Moved ${task.text} to position ${position} of ${ids.length}.`)
+    void useTodoStore.getState().reorder(ids)
+  }
+
+  function handleKeyboardMove(id: string, delta: -1 | 1): void {
+    const ids = open.map((task) => task.id)
+    const from = ids.indexOf(id)
+    const task = open[from]
+    if (!task) return
+    const to = from + delta
+    if (to < 0 || to >= ids.length) {
+      setReorderStatus(`${task.text} is already ${delta < 0 ? 'first' : 'last'}.`)
+      return
+    }
+    const next = [...ids]
+    next.splice(from, 1)
+    next.splice(to, 0, id)
+    persistOrder(next, id)
+  }
+
+  function handleDragStart(e: DragEvent<HTMLDivElement>, id: string): void {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+    setDragId(id)
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>, index: number): void {
+    if (!dragId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = e.currentTarget.getBoundingClientRect()
+    dropIndexRef.current = e.clientY < rect.top + rect.height / 2 ? index : index + 1
+  }
+
+  function handleDragEnd(): void {
+    setDragId(null)
+    setArmedId(null)
+    dropIndexRef.current = null
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>): void {
+    e.preventDefault()
+    const id = dragId
+    const target = dropIndexRef.current
+    handleDragEnd()
+    if (!id || target === null) return
+    const current = open.map((task) => task.id)
+    const next = moveId(current, id, target)
+    if (next === current) return
+    persistOrder(next, id)
   }
 
   return (
@@ -79,7 +151,6 @@ export function TodoView() {
               onChange={(e) => setDueDay(e.target.value)}
             />
           )}
-          <PriorityPicker value={priority} onChange={setPriority} />
           <button
             type="button"
             className="ix-btn ix-btn--ghost"
@@ -94,11 +165,15 @@ export function TodoView() {
           <div className="ix-todo__error">Could not load tasks{error ? `: ${error}` : ''}</div>
         )}
 
+        <div className="ix-todo__reorder-status" role="status" aria-live="polite">
+          {reorderStatus}
+        </div>
+
         {status === 'ready' && open.length === 0 ? (
           <div className="ix-todo__empty">No tasks yet - add one above.</div>
         ) : (
-          <div className="ix-todo__list">
-            {open.map((task) => (
+          <div className="ix-todo__list" role="list" aria-label="Open tasks">
+            {open.map((task, index) => (
               <TodoItem
                 key={task.id}
                 task={task}
@@ -112,6 +187,18 @@ export function TodoView() {
                   setEditingId(null)
                   void useTodoStore.getState().update(task.id, patch)
                 }}
+                drag={{
+                  position: index + 1,
+                  total: open.length,
+                  dragging: dragId === task.id,
+                  draggable: armedId === task.id,
+                  onHandleMouseDown: () => setArmedId(task.id),
+                  onKeyboardMove: (delta) => handleKeyboardMove(task.id, delta),
+                  onDragStart: (e) => handleDragStart(e, task.id),
+                  onDragOver: (e) => handleDragOver(e, index),
+                  onDrop: handleDrop,
+                  onDragEnd: handleDragEnd
+                }}
               />
             ))}
           </div>
@@ -123,7 +210,7 @@ export function TodoView() {
               <span className="ix-todo__done-title">Done</span>
               <span className="ix-todo__done-count">{done.length}</span>
             </div>
-            <div className="ix-todo__list">
+            <div className="ix-todo__list" role="list" aria-label="Done tasks">
               {done.map((task) => (
                 <TodoItem
                   key={task.id}

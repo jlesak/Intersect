@@ -2428,6 +2428,12 @@
   font-size: 12.5px;
   margin-bottom: 12px;
 }
+.ix-todo__reorder-status {
+  min-height: 16px;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
 
 .ix-todo__list {
   display: flex;
@@ -2449,6 +2455,36 @@
 .ix-todo-item:hover .ix-todo-item__actions {
   opacity: 1;
 }
+.ix-todo-item--dragging {
+  opacity: 0.45;
+}
+.ix-todo-item__drag,
+.ix-todo-item__drag-spacer {
+  flex: none;
+  width: 18px;
+  height: 20px;
+}
+.ix-todo-item__drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ix-todo-item:hover .ix-todo-item__drag,
+.ix-todo-item__drag:focus-visible {
+  opacity: 1;
+}
+.ix-todo-item__drag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .ix-todo-item__check {
   flex: none;
   width: 17px;
@@ -2465,15 +2501,6 @@
 }
 .ix-todo-item__check:hover {
   border-color: var(--accent);
-}
-.ix-todo-item__check--p1 {
-  border-color: var(--danger);
-}
-.ix-todo-item__check--p2 {
-  border-color: var(--accent);
-}
-.ix-todo-item__check--p3 {
-  border-color: var(--status-working);
 }
 .ix-todo-item__body {
   flex: 1;
@@ -2510,21 +2537,6 @@
 }
 .ix-todo-item__due--overdue {
   color: var(--danger);
-}
-.ix-todo-item__prio {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-faint);
-}
-.ix-todo-item__prio--p1 {
-  color: var(--danger);
-}
-.ix-todo-item__prio--p2 {
-  color: var(--accent);
-}
-.ix-todo-item__prio--p3 {
-  color: var(--status-working);
 }
 .ix-todo-item__actions {
   display: flex;
@@ -2577,41 +2589,6 @@
 .ix-todo-item__editor-actions .ix-btn {
   height: 26px;
   padding: 0 9px;
-}
-
-/* Priority picker - four flag chips, used by the add row and the inline editor */
-.ix-todo-prio-picker {
-  display: inline-flex;
-  gap: 2px;
-  flex: none;
-}
-.ix-todo-prio-picker__chip {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  border: 1.5px solid transparent;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ix-todo-prio-picker__chip:hover {
-  background: var(--panel-2);
-}
-.ix-todo-prio-picker__chip--p1 {
-  color: var(--danger);
-}
-.ix-todo-prio-picker__chip--p2 {
-  color: var(--accent);
-}
-.ix-todo-prio-picker__chip--p3 {
-  color: var(--status-working);
-}
-.ix-todo-prio-picker__chip--selected {
-  border-color: currentColor;
-  background: var(--panel-2);
 }
 
 .ix-todo__empty {
