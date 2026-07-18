@@ -2,7 +2,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { Preset } from '@common/domain'
 import { debounce } from '@common/debounce'
-import { makeSessionId } from '@common/ipc'
+import { makeSessionId, type TerminalAttachResult } from '@common/ipc'
+import { drainAfterSeq, type BufferedChunk } from './attachBuffer'
 import { createDataRouter } from './dataRouter'
 import * as ipc from './ipc'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
@@ -69,35 +70,103 @@ let wired = false
 function wireOnce(): void {
   if (wired) return
   wired = true
-  ipc.onData(({ sessionId, data }) => router.route({ sessionId, data }))
+  ipc.onData((event) => router.route(event))
   ipc.onExit(({ sessionId }) => {
     const view = views.get(sessionId)
     if (view && !view.disposed) view.term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
   })
 }
 
+// In-flight session creations (the attach round-trip is pending). ensureSession joins these
+// so a remount during the round-trip cannot create a second xterm or spawn twice.
+const pending = new Map<string, Promise<void>>()
+// Sessions disposed while their creation was still in flight; createSession aborts on these.
+const cancelled = new Set<string>()
+
 /**
- * Get or create the live terminal for a session. Registers the data sink and spawns the PTY in
- * that order (register-before-spawn) so the very first bytes - the shell prompt / Claude banner -
- * are never dropped. Safe to call repeatedly; a live session is returned as-is.
+ * Get or create the live terminal for a session. A new session first asks the core to attach
+ * to an already-live PTY (the renderer-reload case) and only spawns when there is none, so a
+ * reload restores the screen without restarting the process. Registers the data sink before
+ * either path so the very first bytes are never dropped. Safe to call repeatedly; a live or
+ * in-flight session resolves without side effects.
  */
 export function ensureSession(
   sessionId: string,
   preset: Preset,
   cwd: string,
   resumeSessionId?: string | null
-): View {
+): Promise<void> {
   wireOnce()
-  const existing = views.get(sessionId)
-  if (existing) return existing
+  if (views.has(sessionId)) return Promise.resolve()
+  const inFlight = pending.get(sessionId)
+  if (inFlight) return inFlight
+  const creation = createSession(sessionId, preset, cwd, resumeSessionId).finally(() =>
+    pending.delete(sessionId)
+  )
+  pending.set(sessionId, creation)
+  return creation
+}
 
+/**
+ * The attach-first creation flow: buffer pushes during the round-trip, then either seed the
+ * new xterm from the live PTY's snapshot and drain the buffer minus what the snapshot already
+ * contains (seq <= lastSeq) - output produced during the round-trip renders exactly once - or
+ * fall back to spawning a fresh PTY exactly as before.
+ */
+async function createSession(
+  sessionId: string,
+  preset: Preset,
+  cwd: string,
+  resumeSessionId?: string | null
+): Promise<void> {
+  const buffered: BufferedChunk[] = []
+  router.register(sessionId, (data, seq) => buffered.push({ data, seq }))
+
+  let attach: TerminalAttachResult
+  try {
+    attach = await ipc.attach(sessionId)
+  } catch {
+    // A failed attach degrades to the spawn path rather than leaving a dead pane.
+    attach = { live: false }
+  }
+
+  if (cancelled.delete(sessionId)) {
+    // Disposed while the round-trip was in flight: never materialize the view.
+    router.dispose(sessionId)
+    ipc.kill(sessionId)
+    return
+  }
+
+  // A live attach sizes the xterm to the PTY before any write so the snapshot reflows
+  // correctly; the ResizeObserver and fit then drive the real pane size as usual.
+  const view = buildView(sessionId, attach.live ? attach : null)
+  views.set(sessionId, view)
+  const sink = makeLiveSink(sessionId, view)
+  router.register(sessionId, sink)
+
+  if (attach.live) {
+    // The core pty may still be watermark-paused from before a reload; this xterm's write
+    // buffer starts empty, so resuming unconditionally resets the backpressure loop. Done
+    // before the writes below so a pause they legitimately trigger stays in force.
+    ipc.resume(sessionId)
+    if (attach.data) sink(attach.data)
+    for (const data of drainAfterSeq(buffered, attach.lastSeq)) sink(data)
+  } else {
+    for (const { data } of buffered) sink(data)
+    void ipc.spawn(sessionId, preset, cwd, view.term.cols, view.term.rows, resumeSessionId)
+  }
+}
+
+/** Construct the xterm + mount + observer bundle for a session (no IPC side effects). */
+function buildView(sessionId: string, dims: { cols: number; rows: number } | null): View {
   const term = new Terminal({
     theme: xtermTheme,
     fontFamily: XTERM_FONT_FAMILY,
     fontSize: currentFontSize,
     scrollback: XTERM_SCROLLBACK,
     cursorBlink: true,
-    allowProposedApi: true
+    allowProposedApi: true,
+    ...(dims ? { cols: dims.cols, rows: dims.rows } : {})
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
@@ -123,10 +192,14 @@ export function ensureSession(
       ipc.resize(sessionId, term.cols, term.rows)
     })
   }
-  views.set(sessionId, view)
 
-  // Register the sink BEFORE spawning; xterm buffers writes until open().
-  router.register(sessionId, (data) => {
+  term.onData((data) => ipc.write(sessionId, data))
+  return view
+}
+
+/** The steady-state data sink: write to the xterm under the watermark backpressure loop. */
+function makeLiveSink(sessionId: string, view: View): (data: string) => void {
+  return (data) => {
     view.outstanding += data.length
     if (!view.paused && view.outstanding > HIGH_WATER) {
       view.paused = true
@@ -139,12 +212,7 @@ export function ensureSession(
         ipc.resume(sessionId)
       }
     })
-  })
-
-  term.onData((data) => ipc.write(sessionId, data))
-
-  void ipc.spawn(sessionId, preset, cwd, term.cols, term.rows, resumeSessionId)
-  return view
+  }
 }
 
 /** Attach a session's terminal into a visible pane host (imperative DOM move; never remounts). */
@@ -178,7 +246,11 @@ export function detachSession(sessionId: string): void {
 /** Fully tear down a session: dispose xterm, stop observing, and kill the PTY. */
 export function disposeSession(sessionId: string): void {
   const view = views.get(sessionId)
-  if (!view) return
+  if (!view) {
+    // Creation may still be in flight; flag it so the pending attach aborts and kills the pty.
+    if (pending.has(sessionId)) cancelled.add(sessionId)
+    return
+  }
   view.disposed = true
   router.dispose(sessionId)
   view.observer.disconnect()

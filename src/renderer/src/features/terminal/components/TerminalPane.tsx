@@ -23,9 +23,16 @@ export function TerminalPane({
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-    ensureSession(sessionId, preset, cwd, resumeSessionId)
-    attachSession(sessionId, host)
-    return () => detachSession(sessionId)
+    // Session creation resolves an attach round-trip first; only mount the DOM node once the
+    // xterm exists, and skip it entirely if this pane unmounted in the meantime.
+    let unmounted = false
+    void ensureSession(sessionId, preset, cwd, resumeSessionId).then(() => {
+      if (!unmounted) attachSession(sessionId, host)
+    })
+    return () => {
+      unmounted = true
+      detachSession(sessionId)
+    }
   }, [sessionId, preset, cwd, resumeSessionId])
 
   return <div className="ix-pane__host" ref={hostRef} />

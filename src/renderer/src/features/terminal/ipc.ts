@@ -1,5 +1,6 @@
 import type { Preset } from '@common/domain'
 import type {
+  TerminalAttachResult,
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalNotificationClickEvent,
@@ -21,6 +22,8 @@ export const spawn = (
   rows: number,
   resumeSessionId?: string | null
 ): Promise<{ ok: boolean }> => ipc().terminal.spawn(sessionId, preset, cwd, cols, rows, resumeSessionId)
+export const attach = (sessionId: string): Promise<TerminalAttachResult> =>
+  ipc().terminal.attach(sessionId)
 export const write = (sessionId: string, data: string): void => ipc().terminal.write(sessionId, data)
 export const resize = (sessionId: string, cols: number, rows: number): void =>
   ipc().terminal.resize(sessionId, cols, rows)

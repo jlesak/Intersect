@@ -121,6 +121,12 @@ export interface IpcApi {
       /** Claude session UUID to resume (`claude --resume <id>`); omit/null for a fresh session. */
       resumeSessionId?: string | null
     ): Promise<{ ok: boolean }>
+    /**
+     * Reattach to a PTY that survived a renderer reload: returns the serialized screen
+     * snapshot plus the exactly-once boundary for the live stream that follows (see
+     * TerminalAttachResult). `live: false` when no such PTY exists - the caller spawns instead.
+     */
+    attach(sessionId: string): Promise<TerminalAttachResult>
     write(sessionId: string, data: string): void
     resize(sessionId: string, cols: number, rows: number): void
     /** Backpressure: ask main to pause/resume the child pty when the renderer buffer is over/under water. */
@@ -274,7 +280,24 @@ export interface IpcApi {
 export interface TerminalDataEvent {
   sessionId: string
   data: string
+  /**
+   * Per-session monotonic chunk counter assigned by the core. An attach response's `lastSeq`
+   * splits the stream exactly: chunks with seq <= lastSeq are already contained in the attach
+   * snapshot, so a reattaching renderer drops them instead of rendering them twice. Absent only
+   * on chunks racing session teardown, when nothing tracks the counter anymore.
+   */
+  seq?: number
 }
+
+/**
+ * Answer to terminal.attach. `live: false` means the core has no such PTY and the renderer
+ * should spawn one. A live answer carries the replayable ANSI snapshot (colors, screen state,
+ * capped scrollback), the PTY's current dimensions, and the sequence number of the last chunk
+ * the snapshot contains - the exactly-once boundary for the pushes that follow.
+ */
+export type TerminalAttachResult =
+  | { live: false }
+  | { live: true; data: string; cols: number; rows: number; lastSeq: number }
 export interface TerminalExitEvent {
   sessionId: string
   exitCode: number
@@ -363,8 +386,9 @@ export const Channel = {
   tabsReorder: 'tabs:reorder',
   tabsAssignToPane: 'tabs:assignToPane',
   tabsSetActive: 'tabs:setActive',
-  // terminal (request/response for spawn; fire-and-forget for the rest)
+  // terminal (request/response for spawn and attach; fire-and-forget for the rest)
   terminalSpawn: 'terminal:spawn',
+  terminalAttach: 'terminal:attach',
   terminalInput: 'terminal:input',
   terminalResize: 'terminal:resize',
   terminalPause: 'terminal:pause',

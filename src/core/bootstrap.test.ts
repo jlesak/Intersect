@@ -138,7 +138,7 @@ describe('createCoreRuntime', () => {
     fake.procs[0].emitData('hello from pty')
     expect(pushes).toContainEqual({
       channel: Channel.terminalData,
-      payload: { sessionId, data: 'hello from pty' }
+      payload: { sessionId, data: 'hello from pty', seq: 1 }
     })
 
     // The renderer's watermark pause/resume must reach the real child PTY.
@@ -201,6 +201,112 @@ describe('createCoreRuntime', () => {
     const badgePush = pushes.find((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
     expect(statusPush?.payload).toMatchObject({ sessionId })
     expect(badgePush?.payload).toEqual({ count: 1 })
+  })
+
+  describe('terminal reattach', () => {
+    const spawnShellTab = async (rt: CoreRuntime): Promise<string> => {
+      const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', null])) as {
+        id: string
+      }
+      const sessionId = `${ws.id}:${tab.id}`
+      await rt.handleRequest(Channel.terminalSpawn, [sessionId, 'shell', dir, 80, 24, null])
+      return sessionId
+    }
+
+    test('attach on an unknown session answers live: false', async () => {
+      const rt = boot()
+      await expect(rt.handleRequest(Channel.terminalAttach, ['ghost'])).resolves.toEqual({
+        live: false
+      })
+    })
+
+    test('attach replays the colored screen with the current dimensions, then the stream continues past lastSeq', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      fake.procs[0].emitData('\x1b[32mgreen prompt\x1b[0m $ ls\r\n')
+      fake.procs[0].emitData('README.md\r\n')
+
+      const result = (await rt.handleRequest(Channel.terminalAttach, [sessionId])) as {
+        live: boolean
+        data: string
+        cols: number
+        rows: number
+        lastSeq: number
+      }
+      expect(result.live).toBe(true)
+      expect(result.data).toContain('green prompt')
+      expect(result.data).toContain('[32m')
+      expect(result.data).toContain('README.md')
+      expect(result.cols).toBe(80)
+      expect(result.rows).toBe(24)
+      expect(result.lastSeq).toBe(2)
+
+      fake.procs[0].emitData('after attach\r\n')
+      expect(pushes).toContainEqual({
+        channel: Channel.terminalData,
+        payload: { sessionId, data: 'after attach\r\n', seq: 3 }
+      })
+    })
+
+    test('safe empty attach: a session with no output answers live with empty data', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      await expect(rt.handleRequest(Channel.terminalAttach, [sessionId])).resolves.toEqual({
+        live: true,
+        data: '',
+        cols: 80,
+        rows: 24,
+        lastSeq: 0
+      })
+    })
+
+    test('resize reaches both the PTY and the attach dimensions', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      await rt.handleRequest(Channel.terminalResize, [sessionId, 132, 43])
+      expect(fake.procs[0].calls).toContain('resize:132x43')
+      const result = (await rt.handleRequest(Channel.terminalAttach, [sessionId])) as {
+        cols: number
+        rows: number
+      }
+      expect(result.cols).toBe(132)
+      expect(result.rows).toBe(43)
+    })
+
+    test('a re-spawn of a live session keeps the PTY and the snapshot', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      fake.procs[0].emitData('history to keep\r\n')
+      await rt.handleRequest(Channel.terminalSpawn, [sessionId, 'shell', dir, 80, 24, null])
+      expect(fake.procs).toHaveLength(1)
+      const result = (await rt.handleRequest(Channel.terminalAttach, [sessionId])) as {
+        live: boolean
+        data: string
+      }
+      expect(result.live).toBe(true)
+      expect(result.data).toContain('history to keep')
+    })
+
+    test('pty exit disposes the snapshot: attach afterwards answers live: false', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      fake.procs[0].emitData('doomed\r\n')
+      fake.procs[0].emitExit(0)
+      await expect(rt.handleRequest(Channel.terminalAttach, [sessionId])).resolves.toEqual({
+        live: false
+      })
+    })
+
+    test('kill disposes the snapshot: attach afterwards answers live: false', async () => {
+      const rt = boot()
+      const sessionId = await spawnShellTab(rt)
+      fake.procs[0].emitData('doomed\r\n')
+      await rt.handleRequest(Channel.terminalKill, [sessionId])
+      await expect(rt.handleRequest(Channel.terminalAttach, [sessionId])).resolves.toEqual({
+        live: false
+      })
+    })
   })
 
   describe('hook lifecycle', () => {
