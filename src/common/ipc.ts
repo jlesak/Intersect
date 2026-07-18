@@ -38,6 +38,11 @@ import type {
   TodoTaskPatch,
   Workspace
 } from './domain'
+import type {
+  LayoutShares,
+  ResizableLayout,
+  TerminalLayoutSharesMap
+} from './terminalLayoutShares'
 
 /**
  * The single source of truth for the renderer <-> main contract. `main` implements these
@@ -83,6 +88,18 @@ export interface IpcApi {
     clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
+    /**
+     * Every persisted terminal pane-share value for the project key (a project id, or the
+     * literal 'other' for the virtual bucket of unassigned workspaces). Absent layouts mean
+     * the caller should use equal shares.
+     */
+    getTerminalLayouts(projectKey: string): Promise<TerminalLayoutSharesMap>
+    /** Persist one layout's pane shares for the project key; values are validated in the core. */
+    setTerminalLayout(
+      projectKey: string,
+      layout: ResizableLayout,
+      shares: LayoutShares
+    ): Promise<void>
   }
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
@@ -325,6 +342,8 @@ export const Channel = {
   projectsSetOverride: 'projects:setOverride',
   projectsClearOverride: 'projects:clearOverride',
   projectsListWorktrees: 'projects:listWorktrees',
+  projectsGetTerminalLayouts: 'projects:getTerminalLayouts',
+  projectsSetTerminalLayout: 'projects:setTerminalLayout',
   // tabs (request/response)
   tabsListByWorkspace: 'tabs:listByWorkspace',
   tabsCreate: 'tabs:create',

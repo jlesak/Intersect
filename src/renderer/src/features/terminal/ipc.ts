@@ -5,6 +5,11 @@ import type {
   TerminalNotificationClickEvent,
   TerminalSessionStatusEvent
 } from '@common/ipc'
+import type {
+  LayoutShares,
+  ResizableLayout,
+  TerminalLayoutSharesMap
+} from '@common/terminalLayoutShares'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin wrappers over the terminal IPC surface. The controller is the only consumer.
@@ -30,3 +35,13 @@ export const onSessionStatus = (cb: (e: TerminalSessionStatusEvent) => void): ((
   ipc().terminal.onSessionStatus(cb)
 export const onNotificationClicked = (cb: (e: TerminalNotificationClickEvent) => void): (() => void) =>
   ipc().terminal.onNotificationClicked(cb)
+
+// Pane-share persistence lives in the projects slice of the core; the terminal feature owns
+// the stage that reads and writes it, so the seam is exposed here.
+export const getTerminalLayouts = (projectKey: string): Promise<TerminalLayoutSharesMap> =>
+  ipc().projects.getTerminalLayouts(projectKey)
+export const setTerminalLayout = (
+  projectKey: string,
+  layout: ResizableLayout,
+  shares: LayoutShares
+): Promise<void> => ipc().projects.setTerminalLayout(projectKey, layout, shares)

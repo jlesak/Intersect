@@ -303,6 +303,68 @@
   text-align: center;
 }
 
+/* Resizable stages render as flex panel groups (the library forces display:flex inline),
+   so the grid gap must not apply; the 1px frame comes from the shared padding above. */
+.ix-stage--resizable {
+  gap: 0;
+}
+.ix-stage__half {
+  height: 100%;
+}
+/* Pane divider: a 7px grab/focus target drawn as the familiar 1px line, thickening to an
+   accent bar while hovered, dragged, or keyboard-focused so the handle is discoverable. */
+.ix-stage__sep {
+  position: relative;
+  background: var(--bg);
+}
+.ix-stage__sep[aria-orientation='vertical'] {
+  width: 7px;
+  cursor: col-resize;
+}
+.ix-stage__sep[aria-orientation='horizontal'] {
+  height: 7px;
+  cursor: row-resize;
+}
+.ix-stage__sep::before {
+  content: '';
+  position: absolute;
+  background: var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.ix-stage__sep[aria-orientation='vertical']::before {
+  left: 3px;
+  width: 1px;
+  top: 0;
+  bottom: 0;
+}
+.ix-stage__sep[aria-orientation='horizontal']::before {
+  top: 3px;
+  height: 1px;
+  left: 0;
+  right: 0;
+}
+.ix-stage__sep:hover::before,
+.ix-stage__sep[data-separator='active']::before,
+.ix-stage__sep[data-separator='focus']::before {
+  background: var(--accent);
+}
+.ix-stage__sep[aria-orientation='vertical']:hover::before,
+.ix-stage__sep[aria-orientation='vertical'][data-separator='active']::before,
+.ix-stage__sep[aria-orientation='vertical'][data-separator='focus']::before {
+  left: 2px;
+  width: 3px;
+}
+.ix-stage__sep[aria-orientation='horizontal']:hover::before,
+.ix-stage__sep[aria-orientation='horizontal'][data-separator='active']::before,
+.ix-stage__sep[aria-orientation='horizontal'][data-separator='focus']::before {
+  top: 2px;
+  height: 3px;
+}
+.ix-stage__sep:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ---------------- empty states ---------------- */
 .ix-empty {
   flex: 1;

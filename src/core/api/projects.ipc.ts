@@ -1,7 +1,9 @@
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
+import { isResizableLayout } from '@common/terminalLayoutShares'
 import type { ProjectOverrideRepo } from '../db/projectOverrideRepo'
 import type { ProjectRepo } from '../db/projectRepo'
+import type { TerminalLayoutRepo } from '../db/terminalLayoutRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import type { ProjectPathDeps } from '../projects/resolveProject'
 import { resolveProjectForPath } from '../projects/resolveProject'
@@ -12,6 +14,7 @@ export interface ProjectHandlerDeps {
   pathDeps: ProjectPathDeps
   workspaces: WorkspaceRepo
   overrides: ProjectOverrideRepo
+  terminalLayouts: TerminalLayoutRepo
 }
 
 /**
@@ -55,7 +58,15 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
     setArchived: (id, archived) =>
       surface(() => withReassign(() => d.projects.setArchived(id, archived))),
     reorder: (orderedIds) => surface(() => d.projects.reorder(orderedIds)),
-    remove: (id) => surface(() => withReassign(() => d.projects.remove(id))),
+    remove: (id) =>
+      surface(() =>
+        withReassign(() => {
+          d.projects.remove(id)
+          // The layout table has no FK on purpose (the 'other' key is not a project), so the
+          // removed project's pane shares are cleaned up here.
+          d.terminalLayouts.removeForProject(id)
+        })
+      ),
     addRepoPath: (id, folderPath) =>
       surface(() => withReassign(() => d.projects.addRepoPath(id, folderPath))),
     removeRepoPath: (id, folderPath) =>
@@ -70,6 +81,12 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
         const project = d.projects.getById(id)
         if (!project) throw new Error(`Project not found: ${id}`)
         return listProjectWorktrees(project)
+      }),
+    getTerminalLayouts: (projectKey) => surface(() => d.terminalLayouts.getAll(projectKey)),
+    setTerminalLayout: (projectKey, layout, shares) =>
+      surface(() => {
+        if (!isResizableLayout(layout)) throw new Error(`Layout has no pane shares: ${layout}`)
+        d.terminalLayouts.set(projectKey, layout, shares)
       })
   }
 }
@@ -88,6 +105,8 @@ export function projectsWireRoutes(h: IpcApi['projects']): WireRoutes {
     [Channel.projectsListOverrides]: h.listOverrides,
     [Channel.projectsSetOverride]: h.setOverride,
     [Channel.projectsClearOverride]: h.clearOverride,
-    [Channel.projectsListWorktrees]: h.listWorktrees
+    [Channel.projectsListWorktrees]: h.listWorktrees,
+    [Channel.projectsGetTerminalLayouts]: h.getTerminalLayouts,
+    [Channel.projectsSetTerminalLayout]: h.setTerminalLayout
   }
 }
