@@ -11,6 +11,7 @@ interface WorkspaceRow {
   active_tab_id: string | null
   sort_order: number
   created_at: number
+  project_id: string | null
 }
 
 function toWorkspace(row: WorkspaceRow): Workspace {
@@ -20,7 +21,8 @@ function toWorkspace(row: WorkspaceRow): Workspace {
     folderPath: row.folder_path,
     layout: row.layout as Layout,
     activeTabId: row.active_tab_id,
-    sortOrder: row.sort_order
+    sortOrder: row.sort_order,
+    projectId: row.project_id
   }
 }
 

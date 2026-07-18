@@ -3104,3 +3104,57 @@
   width: 44px;
   text-align: right;
 }
+
+/* --- Projects settings pane ------------------------------------------------------------- */
+
+.ix-proj {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.ix-proj--archived {
+  opacity: 0.55;
+}
+
+.ix-proj__intro,
+.ix-proj__error {
+  margin-bottom: 12px;
+}
+
+.ix-proj__head {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ix-proj__head .ix-set-field {
+  flex: 1;
+}
+
+.ix-proj__actions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ix-proj__folders {
+  margin: 4px 0 10px;
+}
+
+.ix-proj__folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.ix-proj__path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}

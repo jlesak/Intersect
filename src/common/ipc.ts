@@ -17,6 +17,8 @@ import type {
   OtoStartInput,
   Preset,
   PrChangeFile,
+  Project,
+  ProjectPatch,
   PrThread,
   PrVote,
   PullRequest,
@@ -49,6 +51,23 @@ export interface IpcApi {
     setLayout(id: string, layout: Layout): Promise<Workspace>
     setActive(id: string): Promise<void>
     pickFolder(): Promise<string | null>
+  }
+  projects: {
+    /** Every project (archived included), in manual order. */
+    list(): Promise<Project[]>
+    /** Create a project bound to one repository folder. */
+    create(name: string, folderPath: string): Promise<Project>
+    /** Edit name and external-tool bindings; an omitted patch field is left unchanged. */
+    update(id: string, patch: ProjectPatch): Promise<Project>
+    setArchived(id: string, archived: boolean): Promise<Project>
+    /** Persist the complete project order atomically and return the canonical list. */
+    reorder(orderedIds: string[]): Promise<Project[]>
+    /** App-state delete: workspaces detach to the Other bucket; folders/remotes are untouched. */
+    remove(id: string): Promise<void>
+    addRepoPath(id: string, folderPath: string): Promise<Project>
+    removeRepoPath(id: string, folderPath: string): Promise<Project>
+    /** Which project a filesystem path belongs to; null means the virtual Other bucket. */
+    resolvePath(path: string): Promise<string | null>
   }
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
@@ -257,6 +276,16 @@ export const Channel = {
   workspacesSetLayout: 'workspaces:setLayout',
   workspacesSetActive: 'workspaces:setActive',
   workspacesPickFolder: 'workspaces:pickFolder',
+  // projects (request/response)
+  projectsList: 'projects:list',
+  projectsCreate: 'projects:create',
+  projectsUpdate: 'projects:update',
+  projectsSetArchived: 'projects:setArchived',
+  projectsReorder: 'projects:reorder',
+  projectsRemove: 'projects:remove',
+  projectsAddRepoPath: 'projects:addRepoPath',
+  projectsRemoveRepoPath: 'projects:removeRepoPath',
+  projectsResolvePath: 'projects:resolvePath',
   // tabs (request/response)
   tabsListByWorkspace: 'tabs:listByWorkspace',
   tabsCreate: 'tabs:create',
