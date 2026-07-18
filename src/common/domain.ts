@@ -164,6 +164,89 @@ export interface RepoWorktrees {
 }
 
 // ---------------------------------------------------------------------------
+// Work items - see docs/2026-07-07-intersect-final-form-design.md §9.8
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a work item lives. The discriminator is deliberately open-ended: a future adapter adds
+ * its value here (plus its state/search rules) without changing the ref's shape.
+ */
+export const WORK_ITEM_SOURCES = ['jira', 'todo', 'ado-pr'] as const
+export type WorkItemSource = (typeof WORK_ITEM_SOURCES)[number]
+
+/**
+ * The display identity of a work item, captured at assignment time and kept verbatim so a
+ * session's history stays readable even after the remote item disappears from every sync.
+ * `key` is the short label shown on chips (issue key, 'TODO', '!<prId>'); `type` names the
+ * item kind in the source's own vocabulary ('issue', 'task', 'pull-request').
+ */
+export interface WorkItemSnapshot {
+  key: string
+  title: string
+  type: string
+}
+
+/**
+ * How the ref's referent looks right now, computed on every read and never stored: 'linked'
+ * means the item still resolves in its source's cache; 'stale' means the source last reported
+ * it gone but the evidence is weak (an absent-flagged Jira row, a PR aged out of the
+ * replace-on-sync cache); 'missing' means the item is positively gone (a hard-deleted TODO,
+ * a Jira issue no cache knows). Neither state ever deletes the ref or its history.
+ */
+export const WORK_ITEM_STATES = ['linked', 'stale', 'missing'] as const
+export type WorkItemState = (typeof WORK_ITEM_STATES)[number]
+
+/**
+ * The one durable primary work item of a session (= a workspace tab): a polymorphic link to a
+ * Jira issue, TODO task, or ADO pull request. `externalKey` is the item's stable identity in
+ * its source (issue key / task id / `${repositoryId}:${prId}`); `projectId` is the project the
+ * item belonged to when assigned (null = Other). The user may rename the tab freely - the ref
+ * never depends on the title.
+ */
+export interface WorkItemRef {
+  tabId: string
+  source: WorkItemSource
+  externalKey: string
+  projectId: string | null
+  snapshot: WorkItemSnapshot
+  state: WorkItemState
+  assignedAt: number
+}
+
+/** The fields a caller supplies to assign a primary work item; the rest are set on write. */
+export type NewWorkItemRef = Pick<WorkItemRef, 'source' | 'externalKey' | 'projectId' | 'snapshot'>
+
+/** What happened to a session's primary ref; every mutation appends exactly one event. */
+export const WORK_ITEM_REF_ACTIONS = ['assign', 'change', 'clear'] as const
+export type WorkItemRefAction = (typeof WORK_ITEM_REF_ACTIONS)[number]
+
+/**
+ * One audit entry of a session's primary-ref history. Events carry the identity and display
+ * snapshot of the ref they recorded (the cleared ref for 'clear'), and deliberately have no
+ * foreign key to tabs: history outlives the session it describes.
+ */
+export interface WorkItemRefEvent {
+  id: number
+  tabId: string
+  action: WorkItemRefAction
+  source: WorkItemSource | null
+  externalKey: string | null
+  snapshotKey: string | null
+  snapshotTitle: string | null
+  at: number
+}
+
+/**
+ * One source's slice of a picker search: ready-to-assign refs, ranked with the current
+ * workspace's project first. Grouping is by source so the picker renders labeled sections
+ * without re-deriving anything.
+ */
+export interface WorkItemCandidateGroup {
+  source: WorkItemSource
+  candidates: NewWorkItemRef[]
+}
+
+// ---------------------------------------------------------------------------
 // PR Review Inbox (slice 2) - see docs/DESIGN-pr-inbox.md
 // ---------------------------------------------------------------------------
 

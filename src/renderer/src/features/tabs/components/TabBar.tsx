@@ -1,14 +1,32 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { PRESET_META } from '@common/domain'
+import { PRESET_META, type WorkItemRef } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { slotCount } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
+import { useWorkItemsStore } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconChevronLeft, IconChevronRight, IconClose, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { selectTabList, useTabsStore } from '../store'
 import { LayoutPicker } from './LayoutPicker'
 import { PresetPicker } from './PresetPicker'
+
+/**
+ * The tab's work-item chip: the snapshot key with the full title on hover, dimmed/struck when
+ * the remote item is stale or missing (the stored snapshot keeps rendering either way).
+ */
+export function WorkItemChip({ workItem }: { workItem: WorkItemRef }) {
+  return (
+    <span
+      className={`ix-tab__workitem${
+        workItem.state !== 'linked' ? ` ix-tab__workitem--${workItem.state}` : ''
+      }`}
+      title={`${workItem.snapshot.title}${workItem.state !== 'linked' ? ` (${workItem.state})` : ''}`}
+    >
+      {workItem.snapshot.key}
+    </span>
+  )
+}
 
 export function TabBar() {
   const tabs = useTabsStore(useShallow(selectTabList))
@@ -16,6 +34,7 @@ export function TabBar() {
   const workspaceId = useTabsStore((s) => s.workspaceId)
   const layout = useTabsStore((s) => s.layout)
   const attention = useAttentionStore((s) => s.status)
+  const workItems = useWorkItemsStore((s) => s.byTabId)
   const store = useTabsStore.getState()
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -42,6 +61,7 @@ export function TabBar() {
 
   const menuEntries = (id: string): MenuEntry[] => {
     const i = tabs.findIndex((t) => t.id === id)
+    const hasWorkItem = workItems[id] !== undefined
     const entries: MenuEntry[] = [
       { label: 'Rename', icon: <IconPencil />, onClick: () => startRename(id, tabs[i].title) },
       { label: 'Move left', icon: <IconChevronLeft />, disabled: i <= 0, onClick: () => move(id, -1) },
@@ -50,8 +70,19 @@ export function TabBar() {
         icon: <IconChevronRight />,
         disabled: i >= tabs.length - 1,
         onClick: () => move(id, 1)
+      },
+      { separator: true },
+      {
+        label: hasWorkItem ? 'Change work item…' : 'Set work item…',
+        onClick: () => useWorkItemsStore.getState().openPicker(id)
       }
     ]
+    if (hasWorkItem) {
+      entries.push({
+        label: 'Clear work item',
+        onClick: () => void useWorkItemsStore.getState().clearPrimary(id)
+      })
+    }
     if (layout !== 'single') {
       entries.push({ separator: true })
       for (let slot = 0; slot < slotCount(layout); slot++) {
@@ -83,6 +114,7 @@ export function TabBar() {
             }}
           >
             <span className="ix-tab__preset">{PRESET_META[tab.preset].badge}</span>
+            {workItems[tab.id] && <WorkItemChip workItem={workItems[tab.id]} />}
             {renamingId === tab.id ? (
               <input
                 className="ix-tab__rename"

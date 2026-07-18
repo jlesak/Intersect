@@ -27,6 +27,7 @@ export function TodoItem({
   onStartEdit,
   onCancelEdit,
   onSave,
+  onContextMenu,
   drag
 }: {
   task: TodoTask
@@ -37,6 +38,8 @@ export function TodoItem({
   onStartEdit?(): void
   onCancelEdit?(): void
   onSave?(patch: TodoTaskPatch): void
+  /** Lets the embedding list attach a per-row menu (e.g. session launch) at the pointer. */
+  onContextMenu?(x: number, y: number): void
   drag?: TodoItemDrag
 }) {
   const today = dayKeyOf(Date.now())
@@ -113,6 +116,14 @@ export function TodoItem({
       role="listitem"
       draggable={drag?.draggable ?? false}
       onClick={!done ? onStartEdit : undefined}
+      onContextMenu={
+        onContextMenu
+          ? (e) => {
+              e.preventDefault()
+              onContextMenu(e.clientX, e.clientY)
+            }
+          : undefined
+      }
       onDragStart={drag?.onDragStart}
       onDragOver={drag?.onDragOver}
       onDrop={drag?.onDrop}

@@ -13,6 +13,7 @@ import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
+import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
@@ -49,6 +50,8 @@ wireAttention()
 wireSessionResume()
 // Bridge My Work's PR-radar clicks to the PR Inbox section (cross-slice, app-layer).
 wireMyWorkPrNav()
+// Follow the tabs slice's workspace with its work-item refs and execute card launches.
+wireWorkItemLaunch()
 // Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).
 wireProjectsToWorkspaces()
 // Hydrate the settings store and keep live terminals following the terminal font size.

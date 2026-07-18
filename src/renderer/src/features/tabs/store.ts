@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Layout, Preset, Tab } from '@common/domain'
+import type { Layout, NewWorkItemRef, Preset, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
@@ -19,7 +19,11 @@ interface TabsState {
   activeTabId: string | null
   hydrate(workspaceId: string): Promise<void>
   clear(): void
-  createTab(preset: Preset, resumeSessionId?: string | null): Promise<Tab | null>
+  createTab(
+    preset: Preset,
+    resumeSessionId?: string | null,
+    primaryWorkItem?: NewWorkItemRef | null
+  ): Promise<Tab | null>
   renameTab(id: string, title: string): Promise<void>
   removeTab(id: string): Promise<void>
   reorderTabs(orderedIds: string[]): Promise<void>
@@ -78,11 +82,11 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
     set({ ...EMPTY })
   },
 
-  async createTab(preset, resumeSessionId) {
+  async createTab(preset, resumeSessionId, primaryWorkItem) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return null
     try {
-      const t = await api.create(workspaceId, preset, resumeSessionId)
+      const t = await api.create(workspaceId, preset, resumeSessionId, primaryWorkItem)
       set((s) => ({ byId: { ...s.byId, [t.id]: t }, order: [...s.order, t.id], activeTabId: t.id }))
       return t
     } catch (e) {

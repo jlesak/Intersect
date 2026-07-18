@@ -47,13 +47,27 @@ const api: IpcApi = {
   },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),
-    create: (wsId, preset, resumeSessionId) =>
-      ipcRenderer.invoke(Channel.tabsCreate, wsId, preset, resumeSessionId ?? null),
+    create: (wsId, preset, resumeSessionId, primaryWorkItem) =>
+      ipcRenderer.invoke(
+        Channel.tabsCreate,
+        wsId,
+        preset,
+        resumeSessionId ?? null,
+        primaryWorkItem ?? null
+      ),
     rename: (id, title) => ipcRenderer.invoke(Channel.tabsRename, id, title),
     remove: (id) => ipcRenderer.invoke(Channel.tabsRemove, id),
     reorder: (wsId, orderedIds) => ipcRenderer.invoke(Channel.tabsReorder, wsId, orderedIds),
     assignToPane: (id, slot) => ipcRenderer.invoke(Channel.tabsAssignToPane, id, slot),
     setActive: (wsId, tabId) => ipcRenderer.invoke(Channel.tabsSetActive, wsId, tabId)
+  },
+  workItems: {
+    listForWorkspace: (wsId) => ipcRenderer.invoke(Channel.workItemsListForWorkspace, wsId),
+    setPrimary: (tabId, ref) => ipcRenderer.invoke(Channel.workItemsSetPrimary, tabId, ref),
+    clearPrimary: (tabId) => ipcRenderer.invoke(Channel.workItemsClearPrimary, tabId),
+    history: (tabId) => ipcRenderer.invoke(Channel.workItemsHistory, tabId),
+    searchCandidates: (query, workspaceId) =>
+      ipcRenderer.invoke(Channel.workItemsSearchCandidates, query, workspaceId)
   },
   terminal: {
     spawn: (sessionId, preset, cwd, cols, rows, resumeSessionId) =>

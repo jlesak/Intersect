@@ -449,6 +449,41 @@ const MIGRATIONS: Migration[] = [
 
       db.exec('DROP TABLE my_work_cache;')
     }
+  },
+  {
+    // Primary work items: at most one durable polymorphic work-item link per session (the tab-id
+    // primary key IS the invariant), carrying the item's display snapshot so it stays readable
+    // after the remote item disappears. The append-only event table audits every assign/change/
+    // clear and deliberately has no tab foreign key - history survives tab deletion. Existing
+    // tabs simply have no ref row and stay manually assignable.
+    version: 18,
+    up(db) {
+      db.exec(`
+        CREATE TABLE work_item_refs (
+          tab_id         TEXT PRIMARY KEY REFERENCES tabs(id) ON DELETE CASCADE,
+          source         TEXT NOT NULL CHECK (source IN ('jira','todo','ado-pr')),
+          external_key   TEXT NOT NULL,
+          project_id     TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          snapshot_key   TEXT NOT NULL,
+          snapshot_title TEXT NOT NULL,
+          snapshot_type  TEXT NOT NULL,
+          assigned_at    INTEGER NOT NULL
+        );
+
+        CREATE TABLE work_item_ref_events (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          tab_id         TEXT NOT NULL,
+          action         TEXT NOT NULL CHECK (action IN ('assign','change','clear')),
+          source         TEXT,
+          external_key   TEXT,
+          snapshot_key   TEXT,
+          snapshot_title TEXT,
+          at             INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_work_item_ref_events_tab ON work_item_ref_events(tab_id, at);
+      `)
+    }
   }
 ]
 
