@@ -1,6 +1,12 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { indexOverrides, prOverrideKey, resolveJiraProject, resolvePrProject } from '@common/projectAssign'
+import {
+  effectiveProject,
+  indexOverrides,
+  prOverrideKey,
+  resolveJiraProject,
+  resolvePrProject
+} from '@common/projectAssign'
 import { useMyWorkStore } from '@renderer/features/myWork'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
 import { useWorkspacesStore, workspacesForProject } from '@renderer/features/workspaces'
@@ -21,14 +27,18 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
   const counts = useMemo(() => {
     const index = indexOverrides(overrides)
-    const issueCount = issues.filter((i) => {
-      const o = index.get(`jira ${i.key}`)
-      return (o ? o.projectId : resolveJiraProject(i.key, projects)) === projectId
-    }).length
-    const prCount = prs.filter((pr) => {
-      const o = index.get(`pr ${prOverrideKey(pr.repositoryId, pr.prId)}`)
-      return (o ? o.projectId : resolvePrProject(pr.repositoryName, projects)) === projectId
-    }).length
+    const issueCount = issues.filter(
+      (i) => effectiveProject('jira', i.key, resolveJiraProject(i.key, projects), index) === projectId
+    ).length
+    const prCount = prs.filter(
+      (pr) =>
+        effectiveProject(
+          'pr',
+          prOverrideKey(pr.repositoryId, pr.prId),
+          resolvePrProject(pr.repositoryName, projects),
+          index
+        ) === projectId
+    ).length
     return { issueCount, prCount }
   }, [issues, prs, projects, overrides, projectId])
 

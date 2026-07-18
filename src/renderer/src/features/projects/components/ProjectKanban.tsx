@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JiraIssue } from '@common/domain'
-import { indexOverrides, resolveJiraProject } from '@common/projectAssign'
+import { effectiveProject, indexOverrides, resolveJiraProject } from '@common/projectAssign'
 import { JiraBoard, JiraBoardSkeleton, useMyWorkStore } from '@renderer/features/myWork'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconRefresh } from '@renderer/shared/ui/icons'
@@ -25,11 +25,11 @@ export function ProjectKanban({ projectId }: { projectId: string | null }) {
 
   const filtered = useMemo(() => {
     const index = indexOverrides(overrides)
-    return issues.filter((issue) => {
-      const override = index.get(`jira ${issue.key}`)
-      const effective = override ? override.projectId : resolveJiraProject(issue.key, projects)
-      return effective === projectId
-    })
+    return issues.filter(
+      (issue) =>
+        effectiveProject('jira', issue.key, resolveJiraProject(issue.key, projects), index) ===
+        projectId
+    )
   }, [issues, projects, overrides, projectId])
 
   const assignEntries = (issue: JiraIssue): MenuEntry[] => {

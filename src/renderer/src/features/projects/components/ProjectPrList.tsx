@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { PullRequest } from '@common/domain'
-import { indexOverrides, prOverrideKey, resolvePrProject } from '@common/projectAssign'
+import { effectiveProject, indexOverrides, prOverrideKey, resolvePrProject } from '@common/projectAssign'
 import { useMyWorkStore } from '@renderer/features/myWork'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
@@ -25,14 +25,15 @@ export function ProjectPrList({ projectId }: { projectId: string | null }) {
 
   const filtered = useMemo(() => {
     const index = indexOverrides(overrides)
-    return prs.filter((pr) => {
-      const key = prOverrideKey(pr.repositoryId, pr.prId)
-      const override = index.get(`pr ${key}`)
-      const effective = override
-        ? override.projectId
-        : resolvePrProject(pr.repositoryName, projects)
-      return effective === projectId
-    })
+    return prs.filter(
+      (pr) =>
+        effectiveProject(
+          'pr',
+          prOverrideKey(pr.repositoryId, pr.prId),
+          resolvePrProject(pr.repositoryName, projects),
+          index
+        ) === projectId
+    )
   }, [prs, projects, overrides, projectId])
 
   const assignEntries = (pr: PullRequest): MenuEntry[] => {
