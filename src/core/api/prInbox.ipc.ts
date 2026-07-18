@@ -1,6 +1,6 @@
-import type { IpcMain } from 'electron'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
-import type { NewPrComment, PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
+import type { PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
@@ -291,45 +291,25 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
   }
 }
 
-export function registerPrInboxHandlers(ipcMain: IpcMain, h: PrInboxHandlers): void {
-  ipcMain.handle(Channel.prInboxSync, () => h.sync())
-  ipcMain.handle(Channel.prInboxList, () => h.list())
-  ipcMain.handle(Channel.prInboxGetChanges, (_e, repositoryId: string, prId: number) =>
-    h.getChanges(repositoryId, prId)
-  )
-  ipcMain.handle(Channel.prInboxGetFileDiff, (_e, repositoryId: string, prId: number, filePath: string) =>
-    h.getFileDiff(repositoryId, prId, filePath)
-  )
-  ipcMain.handle(Channel.prInboxGetThreads, (_e, repositoryId: string, prId: number) =>
-    h.getThreads(repositoryId, prId)
-  )
-  ipcMain.handle(Channel.prInboxAddComment, (_e, input: NewPrComment) => h.addComment(input))
-  ipcMain.handle(
-    Channel.prInboxReplyToThread,
-    (_e, repositoryId: string, prId: number, threadId: number, body: string) =>
-      h.replyToThread(repositoryId, prId, threadId, body)
-  )
-  ipcMain.handle(
-    Channel.prInboxSetThreadStatus,
-    (_e, repositoryId: string, prId: number, threadId: number, status: 'active' | 'fixed') =>
-      h.setThreadStatus(repositoryId, prId, threadId, status)
-  )
-  ipcMain.handle(Channel.prInboxListDrafts, (_e, repositoryId: string, prId: number) =>
-    h.listDrafts(repositoryId, prId)
-  )
-  ipcMain.handle(Channel.prInboxAddManualDraft, (_e, input: Parameters<PrInboxHandlers['addManualDraft']>[0]) =>
-    h.addManualDraft(input)
-  )
-  ipcMain.handle(Channel.prInboxEditDraft, (_e, id: string, body: string) => h.editDraft(id, body))
-  ipcMain.handle(Channel.prInboxDiscardDraft, (_e, id: string) => h.discardDraft(id))
-  ipcMain.handle(Channel.prInboxPublishDraft, (_e, id: string) => h.publishDraft(id))
-  ipcMain.handle(Channel.prInboxCastVote, (_e, repositoryId: string, prId: number, vote: PrVote) =>
-    h.castVote(repositoryId, prId, vote)
-  )
-  ipcMain.handle(Channel.prInboxStartReview, (_e, repositoryId: string, prId: number) =>
-    h.startReview(repositoryId, prId)
-  )
-  ipcMain.handle(Channel.prInboxEndReview, () => h.endReview())
-  ipcMain.on(Channel.prInboxReviewInput, (_e, data: string) => h.reviewInput(data))
-  ipcMain.on(Channel.prInboxReviewResize, (_e, cols: number, rows: number) => h.reviewResize(cols, rows))
+export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
+  return {
+    [Channel.prInboxSync]: h.sync,
+    [Channel.prInboxList]: h.list,
+    [Channel.prInboxGetChanges]: h.getChanges,
+    [Channel.prInboxGetFileDiff]: h.getFileDiff,
+    [Channel.prInboxGetThreads]: h.getThreads,
+    [Channel.prInboxAddComment]: h.addComment,
+    [Channel.prInboxReplyToThread]: h.replyToThread,
+    [Channel.prInboxSetThreadStatus]: h.setThreadStatus,
+    [Channel.prInboxListDrafts]: h.listDrafts,
+    [Channel.prInboxAddManualDraft]: h.addManualDraft,
+    [Channel.prInboxEditDraft]: h.editDraft,
+    [Channel.prInboxDiscardDraft]: h.discardDraft,
+    [Channel.prInboxPublishDraft]: h.publishDraft,
+    [Channel.prInboxCastVote]: h.castVote,
+    [Channel.prInboxStartReview]: h.startReview,
+    [Channel.prInboxEndReview]: h.endReview,
+    [Channel.prInboxReviewInput]: h.reviewInput,
+    [Channel.prInboxReviewResize]: h.reviewResize
+  }
 }

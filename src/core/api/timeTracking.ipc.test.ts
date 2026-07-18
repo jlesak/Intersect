@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { TimeEntry } from '@common/domain'
 import { Channel } from '@common/ipc'
 import type { TimeTrackingService } from '../timeTracking/timeTracking'
-import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './timeTracking.ipc'
+import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracking.ipc'
 
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 's1',
@@ -86,19 +86,14 @@ describe('timeTracking handlers', () => {
   })
 })
 
-describe('registerTimeTrackingHandlers', () => {
+describe('timeTrackingWireRoutes', () => {
   test('binds the five request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const h = createTimeTrackingHandlers({ service: makeService() })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerTimeTrackingHandlers(ipcMain as any, h)
+    const routes = timeTrackingWireRoutes(h)
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
-    expect([...registered.keys()].sort()).toEqual(
+    expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.timeTrackingGetWeek,
         Channel.timeTrackingRefreshWeek,
@@ -108,10 +103,10 @@ describe('registerTimeTrackingHandlers', () => {
       ].sort()
     )
 
-    const week = (await registered.get(Channel.timeTrackingGetWeek)!({}, '2026-07-06')) as TimeEntry[]
+    const week = (await call(Channel.timeTrackingGetWeek, '2026-07-06')) as TimeEntry[]
     expect(week.map((e) => e.id)).toEqual(['s1'])
 
-    const updated = (await registered.get(Channel.timeTrackingUpdateEntry)!({}, 'auto', 's1', {
+    const updated = (await call(Channel.timeTrackingUpdateEntry, 'auto', 's1', {
       issueKey: null,
       durationMs: 1
     })) as TimeEntry

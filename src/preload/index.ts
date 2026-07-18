@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ClaudeUsage, DraftComment, OtoRun } from '@common/domain'
 import {
   Channel,
+  type CoreStatus,
   type IpcApi,
   type TerminalDataEvent,
   type TerminalExitEvent,
@@ -166,7 +167,13 @@ const api: IpcApi = {
   system: {
     openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),
     // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.
-    getPathForFile: (file) => webUtils.getPathForFile(file)
+    getPathForFile: (file) => webUtils.getPathForFile(file),
+    restartApp: () => ipcRenderer.invoke(Channel.systemRestartApp),
+    onCoreStatus: (cb) => {
+      const listener = (_e: unknown, status: CoreStatus): void => cb(status)
+      ipcRenderer.on(Channel.systemCoreStatus, listener)
+      return () => ipcRenderer.removeListener(Channel.systemCoreStatus, listener)
+    }
   },
   usage: {
     get: () => ipcRenderer.invoke(Channel.usageGet),

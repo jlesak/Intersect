@@ -1,12 +1,10 @@
-import type { IpcMain } from 'electron'
+import { type WireRoutes } from '@common/coreBridge'
 import {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
   type AdoConnectionResult,
   type AdoSettings,
-  type AppSettings,
-  type NotificationSettings,
-  type ReviewSettings
+  type AppSettings
 } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { SettingsRepo } from '../db/settingsRepo'
@@ -139,17 +137,13 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
   }
 }
 
-export function registerSettingsHandlers(ipcMain: IpcMain, h: IpcApi['settings']): void {
-  ipcMain.handle(Channel.settingsGet, () => h.get())
-  ipcMain.handle(Channel.settingsSetNotifications, (_e, notifications: NotificationSettings) =>
-    h.setNotifications(notifications)
-  )
-  ipcMain.handle(Channel.settingsSetAdo, (_e, ado: AdoSettings) => h.setAdo(ado))
-  ipcMain.handle(Channel.settingsSetTerminalFontSize, (_e, px: number) =>
-    h.setTerminalFontSize(px)
-  )
-  ipcMain.handle(Channel.settingsSetReview, (_e, review: ReviewSettings) => h.setReview(review))
-  ipcMain.handle(Channel.settingsTestAdoConnection, (_e, ado: AdoSettings) =>
-    h.testAdoConnection(ado)
-  )
+export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
+  return {
+    [Channel.settingsGet]: h.get,
+    [Channel.settingsSetNotifications]: h.setNotifications,
+    [Channel.settingsSetAdo]: h.setAdo,
+    [Channel.settingsSetTerminalFontSize]: h.setTerminalFontSize,
+    [Channel.settingsSetReview]: h.setReview,
+    [Channel.settingsTestAdoConnection]: h.testAdoConnection
+  }
 }

@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron'
-import type { TodoTaskPatch } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { TodoRepo } from '../db/todoRepo'
 
@@ -34,11 +33,13 @@ export function createTodoHandlers(d: TodoHandlerDeps): IpcApi['todo'] {
   }
 }
 
-export function registerTodoHandlers(ipcMain: IpcMain, h: IpcApi['todo']): void {
-  ipcMain.handle(Channel.todoList, () => h.list())
-  ipcMain.handle(Channel.todoAdd, (_e, text: string, dueDay: string | null) => h.add(text, dueDay))
-  ipcMain.handle(Channel.todoUpdate, (_e, id: string, patch: TodoTaskPatch) => h.update(id, patch))
-  ipcMain.handle(Channel.todoSetDone, (_e, id: string, done: boolean) => h.setDone(id, done))
-  ipcMain.handle(Channel.todoRemove, (_e, id: string) => h.remove(id))
-  ipcMain.handle(Channel.todoReorder, (_e, orderedIds: string[]) => h.reorder(orderedIds))
+export function todoWireRoutes(h: IpcApi['todo']): WireRoutes {
+  return {
+    [Channel.todoList]: h.list,
+    [Channel.todoAdd]: h.add,
+    [Channel.todoUpdate]: h.update,
+    [Channel.todoSetDone]: h.setDone,
+    [Channel.todoRemove]: h.remove,
+    [Channel.todoReorder]: h.reorder
+  }
 }

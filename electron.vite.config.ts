@@ -37,13 +37,16 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['@modelcontextprotocol/sdk'] })],
     build: {
       rollupOptions: {
-        // Extra entries: the standalone MCP servers (draft review, jira report, 1:1 report) that
-        // guardrailed claude sessions spawn under plain node.
+        // Extra entries: the headless core (forked as an Electron utilityProcess) and the
+        // standalone MCP servers (draft review, jira report, 1:1 report) that guardrailed
+        // claude sessions spawn under plain node. All land in out/main so the core can
+        // resolve its sibling server scripts via __dirname.
         input: {
           index: resolve('src/main/index.ts'),
-          draftServer: resolve('src/main/prInbox/draftServer.ts'),
-          jiraReportServer: resolve('src/main/myWork/jiraReportServer.ts'),
-          otoReportServer: resolve('src/main/oneOnOne/otoReportServer.ts')
+          core: resolve('src/core/index.ts'),
+          draftServer: resolve('src/core/prInbox/draftServer.ts'),
+          jiraReportServer: resolve('src/core/myWork/jiraReportServer.ts'),
+          otoReportServer: resolve('src/core/oneOnOne/otoReportServer.ts')
         }
       }
     }

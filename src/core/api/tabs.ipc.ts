@@ -1,6 +1,5 @@
-import type { IpcMain } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import type { Preset } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, makeSessionId, type IpcApi } from '@common/ipc'
 import type { TabRepo } from '../db/tabRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
@@ -65,24 +64,14 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
   }
 }
 
-export function registerTabHandlers(ipcMain: IpcMain, h: IpcApi['tabs']): void {
-  ipcMain.handle(Channel.tabsListByWorkspace, (_e, workspaceId: string) =>
-    h.listByWorkspace(workspaceId)
-  )
-  ipcMain.handle(
-    Channel.tabsCreate,
-    (_e, workspaceId: string, preset: Preset, resumeSessionId: string | null) =>
-      h.create(workspaceId, preset, resumeSessionId)
-  )
-  ipcMain.handle(Channel.tabsRename, (_e, id: string, title: string) => h.rename(id, title))
-  ipcMain.handle(Channel.tabsRemove, (_e, id: string) => h.remove(id))
-  ipcMain.handle(Channel.tabsReorder, (_e, workspaceId: string, orderedIds: string[]) =>
-    h.reorder(workspaceId, orderedIds)
-  )
-  ipcMain.handle(Channel.tabsAssignToPane, (_e, id: string, slot: number | null) =>
-    h.assignToPane(id, slot)
-  )
-  ipcMain.handle(Channel.tabsSetActive, (_e, workspaceId: string, tabId: string) =>
-    h.setActive(workspaceId, tabId)
-  )
+export function tabsWireRoutes(h: IpcApi['tabs']): WireRoutes {
+  return {
+    [Channel.tabsListByWorkspace]: h.listByWorkspace,
+    [Channel.tabsCreate]: h.create,
+    [Channel.tabsRename]: h.rename,
+    [Channel.tabsRemove]: h.remove,
+    [Channel.tabsReorder]: h.reorder,
+    [Channel.tabsAssignToPane]: h.assignToPane,
+    [Channel.tabsSetActive]: h.setActive
+  }
 }

@@ -4,7 +4,7 @@ import type { TodoTask } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import { createTodoRepo, type TodoRepo } from '../db/todoRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
-import { createTodoHandlers, registerTodoHandlers } from './todo.ipc'
+import { createTodoHandlers, todoWireRoutes } from './todo.ipc'
 
 describe('todo handlers', () => {
   let db: DatabaseSync
@@ -81,20 +81,15 @@ describe('todo handlers', () => {
   })
 })
 
-describe('registerTodoHandlers', () => {
+describe('todoWireRoutes', () => {
   test('binds the request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const db = makeTestDb()
     const h = createTodoHandlers({ todos: createTodoRepo(db, makeTestDeps()) })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerTodoHandlers(ipcMain as any, h)
+    const routes = todoWireRoutes(h)
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
-    expect([...registered.keys()].sort()).toEqual(
+    expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.todoList,
         Channel.todoAdd,
@@ -105,13 +100,13 @@ describe('registerTodoHandlers', () => {
       ].sort()
     )
 
-    const added = (await registered.get(Channel.todoAdd)!({}, 'buy a monitor', null)) as TodoTask
+    const added = (await call(Channel.todoAdd, 'buy a monitor', null)) as TodoTask
     expect(added.text).toBe('buy a monitor')
-    const lists = (await registered.get(Channel.todoList)!({})) as { open: TodoTask[] }
+    const lists = (await call(Channel.todoList)) as { open: TodoTask[] }
     expect(lists.open.map((t) => t.text)).toEqual(['buy a monitor'])
 
-    await registered.get(Channel.todoAdd)!({}, 'second', null)
-    const reordered = (await registered.get(Channel.todoReorder)!({}, ['id-2', 'id-1'])) as TodoTask[]
+    await call(Channel.todoAdd, 'second', null)
+    const reordered = (await call(Channel.todoReorder, ['id-2', 'id-1'])) as TodoTask[]
     expect(reordered.map((task) => task.text)).toEqual(['second', 'buy a monitor'])
   })
 })

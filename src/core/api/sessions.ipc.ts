@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { SessionIndex } from '../sessions/sessionIndex'
 
@@ -30,8 +30,10 @@ export function createSessionHandlers(deps: SessionHandlerDeps): IpcApi['session
   }
 }
 
-export function registerSessionHandlers(ipcMain: IpcMain, h: IpcApi['sessions']): void {
-  ipcMain.handle(Channel.sessionsList, () => h.list())
-  ipcMain.handle(Channel.sessionsRefresh, () => h.refresh())
-  ipcMain.handle(Channel.sessionsGetTranscript, (_e, id: string) => h.getTranscript(id))
+export function sessionsWireRoutes(h: IpcApi['sessions']): WireRoutes {
+  return {
+    [Channel.sessionsList]: h.list,
+    [Channel.sessionsRefresh]: h.refresh,
+    [Channel.sessionsGetTranscript]: h.getTranscript
+  }
 }

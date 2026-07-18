@@ -238,6 +238,13 @@ export interface IpcApi {
      * webUtils is preload-only) - it never crosses IPC and main does not implement it.
      */
     getPathForFile(file: File): string
+    /** Relaunch the app - the recovery action when the core process failed. */
+    restartApp(): Promise<void>
+    /**
+     * The core service process's lifecycle as seen by main. Fired on every change and once
+     * with the current status when the renderer loads, so a reload lands in the right state.
+     */
+    onCoreStatus(cb: (status: CoreStatus) => void): () => void
   }
   usage: {
     /** The last captured Claude Code rate-limit snapshot, or null if none has arrived yet. */
@@ -275,6 +282,17 @@ export interface TerminalSessionStatusEvent {
 /** Payload delivered to the renderer when a session's notification is clicked. */
 export interface TerminalNotificationClickEvent {
   sessionId: string
+}
+
+/**
+ * Lifecycle of the headless core process that owns the database, PTYs, and background
+ * services. `starting` covers fork + bootstrap; `failed` is terminal for this app run and
+ * carries a user-readable reason - the renderer offers a restart instead of hanging on
+ * requests that can never be answered.
+ */
+export interface CoreStatus {
+  state: 'starting' | 'ready' | 'failed'
+  message?: string
 }
 
 /**
@@ -384,8 +402,10 @@ export const Channel = {
   settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
   settingsSetReview: 'settings:setReview',
   settingsTestAdoConnection: 'settings:testAdoConnection',
-  // system (request/response)
+  // system (request/response, plus a main -> renderer broadcast for core lifecycle)
   systemOpenExternal: 'system:openExternal',
+  systemRestartApp: 'system:restartApp',
+  systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',
   usageChanged: 'usage:changed'

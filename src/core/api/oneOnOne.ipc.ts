@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
-import type { IpcMain } from 'electron'
 import type { OtoStartInput } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { OtoRunRepo } from '../db/otoRunRepo'
 import type { TodoRepo } from '../db/todoRepo'
@@ -72,8 +72,13 @@ export function createOneOnOneHandlers(d: OneOnOneHandlerDeps): OneOnOneHandlers
   }
 }
 
-export function registerOneOnOneHandlers(ipcMain: IpcMain, h: OneOnOneHandlers): void {
-  ipcMain.handle(Channel.oneOnOneList, () => h.list())
-  ipcMain.handle(Channel.oneOnOneStart, (_e, input: OtoStartInput) => h.start(input))
-  ipcMain.handle(Channel.oneOnOnePickVtt, () => h.pickVttFile())
+/**
+ * The slice's wire contract. `pickVttFile` is deliberately absent: it is Electron-only
+ * (native dialog) and is answered by main before anything reaches the core.
+ */
+export function oneOnOneWireRoutes(h: OneOnOneHandlers): WireRoutes {
+  return {
+    [Channel.oneOnOneList]: h.list,
+    [Channel.oneOnOneStart]: h.start
+  }
 }

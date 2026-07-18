@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron'
-import type { ProjectOverrideKind, ProjectPatch } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { ProjectOverrideRepo } from '../db/projectOverrideRepo'
 import type { ProjectRepo } from '../db/projectRepo'
@@ -75,34 +74,20 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
   }
 }
 
-export function registerProjectHandlers(ipcMain: IpcMain, h: IpcApi['projects']): void {
-  ipcMain.handle(Channel.projectsList, () => h.list())
-  ipcMain.handle(Channel.projectsCreate, (_e, name: string, folderPath: string) =>
-    h.create(name, folderPath)
-  )
-  ipcMain.handle(Channel.projectsUpdate, (_e, id: string, patch: ProjectPatch) =>
-    h.update(id, patch)
-  )
-  ipcMain.handle(Channel.projectsSetArchived, (_e, id: string, archived: boolean) =>
-    h.setArchived(id, archived)
-  )
-  ipcMain.handle(Channel.projectsReorder, (_e, orderedIds: string[]) => h.reorder(orderedIds))
-  ipcMain.handle(Channel.projectsRemove, (_e, id: string) => h.remove(id))
-  ipcMain.handle(Channel.projectsAddRepoPath, (_e, id: string, folderPath: string) =>
-    h.addRepoPath(id, folderPath)
-  )
-  ipcMain.handle(Channel.projectsRemoveRepoPath, (_e, id: string, folderPath: string) =>
-    h.removeRepoPath(id, folderPath)
-  )
-  ipcMain.handle(Channel.projectsResolvePath, (_e, path: string) => h.resolvePath(path))
-  ipcMain.handle(Channel.projectsListOverrides, () => h.listOverrides())
-  ipcMain.handle(
-    Channel.projectsSetOverride,
-    (_e, kind: ProjectOverrideKind, key: string, projectId: string | null) =>
-      h.setOverride(kind, key, projectId)
-  )
-  ipcMain.handle(Channel.projectsClearOverride, (_e, kind: ProjectOverrideKind, key: string) =>
-    h.clearOverride(kind, key)
-  )
-  ipcMain.handle(Channel.projectsListWorktrees, (_e, id: string) => h.listWorktrees(id))
+export function projectsWireRoutes(h: IpcApi['projects']): WireRoutes {
+  return {
+    [Channel.projectsList]: h.list,
+    [Channel.projectsCreate]: h.create,
+    [Channel.projectsUpdate]: h.update,
+    [Channel.projectsSetArchived]: h.setArchived,
+    [Channel.projectsReorder]: h.reorder,
+    [Channel.projectsRemove]: h.remove,
+    [Channel.projectsAddRepoPath]: h.addRepoPath,
+    [Channel.projectsRemoveRepoPath]: h.removeRepoPath,
+    [Channel.projectsResolvePath]: h.resolvePath,
+    [Channel.projectsListOverrides]: h.listOverrides,
+    [Channel.projectsSetOverride]: h.setOverride,
+    [Channel.projectsClearOverride]: h.clearOverride,
+    [Channel.projectsListWorktrees]: h.listWorktrees
+  }
 }

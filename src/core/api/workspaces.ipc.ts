@@ -1,6 +1,5 @@
-import type { IpcMain } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import type { Layout } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
 import { SELECTED_WORKSPACE_KEY, type AppStateRepo } from '../db/appStateRepo'
@@ -87,21 +86,19 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
   }
 }
 
-/** Binds the workspace handlers to their invoke channels. Thin; behavior lives in the factory. */
-export function registerWorkspaceHandlers(ipcMain: IpcMain, h: IpcApi['workspaces']): void {
-  ipcMain.handle(Channel.workspacesGetState, () => h.getState())
-  ipcMain.handle(Channel.workspacesCreate, (_e, folderPath: string, name?: string) =>
-    h.create(folderPath, name)
-  )
-  ipcMain.handle(Channel.workspacesRename, (_e, id: string, name: string) => h.rename(id, name))
-  ipcMain.handle(Channel.workspacesRemove, (_e, id: string) => h.remove(id))
-  ipcMain.handle(Channel.workspacesSetLayout, (_e, id: string, layout: Layout) =>
-    h.setLayout(id, layout)
-  )
-  ipcMain.handle(Channel.workspacesSetActive, (_e, id: string) => h.setActive(id))
-  ipcMain.handle(Channel.workspacesPickFolder, () => h.pickFolder())
-  ipcMain.handle(Channel.workspacesAssignProject, (_e, id: string, projectId: string | null) =>
-    h.assignProject(id, projectId)
-  )
-  ipcMain.handle(Channel.workspacesAutoAssignProject, (_e, id: string) => h.autoAssignProject(id))
+/**
+ * The slice's wire contract. `pickFolder` is deliberately absent: it is Electron-only
+ * (native dialog) and is answered by main before anything reaches the core.
+ */
+export function workspacesWireRoutes(h: IpcApi['workspaces']): WireRoutes {
+  return {
+    [Channel.workspacesGetState]: h.getState,
+    [Channel.workspacesCreate]: h.create,
+    [Channel.workspacesRename]: h.rename,
+    [Channel.workspacesRemove]: h.remove,
+    [Channel.workspacesSetLayout]: h.setLayout,
+    [Channel.workspacesSetActive]: h.setActive,
+    [Channel.workspacesAssignProject]: h.assignProject,
+    [Channel.workspacesAutoAssignProject]: h.autoAssignProject
+  }
 }
