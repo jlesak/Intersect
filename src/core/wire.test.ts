@@ -28,7 +28,9 @@ describe('bridge channel classification', () => {
         Channel.workspacesPickFolder,
         Channel.oneOnOnePickVtt,
         Channel.systemOpenExternal,
-        Channel.systemRestartApp
+        Channel.systemRestartApp,
+        Channel.systemRetryCore,
+        Channel.systemQuitApp
       ].sort()
     )
   })

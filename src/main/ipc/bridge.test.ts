@@ -57,7 +57,9 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
       [Channel.workspacesPickFolder]: () => '/picked',
       [Channel.oneOnOnePickVtt]: () => '/picked.vtt',
       [Channel.systemOpenExternal]: (url: string) => `opened:${url}`,
-      [Channel.systemRestartApp]: () => 'restarted'
+      [Channel.systemRestartApp]: () => 'restarted',
+      [Channel.systemRetryCore]: () => 'retried',
+      [Channel.systemQuitApp]: () => 'quit'
     },
     sendToRenderer: (channel, payload) => rendered.push({ channel, payload }),
     showNotification: (request) => notifications.push(request),
@@ -90,7 +92,7 @@ describe('registerCoreBridge registration', () => {
       makeHarness({
         electronOnly: {
           [Channel.workspacesPickFolder]: () => '/picked'
-          // oneOnOnePickVtt, systemOpenExternal and systemRestartApp missing
+          // the remaining Electron-only channels missing
         }
       })
     ).toThrow(/missing Electron-only handler for /)

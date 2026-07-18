@@ -15,6 +15,7 @@ import type { RpcPort } from '@common/portRpc'
 import { createCoreHost, type CoreHost } from './coreHost'
 import { registerCoreBridge } from './ipc/bridge'
 import { createSystemHandlers } from './ipc/system.ipc'
+import { activateAction, shouldQuitOnWindowAllClosed, shouldZeroDockBadge } from './lifecycle'
 
 /**
  * Electron main is a thin shell now: it owns windows, the Dock, dialogs, native
@@ -29,6 +30,14 @@ app.setName('Intersect')
 let mainWindow: BrowserWindow | null = null
 let host: CoreHost | null = null
 let coreStatus: CoreStatus = { state: 'starting' }
+// Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
+// neither veto the quit nor create new windows.
+let quitting = false
+
+/** The one place the Dock badge is written: the count of sessions awaiting interaction. */
+function setDockBadge(count: number): void {
+  app.dock?.setBadge(count > 0 ? String(count) : '')
+}
 
 /** Fire-and-forget send to the renderer, guarded against a destroyed window. */
 function sendToRenderer(channel: string, ...args: unknown[]): void {
@@ -151,6 +160,12 @@ function wireCore(userDataDir: string): void {
     onStatus: (status) => {
       coreStatus = status
       sendToRenderer(Channel.systemCoreStatus, status)
+      // A dead core cannot retract its badge; clear it here so no stale count survives the
+      // crash. A recovered core repopulates it through the canonical push when warranted.
+      if (shouldZeroDockBadge(status)) setDockBadge(0)
+      if (status.state === 'restarting') {
+        console.error(`[intersect] core crashed (restart ${status.attempt}): ${status.message}`)
+      }
       if (status.state === 'failed') {
         console.error(`[intersect] core failed: ${status.message}`)
       }
@@ -180,7 +195,9 @@ function wireCore(userDataDir: string): void {
     restartApp: () => {
       app.relaunch()
       app.exit(0)
-    }
+    },
+    retryCore: () => host?.retry(),
+    quitApp: () => app.quit()
   })
 
   registerCoreBridge({
@@ -190,13 +207,15 @@ function wireCore(userDataDir: string): void {
       [Channel.workspacesPickFolder]: pickFolder,
       [Channel.oneOnOnePickVtt]: pickVttFile,
       [Channel.systemOpenExternal]: system.openExternal,
-      [Channel.systemRestartApp]: system.restartApp
+      [Channel.systemRestartApp]: system.restartApp,
+      [Channel.systemRetryCore]: system.retryCore,
+      [Channel.systemQuitApp]: system.quitApp
     },
     sendToRenderer: (channel, payload) => sendToRenderer(channel, payload),
     showNotification: showCoreNotification,
     // The dock badge is the at-a-glance count of sessions awaiting interaction, sourced
     // solely from the core's canonical attention count.
-    setDockBadge: (count) => app.dock?.setBadge(count > 0 ? String(count) : '')
+    setDockBadge
   })
 }
 
@@ -205,14 +224,19 @@ app.whenReady().then(() => {
   wireCore(userDataDir)
   createWindow()
 
+  // Dock activation: focus the live window, or create exactly one new one that reattaches to
+  // the still-running core sessions. `mainWindow` is assigned synchronously in createWindow,
+  // so a burst of activations cannot create a second window.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const hasLiveWindow = mainWindow !== null && !mainWindow.isDestroyed()
+    const action = activateAction({ hasLiveWindow, quitting })
+    if (action === 'focus') mainWindow!.focus()
+    if (action === 'create') createWindow()
   })
 })
 
 // Coordinated shutdown: give the core a bounded chance to close PTYs, services, and the
 // database in order, then exit for real. app.exit() skips this handler the second time.
-let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || !host) return
   event.preventDefault()
@@ -220,7 +244,9 @@ app.on('before-quit', (event) => {
   void host.shutdown().finally(() => app.exit(0))
 })
 
-// Single-window app: quitting on window close avoids a dock re-activate showing dead shells.
+// Dock-only lifecycle on macOS: closing the last window leaves Electron, the core, and its
+// PTYs running - a Dock click reattaches to the same live sessions. Elsewhere (and during a
+// coordinated quit) the app exits with its windows.
 app.on('window-all-closed', () => {
-  app.quit()
+  if (shouldQuitOnWindowAllClosed({ platform: process.platform, quitting })) app.quit()
 })

@@ -19,7 +19,9 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<ChannelName> = new Set<ChannelN
   Channel.workspacesPickFolder,
   Channel.oneOnOnePickVtt,
   Channel.systemOpenExternal,
-  Channel.systemRestartApp
+  Channel.systemRestartApp,
+  Channel.systemRetryCore,
+  Channel.systemQuitApp
 ])
 
 /**
