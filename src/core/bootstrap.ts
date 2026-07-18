@@ -21,7 +21,7 @@ import { createSettingsRepo } from './db/settingsRepo'
 import { createTabRepo } from './db/tabRepo'
 import { createWorkspaceRepo } from './db/workspaceRepo'
 import { createDraftCommentRepo } from './db/draftCommentRepo'
-import { createMyWorkCacheRepo } from './db/myWorkCacheRepo'
+import { createJiraCacheRepo } from './db/jiraCacheRepo'
 import { tx } from './db/tx'
 import { createPrCacheRepo } from './db/prCacheRepo'
 import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
@@ -77,9 +77,12 @@ import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
-import { createJiraFetcher } from './myWork/jiraFetch'
-import { createJiraIndex } from './myWork/jiraIndex'
+import { createJiraFetcher, type JiraFetcher } from './myWork/jiraFetch'
+import { createJiraClient, type JiraFetchResult } from './myWork/jiraClient'
+import { adaptHiddenBoardResult } from './myWork/jiraHiddenAdapter'
 import { createJiraLogin } from './myWork/jiraLogin'
+import { readStorageStateSession } from './myWork/jiraSession'
+import { createJiraSyncEngine, type JiraQuery } from './myWork/jiraSyncEngine'
 import { createOtoRunRepo } from './db/otoRunRepo'
 import { createOtoE2eStub } from './oneOnOne/otoE2eStub'
 import { createOtoManager } from './oneOnOne/otoManager'
@@ -500,19 +503,43 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const todos = createTodoRepo(db, repoDeps)
   const todoHandlers = createTodoHandlers({ todos })
 
-  // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT) ---
-  const jiraFetcher = createJiraFetcher({
-    spawn: deps.spawn,
-    claudePath: resolveClaudePath(env),
-    reportServerPath: join(__dirname, 'jiraReportServer.js')
-  })
+  // --- My Work slice: Jira boards synced directly and read-only with the SSO cookies (no PAT,
+  // no Claude session). The engine owns the SQLite read model and the shared background refresh;
+  // the login stays the existing interactive browser SSO flow. The legacy hidden-Claude fetcher
+  // is a diagnostic-only fallback: it exists solely behind INTERSECT_JIRA_HIDDEN_FETCH=1 (one
+  // release, then removed) and is never constructed on the default path.
   const jiraLogin = createJiraLogin()
   const jiraStub = isE2e ? createJiraE2eStub(env) : null
+  const hiddenJiraFetcher: JiraFetcher | null =
+    !isE2e && env.INTERSECT_JIRA_HIDDEN_FETCH === '1'
+      ? createJiraFetcher({
+          spawn: deps.spawn,
+          claudePath: resolveClaudePath(env),
+          reportServerPath: join(__dirname, 'jiraReportServer.js')
+        })
+      : null
+  const jiraClient = createJiraClient({
+    fetch: globalThis.fetch.bind(globalThis),
+    now: () => Date.now(),
+    readSession: () => readStorageStateSession()
+  })
+  const runJiraQuery = (sourceKey: string, query: JiraQuery): Promise<JiraFetchResult> => {
+    // E2E runs script the fetch outcome at this seam, so the real engine + repo still run.
+    if (jiraStub) return jiraStub.fetchBoard()
+    if (hiddenJiraFetcher && sourceKey === 'global') {
+      return hiddenJiraFetcher.fetchBoard().then(adaptHiddenBoardResult)
+    }
+    return query.kind === 'jql' ? jiraClient.searchByJql(query.jql) : jiraClient.fetchBoard(query.board)
+  }
+  const jiraEngine = createJiraSyncEngine({
+    runQuery: runJiraQuery,
+    repo: createJiraCacheRepo(db),
+    getProject: (id) => projects.getById(id),
+    now: () => Date.now(),
+    onChanged: (sourceKey) => emitPush(Channel.myWorkChanged, { sourceKey })
+  })
   const myWorkHandlers = createMyWorkHandlers({
-    index: createJiraIndex({
-      fetch: jiraStub ? () => jiraStub.fetchBoard() : () => jiraFetcher.fetchBoard(),
-      store: createMyWorkCacheRepo(db)
-    }),
+    engine: jiraEngine,
     login: jiraStub ? { login: () => jiraStub.login(), dispose: () => {} } : jiraLogin
   })
 
@@ -619,7 +646,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     sessions.killAll()
     terminalStream.disposeAll()
     review.shutdown()
-    jiraFetcher.dispose()
+    hiddenJiraFetcher?.dispose()
     jiraLogin.dispose()
     oto.dispose()
     usage?.dispose()

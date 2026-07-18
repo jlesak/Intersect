@@ -17,6 +17,8 @@
  *     credential-file reads as a second, version-independent layer.
  */
 
+import { JIRA_GLOBAL_JQL } from './jiraMapping'
+
 /**
  * Hard denials on top of the closed allowlist: every tool that writes to disk or reaches the
  * network on its own, so a prompt-injected session cannot modify files or exfiltrate cookies.
@@ -49,7 +51,7 @@ export const JIRA_FETCH_DENY_READ_GLOBS = [
 ]
 
 /** The fixed board query: my unresolved issues. Deliberately not user-configurable. */
-export const JIRA_FETCH_JQL = 'assignee = currentUser() AND resolution = EMPTY'
+export const JIRA_FETCH_JQL = JIRA_GLOBAL_JQL
 
 /**
  * The python the session runs from a main-owned temp file: load the jira skill's saved SSO

@@ -14,6 +14,7 @@ function JiraSectionBody() {
   const issues = useMyWorkStore((s) => s.issues)
   const error = useMyWorkStore((s) => s.error)
   const errorKind = useMyWorkStore((s) => s.errorKind)
+  const partial = useMyWorkStore((s) => s.partial)
   const hasBoard = useMyWorkStore((s) => s.fetchedAt) !== null
 
   if (hasBoard) {
@@ -23,6 +24,27 @@ function JiraSectionBody() {
           <div className="ix-mw-loading" style={{ marginBottom: 4 }}>
             <span className="ix-spinner" aria-hidden />
             Jira sign-in required. Complete the SSO login in the browser window that just opened…
+          </div>
+        )}
+        {status === 'ready' && error !== null && (
+          <div className="ix-mw-loading ix-mw-stale" style={{ marginBottom: 4 }}>
+            {errorKind === 'auth'
+              ? 'The Jira SSO session expired - showing the last fetched board.'
+              : `Could not refresh: ${error}`}
+            {errorKind === 'auth' && (
+              <button
+                type="button"
+                className="ix-btn ix-btn--ghost"
+                onClick={() => void useMyWorkStore.getState().loginAndRefresh()}
+              >
+                Log in to Jira
+              </button>
+            )}
+          </div>
+        )}
+        {partial && (
+          <div className="ix-mw-loading ix-mw-partial" style={{ marginBottom: 4 }}>
+            Jira returned an unusually large result; the board may be incomplete.
           </div>
         )}
         {issues.length === 0 ? (
@@ -45,7 +67,7 @@ function JiraSectionBody() {
         <JiraBoardSkeleton />
         <div className="ix-mw-loading" style={{ marginTop: -4 }}>
           <span className="ix-spinner" aria-hidden />
-          Fetching from Jira through a background Claude Code session (jira skill)…
+          Fetching your issues from Jira…
         </div>
       </>
     )
@@ -72,7 +94,11 @@ function JiraSectionBody() {
           <span className="ix-mw-error__body">
             {auth
               ? 'There is no active Jira SSO session. Sign in again to load the board.'
-              : error || 'Something went wrong while fetching the board.'}
+              : errorKind === 'network'
+                ? `Jira could not be reached: ${error}`
+                : errorKind === 'server'
+                  ? `Jira answered with an error: ${error}`
+                  : error || 'Something went wrong while fetching the board.'}
           </span>
           <button
             type="button"

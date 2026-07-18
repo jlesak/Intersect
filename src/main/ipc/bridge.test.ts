@@ -127,6 +127,7 @@ describe('registerCoreBridge routing', () => {
   test('routes core pushes: renderer broadcasts forwarded, native commands executed', () => {
     const h = makeHarness()
     h.emitPush(Channel.terminalData, { sessionId: 's1', data: 'x' })
+    h.emitPush(Channel.myWorkChanged, { sourceKey: 'global' })
     h.emitPush(NATIVE_DOCK_BADGE_PUSH, { count: 3 })
     const request: NativeNotificationRequest = {
       sessionId: 's1',
@@ -137,7 +138,8 @@ describe('registerCoreBridge routing', () => {
     h.emitPush(NATIVE_NOTIFICATION_PUSH, request)
 
     expect(h.rendered).toEqual([
-      { channel: Channel.terminalData, payload: { sessionId: 's1', data: 'x' } }
+      { channel: Channel.terminalData, payload: { sessionId: 's1', data: 'x' } },
+      { channel: Channel.myWorkChanged, payload: { sourceKey: 'global' } }
     ])
     expect(h.badges).toEqual([3])
     expect(h.notifications).toEqual([request])

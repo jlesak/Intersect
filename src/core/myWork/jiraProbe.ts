@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import { JIRA_BASE_URL } from './jiraMapping'
+import { readStorageStateSession } from './jiraSession'
 
 /**
  * Whether the jira skill's saved SSO session currently works: `auth` means login is definitely
@@ -7,15 +8,8 @@ import { readFile } from 'node:fs/promises'
  */
 export type JiraProbeResult = 'ok' | 'auth' | 'unknown'
 
-const JIRA_HOST = 'jira.skoda.vwgroup.com'
-const PROBE_URL = `https://${JIRA_HOST}/rest/api/2/myself`
+const PROBE_URL = `${JIRA_BASE_URL}/rest/api/2/myself`
 const PROBE_TIMEOUT_MS = 5_000
-
-interface StoredCookie {
-  name: string
-  value: string
-  domain?: string
-}
 
 /**
  * A sub-second direct check of the saved SSO session against Jira, so an expired or missing login
@@ -26,23 +20,13 @@ export async function probeJiraSession(
   statePath: string,
   fetchFn: typeof fetch = fetch
 ): Promise<JiraProbeResult> {
-  let cookieHeader: string
-  try {
-    const state = JSON.parse(await readFile(statePath, 'utf8')) as { cookies?: StoredCookie[] }
-    const cookies = (state.cookies ?? []).filter((c) => {
-      const domain = (c.domain ?? '').replace(/^\./, '')
-      return domain === JIRA_HOST || (domain && JIRA_HOST.endsWith('.' + domain))
-    })
-    if (cookies.length === 0) return 'auth'
-    cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
-  } catch {
-    // No saved session file (or an unreadable one): login is needed.
-    return 'auth'
-  }
+  const session = await readStorageStateSession(statePath)
+  // No saved session (or an unreadable one): login is needed.
+  if (!session) return 'auth'
 
   try {
     const response = await fetchFn(PROBE_URL, {
-      headers: { Accept: 'application/json', Cookie: cookieHeader },
+      headers: { Accept: 'application/json', Cookie: session.cookieHeader },
       redirect: 'manual',
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     })

@@ -24,8 +24,8 @@ export function SidebarMyWork() {
       </div>
       <div className="ix-sidebar__list">
         <p style={{ padding: '2px 10px', color: 'var(--text-faint)' }}>
-          Your unresolved Jira issues on one board, fetched through a background Claude Code
-          session - no API token involved.
+          Your unresolved Jira issues on one board, fetched directly and read-only with your
+          browser SSO session - no API token involved.
         </p>
       </div>
     </div>

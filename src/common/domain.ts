@@ -407,6 +407,75 @@ export type JiraBoardResult =
   | { ok: false; kind: JiraErrorKind; message: string }
 
 /**
+ * One Jira issue as held in the read-model cache, fetched directly (read-only) from Jira. Extends
+ * the board card shape with the raw remote fields, so the same record serves the kanban board,
+ * project association, and durable session <-> ticket links. `updatedAt` (inherited) is Jira's
+ * remote `updated` timestamp; `column` is the normalized bucket derived from `rawStatus` by
+ * keyword matching, with unrecognized statuses falling back safely to To Do while `rawStatus`
+ * keeps the exact remote name.
+ */
+export interface JiraIssueSnapshot extends JiraIssue {
+  /** The remote description, trimmed; null when Jira reports none. */
+  description: string | null
+  /** The exact Jira workflow status name, preserved verbatim next to the normalized column. */
+  rawStatus: string
+  /** The exact Jira priority name; null when the issue has none. */
+  rawPriority: string | null
+  /** The assignee's display name; null when unassigned. */
+  assignee: string | null
+  /** The linked epic's issue key; null when the issue has no epic link. */
+  epicKey: string | null
+  /** The linked epic's summary; null when unknown (the enrichment lookup is best-effort). */
+  epicSummary: string | null
+  /** Jira's original time estimate in seconds; null when unestimated. */
+  estimateSeconds: number | null
+  /** The issue's component names, in Jira's order. */
+  components: string[]
+  /** When this issue was last seen in a fetch (epoch ms). */
+  fetchedAt: number
+  /**
+   * True when the issue was missing from the latest fetch of its source. Absent issues are
+   * marked, never deleted, so anything linked to the cached row keeps resolving.
+   */
+  absent: boolean
+}
+
+/**
+ * Why a Jira source cannot serve fresh data: no query configured, an expired SSO session, the
+ * network, the server, or anything else. Each renders differently, and only auth offers login.
+ */
+export const JIRA_SYNC_ERROR_KINDS = ['not-configured', 'auth', 'network', 'server', 'other'] as const
+export type JiraSyncErrorKind = (typeof JIRA_SYNC_ERROR_KINDS)[number]
+
+export interface JiraSyncError {
+  kind: JiraSyncErrorKind
+  message: string
+}
+
+/**
+ * One Jira source's cached board plus its sync state, as served to the renderer. A failed sync
+ * never clears the issues: the last-good board stays alongside the error so the UI keeps
+ * rendering data while surfacing what went wrong. `fetchedAt` is the last successful fetch
+ * (epoch ms); null means this source never fetched successfully. `partial` flags a result cut
+ * short by the pagination ceiling.
+ */
+export interface JiraBoardSnapshot {
+  sourceKey: string
+  issues: JiraIssueSnapshot[]
+  fetchedAt: number | null
+  partial: boolean
+  error: JiraSyncError | null
+}
+
+/** The source key of the global "assigned to me" board. */
+export const GLOBAL_JIRA_SOURCE = 'global'
+
+/** The source key of one project's own Jira board (its JQL filter or board URL). */
+export function projectJiraSource(projectId: string): string {
+  return `project:${projectId}`
+}
+
+/**
  * The outcome of one interactive Jira SSO login (a headed browser window the user completes).
  * Failure means the user closed the window, the login timed out, or the jira skill is missing.
  */

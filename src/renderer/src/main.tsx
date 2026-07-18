@@ -13,6 +13,7 @@ import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
+import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
 import { useUsageStore } from './features/usage'
@@ -37,6 +38,8 @@ void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
 // Listen for finished 1:1 runs pushed from main so the history refreshes live.
 useOneOnOneStore.getState().subscribe()
+// Listen for completed Jira background refreshes so the My Work board updates live.
+useMyWorkStore.getState().subscribe()
 // Load the last captured Claude usage snapshot and keep listening for fresh ones pushed from main.
 void useUsageStore.getState().hydrate()
 useUsageStore.getState().subscribe()

@@ -1,8 +1,11 @@
-import type { JiraColumn, JiraIssue, JiraPriority } from '@common/domain'
+import type { JiraColumn, JiraIssue, JiraIssueSnapshot, JiraPriority } from '@common/domain'
 
 /** The company Jira host. The single place the renderer-visible issue URLs are anchored to. */
 export const JIRA_HOST = 'jira.skoda.vwgroup.com'
 export const JIRA_BASE_URL = `https://${JIRA_HOST}`
+
+/** The global My Work board query: my unresolved issues. Deliberately not user-configurable. */
+export const JIRA_GLOBAL_JQL = 'assignee = currentUser() AND resolution = EMPTY'
 
 /** One issue as reported by the hidden fetch session, before any normalization. */
 export interface RawJiraIssue {
@@ -46,6 +49,58 @@ export function mapPriority(priority: string | null): JiraPriority | null {
   if (MEDIUM_PRIORITIES.has(p)) return 'medium'
   if (LOW_PRIORITIES.has(p)) return 'low'
   return null
+}
+
+/**
+ * One issue as the direct Jira adapter reports it from either fetch path (JQL search or Agile
+ * board), before the cache stamps it with fetch metadata. `updatedAt` is already epoch ms.
+ */
+export interface JiraRemoteIssue {
+  key: string
+  summary: string
+  description: string | null
+  rawStatus: string
+  rawPriority: string | null
+  assignee: string | null
+  epicKey: string | null
+  epicSummary: string | null
+  estimateSeconds: number | null
+  components: string[]
+  updatedAt: number
+}
+
+/**
+ * Normalize directly fetched issues into cache-ready snapshots: canonical browse URL built from
+ * the key, status/priority mapped to their buckets with the raw values preserved, the fetch
+ * moment stamped on, and the list sorted by last activity, newest first. Entries without a key
+ * are dropped.
+ */
+export function toSnapshots(raw: JiraRemoteIssue[], fetchedAt: number): JiraIssueSnapshot[] {
+  const issues: JiraIssueSnapshot[] = []
+  for (const entry of raw) {
+    const key = entry.key.trim()
+    if (!key) continue
+    issues.push({
+      key,
+      url: `${JIRA_BASE_URL}/browse/${key}`,
+      summary: entry.summary,
+      column: mapStatusToColumn(entry.rawStatus),
+      priority: mapPriority(entry.rawPriority),
+      updatedAt: entry.updatedAt,
+      description: entry.description,
+      rawStatus: entry.rawStatus,
+      rawPriority: entry.rawPriority,
+      assignee: entry.assignee,
+      epicKey: entry.epicKey,
+      epicSummary: entry.epicSummary,
+      estimateSeconds: entry.estimateSeconds,
+      components: entry.components,
+      fetchedAt,
+      absent: false
+    })
+  }
+  issues.sort((a, b) => b.updatedAt - a.updatedAt)
+  return issues
 }
 
 /**

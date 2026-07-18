@@ -1,10 +1,11 @@
 import { type WireRoutes } from '@common/coreBridge'
+import { GLOBAL_JIRA_SOURCE, projectJiraSource } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
-import type { JiraIndex } from '../myWork/jiraIndex'
 import type { JiraLogin } from '../myWork/jiraLogin'
+import type { JiraSyncEngine } from '../myWork/jiraSyncEngine'
 
 export interface MyWorkHandlerDeps {
-  index: JiraIndex
+  engine: JiraSyncEngine
   login: JiraLogin
 }
 
@@ -21,22 +22,28 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
 }
 
 /**
- * My Work handlers: thin delegation to the in-memory {@link JiraIndex}. The index owns the caching
- * and the hidden fetch session; these handlers only bridge it to IPC and normalize errors. Note
- * that a failed board fetch is not an exception here - it travels as an `ok: false` result.
+ * My Work handlers: thin delegation to the {@link JiraSyncEngine}, which owns the read-model
+ * cache and the stale-while-revalidate refresh, plus the interactive SSO login. These are the
+ * slice's only runtime entry points, and every one of them is a read or the login - there is no
+ * Jira mutation or worklog operation to expose. A failed sync is not an exception here - it
+ * travels inside the board envelope.
  */
-export function createMyWorkHandlers(deps: MyWorkHandlerDeps): IpcApi['myWork'] {
+export function createMyWorkHandlers(deps: MyWorkHandlerDeps): Omit<IpcApi['myWork'], 'onChanged'> {
   return {
-    list: () => surface(() => deps.index.list()),
-    refresh: () => surface(() => deps.index.refresh()),
-    login: () => surface(() => deps.login.login())
+    list: () => surface(() => deps.engine.getBoard(GLOBAL_JIRA_SOURCE)),
+    refresh: () => surface(() => deps.engine.refresh(GLOBAL_JIRA_SOURCE)),
+    login: () => surface(() => deps.login.login()),
+    projectBoard: (projectId) => surface(() => deps.engine.getBoard(projectJiraSource(projectId))),
+    refreshProject: (projectId) => surface(() => deps.engine.refresh(projectJiraSource(projectId)))
   }
 }
 
-export function myWorkWireRoutes(h: IpcApi['myWork']): WireRoutes {
+export function myWorkWireRoutes(h: Omit<IpcApi['myWork'], 'onChanged'>): WireRoutes {
   return {
     [Channel.myWorkList]: h.list,
     [Channel.myWorkRefresh]: h.refresh,
-    [Channel.myWorkLogin]: h.login
+    [Channel.myWorkLogin]: h.login,
+    [Channel.myWorkProjectBoard]: h.projectBoard,
+    [Channel.myWorkRefreshProject]: h.refreshProject
   }
 }

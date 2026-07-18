@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { mapPriority, mapStatusToColumn, toIssues, type RawJiraIssue } from './jiraMapping'
+import {
+  mapPriority,
+  mapStatusToColumn,
+  toIssues,
+  toSnapshots,
+  type JiraRemoteIssue,
+  type RawJiraIssue
+} from './jiraMapping'
 
 const raw = (over: Partial<RawJiraIssue> = {}): RawJiraIssue => ({
   key: 'FID2507-1',
@@ -107,5 +114,62 @@ describe('toIssues', () => {
     ])
     expect(issues.map((i) => i.key)).toEqual(['A-2', 'A-1'])
     expect(issues[1].updatedAt).toBe(0)
+  })
+})
+
+describe('toSnapshots', () => {
+  const remote = (over: Partial<JiraRemoteIssue> = {}): JiraRemoteIssue => ({
+    key: 'FID2507-1',
+    summary: 'An issue',
+    description: 'Details',
+    rawStatus: 'In Review',
+    rawPriority: 'High',
+    assignee: 'Jan',
+    epicKey: 'FID2507-100',
+    epicSummary: 'The epic',
+    estimateSeconds: 3600,
+    components: ['Backend'],
+    updatedAt: Date.parse('2026-07-01T08:00:00.000Z'),
+    ...over
+  })
+
+  test('keeps the raw remote fields next to the normalized buckets and stamps the fetch time', () => {
+    const [snapshot] = toSnapshots([remote()], 4242)
+    expect(snapshot).toEqual({
+      key: 'FID2507-1',
+      url: 'https://jira.skoda.vwgroup.com/browse/FID2507-1',
+      summary: 'An issue',
+      column: 'review',
+      priority: 'high',
+      updatedAt: Date.parse('2026-07-01T08:00:00.000Z'),
+      description: 'Details',
+      rawStatus: 'In Review',
+      rawPriority: 'High',
+      assignee: 'Jan',
+      epicKey: 'FID2507-100',
+      epicSummary: 'The epic',
+      estimateSeconds: 3600,
+      components: ['Backend'],
+      fetchedAt: 4242,
+      absent: false
+    })
+  })
+
+  test('an unknown status keeps its raw name and falls back safely to To Do', () => {
+    const [snapshot] = toSnapshots([remote({ rawStatus: 'Čeká na dodavatele??' })], 1)
+    expect(snapshot.column).toBe('todo')
+    expect(snapshot.rawStatus).toBe('Čeká na dodavatele??')
+  })
+
+  test('sorts by last activity, newest first, and drops keyless entries', () => {
+    const issues = toSnapshots(
+      [
+        remote({ key: 'A-1', updatedAt: 1 }),
+        remote({ key: '  ' }),
+        remote({ key: 'A-2', updatedAt: 2 })
+      ],
+      1
+    )
+    expect(issues.map((i) => i.key)).toEqual(['A-2', 'A-1'])
   })
 })
