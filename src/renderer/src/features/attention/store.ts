@@ -19,6 +19,8 @@ interface AttentionState {
   remove(sessionId: string): void
   /** Drop every session of a workspace (when the workspace and its tabs are removed). */
   clearWorkspace(workspaceId: string): void
+  /** Drop everything (a core restart invalidated every status; the new core re-pushes truth). */
+  clearAll(): void
 }
 
 export const useAttentionStore = create<AttentionState>()((set) => ({
@@ -55,6 +57,10 @@ export const useAttentionStore = create<AttentionState>()((set) => ({
       for (const id of ids) delete next[id]
       return { status: next }
     })
+  },
+
+  clearAll() {
+    set((s) => (Object.keys(s.status).length === 0 ? s : { status: {} }))
   }
 }))
 

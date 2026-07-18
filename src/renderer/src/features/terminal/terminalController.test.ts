@@ -15,7 +15,14 @@ const ipcMock = vi.hoisted(() => ({
 }))
 vi.mock('./ipc', () => ipcMock)
 
-import { disposeSession, ensureSession } from './terminalController'
+import {
+  disposeSession,
+  ensureSession,
+  markAllInterrupted,
+  respawnInterrupted,
+  setCoreSpawnGate
+} from './terminalController'
+import { useInterruptedStore } from './interruptedStore'
 
 // The one live onData listener the controller wires for the renderer's lifetime; captured so
 // tests can inject pushes as if the core sent them.
@@ -39,6 +46,8 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   writeSpy = vi.spyOn(Terminal.prototype, 'write')
+  setCoreSpawnGate(true)
+  useInterruptedStore.setState({ interrupted: {} })
 })
 
 const written = (): string[] => writeSpy.mock.calls.map((c) => c[0] as string)
@@ -137,5 +146,102 @@ describe('ensureSession reattach flow', () => {
     expect(ipcMock.kill).toHaveBeenCalledWith('live:doomed')
     expect(ipcMock.spawn).not.toHaveBeenCalled()
     expect(written()).toEqual([])
+  })
+})
+
+describe('core crash interruption', () => {
+  test('markAllInterrupted writes the notice, flags the session, and silences its sink', async () => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession('int:one', 'shell', '/repo')
+
+    markAllInterrupted('background services restarted')
+
+    expect(useInterruptedStore.getState().interrupted['int:one']).toBe(true)
+    expect(written().some((w) => w.includes('background services restarted - session interrupted'))).toBe(
+      true
+    )
+    // Bytes arriving for the dead PTY (late or from a confused source) must never render.
+    routeData({ sessionId: 'int:one', data: 'ZOMBIE', seq: 99 })
+    expect(written().some((w) => w.includes('ZOMBIE'))).toBe(false)
+  })
+
+  test('an interrupted session is never auto-respawned by ensureSession', async () => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession('int:stay', 'shell', '/repo')
+    markAllInterrupted('background services restarted')
+    vi.clearAllMocks()
+
+    await ensureSession('int:stay', 'shell', '/repo')
+
+    expect(ipcMock.attach).not.toHaveBeenCalled()
+    expect(ipcMock.spawn).not.toHaveBeenCalled()
+    expect(useInterruptedStore.getState().interrupted['int:stay']).toBe(true)
+  })
+
+  test('respawnInterrupted reuses the xterm, spawns with the resume id, and restores live output', async () => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: 'OLD', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession('int:resume', 'claude', '/repo')
+    markAllInterrupted('background services restarted')
+
+    await respawnInterrupted('int:resume', 'claude', '/repo', 'resume-9')
+
+    expect(ipcMock.spawn).toHaveBeenCalledTimes(1)
+    const [id, preset, cwd, , , resumeSessionId] = ipcMock.spawn.mock.calls[0] as unknown[]
+    expect([id, preset, cwd, resumeSessionId]).toEqual(['int:resume', 'claude', '/repo', 'resume-9'])
+    expect(useInterruptedStore.getState().interrupted['int:resume']).toBeUndefined()
+    routeData({ sessionId: 'int:resume', data: 'FRESH', seq: 1 })
+    expect(written().some((w) => w.includes('FRESH'))).toBe(true)
+  })
+
+  test('respawnInterrupted is a no-op for a session that is not interrupted', async () => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession('int:healthy', 'shell', '/repo')
+    vi.clearAllMocks()
+
+    await respawnInterrupted('int:healthy', 'shell', '/repo')
+
+    expect(ipcMock.spawn).not.toHaveBeenCalled()
+  })
+
+  test('disposing an interrupted session clears its flag', async () => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession('int:gone', 'shell', '/repo')
+    markAllInterrupted('background services restarted')
+
+    disposeSession('int:gone')
+
+    expect(useInterruptedStore.getState().interrupted['int:gone']).toBeUndefined()
+  })
+})
+
+describe('spawn gate', () => {
+  test('a failed attach waits for the core to be ready before spawning', async () => {
+    setCoreSpawnGate(false)
+    ipcMock.attach.mockRejectedValue(new Error('core restarting'))
+
+    const creation = ensureSession('gate:wait', 'shell', '/repo')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(ipcMock.spawn).not.toHaveBeenCalled()
+
+    setCoreSpawnGate(true)
+    await creation
+    expect(ipcMock.spawn).toHaveBeenCalledTimes(1)
+  })
+
+  test('a session interrupted while waiting at the gate never spawns', async () => {
+    setCoreSpawnGate(false)
+    ipcMock.attach.mockRejectedValue(new Error('core restarting'))
+
+    const creation = ensureSession('gate:interrupted', 'shell', '/repo')
+    // Let the failed attach materialize the view, then interrupt it while the gate is shut.
+    await vi.waitFor(() => {
+      markAllInterrupted('background services restarted')
+      expect(useInterruptedStore.getState().interrupted['gate:interrupted']).toBe(true)
+    })
+
+    setCoreSpawnGate(true)
+    await creation
+    expect(ipcMock.spawn).not.toHaveBeenCalled()
   })
 })

@@ -21,7 +21,24 @@ describe('CoreStatusOverlay', () => {
     ).toBe('')
   })
 
-  test('a failed core shows the reason and a restart action', () => {
+  test('a restarting core shows the attempt and reason without any action buttons', () => {
+    const host = document.createElement('div')
+    host.innerHTML = renderToStaticMarkup(
+      React.createElement(CoreStatusOverlay, {
+        initialStatus: { state: 'restarting', message: 'core process exited unexpectedly (code 9)', attempt: 2 }
+      })
+    )
+
+    const dialog = host.querySelector('[role="alertdialog"]')
+    expect(dialog).toBeTruthy()
+    expect(host.querySelector('h1')?.textContent).toContain('(attempt 2)')
+    expect(host.querySelector('.ix-core-failure__reason')?.textContent).toBe(
+      'core process exited unexpectedly (code 9)'
+    )
+    expect(host.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  test('a failed core shows the reason with retry, quit, and relaunch actions', () => {
     const host = document.createElement('div')
     host.innerHTML = renderToStaticMarkup(
       React.createElement(CoreStatusOverlay, {
@@ -31,11 +48,12 @@ describe('CoreStatusOverlay', () => {
 
     const dialog = host.querySelector('[role="alertdialog"]')
     const reason = host.querySelector('.ix-core-failure__reason')
-    const restart = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Restart Intersect'
-    )
+    const labels = [...host.querySelectorAll('button')].map((b) => b.textContent)
     expect(dialog).toBeTruthy()
     expect(reason?.textContent).toBe('core bootstrap failed: db is corrupt')
-    expect(restart?.getAttribute('type')).toBe('button')
+    expect(labels).toEqual(['Retry', 'Quit Intersect', 'Restart Intersect'])
+    for (const button of host.querySelectorAll('button')) {
+      expect(button.getAttribute('type')).toBe('button')
+    }
   })
 })

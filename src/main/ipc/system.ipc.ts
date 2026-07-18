@@ -34,6 +34,10 @@ export interface SystemHandlerDeps {
   openExternal: (url: string) => Promise<void>
   /** The actual app relaunch (app.relaunch + app.exit); injected for tests. */
   restartApp: () => void
+  /** Start a fresh core process after automatic recovery gave up (host.retry). */
+  retryCore: () => void
+  /** Quit through the coordinated shutdown path (app.quit); injected for tests. */
+  quitApp: () => void
 }
 
 /**
@@ -65,6 +69,14 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
     restartApp: () =>
       surface(async () => {
         deps.restartApp()
+      }),
+    retryCore: () =>
+      surface(async () => {
+        deps.retryCore()
+      }),
+    quitApp: () =>
+      surface(async () => {
+        deps.quitApp()
       })
   }
 }
@@ -72,4 +84,6 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
 export function registerSystemHandlers(ipcMain: IpcMain, h: SystemHandlers): void {
   ipcMain.handle(Channel.systemOpenExternal, (_e, url: string) => h.openExternal(url))
   ipcMain.handle(Channel.systemRestartApp, () => h.restartApp())
+  ipcMain.handle(Channel.systemRetryCore, () => h.retryCore())
+  ipcMain.handle(Channel.systemQuitApp, () => h.quitApp())
 }

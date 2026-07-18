@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
+import { wireCoreRecovery } from './app/coreRecoveryWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
@@ -49,3 +50,5 @@ wireMyWorkPrNav()
 wireProjectsToWorkspaces()
 // Hydrate the settings store and keep live terminals following the terminal font size.
 wireSettings()
+// Mark sessions interrupted on a core crash and re-hydrate the stores once it recovers.
+wireCoreRecovery()

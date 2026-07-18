@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { Preset } from '@common/domain'
-import { attachSession, detachSession, ensureSession } from '../terminalController'
+import { useInterruptedStore } from '../interruptedStore'
+import { attachSession, detachSession, ensureSession, respawnInterrupted } from '../terminalController'
 
 /**
  * Hosts one live terminal in a pane. The xterm instance is owned by the controller (kept alive
@@ -19,6 +20,7 @@ export function TerminalPane({
   resumeSessionId?: string | null
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const interrupted = useInterruptedStore((s) => s.interrupted[sessionId] === true)
 
   useEffect(() => {
     const host = hostRef.current
@@ -35,5 +37,25 @@ export function TerminalPane({
     }
   }, [sessionId, preset, cwd, resumeSessionId])
 
-  return <div className="ix-pane__host" ref={hostRef} />
+  return (
+    <>
+      <div className="ix-pane__host" ref={hostRef} />
+      {interrupted && (
+        <div className="ix-pane__interrupted">
+          <span className="ix-faint">Session interrupted - the process did not survive</span>
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost"
+            onClick={() => void respawnInterrupted(sessionId, preset, cwd, resumeSessionId)}
+          >
+            {preset === 'claude'
+              ? resumeSessionId
+                ? 'Resume Claude session'
+                : 'Start a new Claude session'
+              : 'Restart shell'}
+          </button>
+        </div>
+      )}
+    </>
+  )
 }

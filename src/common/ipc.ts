@@ -263,6 +263,10 @@ export interface IpcApi {
     getPathForFile(file: File): string
     /** Relaunch the app - the recovery action when the core process failed. */
     restartApp(): Promise<void>
+    /** Ask main to start a fresh core process after automatic recovery gave up. */
+    retryCore(): Promise<void>
+    /** Quit the app through the coordinated shutdown path (same as Cmd+Q). */
+    quitApp(): Promise<void>
     /**
      * The core service process's lifecycle as seen by main. Fired on every change and once
      * with the current status when the renderer loads, so a reload lands in the right state.
@@ -337,13 +341,16 @@ export interface TerminalNotificationClickEvent {
 
 /**
  * Lifecycle of the headless core process that owns the database, PTYs, and background
- * services. `starting` covers fork + bootstrap; `failed` is terminal for this app run and
- * carries a user-readable reason - the renderer offers a restart instead of hanging on
- * requests that can never be answered.
+ * services. `starting` covers fork + bootstrap; `restarting` means the core died and an
+ * automatic respawn is pending or underway (`attempt` numbers the restart within the rolling
+ * crash-loop window); `failed` means the restart gate is exhausted or bootstrap gave up -
+ * recoverable only by an explicit user retry or quit. `message` carries the user-readable
+ * reason for either recovery state.
  */
 export interface CoreStatus {
-  state: 'starting' | 'ready' | 'failed'
+  state: 'starting' | 'ready' | 'restarting' | 'failed'
   message?: string
+  attempt?: number
 }
 
 /**
@@ -459,6 +466,8 @@ export const Channel = {
   // system (request/response, plus a main -> renderer broadcast for core lifecycle)
   systemOpenExternal: 'system:openExternal',
   systemRestartApp: 'system:restartApp',
+  systemRetryCore: 'system:retryCore',
+  systemQuitApp: 'system:quitApp',
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',

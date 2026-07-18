@@ -174,6 +174,8 @@ const api: IpcApi = {
     // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.
     getPathForFile: (file) => webUtils.getPathForFile(file),
     restartApp: () => ipcRenderer.invoke(Channel.systemRestartApp),
+    retryCore: () => ipcRenderer.invoke(Channel.systemRetryCore),
+    quitApp: () => ipcRenderer.invoke(Channel.systemQuitApp),
     onCoreStatus: (cb) => {
       const listener = (_e: unknown, status: CoreStatus): void => cb(status)
       ipcRenderer.on(Channel.systemCoreStatus, listener)

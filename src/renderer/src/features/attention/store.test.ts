@@ -56,6 +56,13 @@ describe('attention store', () => {
     expect(useAttentionStore.getState().status).toEqual({ 'w2:a': 'done' })
   })
 
+  it('clearAll drops every session across workspaces', () => {
+    useAttentionStore.getState().mark('w1:a', 'waiting')
+    useAttentionStore.getState().mark('w2:a', 'working')
+    useAttentionStore.getState().clearAll()
+    expect(useAttentionStore.getState().status).toEqual({})
+  })
+
   describe('workspaceStatus', () => {
     it('returns the single status when only one session is set', () => {
       useAttentionStore.getState().mark('w1:a', 'working')

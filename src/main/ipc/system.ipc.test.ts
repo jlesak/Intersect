@@ -28,14 +28,14 @@ describe('isAllowedExternalUrl', () => {
 describe('system handlers', () => {
   test('opens an allowlisted https URL through the injected launcher', async () => {
     const openExternal = vi.fn(async () => {})
-    const h = createSystemHandlers({ openExternal, restartApp: vi.fn() })
+    const h = createSystemHandlers({ openExternal, restartApp: vi.fn(), retryCore: vi.fn(), quitApp: vi.fn() })
     await h.openExternal('https://jira.skoda.vwgroup.com/browse/FID2507-611')
     expect(openExternal).toHaveBeenCalledWith('https://jira.skoda.vwgroup.com/browse/FID2507-611')
   })
 
   test('rejects a disallowed URL without ever calling the launcher', async () => {
     const openExternal = vi.fn(async () => {})
-    const h = createSystemHandlers({ openExternal, restartApp: vi.fn() })
+    const h = createSystemHandlers({ openExternal, restartApp: vi.fn(), retryCore: vi.fn(), quitApp: vi.fn() })
     await expect(h.openExternal('http://jira.skoda.vwgroup.com/x')).rejects.toThrow(/Blocked external URL/)
     await expect(h.openExternal('https://example.com')).rejects.toThrow(/Blocked external URL/)
     expect(openExternal).not.toHaveBeenCalled()
@@ -46,7 +46,9 @@ describe('system handlers', () => {
       openExternal: vi.fn(async () => {
         throw 'no browser'
       }),
-      restartApp: vi.fn()
+      restartApp: vi.fn(),
+      retryCore: vi.fn(),
+      quitApp: vi.fn()
     })
     await expect(h.openExternal('https://jira.skoda.vwgroup.com/x')).rejects.toThrow(/no browser/)
   })
@@ -62,15 +64,26 @@ describe('registerSystemHandlers', () => {
     }
     const openExternal = vi.fn(async () => {})
     const restartApp = vi.fn()
+    const retryCore = vi.fn()
+    const quitApp = vi.fn()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerSystemHandlers(ipcMain as any, createSystemHandlers({ openExternal, restartApp }))
+    registerSystemHandlers(ipcMain as any, createSystemHandlers({ openExternal, restartApp, retryCore, quitApp }))
 
     expect([...registered.keys()].sort()).toEqual(
-      [Channel.systemOpenExternal, Channel.systemRestartApp].sort()
+      [
+        Channel.systemOpenExternal,
+        Channel.systemRestartApp,
+        Channel.systemRetryCore,
+        Channel.systemQuitApp
+      ].sort()
     )
     await registered.get(Channel.systemOpenExternal)!({}, 'https://jira.skoda.vwgroup.com/browse/A-1')
     expect(openExternal).toHaveBeenCalledWith('https://jira.skoda.vwgroup.com/browse/A-1')
     await registered.get(Channel.systemRestartApp)!({})
     expect(restartApp).toHaveBeenCalledOnce()
+    await registered.get(Channel.systemRetryCore)!({})
+    expect(retryCore).toHaveBeenCalledOnce()
+    await registered.get(Channel.systemQuitApp)!({})
+    expect(quitApp).toHaveBeenCalledOnce()
   })
 })

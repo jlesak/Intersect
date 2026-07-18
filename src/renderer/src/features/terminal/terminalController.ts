@@ -5,6 +5,7 @@ import { debounce } from '@common/debounce'
 import { makeSessionId, type TerminalAttachResult } from '@common/ipc'
 import { drainAfterSeq, type BufferedChunk } from './attachBuffer'
 import { createDataRouter } from './dataRouter'
+import { useInterruptedStore } from './interruptedStore'
 import * as ipc from './ipc'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
 
@@ -37,6 +38,24 @@ const router = createDataRouter()
 // The font size every terminal uses - the settings-driven override once set, the theme default
 // until then. New terminals are created with it; setTerminalFontSize restyles the live ones.
 let currentFontSize = XTERM_FONT_SIZE
+
+// Whether the core process can currently serve a spawn (fed by the core-status wiring).
+// While it cannot, spawn fallbacks queue here instead of racing a dead or restarting core -
+// an attach that failed because the core died must never turn into a silent fresh spawn.
+let coreCanSpawn = true
+let spawnWaiters: Array<() => void> = []
+
+/** Open or close the spawn gate from the core lifecycle (ready opens, anything else closes). */
+export function setCoreSpawnGate(open: boolean): void {
+  coreCanSpawn = open
+  if (!open) return
+  const waiters = spawnWaiters
+  spawnWaiters = []
+  for (const resume of waiters) resume()
+}
+
+const waitForSpawnGate = (): Promise<void> =>
+  coreCanSpawn ? Promise.resolve() : new Promise((resolve) => spawnWaiters.push(resolve))
 
 /**
  * Apply a new font size to every live terminal immediately (the visible restyle is the live
@@ -153,8 +172,50 @@ async function createSession(
     for (const data of drainAfterSeq(buffered, attach.lastSeq)) sink(data)
   } else {
     for (const { data } of buffered) sink(data)
+    // A dead core also answers attach with a failure; spawning right through it would present
+    // a brand-new shell as the continuation of one that died with the core. Wait for the core
+    // to be ready, and stand down if the session was interrupted or disposed meanwhile.
+    await waitForSpawnGate()
+    if (view.disposed || useInterruptedStore.getState().interrupted[sessionId]) return
     void ipc.spawn(sessionId, preset, cwd, view.term.cols, view.term.rows, resumeSessionId)
   }
+}
+
+/**
+ * A core crash took every PTY with it. Keep each xterm and its scrollback, but make the
+ * death explicit: write a dim in-terminal notice, silence the session's data sink (late or
+ * post-restart bytes must never render as if the process lived), and flag it interrupted so
+ * panes offer an explicit respawn instead of pretending continuity.
+ */
+export function markAllInterrupted(reason: string): void {
+  const ids: string[] = []
+  for (const [sessionId, view] of views) {
+    if (view.disposed) continue
+    ids.push(sessionId)
+    view.term.write(`\r\n\x1b[2m[intersect] ${reason} - session interrupted\x1b[0m\r\n`)
+    router.register(sessionId, () => {})
+  }
+  useInterruptedStore.getState().markMany(ids)
+}
+
+/**
+ * The user's explicit recovery for one interrupted session: reuse the existing xterm (the
+ * old scrollback stays, new output appends), re-register a live sink, and spawn a fresh
+ * process - `claude --resume` when a resume id is given, a clean preset launch otherwise.
+ */
+export async function respawnInterrupted(
+  sessionId: string,
+  preset: Preset,
+  cwd: string,
+  resumeSessionId?: string | null
+): Promise<void> {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return
+  if (!useInterruptedStore.getState().interrupted[sessionId]) return
+  await waitForSpawnGate()
+  useInterruptedStore.getState().clear(sessionId)
+  router.register(sessionId, makeLiveSink(sessionId, view))
+  await ipc.spawn(sessionId, preset, cwd, view.term.cols, view.term.rows, resumeSessionId)
 }
 
 /** Construct the xterm + mount + observer bundle for a session (no IPC side effects). */
@@ -257,6 +318,7 @@ export function disposeSession(sessionId: string): void {
   view.mount.remove()
   view.term.dispose()
   views.delete(sessionId)
+  useInterruptedStore.getState().clear(sessionId)
   ipc.kill(sessionId)
 }
 
