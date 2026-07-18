@@ -309,6 +309,18 @@ describe('migrations', () => {
     expect((db.prepare('SELECT count(*) AS c FROM tabs').get() as { c: number }).c).toBe(0)
   })
 
+  test('hook_events accepts raw events keyed by instance id with a timestamp', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO hook_events (session_id, event_name, payload_json, received_at)
+       VALUES ('ws1:tab1', 'SessionStart', '{"session_id":"u1"}', 1000)`
+    ).run()
+    expect(
+      (db.prepare('SELECT event_name AS e FROM hook_events').get() as { e: string }).e
+    ).toBe('SessionStart')
+  })
+
   test('rejects a tab with an invalid preset (CHECK constraint)', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

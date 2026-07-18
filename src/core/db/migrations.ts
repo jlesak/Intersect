@@ -355,6 +355,26 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Hook lifecycle: every authenticated hook event a managed Claude session posts, kept
+    // raw for diagnostics and future digests. `session_id` is the Intersect instance id the
+    // helper tagged the POST with (`workspaceId:tabId`), not Claude's own session UUID.
+    // Local-only data with real retention pruning - rows never leave the machine.
+    version: 16,
+    up(db) {
+      db.exec(`
+        CREATE TABLE hook_events (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id   TEXT NOT NULL,
+          event_name   TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          received_at  INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_hook_events_session ON hook_events(session_id, received_at);
+      `)
+    }
   }
 ]
 

@@ -46,7 +46,8 @@ export default defineConfig({
           core: resolve('src/core/index.ts'),
           draftServer: resolve('src/core/prInbox/draftServer.ts'),
           jiraReportServer: resolve('src/core/myWork/jiraReportServer.ts'),
-          otoReportServer: resolve('src/core/oneOnOne/otoReportServer.ts')
+          otoReportServer: resolve('src/core/oneOnOne/otoReportServer.ts'),
+          hookHelper: resolve('src/core/hooks/intersectHook.ts')
         }
       }
     }

@@ -43,6 +43,20 @@ describe('createNotifyGate', () => {
     expect(raise).toHaveBeenCalledWith('w:a', 'done', false)
   })
 
+  it('carries the message and risk metadata through to the raised notification', () => {
+    const raise = vi.fn()
+    const notify = createNotifyGate(() => ALL_ON, raise)
+    notify('w:a', 'waiting', 'perm?', 'dangerous')
+    expect(raise).toHaveBeenCalledWith('w:a', 'waiting', true, 'perm?', 'dangerous')
+  })
+
+  it('omits trailing undefined message/risk so callers without them stay unchanged', () => {
+    const raise = vi.fn()
+    const notify = createNotifyGate(() => ALL_ON, raise)
+    notify('w:a', 'done', 'finished')
+    expect(raise).toHaveBeenCalledWith('w:a', 'done', true, 'finished')
+  })
+
   it('reads the preferences fresh on every event so a toggle applies without restart', () => {
     let prefs: NotificationSettings = { ...ALL_ON }
     const raise = vi.fn()

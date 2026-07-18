@@ -34,6 +34,18 @@ describe('tabRepo', () => {
     expect(tabs.getById(resumed.id)?.resumeSessionId).toBe('sess-uuid-42')
   })
 
+  test('setResumeSessionId persists the live session UUID and clears with null', () => {
+    const tab = tabs.create(wsId, 'claude')
+    tabs.setResumeSessionId(tab.id, 'captured-uuid')
+    expect(tabs.getById(tab.id)?.resumeSessionId).toBe('captured-uuid')
+    tabs.setResumeSessionId(tab.id, null)
+    expect(tabs.getById(tab.id)?.resumeSessionId).toBeNull()
+  })
+
+  test('setResumeSessionId on an unknown tab is a silent no-op', () => {
+    expect(() => tabs.setResumeSessionId('nope', 'x')).not.toThrow()
+  })
+
   test('listByWorkspace returns tabs ordered by sortOrder', () => {
     tabs.create(wsId, 'shell')
     tabs.create(wsId, 'claude')

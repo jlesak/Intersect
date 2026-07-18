@@ -83,6 +83,29 @@ describe('buildSpawn', () => {
     expect(spec.args).toContain('-f')
   })
 
+  test('claude preset carries the instance id as INTERSECT_INSTANCE_ID in its env', () => {
+    const spec = buildSpawn('claude', { env, instanceId: 'ws1:tab1' })
+    expect(spec.env.INTERSECT_INSTANCE_ID).toBe('ws1:tab1')
+  })
+
+  test('the instance id never leaks into the plain shell preset', () => {
+    const spec = buildSpawn('shell', { env, instanceId: 'ws1:tab1' })
+    expect(spec.env.INTERSECT_INSTANCE_ID).toBeUndefined()
+  })
+
+  test('a stale inherited INTERSECT_INSTANCE_ID is stripped and replaced by the given one', () => {
+    const inherited = { ...env, INTERSECT_INSTANCE_ID: 'stale:id' }
+    expect(buildSpawn('shell', { env: inherited }).env.INTERSECT_INSTANCE_ID).toBeUndefined()
+    expect(
+      buildSpawn('claude', { env: inherited, instanceId: 'fresh:id' }).env.INTERSECT_INSTANCE_ID
+    ).toBe('fresh:id')
+  })
+
+  test('a claude spawn without an instance id carries none', () => {
+    const spec = buildSpawn('claude', { env })
+    expect(spec.env.INTERSECT_INSTANCE_ID).toBeUndefined()
+  })
+
   test('env strips ELECTRON_* vars and sets a 256-color TERM', () => {
     const spec = buildSpawn('shell', { env })
     expect(spec.env.ELECTRON_RUN_AS_NODE).toBeUndefined()

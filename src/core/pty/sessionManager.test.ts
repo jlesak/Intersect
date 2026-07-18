@@ -190,4 +190,20 @@ describe('sessionManager', () => {
     mgr.spawn('w1:t2', 'shell', '/repo', 80, 24)
     expect(seen).toEqual(['sess-uuid-42', undefined])
   })
+
+  test('forwards the session id to buildSpec so the claude env can carry its instance identity', () => {
+    const seen: string[] = []
+    const mgr = createSessionManager({
+      spawn: () => makeFakePty(),
+      send: { data: () => {}, exit: () => {} },
+      buildSpec: (_preset: Preset, _resumeSessionId: string | null | undefined, sessionId: string) => {
+        seen.push(sessionId)
+        return { file: '/bin/zsh', args: ['-l'], initialCommand: null, env: {} }
+      },
+      fileExists: () => true,
+      homedir: () => '/home/test'
+    })
+    mgr.spawn('w1:t1', 'claude', '/repo', 80, 24)
+    expect(seen).toEqual(['w1:t1'])
+  })
 })

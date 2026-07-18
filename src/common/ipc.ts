@@ -290,10 +290,21 @@ export interface TerminalExitEvent {
 export const SESSION_STATUSES = ['working', 'waiting', 'done'] as const
 export type SessionStatus = (typeof SESSION_STATUSES)[number]
 
+/**
+ * How risky the tool call behind a `waiting` permission request looks. Metadata attached to
+ * the attention event, never a status of its own: 'ordinary' covers positively recognized
+ * read-only tools, 'dangerous' covers destructive shell patterns, and everything the
+ * classifier cannot vouch for stays 'unknown'.
+ */
+export const PERMISSION_RISKS = ['ordinary', 'dangerous', 'unknown'] as const
+export type PermissionRisk = (typeof PERMISSION_RISKS)[number]
+
 /** Broadcast whenever a session's status changes. */
 export interface TerminalSessionStatusEvent {
   sessionId: string
   status: SessionStatus
+  /** Present on 'waiting' when the permission request was risk-classified. */
+  risk?: PermissionRisk
 }
 
 /** Payload delivered to the renderer when a session's notification is clicked. */
