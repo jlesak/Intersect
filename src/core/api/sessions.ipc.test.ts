@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { SessionSummary, SessionTranscript } from '@common/domain'
 import { Channel } from '@common/ipc'
 import type { SessionIndex } from '../sessions/sessionIndex'
-import { createSessionHandlers, registerSessionHandlers } from './sessions.ipc'
+import { createSessionHandlers, sessionsWireRoutes } from './sessions.ipc'
 
 const summary = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   id: 's1',
@@ -73,26 +73,21 @@ describe('session handlers', () => {
   })
 })
 
-describe('registerSessionHandlers', () => {
+describe('sessionsWireRoutes', () => {
   test('binds the three request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const h = createSessionHandlers({ index: makeIndex() })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerSessionHandlers(ipcMain as any, h)
+    const routes = sessionsWireRoutes(h)
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
-    expect([...registered.keys()].sort()).toEqual(
+    expect(Object.keys(routes).sort()).toEqual(
       [Channel.sessionsList, Channel.sessionsRefresh, Channel.sessionsGetTranscript].sort()
     )
 
-    const listResult = (await registered.get(Channel.sessionsList)!()) as SessionSummary[]
+    const listResult = (await call(Channel.sessionsList)) as SessionSummary[]
     expect(listResult.map((s) => s.id)).toEqual(['s1'])
 
-    const t = await registered.get(Channel.sessionsGetTranscript)!({}, 's1')
+    const t = await call(Channel.sessionsGetTranscript, 's1')
     expect(t).toBe(transcript)
   })
 })

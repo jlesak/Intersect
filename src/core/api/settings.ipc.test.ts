@@ -9,7 +9,7 @@ import {
   DEFAULT_REVIEW_SETTINGS,
   type SettingsRepo
 } from '../db/settingsRepo'
-import { createSettingsHandlers, registerSettingsHandlers } from './settings.ipc'
+import { createSettingsHandlers, settingsWireRoutes } from './settings.ipc'
 
 const FALLBACK_ADO: AdoSettings = {
   orgUrl: 'https://devops.example.com/tfs/Collection',
@@ -176,24 +176,19 @@ describe('settings handlers', () => {
   })
 })
 
-describe('registerSettingsHandlers', () => {
+describe('settingsWireRoutes', () => {
   test('binds the six request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const h = createSettingsHandlers({
       settings: createSettingsRepo(makeTestDb()),
       fallbackAdo: () => ({ ...FALLBACK_ADO }),
       testConnection: () => Promise.resolve({ ok: true, displayName: 'Jan' }),
       adoSettingsChanged: () => Promise.resolve()
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerSettingsHandlers(ipcMain as any, h)
+    const routes = settingsWireRoutes(h)
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
-    expect([...registered.keys()].sort()).toEqual(
+    expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.settingsGet,
         Channel.settingsSetNotifications,
@@ -204,13 +199,13 @@ describe('registerSettingsHandlers', () => {
       ].sort()
     )
 
-    const updated = (await registered.get(Channel.settingsSetTerminalFontSize)!({}, 15)) as {
+    const updated = (await call(Channel.settingsSetTerminalFontSize, 15)) as {
       appearance: { terminalFontSize: number }
     }
     expect(updated.appearance.terminalFontSize).toBe(15)
 
     const prompt = 'Review in my language\n'
-    const reviewed = (await registered.get(Channel.settingsSetReview)!({}, { prompt })) as {
+    const reviewed = (await call(Channel.settingsSetReview, { prompt })) as {
       review: { prompt: string }
     }
     expect(reviewed.review.prompt).toBe(prompt)

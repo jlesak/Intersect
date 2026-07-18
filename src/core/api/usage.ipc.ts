@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { UsageService } from '../usage/usageService'
 
@@ -16,6 +16,8 @@ export function createUsageHandlers(d: UsageHandlerDeps): UsageHandlers {
   }
 }
 
-export function registerUsageHandlers(ipcMain: IpcMain, h: UsageHandlers): void {
-  ipcMain.handle(Channel.usageGet, () => h.get())
+export function usageWireRoutes(h: UsageHandlers): WireRoutes {
+  return {
+    [Channel.usageGet]: h.get
+  }
 }

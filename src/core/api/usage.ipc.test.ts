@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { ClaudeUsage } from '@common/domain'
 import { Channel } from '@common/ipc'
-import { createUsageHandlers, registerUsageHandlers, type UsageHandlers } from './usage.ipc'
+import { createUsageHandlers, usageWireRoutes, type UsageHandlers } from './usage.ipc'
 
 const SNAPSHOT: ClaudeUsage = {
   fiveHour: { usedPercent: 7, resetsAt: 1774933200 },
@@ -21,19 +21,12 @@ describe('usage handlers', () => {
   })
 })
 
-describe('registerUsageHandlers', () => {
+describe('usageWireRoutes', () => {
   test('binds usage:get to the handler', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const h: UsageHandlers = { get: () => Promise.resolve(SNAPSHOT) }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerUsageHandlers(ipcMain as any, h)
+    const routes = usageWireRoutes(h)
 
-    expect([...registered.keys()]).toEqual([Channel.usageGet])
-    expect(await registered.get(Channel.usageGet)!({})).toEqual(SNAPSHOT)
+    expect(Object.keys(routes)).toEqual([Channel.usageGet])
+    expect(await (routes[Channel.usageGet] as () => unknown)()).toEqual(SNAPSHOT)
   })
 })

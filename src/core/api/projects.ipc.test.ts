@@ -1,4 +1,3 @@
-import type { IpcMain } from 'electron'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { Channel, type IpcApi } from '@common/ipc'
 import { createProjectOverrideRepo } from '../db/projectOverrideRepo'
@@ -6,7 +5,7 @@ import type { ProjectRepo } from '../db/projectRepo'
 import { makeTestDeps } from '../db/testkit'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import { makeHandlerContext } from './handlerTestkit'
-import { createProjectHandlers, registerProjectHandlers } from './projects.ipc'
+import { createProjectHandlers, projectsWireRoutes } from './projects.ipc'
 
 function makeHandlers(): {
   projects: ProjectRepo
@@ -117,24 +116,15 @@ describe('project handlers', () => {
   })
 })
 
-describe('registerProjectHandlers', () => {
-  type Listener = (event: unknown, ...args: unknown[]) => unknown
-  let listeners: Map<string, Listener>
-  let h: IpcApi['projects']
+describe('projectsWireRoutes', () => {
+  let routes: ReturnType<typeof projectsWireRoutes>
 
   beforeEach(() => {
-    listeners = new Map()
-    h = makeHandlers().h
-    const fakeIpcMain = {
-      handle: (channel: string, listener: Listener) => {
-        listeners.set(channel, listener)
-      }
-    } as unknown as IpcMain
-    registerProjectHandlers(fakeIpcMain, h)
+    routes = projectsWireRoutes(makeHandlers().h)
   })
 
-  test('registers exactly the project channels', () => {
-    expect([...listeners.keys()].sort()).toEqual(
+  test('exposes exactly the project channels', () => {
+    expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.projectsList,
         Channel.projectsCreate,
@@ -153,16 +143,16 @@ describe('registerProjectHandlers', () => {
     )
   })
 
-  test('listeners unwrap ipc args and delegate', async () => {
-    const created = (await listeners.get(Channel.projectsCreate)!({}, 'SPOT', '/repos/spot')) as {
-      id: string
-    }
-    const list = (await listeners.get(Channel.projectsList)!({})) as unknown[]
+  test('routes apply wire args and delegate to the handlers', async () => {
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
+    const created = (await call(Channel.projectsCreate, 'SPOT', '/repos/spot')) as { id: string }
+    const list = (await call(Channel.projectsList)) as unknown[]
     expect(list).toHaveLength(1)
-    const updated = (await listeners.get(Channel.projectsUpdate)!({}, created.id, {
-      name: 'SPOT 2'
-    })) as { name: string }
+    const updated = (await call(Channel.projectsUpdate, created.id, { name: 'SPOT 2' })) as {
+      name: string
+    }
     expect(updated.name).toBe('SPOT 2')
-    expect(await listeners.get(Channel.projectsResolvePath)!({}, '/repos/spot/x')).toBe(created.id)
+    expect(await call(Channel.projectsResolvePath, '/repos/spot/x')).toBe(created.id)
   })
 })

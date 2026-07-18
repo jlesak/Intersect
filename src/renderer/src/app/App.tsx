@@ -4,6 +4,7 @@ import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@ren
 import { selectSelectedWorkspace, useWorkspacesStore } from '@renderer/features/workspaces'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { Toaster } from '@renderer/shared/ui/Toaster'
+import { CoreStatusOverlay } from './CoreStatusOverlay'
 import { Sidebar } from './Sidebar'
 import { resolveShellContext, useShellStore } from './shellStore'
 
@@ -42,6 +43,7 @@ export function App() {
       {main}
       <Toaster />
       <CommandPalette />
+      <CoreStatusOverlay />
     </div>
   )
 }

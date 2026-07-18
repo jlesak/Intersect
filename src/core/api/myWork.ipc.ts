@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { JiraIndex } from '../myWork/jiraIndex'
 import type { JiraLogin } from '../myWork/jiraLogin'
@@ -33,8 +33,10 @@ export function createMyWorkHandlers(deps: MyWorkHandlerDeps): IpcApi['myWork'] 
   }
 }
 
-export function registerMyWorkHandlers(ipcMain: IpcMain, h: IpcApi['myWork']): void {
-  ipcMain.handle(Channel.myWorkList, () => h.list())
-  ipcMain.handle(Channel.myWorkRefresh, () => h.refresh())
-  ipcMain.handle(Channel.myWorkLogin, () => h.login())
+export function myWorkWireRoutes(h: IpcApi['myWork']): WireRoutes {
+  return {
+    [Channel.myWorkList]: h.list,
+    [Channel.myWorkRefresh]: h.refresh,
+    [Channel.myWorkLogin]: h.login
+  }
 }

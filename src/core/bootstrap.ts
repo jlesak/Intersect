@@ -1,0 +1,515 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
+import type { AdoSettings, OtoRun, Preset } from '@common/domain'
+import { debounce } from '@common/debounce'
+import {
+  NATIVE_DOCK_BADGE_PUSH,
+  NATIVE_NOTIFICATION_PUSH,
+  WINDOW_FOCUS_CHANGED,
+  type NativeDockBadgeRequest,
+  type NativeNotificationRequest,
+  type WindowFocusChangedEvent,
+  type WireRoutes
+} from '@common/coreBridge'
+import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
+import { openDatabase } from './db/connection'
+import { defaultRepoDeps } from './db/deps'
+import { createAppStateRepo } from './db/appStateRepo'
+import { createSettingsRepo } from './db/settingsRepo'
+import { createTabRepo } from './db/tabRepo'
+import { createWorkspaceRepo } from './db/workspaceRepo'
+import { createDraftCommentRepo } from './db/draftCommentRepo'
+import { createMyWorkCacheRepo } from './db/myWorkCacheRepo'
+import { tx } from './db/tx'
+import { createPrCacheRepo } from './db/prCacheRepo'
+import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
+import { createReviewSessionRepo } from './db/reviewSessionRepo'
+import { createSessionManager } from './pty/sessionManager'
+import type { SpawnFn } from './pty/sessionManager'
+import { buildSpawn } from './pty/shell'
+import { createAttentionDetector } from './pty/attentionDetector'
+import { HOOK_SCRIPT_FILENAME, writeNotifHookScript, writeNotifSettings } from './pty/notifSettings'
+import {
+  USAGE_SNAPSHOT_FILENAME,
+  USAGE_STATUSLINE_SCRIPT_FILENAME,
+  resolveUserStatuslineCommand,
+  usageStatuslineCommand,
+  writeUsageStatuslineScript
+} from './usage/usageStatusline'
+import { createUsageService } from './usage/usageService'
+import { createUsageHandlers, usageWireRoutes } from './api/usage.ipc'
+import { createSessionNotifier } from './sessionNotifier'
+import { createNotifyGate } from './notifyGate'
+import { createWorkspaceHandlers, workspacesWireRoutes } from './api/workspaces.ipc'
+import { createTabHandlers, tabsWireRoutes } from './api/tabs.ipc'
+import {
+  createTerminalHandlers,
+  terminalWireRoutes,
+  type TerminalHandlers
+} from './api/terminal.ipc'
+import { createPrInboxHandlers, prInboxWireRoutes } from './api/prInbox.ipc'
+import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
+import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
+import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
+import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
+import { createMyWorkHandlers, myWorkWireRoutes } from './api/myWork.ipc'
+import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
+import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
+import { testAdoConnection } from './settings/adoTestConnection'
+import { createSessionIndex } from './sessions/sessionIndex'
+import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
+import { createTodoRepo } from './db/todoRepo'
+import { createProjectOverrideRepo } from './db/projectOverrideRepo'
+import { createProjectRepo } from './db/projectRepo'
+import { canonicalizePath, projectPathDeps } from './projects/paths'
+import { createTimeTracking } from './timeTracking/timeTracking'
+import { createJiraE2eStub } from './myWork/jiraE2eStub'
+import { createJiraFetcher } from './myWork/jiraFetch'
+import { createJiraIndex } from './myWork/jiraIndex'
+import { createJiraLogin } from './myWork/jiraLogin'
+import { createOtoRunRepo } from './db/otoRunRepo'
+import { createOtoE2eStub } from './oneOnOne/otoE2eStub'
+import { createOtoManager } from './oneOnOne/otoManager'
+import { createAdoClient } from './prInbox/adoClient'
+import { createAdoE2eStub, createLocalDiffE2eStub } from './prInbox/adoE2eStub'
+import { createAdoService } from './prInbox/adoService'
+import { resolveAdoServerConfig, resolveVoteCredentials } from './prInbox/adoConfig'
+import { createIdentityResolver } from './prInbox/adoIdentity'
+import { createLocalDiffService } from './prInbox/localDiff'
+import { createReviewManager } from './prInbox/reviewManager'
+import { createWorktreeManager } from './prInbox/worktreeManager'
+import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
+
+/**
+ * Everything the core cannot decide for itself: filesystem roots and the Electron binary
+ * come from main's init message, pushes go back over the port, and the PTY/shell seams are
+ * injected so the runtime is constructible in tests without native modules.
+ */
+export interface CoreRuntimeDeps {
+  userDataDir: string
+  /** Electron main's binary; hook/statusline scripts run it with ELECTRON_RUN_AS_NODE=1. */
+  execPath: string
+  env: NodeJS.ProcessEnv
+  emitPush: (channel: string, payload: unknown) => void
+  spawn: SpawnFn
+  ensureSpawnHelper: () => void
+  applyLoginShellPath: () => Promise<void>
+}
+
+export interface CoreRuntime {
+  /** Serve one forwarded renderer request or notification. */
+  handleRequest(channel: string, args: unknown[]): Promise<unknown>
+  /** Deterministic teardown: PTYs, background services, then the database - exactly once. */
+  shutdown(): void
+}
+
+/**
+ * What each session status announces when its notification fires and Claude did not supply
+ * its own message (the `Stop` hook never carries one; prompts usually do).
+ */
+const STATUS_BODY: Record<SessionStatus, string> = {
+  working: 'Started working',
+  waiting: 'Needs your permission',
+  done: 'Finished - waiting for your next prompt'
+}
+
+/** Best-effort resolution of the `claude` binary for hidden Claude sessions. */
+function resolveClaudePath(env: NodeJS.ProcessEnv): string {
+  const explicit = env.INTERSECT_CLAUDE_PATH
+  if (explicit) return explicit
+  const local = join(homedir(), '.local', 'bin', 'claude')
+  return existsSync(local) ? local : 'claude'
+}
+
+/**
+ * The user's own statusline command from `~/.claude/settings.json`, falling back to
+ * `~/.claude/settings.local.json` per Claude Code's own precedence (local overrides
+ * shared/global), or null if neither configures one. Read once at boot and baked into the
+ * generated usage-statusline script, so the user's own statusline keeps rendering unchanged.
+ */
+function readUserStatuslineCommand(): string | null {
+  const claudeDir = join(homedir(), '.claude')
+  const readOrNull = (filename: string): string | null => {
+    try {
+      return readFileSync(join(claudeDir, filename), 'utf8')
+    } catch {
+      return null
+    }
+  }
+  return resolveUserStatuslineCommand(readOrNull('settings.json'), readOrNull('settings.local.json'))
+}
+
+/** The configured ADO default project, or a sensible fallback if ADO isn't configured yet. */
+function safeDefaultProject(env: NodeJS.ProcessEnv, saved: AdoSettings | null): string {
+  try {
+    return resolveAdoServerConfig(env, saved).env.AZURE_DEVOPS_DEFAULT_PROJECT || 'SPOT'
+  } catch {
+    return 'SPOT'
+  }
+}
+
+/**
+ * Construct every service the core owns and wire the slices into one dispatch table. This
+ * is the single composition root: only this function opens the production database, and the
+ * returned shutdown is the only thing that closes it.
+ */
+export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
+  const { userDataDir, execPath, env, emitPush } = deps
+  const isE2e = env.INTERSECT_E2E === '1'
+
+  deps.ensureSpawnHelper()
+  // Launched from Finder/Dock, the process inherits only the bare /usr/bin:/bin PATH, so the
+  // ADO MCP server's `npx` launcher would fail with ENOENT. Resolve the login-shell PATH in
+  // the background (a heavy dotfile must not delay readiness); the ADO client awaits this
+  // before its first non-PTY spawn, and PTYs run their own login shell and never depend on it.
+  void deps.applyLoginShellPath()
+
+  const db: DatabaseSync = openDatabase(userDataDir)
+
+  // The app-managed Claude Code settings that make claude emit attention markers into the
+  // PTY. If they cannot be written, the feature degrades to nothing rather than blocking
+  // boot, and the empty path keeps `--settings` off the claude command.
+  let notifSettingsPath = ''
+  let usageSnapshotPath = ''
+  try {
+    const hookScriptPath = join(userDataDir, HOOK_SCRIPT_FILENAME)
+    writeNotifHookScript(hookScriptPath)
+
+    // Usage-statusline tee: wired independently of the hook script, so a failure here still
+    // leaves attention notifications working - buildNotifSettings just omits `statusLine`.
+    let statusLineCommand: string | undefined
+    try {
+      const statuslineScriptPath = join(userDataDir, USAGE_STATUSLINE_SCRIPT_FILENAME)
+      writeUsageStatuslineScript(statuslineScriptPath, userDataDir, readUserStatuslineCommand())
+      statusLineCommand = usageStatuslineCommand(execPath, statuslineScriptPath)
+      usageSnapshotPath = join(userDataDir, USAGE_SNAPSHOT_FILENAME)
+    } catch {
+      statusLineCommand = undefined
+      usageSnapshotPath = ''
+    }
+
+    const path = join(userDataDir, 'intersect-claude-notif.json')
+    writeNotifSettings(path, execPath, hookScriptPath, statusLineCommand)
+    notifSettingsPath = path
+  } catch {
+    notifSettingsPath = ''
+    usageSnapshotPath = ''
+  }
+
+  const repoDeps = defaultRepoDeps
+  const workspaces = createWorkspaceRepo(db, repoDeps)
+  const tabs = createTabRepo(db, repoDeps)
+  const appState = createAppStateRepo(db)
+  const settings = createSettingsRepo(db)
+  // Created up front (not with its slice below) because workspace creation resolves its project.
+  const projects = createProjectRepo(db, { ...repoDeps, canonicalize: canonicalizePath })
+
+  // The main window's focus, as last reported over the port. Main owns the window; the core
+  // only needs the flag to suppress alerts for a session the user is already looking at.
+  let windowFocused = false
+
+  // Attention pipeline: detect Claude's "waiting for you" markers in the PTY stream, then
+  // raise a native notification (through main) and recolor the tab (unless the user is
+  // already looking at that session). 'working' is inferred separately, from the user
+  // submitting a prompt (see the write wrapper below). The user's notification settings gate
+  // which statuses reach the screen and whether they make a sound; they are read per event
+  // so a settings change applies immediately.
+  const detector = createAttentionDetector()
+  const notifier = createSessionNotifier({
+    detect: (sessionId, chunk) => detector.push(sessionId, chunk),
+    isWindowFocused: () => windowFocused,
+    broadcastStatus: (sessionId, status) =>
+      emitPush(Channel.terminalSessionStatus, { sessionId, status }),
+    notify: createNotifyGate(
+      () => settings.getNotifications(),
+      (sessionId, status, sound, message) => {
+        // Resolve the tab and workspace here, where the repos live; main just displays it.
+        const parsed = parseSessionId(sessionId)
+        const tab = parsed ? tabs.getById(parsed.tabId) : undefined
+        const ws = parsed ? workspaces.getById(parsed.workspaceId) : undefined
+        const request: NativeNotificationRequest = {
+          sessionId,
+          title: tab?.title ?? 'Claude Code',
+          subtitle: ws?.name,
+          body: message ?? STATUS_BODY[status],
+          silent: !sound
+        }
+        emitPush(NATIVE_NOTIFICATION_PUSH, request)
+      }
+    ),
+    // The dock badge is the at-a-glance count of sessions awaiting interaction across every
+    // workspace, including ones not currently visible; it clears once every alert is
+    // acknowledged. Main sets the badge; this count is the single source of truth.
+    onPendingChanged: (count) => {
+      const request: NativeDockBadgeRequest = { count }
+      emitPush(NATIVE_DOCK_BADGE_PUSH, request)
+    }
+  })
+
+  // Which preset each live session is (only a claude session's input drives 'working').
+  const presetsBySession = new Map<string, Preset>()
+
+  const sessions = createSessionManager({
+    spawn: deps.spawn,
+    // Every PTY chunk also feeds the attention detector; exit clears its per-session state.
+    send: {
+      data: (event) => {
+        emitPush(Channel.terminalData, event)
+        notifier.onChunk(event.sessionId, event.data)
+      },
+      exit: (event) => {
+        emitPush(Channel.terminalExit, event)
+        notifier.forget(event.sessionId)
+        detector.forget(event.sessionId)
+        presetsBySession.delete(event.sessionId)
+      }
+    },
+    buildSpec: (preset, resumeSessionId) =>
+      buildSpawn(preset, {
+        testMode: isE2e,
+        notifSettingsPath,
+        resumeSessionId
+      })
+  })
+
+  const workspaceHandlers = createWorkspaceHandlers({
+    db,
+    workspaces,
+    tabs,
+    appState,
+    sessions,
+    // Electron-only: the native folder dialog is answered by main and never forwarded here.
+    pickFolder: () => Promise.reject(new Error('workspaces.pickFolder is Electron-only')),
+    projects,
+    pathDeps: projectPathDeps
+  })
+  const tabHandlers = createTabHandlers({ db, workspaces, tabs, sessions })
+
+  // Wrap spawn/write to drive the 'working' status: record each session's preset, then flag
+  // a claude session 'working' the moment the user submits a prompt (Enter, i.e. '\r').
+  const baseTerminalHandlers = createTerminalHandlers(sessions)
+  const terminalHandlers: TerminalHandlers = {
+    ...baseTerminalHandlers,
+    spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
+      presetsBySession.set(id, preset)
+      return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows, resumeSessionId)
+    },
+    write: (id, data) => {
+      if (presetsBySession.get(id) === 'claude' && data.includes('\r')) notifier.onInput(id)
+      baseTerminalHandlers.write(id, data)
+    }
+  }
+
+  // --- PR Review Inbox slice ---
+  const prCache = createPrCacheRepo(db, repoDeps)
+  const drafts = createDraftCommentRepo(db, repoDeps)
+  const prReviewWatermarks = createPrReviewWatermarkRepo(db, repoDeps)
+  const reviewSessions = createReviewSessionRepo(db, repoDeps)
+
+  const adoClient = createAdoClient(() => resolveAdoServerConfig(env, settings.getSavedAdo()))
+  const debouncedAdoTeardown = debounce(() => void adoClient.close(), 500)
+  // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR
+  // radar) runs the real cache/watermark path without a live server.
+  const adoStub = isE2e ? createAdoE2eStub(env) : null
+  // One resolver shared by sync and the vote fallback so the connectionData identity lookup
+  // runs at most once. An explicit INTERSECT_ADO_IDENTITY still overrides it.
+  const identity = createIdentityResolver({
+    resolveCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
+  })
+  const resolveIdentity = identity.resolve
+  const ado =
+    adoStub ??
+    createAdoService({
+      client: adoClient,
+      resolveIdentity,
+      projectId: () => safeDefaultProject(env, settings.getSavedAdo()),
+      priorThreadCount: (repositoryId, prId) =>
+        prCache.get(repositoryId, prId)?.activeThreadCount ?? 0,
+      resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
+    })
+
+  const worktrees = createWorktreeManager(userDataDir)
+  const workspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
+  // E2E runs stub the diff engine too (no real clone on disk); production reads local git.
+  const localDiff = isE2e
+    ? createLocalDiffE2eStub(env)
+    : createLocalDiffService({
+        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders)
+      })
+
+  const review = createReviewManager({
+    reviewSessions,
+    drafts,
+    prCache,
+    worktrees,
+    workspaceFolders,
+    spawn: deps.spawn,
+    sendData: (data) => emitPush(Channel.prInboxReviewData, data),
+    sendExit: (exitCode) => emitPush(Channel.prInboxReviewExit, exitCode),
+    onDraft: (draft) => emitPush(Channel.prInboxDraftAdded, draft),
+    reviewPrompt: () => settings.getReview().prompt,
+    draftServerPath: join(__dirname, 'draftServer.js')
+  })
+  const prInboxHandlers = createPrInboxHandlers({
+    prCache,
+    drafts,
+    watermarks: prReviewWatermarks,
+    ado,
+    localDiff,
+    workspaceFolders,
+    review,
+    atomically: (fn) => tx(db, fn),
+    resolveIdentity
+  })
+  void review.pruneOnBoot().catch(() => {})
+
+  // --- Session Search slice: read-only index over ~/.claude/projects (lazy, in memory) ---
+  // The one index instance is shared with the Time Tracking slice so both read the same scan.
+  const sessionIndex = createSessionIndex()
+
+  const timeTrackingHandlers = createTimeTrackingHandlers({
+    service: createTimeTracking({
+      sessions: sessionIndex,
+      manual: createManualTimeEntryRepo(db, repoDeps),
+      overrides: createTimeOverrideRepo(db, repoDeps)
+    })
+  })
+
+  const projectHandlers = createProjectHandlers({
+    projects,
+    pathDeps: projectPathDeps,
+    workspaces,
+    overrides: createProjectOverrideRepo(db, repoDeps)
+  })
+
+  // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---
+  const todos = createTodoRepo(db, repoDeps)
+  const todoHandlers = createTodoHandlers({ todos })
+
+  // --- My Work slice: Jira board fetched through a hidden Claude Code session (no PAT) ---
+  const jiraFetcher = createJiraFetcher({
+    spawn: deps.spawn,
+    claudePath: resolveClaudePath(env),
+    reportServerPath: join(__dirname, 'jiraReportServer.js')
+  })
+  const jiraLogin = createJiraLogin()
+  const jiraStub = isE2e ? createJiraE2eStub(env) : null
+  const myWorkHandlers = createMyWorkHandlers({
+    index: createJiraIndex({
+      fetch: jiraStub ? () => jiraStub.fetchBoard() : () => jiraFetcher.fetchBoard(),
+      store: createMyWorkCacheRepo(db)
+    }),
+    login: jiraStub ? { login: () => jiraStub.login(), dispose: () => {} } : jiraLogin
+  })
+
+  // --- Claude usage slice: sidebar panel showing Claude Code's own rate-limit usage ---
+  // usageSnapshotPath is '' when the statusline tee could not be wired at boot; the panel
+  // then degrades to permanently-null usage rather than watching a bogus path.
+  const usage = usageSnapshotPath ? createUsageService({ snapshotPath: usageSnapshotPath }) : null
+  const usageHandlers = createUsageHandlers({ usage: usage ?? { get: () => null } })
+  usage?.onChange((snapshot) => emitPush(Channel.usageChanged, snapshot))
+
+  // --- Settings slice ---
+  // Until the user saves ADO settings of their own, the form shows the effective config
+  // resolved from ~/.claude.json / env, so what the app actually uses is what the user sees.
+  const fallbackAdo = (): AdoSettings => {
+    try {
+      const resolved = resolveAdoServerConfig().env
+      return {
+        orgUrl: resolved.AZURE_DEVOPS_ORG_URL ?? '',
+        project: resolved.AZURE_DEVOPS_DEFAULT_PROJECT ?? '',
+        repository: '',
+        pat: resolved.AZURE_DEVOPS_PAT ?? ''
+      }
+    } catch {
+      return { orgUrl: '', project: '', repository: '', pat: '' }
+    }
+  }
+  const settingsHandlers = createSettingsHandlers({
+    settings,
+    fallbackAdo,
+    // E2E runs answer with a canned identity so the button never hits the network.
+    testConnection: isE2e
+      ? () => Promise.resolve({ ok: true as const, displayName: 'E2E User' })
+      : (ado) => testAdoConnection(ado),
+    // The MCP child keeps the credentials it was spawned with, so saving new ones must drop
+    // it; the next PR-sync call reconnects with the fresh config instead of the stale
+    // PAT/org. Debounced because the form persists per keystroke.
+    adoSettingsChanged: () => {
+      debouncedAdoTeardown()
+      // A new org/PAT authenticates as a different person, so the memoized connectionData
+      // identity must be dropped too; the next sync re-derives it.
+      identity.invalidate()
+      return Promise.resolve()
+    }
+  })
+
+  // --- 1:1 slice: the two workflows behind hidden Claude Code sessions + run history ---
+  // Any run still 'running' in the DB belonged to a previous core process and can never finish.
+  const otoRuns = createOtoRunRepo(db, repoDeps)
+  otoRuns.reconcileOnBoot()
+  const onOtoRunChanged = (run: OtoRun): void => emitPush(Channel.oneOnOneRunChanged, run)
+  const oto = isE2e
+    ? createOtoE2eStub({ runs: otoRuns, onRunChanged: onOtoRunChanged, env })
+    : createOtoManager({
+        runs: otoRuns,
+        onRunChanged: onOtoRunChanged,
+        spawn: deps.spawn,
+        claudePath: resolveClaudePath(env),
+        reportServerPath: join(__dirname, 'otoReportServer.js')
+      })
+  const oneOnOneHandlers = createOneOnOneHandlers({
+    runs: otoRuns,
+    manager: oto,
+    todos,
+    // Electron-only: the native file dialog is answered by main and never forwarded here.
+    pickVttFile: () => Promise.reject(new Error('oneOnOne.pickVttFile is Electron-only'))
+  })
+
+  // Compose the slice contracts into the one dispatch table and hold it to the bridge's
+  // channel classification - a drifting route list fails boot, not a user action.
+  const focusRoute: WireRoutes = {
+    [WINDOW_FOCUS_CHANGED]: (event: WindowFocusChangedEvent) => {
+      windowFocused = event.focused
+    }
+  }
+  const routes = mergeRoutes(
+    workspacesWireRoutes(workspaceHandlers),
+    projectsWireRoutes(projectHandlers),
+    tabsWireRoutes(tabHandlers),
+    terminalWireRoutes(terminalHandlers, (sessionId) => notifier.reportActive(sessionId)),
+    prInboxWireRoutes(prInboxHandlers),
+    sessionsWireRoutes(createSessionHandlers({ index: sessionIndex })),
+    timeTrackingWireRoutes(timeTrackingHandlers),
+    todoWireRoutes(todoHandlers),
+    myWorkWireRoutes(myWorkHandlers),
+    oneOnOneWireRoutes(oneOnOneHandlers),
+    settingsWireRoutes(settingsHandlers),
+    usageWireRoutes(usageHandlers)
+  )
+  assertRoutesCoverBridge(routes)
+  const dispatch = createDispatch(mergeRoutes(routes, focusRoute))
+
+  // Kill every PTY on shutdown so no shell process is orphaned. review.shutdown() is
+  // synchronous and does NOT touch the DB, so closing the DB right after is safe (its async
+  // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on
+  // the next boot.
+  let shutdownDone = false
+  const shutdown = (): void => {
+    if (shutdownDone) return
+    shutdownDone = true
+    sessions.killAll()
+    review.shutdown()
+    jiraFetcher.dispose()
+    jiraLogin.dispose()
+    oto.dispose()
+    usage?.dispose()
+    debouncedAdoTeardown.cancel()
+    void adoClient.close()
+    db.close()
+  }
+
+  return { handleRequest: dispatch, shutdown }
+}

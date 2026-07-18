@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron'
 import { Channel, type IpcApi } from '@common/ipc'
-import { JIRA_HOST } from '../myWork/jiraMapping'
+import { JIRA_HOST } from '../../core/myWork/jiraMapping'
 
 /** Hosts Intersect may hand to the system browser. Grows one entry per feature that links out. */
 const ALLOWED_EXTERNAL_HOSTS = new Set([JIRA_HOST, 'notion.so', 'www.notion.so', 'slack.com'])
@@ -32,6 +32,8 @@ export function isAllowedExternalUrl(url: string): boolean {
 export interface SystemHandlerDeps {
   /** The actual browser launch (Electron's shell.openExternal); injected for tests. */
   openExternal: (url: string) => Promise<void>
+  /** The actual app relaunch (app.relaunch + app.exit); injected for tests. */
+  restartApp: () => void
 }
 
 /**
@@ -46,20 +48,28 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
   }
 }
 
-/** The system surface main implements (getPathForFile lives entirely in preload, off IPC). */
-export type SystemHandlers = Omit<IpcApi['system'], 'getPathForFile'>
+/**
+ * The system surface main implements (getPathForFile lives entirely in preload, off IPC;
+ * onCoreStatus is a preload-side push subscription).
+ */
+export type SystemHandlers = Omit<IpcApi['system'], 'getPathForFile' | 'onCoreStatus'>
 
-/** System-level handlers: the allowlist-guarded bridge to the default browser. */
+/** System-level handlers: the allowlist-guarded bridge to the default browser + recovery. */
 export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
   return {
     openExternal: (url) =>
       surface(async () => {
         if (!isAllowedExternalUrl(url)) throw new Error(`Blocked external URL: ${url}`)
         await deps.openExternal(url)
+      }),
+    restartApp: () =>
+      surface(async () => {
+        deps.restartApp()
       })
   }
 }
 
 export function registerSystemHandlers(ipcMain: IpcMain, h: SystemHandlers): void {
   ipcMain.handle(Channel.systemOpenExternal, (_e, url: string) => h.openExternal(url))
+  ipcMain.handle(Channel.systemRestartApp, () => h.restartApp())
 }

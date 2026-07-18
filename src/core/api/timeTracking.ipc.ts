@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron'
-import type { NewManualTimeEntry, TimeEntrySource, TimeEntryUpdate } from '@common/domain'
+import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { TimeTrackingService } from '../timeTracking/timeTracking'
 
@@ -34,16 +33,12 @@ export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): IpcAp
   }
 }
 
-export function registerTimeTrackingHandlers(ipcMain: IpcMain, h: IpcApi['timeTracking']): void {
-  ipcMain.handle(Channel.timeTrackingGetWeek, (_e, weekStart: string) => h.getWeek(weekStart))
-  ipcMain.handle(Channel.timeTrackingRefreshWeek, (_e, weekStart: string) => h.refreshWeek(weekStart))
-  ipcMain.handle(Channel.timeTrackingAddManual, (_e, input: NewManualTimeEntry) => h.addManual(input))
-  ipcMain.handle(
-    Channel.timeTrackingUpdateEntry,
-    (_e, source: TimeEntrySource, id: string, update: TimeEntryUpdate) =>
-      h.updateEntry(source, id, update)
-  )
-  ipcMain.handle(Channel.timeTrackingDeleteEntry, (_e, source: TimeEntrySource, id: string) =>
-    h.deleteEntry(source, id)
-  )
+export function timeTrackingWireRoutes(h: IpcApi['timeTracking']): WireRoutes {
+  return {
+    [Channel.timeTrackingGetWeek]: h.getWeek,
+    [Channel.timeTrackingRefreshWeek]: h.refreshWeek,
+    [Channel.timeTrackingAddManual]: h.addManual,
+    [Channel.timeTrackingUpdateEntry]: h.updateEntry,
+    [Channel.timeTrackingDeleteEntry]: h.deleteEntry
+  }
 }

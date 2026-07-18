@@ -1,13 +1,12 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
 import { git, gitWithLockRetry } from './git'
 import { remoteMatchesRepoName } from './worktreeMatch'
 
 /** All managed worktrees live under one app-owned root so a startup sweep is unambiguous. */
-export function worktreesRoot(): string {
-  return join(app.getPath('userData'), 'pr-review-worktrees')
+export function worktreesRoot(userDataDir: string): string {
+  return join(userDataDir, 'pr-review-worktrees')
 }
 
 export interface WorktreeManager {
@@ -23,7 +22,8 @@ export interface WorktreeManager {
   pruneStale(repoDirs: string[]): Promise<void>
 }
 
-export function createWorktreeManager(): WorktreeManager {
+export function createWorktreeManager(userDataDir: string): WorktreeManager {
+  const root = (): string => worktreesRoot(userDataDir)
   return {
     async resolveRepoDir(repoName, workspaceFolders) {
       for (const folder of workspaceFolders) {
@@ -40,8 +40,8 @@ export function createWorktreeManager(): WorktreeManager {
     },
 
     async createWorktree({ repoDir, dirName, sourceCommit, sourceRefName, prId }) {
-      const path = join(worktreesRoot(), dirName)
-      await mkdir(worktreesRoot(), { recursive: true })
+      const path = join(root(), dirName)
+      await mkdir(root(), { recursive: true })
 
       // Prefer the concrete source commit; on-prem Server doesn't reliably expose refs/pull/*/merge.
       let ref = sourceCommit
@@ -81,13 +81,13 @@ export function createWorktreeManager(): WorktreeManager {
     },
 
     async pruneStale(repoDirs) {
-      const root = worktreesRoot()
+      const rootDir = root()
       for (const repoDir of repoDirs) {
         const listed = await git(repoDir, ['worktree', 'list', '--porcelain']).catch(() => '')
         for (const line of listed.split('\n')) {
           if (line.startsWith('worktree ')) {
             const p = line.slice('worktree '.length).trim()
-            if (p.startsWith(root)) {
+            if (p.startsWith(rootDir)) {
               await git(repoDir, ['worktree', 'remove', '--force', p]).catch(() => {})
             }
           }
@@ -95,9 +95,9 @@ export function createWorktreeManager(): WorktreeManager {
         await git(repoDir, ['worktree', 'prune']).catch(() => {})
       }
       // Belt and suspenders: nuke any orphan directories left under the managed root.
-      if (existsSync(root)) {
-        for (const name of await readdir(root)) {
-          await rm(join(root, name), { recursive: true, force: true }).catch(() => {})
+      if (existsSync(rootDir)) {
+        for (const name of await readdir(rootDir)) {
+          await rm(join(rootDir, name), { recursive: true, force: true }).catch(() => {})
         }
       }
     }

@@ -5,7 +5,7 @@ import { createOtoRunRepo, type OtoRunRepo } from '../db/otoRunRepo'
 import { createTodoRepo, type TodoRepo } from '../db/todoRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { OtoStartRequest } from '../oneOnOne/otoManager'
-import { createOneOnOneHandlers, registerOneOnOneHandlers, type OneOnOneHandlers } from './oneOnOne.ipc'
+import { createOneOnOneHandlers, oneOnOneWireRoutes, type OneOnOneHandlers } from './oneOnOne.ipc'
 
 interface FakeManager {
   start: Mock<(req: OtoStartRequest) => OtoRun>
@@ -120,14 +120,8 @@ describe('oneOnOne handlers', () => {
   })
 })
 
-describe('registerOneOnOneHandlers', () => {
-  test('binds the three request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
+describe('oneOnOneWireRoutes', () => {
+  test('binds the request/response channels, minus the Electron-only VTT picker', async () => {
     const db = makeTestDb()
     const deps = makeTestDeps()
     const runs = createOtoRunRepo(db, deps)
@@ -138,19 +132,15 @@ describe('registerOneOnOneHandlers', () => {
       pickVttFile: async () => null,
       fileExists: () => true
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerOneOnOneHandlers(ipcMain as any, h)
+    const routes = oneOnOneWireRoutes(h)
+    const call = (channel: string, ...args: unknown[]): unknown =>
+      (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
-    expect([...registered.keys()].sort()).toEqual(
-      [Channel.oneOnOneList, Channel.oneOnOneStart, Channel.oneOnOnePickVtt].sort()
-    )
+    expect(Object.keys(routes).sort()).toEqual([Channel.oneOnOneList, Channel.oneOnOneStart].sort())
 
-    const started = (await registered.get(Channel.oneOnOneStart)!(
-      {},
-      { type: 'prep', person: 'Marek' }
-    )) as OtoRun
+    const started = (await call(Channel.oneOnOneStart, { type: 'prep', person: 'Marek' })) as OtoRun
     expect(started.person).toBe('Marek')
-    const listed = (await registered.get(Channel.oneOnOneList)!({})) as OtoRun[]
+    const listed = (await call(Channel.oneOnOneList)) as OtoRun[]
     expect(listed.map((r) => r.id)).toEqual([started.id])
   })
 })

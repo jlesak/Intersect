@@ -3316,3 +3316,52 @@
   font-size: 12px;
   margin: 4px 12px;
 }
+
+/* ---------------- core failure overlay ---------------- */
+/* Full-screen block: with the core process dead every feature is dead, so nothing behind the
+   overlay is interactable anyway. The reason is mono for readable process/stack-ish text. */
+.ix-core-failure {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 400;
+}
+.ix-core-failure__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+  padding: 20px 22px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ix-core-failure__card h1 {
+  margin: 0;
+  font-size: 15px;
+}
+.ix-core-failure__card p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.ix-core-failure__reason {
+  font-family: var(--font-mono);
+  color: var(--danger);
+  word-break: break-word;
+}
+.ix-core-failure__card button {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised, var(--panel));
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}

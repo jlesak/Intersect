@@ -3,7 +3,7 @@ import type { JiraBoardResult, JiraLoginResult } from '@common/domain'
 import { Channel } from '@common/ipc'
 import type { JiraIndex } from '../myWork/jiraIndex'
 import type { JiraLogin } from '../myWork/jiraLogin'
-import { createMyWorkHandlers, registerMyWorkHandlers } from './myWork.ipc'
+import { createMyWorkHandlers, myWorkWireRoutes } from './myWork.ipc'
 
 const board: JiraBoardResult = { ok: true, issues: [], fetchedAt: 1 }
 const refreshed: JiraBoardResult = { ok: true, issues: [], fetchedAt: 2 }
@@ -67,23 +67,17 @@ describe('myWork handlers', () => {
   })
 })
 
-describe('registerMyWorkHandlers', () => {
+describe('myWorkWireRoutes', () => {
   test('binds all request/response channels to the handlers', async () => {
-    const registered = new Map<string, (...args: unknown[]) => unknown>()
-    const ipcMain = {
-      handle: (channel: string, listener: (...args: unknown[]) => unknown) => {
-        registered.set(channel, listener)
-      }
-    }
     const h = createMyWorkHandlers({ index: makeIndex(), login: makeLogin() })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerMyWorkHandlers(ipcMain as any, h)
+    const routes = myWorkWireRoutes(h)
+    const call = (channel: string): unknown => (routes[channel] as () => unknown)()
 
-    expect([...registered.keys()].sort()).toEqual(
+    expect(Object.keys(routes).sort()).toEqual(
       [Channel.myWorkList, Channel.myWorkRefresh, Channel.myWorkLogin].sort()
     )
-    expect(await registered.get(Channel.myWorkList)!()).toBe(board)
-    expect(await registered.get(Channel.myWorkRefresh)!()).toBe(refreshed)
-    expect(await registered.get(Channel.myWorkLogin)!()).toBe(loggedIn)
+    expect(await call(Channel.myWorkList)).toBe(board)
+    expect(await call(Channel.myWorkRefresh)).toBe(refreshed)
+    expect(await call(Channel.myWorkLogin)).toBe(loggedIn)
   })
 })
