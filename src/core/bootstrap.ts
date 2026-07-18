@@ -28,6 +28,8 @@ import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
 import type { SpawnFn } from './pty/sessionManager'
+import { createTerminalSnapshots } from './pty/terminalSnapshots'
+import { createTerminalStream } from './pty/terminalStream'
 import { buildSpawn } from './pty/shell'
 import { createAttentionDetector } from './pty/attentionDetector'
 import { writeNotifSettings } from './pty/notifSettings'
@@ -318,17 +320,29 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     console.warn('[lifecycle] hook listener setup failed; marker fallback active:', err)
   }
 
+  // Headless snapshot pipeline: every PTY chunk is numbered and parsed into a per-session
+  // headless xterm before fanout, so a reloaded renderer reattaches to the live PTY with its
+  // screen, colors, and recent scrollback intact - no respawn, no lost or doubled output.
+  const snapshots = createTerminalSnapshots()
+  const terminalStream = createTerminalStream({
+    snapshots,
+    // The complete fanout for one chunk: the renderer push, then the marker detector - but
+    // only while the session has not proven its hook wiring; once hook events flow, hooks
+    // are authoritative and markers stand down.
+    emit: (event) => {
+      emitPush(Channel.terminalData, event)
+      if (!lifecycle.isHookHealthy(event.sessionId)) notifier.onChunk(event.sessionId, event.data)
+    },
+    log: (message) => console.log(message)
+  })
+
   const sessions = createSessionManager({
     spawn: deps.spawn,
-    // PTY chunks feed the marker detector only while the session has not proven its hook
-    // wiring - once hook events flow, hooks are authoritative and markers stand down. PTY
-    // exit is always authoritative for the lifecycle regardless of hook health.
+    // PTY exit is always authoritative for the lifecycle regardless of hook health.
     send: {
-      data: (event) => {
-        emitPush(Channel.terminalData, event)
-        if (!lifecycle.isHookHealthy(event.sessionId)) notifier.onChunk(event.sessionId, event.data)
-      },
+      data: (event) => terminalStream.onData(event.sessionId, event.data),
       exit: (event) => {
+        terminalStream.dispose(event.sessionId)
         emitPush(Channel.terminalExit, event)
         lifecycle.onPtyExit(event.sessionId, event.exitCode)
         notifier.forget(event.sessionId)
@@ -360,7 +374,9 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
 
   // Wrap spawn/write to drive the 'working' status: record each session's preset, then flag
   // a claude session 'working' the moment the user submits a prompt (Enter, i.e. '\r').
-  const baseTerminalHandlers = createTerminalHandlers(sessions)
+  // Resize and kill also tap the snapshot stream so it tracks the PTY's real dimensions and
+  // never outlives the session.
+  const baseTerminalHandlers = createTerminalHandlers(sessions, (id) => terminalStream.attach(id))
   const terminalHandlers: TerminalHandlers = {
     ...baseTerminalHandlers,
     spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
@@ -368,7 +384,15 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       // Only claude sessions live in the hook lifecycle; the recorded spawn cwd is what the
       // nested-session guard compares every hook payload's cwd against.
       if (preset === 'claude') lifecycle.onSpawn(id, cwd)
-      return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows, resumeSessionId)
+      // Track the stream before the PTY exists so the very first chunk (the spawn notice)
+      // already lands in the snapshot; a failed spawn rolls the tracking back.
+      const created = terminalStream.onSpawn(id, cols, rows)
+      try {
+        return baseTerminalHandlers.spawn(id, preset, cwd, cols, rows, resumeSessionId)
+      } catch (err) {
+        if (created) terminalStream.dispose(id)
+        throw err
+      }
     },
     write: (id, data) => {
       if (presetsBySession.get(id) === 'claude' && data.includes('\r')) {
@@ -376,6 +400,16 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         lifecycle.onUserInput(id)
       }
       baseTerminalHandlers.write(id, data)
+    },
+    resize: (id, cols, rows) => {
+      terminalStream.onResize(id, cols, rows)
+      baseTerminalHandlers.resize(id, cols, rows)
+    },
+    kill: (id) => {
+      // PTY exit also disposes; doing it here too keeps the snapshot from outliving an exit
+      // event that never arrives.
+      terminalStream.dispose(id)
+      baseTerminalHandlers.kill(id)
     }
   }
 
@@ -583,6 +617,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     void hookListenerHandle?.stop().catch(() => {})
     clearInterval(hookRetentionTimer)
     sessions.killAll()
+    terminalStream.disposeAll()
     review.shutdown()
     jiraFetcher.dispose()
     jiraLogin.dispose()

@@ -11,8 +11,18 @@ describe('createDataRouter', () => {
 
     router.route({ sessionId: 's1', data: 'hello' })
 
-    expect(a).toHaveBeenCalledWith('hello')
+    expect(a).toHaveBeenCalledWith('hello', undefined)
     expect(b).not.toHaveBeenCalled()
+  })
+
+  test('passes the chunk sequence number through to the sink', () => {
+    const router = createDataRouter()
+    const sink = vi.fn()
+    router.register('s1', sink)
+
+    router.route({ sessionId: 's1', data: 'x', seq: 7 })
+
+    expect(sink).toHaveBeenCalledWith('x', 7)
   })
 
   test('no-ops for an unknown sessionId (late event after teardown)', () => {
@@ -41,6 +51,6 @@ describe('createDataRouter', () => {
     router.route({ sessionId: 's1', data: 'x' })
 
     expect(first).not.toHaveBeenCalled()
-    expect(second).toHaveBeenCalledWith('x')
+    expect(second).toHaveBeenCalledWith('x', undefined)
   })
 })

@@ -1,6 +1,6 @@
 import type { Preset } from '@common/domain'
 import { type WireRoutes } from '@common/coreBridge'
-import { Channel } from '@common/ipc'
+import { Channel, type TerminalAttachResult } from '@common/ipc'
 import type { SessionManager } from '../pty/sessionManager'
 
 /** Service-side terminal surface: the request/response + fire-and-forget methods (no events). */
@@ -13,6 +13,8 @@ export interface TerminalHandlers {
     rows: number,
     resumeSessionId?: string | null
   ): { ok: boolean }
+  /** Reattach to a PTY that survived a renderer reload (see TerminalAttachResult). */
+  attach(sessionId: string): Promise<TerminalAttachResult>
   write(sessionId: string, data: string): void
   resize(sessionId: string, cols: number, rows: number): void
   pause(sessionId: string): void
@@ -20,10 +22,14 @@ export interface TerminalHandlers {
   kill(sessionId: string): void
 }
 
-export function createTerminalHandlers(sessions: SessionManager): TerminalHandlers {
+export function createTerminalHandlers(
+  sessions: SessionManager,
+  attach: (sessionId: string) => Promise<TerminalAttachResult>
+): TerminalHandlers {
   return {
     spawn: (id, preset, cwd, cols, rows, resumeSessionId) =>
       sessions.spawn(id, preset, cwd, cols, rows, resumeSessionId),
+    attach,
     write: (id, data) => sessions.write(id, data),
     resize: (id, cols, rows) => sessions.resize(id, cols, rows),
     pause: (id) => sessions.pause(id),
@@ -33,9 +39,9 @@ export function createTerminalHandlers(sessions: SessionManager): TerminalHandle
 }
 
 /**
- * The slice's wire contract. `spawn` is the only correlated request; the rest arrive as
- * fire-and-forget notifications on the PTY fast path, including the active-session report
- * that feeds the attention notifier.
+ * The slice's wire contract. `spawn` and `attach` are the correlated requests; the rest
+ * arrive as fire-and-forget notifications on the PTY fast path, including the active-session
+ * report that feeds the attention notifier.
  */
 export function terminalWireRoutes(
   h: TerminalHandlers,
@@ -43,6 +49,7 @@ export function terminalWireRoutes(
 ): WireRoutes {
   return {
     [Channel.terminalSpawn]: h.spawn,
+    [Channel.terminalAttach]: h.attach,
     [Channel.terminalInput]: h.write,
     [Channel.terminalResize]: h.resize,
     [Channel.terminalPause]: h.pause,

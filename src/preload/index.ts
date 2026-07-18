@@ -57,6 +57,7 @@ const api: IpcApi = {
   terminal: {
     spawn: (sessionId, preset, cwd, cols, rows, resumeSessionId) =>
       ipcRenderer.invoke(Channel.terminalSpawn, sessionId, preset, cwd, cols, rows, resumeSessionId ?? null),
+    attach: (sessionId) => ipcRenderer.invoke(Channel.terminalAttach, sessionId),
     write: (sessionId, data) => ipcRenderer.send(Channel.terminalInput, sessionId, data),
     resize: (sessionId, cols, rows) => ipcRenderer.send(Channel.terminalResize, sessionId, cols, rows),
     pause: (sessionId) => ipcRenderer.send(Channel.terminalPause, sessionId),
