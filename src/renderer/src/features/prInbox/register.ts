@@ -19,7 +19,7 @@ function PrActionBadge() {
 export function registerPrInboxFeature(): void {
   registerSidebarSection({
     id: PR_INBOX_SECTION_ID,
-    order: 1,
+    order: 14,
     label: 'PR Review',
     icon: IconInbox,
     badge: PrActionBadge,

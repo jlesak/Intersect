@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { Layout, Workspace } from '@common/domain'
+import type { Layout, ProjectAssignmentSource, Workspace } from '@common/domain'
 import type { RepoDeps } from './deps'
 
 interface WorkspaceRow {
@@ -12,6 +12,7 @@ interface WorkspaceRow {
   sort_order: number
   created_at: number
   project_id: string | null
+  project_source: string
 }
 
 function toWorkspace(row: WorkspaceRow): Workspace {
@@ -22,18 +23,21 @@ function toWorkspace(row: WorkspaceRow): Workspace {
     layout: row.layout as Layout,
     activeTabId: row.active_tab_id,
     sortOrder: row.sort_order,
-    projectId: row.project_id
+    projectId: row.project_id,
+    projectSource: row.project_source as ProjectAssignmentSource
   }
 }
 
 export interface WorkspaceRepo {
   list(): Workspace[]
   getById(id: string): Workspace | undefined
-  create(folderPath: string, name?: string): Workspace
+  create(folderPath: string, name?: string, projectId?: string | null): Workspace
   rename(id: string, name: string): Workspace
   remove(id: string): void
   setLayout(id: string, layout: Layout): Workspace
   setActiveTab(id: string, tabId: string | null): Workspace
+  /** Place the workspace in a project (null = Other) and record how the placement happened. */
+  setProject(id: string, projectId: string | null, source: ProjectAssignmentSource): Workspace
 }
 
 export function createWorkspaceRepo(db: DatabaseSync, deps: RepoDeps): WorkspaceRepo {
@@ -58,7 +62,7 @@ export function createWorkspaceRepo(db: DatabaseSync, deps: RepoDeps): Workspace
 
     getById,
 
-    create(folderPath, name) {
+    create(folderPath, name, projectId = null) {
       const nextOrder = (
         db.prepare('SELECT COALESCE(MAX(sort_order) + 1, 0) AS n FROM workspaces').get() as {
           n: number
@@ -67,8 +71,8 @@ export function createWorkspaceRepo(db: DatabaseSync, deps: RepoDeps): Workspace
       const finalName = name ?? (basename(folderPath) || 'workspace')
       const id = deps.newId()
       db.prepare(
-        'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
-      ).run(id, finalName, folderPath, 'single', null, nextOrder, deps.now())
+        'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at,project_id) VALUES (?,?,?,?,?,?,?,?)'
+      ).run(id, finalName, folderPath, 'single', null, nextOrder, deps.now(), projectId)
       return mustGet(id)
     },
 
@@ -91,6 +95,16 @@ export function createWorkspaceRepo(db: DatabaseSync, deps: RepoDeps): Workspace
     setActiveTab(id, tabId) {
       mustGet(id)
       db.prepare('UPDATE workspaces SET active_tab_id = ? WHERE id = ?').run(tabId, id)
+      return mustGet(id)
+    },
+
+    setProject(id, projectId, source) {
+      mustGet(id)
+      db.prepare('UPDATE workspaces SET project_id = ?, project_source = ? WHERE id = ?').run(
+        projectId,
+        source,
+        id
+      )
       return mustGet(id)
     }
   }

@@ -24,13 +24,14 @@ function project(id: string, sortOrder: number): Project {
 }
 
 function reset(): void {
-  useProjectsStore.setState({ status: 'idle', error: null, projects: [] })
+  useProjectsStore.setState({ status: 'idle', error: null, projects: [], overrides: [] })
 }
 
 describe('projects store', () => {
   beforeEach(() => {
     reset()
     vi.clearAllMocks()
+    mocked.listOverrides.mockResolvedValue([])
   })
 
   test('load hydrates the list and flips to ready', async () => {
@@ -82,5 +83,25 @@ describe('projects store', () => {
     await useProjectsStore.getState().move('a', -1)
     await useProjectsStore.getState().move('b', 1)
     expect(mocked.reorder).not.toHaveBeenCalled()
+  })
+
+  test('load hydrates the persisted overrides alongside the projects', async () => {
+    mocked.list.mockResolvedValue([])
+    mocked.listOverrides.mockResolvedValue([{ kind: 'jira', key: 'ABC-1', projectId: 'a' }])
+    await useProjectsStore.getState().load()
+    expect(useProjectsStore.getState().overrides).toEqual([
+      { kind: 'jira', key: 'ABC-1', projectId: 'a' }
+    ])
+  })
+
+  test('setOverride and clearOverride mutate then resync', async () => {
+    mocked.setOverride.mockResolvedValue(undefined)
+    mocked.clearOverride.mockResolvedValue(undefined)
+    mocked.list.mockResolvedValue([])
+    await useProjectsStore.getState().setOverride('pr', 'r1:5', 'a')
+    expect(mocked.setOverride).toHaveBeenCalledWith('pr', 'r1:5', 'a')
+    await useProjectsStore.getState().clearOverride('pr', 'r1:5')
+    expect(mocked.clearOverride).toHaveBeenCalledWith('pr', 'r1:5')
+    expect(mocked.list).toHaveBeenCalledTimes(2)
   })
 })

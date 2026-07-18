@@ -6,9 +6,16 @@ import { SplitStage } from '@renderer/features/terminal'
 import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
 
-/** The main content for the workspaces section: tab bar over the split stage. */
-export function WorkspaceView() {
-  const selected = useWorkspacesStore(selectSelectedWorkspace)
+/**
+ * The terminal area of a project context: tab bar over the split stage. `projectScope` narrows it
+ * to one project's workspaces (null = the Other bucket): a selection outside the scope renders as
+ * empty instead of leaking another project's terminals; omit the prop for the unscoped area.
+ */
+export function WorkspaceView({ projectScope }: { projectScope?: string | null }) {
+  let selected = useWorkspacesStore(selectSelectedWorkspace)
+  if (selected && projectScope !== undefined && selected.projectId !== projectScope) {
+    selected = undefined
+  }
   const selectedId = selected?.id ?? null
 
   const tabsStatus = useTabsStore((s) => s.status)
@@ -25,12 +32,10 @@ export function WorkspaceView() {
 
   if (!selected) {
     return (
-      <div className="ix-main">
-        <div className="ix-empty">
-          <span className="ix-eyebrow">No workspace</span>
-          <div className="ix-empty__title">Nothing open</div>
-          <p className="ix-empty__hint">Add a workspace from the sidebar to start opening terminals.</p>
-        </div>
+      <div className="ix-empty">
+        <span className="ix-eyebrow">No workspace</span>
+        <div className="ix-empty__title">Nothing open</div>
+        <p className="ix-empty__hint">Add a workspace from the sidebar to start opening terminals.</p>
       </div>
     )
   }
@@ -38,7 +43,7 @@ export function WorkspaceView() {
   const ready = tabsStatus === 'ready' && workspaceId === selected.id
 
   return (
-    <div className="ix-main">
+    <>
       <TabBar />
       {ready && tabs.length === 0 ? (
         <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
@@ -52,7 +57,7 @@ export function WorkspaceView() {
           onAssign={(tabId, slot) => void useTabsStore.getState().assignToPane(tabId, slot)}
         />
       )}
-    </div>
+    </>
   )
 }
 

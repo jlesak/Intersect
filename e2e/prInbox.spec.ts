@@ -33,7 +33,7 @@ test('PR Review section renders the empty board and switches back without errors
   await expect(win.getByTestId('pr-sync')).toBeVisible()
   await expect(win.locator('.ix-empty__hint')).toContainText('Sync to load your pull requests')
 
-  await win.locator('.ix-rail__btn', { hasText: 'Claude Code' }).click()
+  await win.locator('.ix-rail__btn--other').click()
   await expect(win.locator('.ix-empty__title')).toBeVisible()
 
   await app.close()

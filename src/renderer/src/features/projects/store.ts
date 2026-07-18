@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Project, ProjectPatch } from '@common/domain'
+import type { Project, ProjectOverride, ProjectOverrideKind, ProjectPatch } from '@common/domain'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -10,6 +10,8 @@ interface ProjectsState {
   error: string | null
   /** Every project (archived included), in manual order. */
   projects: Project[]
+  /** Persisted manual assignments of external content (PRs, Jira issues) to projects. */
+  overrides: ProjectOverride[]
   load(): Promise<void>
   /** Pick a folder and create a project bound to it; a null name defaults in the caller's UI. */
   create(name: string, folderPath: string): Promise<void>
@@ -20,6 +22,10 @@ interface ProjectsState {
   removeRepoPath(id: string, folderPath: string): Promise<void>
   /** Move a project one position up or down in the manual order. */
   move(id: string, direction: -1 | 1): Promise<void>
+  /** Pin one external item to a project (null = Other); persists and wins over inference. */
+  setOverride(kind: ProjectOverrideKind, key: string, projectId: string | null): Promise<void>
+  /** Drop the item's manual pin so it falls back to binding-based inference. */
+  clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -27,8 +33,8 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 export const useProjectsStore = create<ProjectsState>()((set, get) => {
   async function reload(): Promise<void> {
     try {
-      const projects = await api.list()
-      set({ status: 'ready', error: null, projects })
+      const [projects, overrides] = await Promise.all([api.list(), api.listOverrides()])
+      set({ status: 'ready', error: null, projects, overrides })
     } catch (e) {
       set({ status: 'error', error: message(e) })
     }
@@ -48,6 +54,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => {
     status: 'idle',
     error: null,
     projects: [],
+    overrides: [],
 
     async load() {
       if (get().status === 'idle') set({ status: 'loading', error: null })
@@ -86,8 +93,20 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => {
       ids.splice(from, 1)
       ids.splice(to, 0, id)
       await mutate(() => api.reorder(ids), 'Could not reorder projects')
+    },
+
+    async setOverride(kind, key, projectId) {
+      await mutate(() => api.setOverride(kind, key, projectId), 'Could not assign to the project')
+    },
+
+    async clearOverride(kind, key) {
+      await mutate(() => api.clearOverride(kind, key), 'Could not reset the assignment')
     }
   }
 })
 
 export const selectProjects = (s: ProjectsState): Project[] => s.projects
+
+/** The projects shown as rail pins: unarchived, in manual order. */
+export const selectActiveProjects = (s: ProjectsState): Project[] =>
+  s.projects.filter((p) => !p.archived)

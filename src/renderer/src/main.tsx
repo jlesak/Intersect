@@ -9,6 +9,7 @@ import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
+import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
 import { useOneOnOneStore } from './features/oneOnOne'
@@ -44,5 +45,7 @@ wireAttention()
 wireSessionResume()
 // Bridge My Work's PR-radar clicks to the PR Inbox section (cross-slice, app-layer).
 wireMyWorkPrNav()
+// Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).
+wireProjectsToWorkspaces()
 // Hydrate the settings store and keep live terminals following the terminal font size.
 wireSettings()

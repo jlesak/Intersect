@@ -1,1 +1,1 @@
-export { useAttentionStore, workspaceStatus } from './store'
+export { useAttentionStore, workspaceStatus, projectStatus } from './store'

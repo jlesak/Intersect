@@ -7,7 +7,7 @@ import { TodoView } from './components/TodoView'
 export function registerTodoFeature(): void {
   registerSidebarSection({
     id: 'todo',
-    order: -0.5,
+    order: 11,
     label: 'TODO',
     icon: IconTodo,
     component: SidebarTodo,

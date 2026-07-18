@@ -12,6 +12,31 @@ const base = (props: SVGProps<SVGSVGElement>): SVGProps<SVGSVGElement> => ({
   ...props
 })
 
+export const IconDashboard = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
+    <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
+    <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
+    <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
+  </svg>
+)
+
+export const IconLayers = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M8 2.5 14 6 8 9.5 2 6z" />
+    <path d="M2.5 9.5 8 12.7l5.5-3.2" />
+  </svg>
+)
+
+export const IconBranch = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="4.5" cy="4" r="1.5" />
+    <circle cx="4.5" cy="12" r="1.5" />
+    <circle cx="11.5" cy="6" r="1.5" />
+    <path d="M4.5 5.5v5M11.5 7.5c0 2.5-3 2-5.5 3" />
+  </svg>
+)
+
 export const IconPlus = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M8 3v10M3 8h10" />

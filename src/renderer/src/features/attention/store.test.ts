@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useAttentionStore, workspaceStatus } from './store'
+import { projectStatus, useAttentionStore, workspaceStatus } from './store'
 
 beforeEach(() => {
   useAttentionStore.setState({ status: {} })
@@ -76,6 +76,19 @@ describe('attention store', () => {
       expect(workspaceStatus(useAttentionStore.getState().status, 'w1')).toBe('done')
       useAttentionStore.getState().mark('w1:c', 'waiting')
       expect(workspaceStatus(useAttentionStore.getState().status, 'w1')).toBe('waiting')
+    })
+  })
+
+  describe('projectStatus', () => {
+    it('aggregates the most urgent status across the given workspaces only', () => {
+      useAttentionStore.getState().mark('w1:a', 'working')
+      useAttentionStore.getState().mark('w2:a', 'waiting')
+      useAttentionStore.getState().mark('w3:a', 'done')
+      const status = useAttentionStore.getState().status
+      expect(projectStatus(status, ['w1', 'w2'])).toBe('waiting')
+      expect(projectStatus(status, ['w1'])).toBe('working')
+      expect(projectStatus(status, ['w4'])).toBeUndefined()
+      expect(projectStatus(status, [])).toBeUndefined()
     })
   })
 })

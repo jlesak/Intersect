@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createAppStateRepo, type AppStateRepo } from '../db/appStateRepo'
+import { createProjectRepo, type ProjectRepo } from '../db/projectRepo'
 import { createTabRepo, type TabRepo } from '../db/tabRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from '../db/workspaceRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
+import type { ProjectPathDeps } from '../projects/resolveProject'
 import type { SessionManager } from '../pty/sessionManager'
 
 export interface FakeSessions {
@@ -45,6 +47,8 @@ export interface HandlerContext extends FakeSessions {
   workspaces: WorkspaceRepo
   tabs: TabRepo
   appState: AppStateRepo
+  projects: ProjectRepo
+  pathDeps: ProjectPathDeps
 }
 
 /** Real repos over an in-memory DB + a recording session manager. */
@@ -56,6 +60,12 @@ export function makeHandlerContext(): HandlerContext {
     workspaces: createWorkspaceRepo(db, deps),
     tabs: createTabRepo(db, deps),
     appState: createAppStateRepo(db),
+    projects: createProjectRepo(db, { ...deps, canonicalize: (p) => p }),
+    // Identity canonicalization plus a /wt/<repo> convention for worktree-parent tests.
+    pathDeps: {
+      canonicalize: (p) => p,
+      worktreeParentRoot: (p) => (p.startsWith('/wt/') ? '/repos/' + p.split('/')[2] : null)
+    },
     ...makeFakeSessions()
   }
 }

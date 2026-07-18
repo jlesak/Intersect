@@ -74,3 +74,19 @@ export function workspaceStatus(
   }
   return best
 }
+
+/**
+ * The most urgent status across a set of workspaces (a project's), or undefined if all are
+ * neutral. Drives the rail pin's aggregated session-status dot; it defines no filtering.
+ */
+export function projectStatus(
+  status: Record<string, SessionStatus>,
+  workspaceIds: string[]
+): SessionStatus | undefined {
+  let best: SessionStatus | undefined
+  for (const id of workspaceIds) {
+    const s = workspaceStatus(status, id)
+    if (s && (!best || STATUS_PRIORITY[s] > STATUS_PRIORITY[best])) best = s
+  }
+  return best
+}

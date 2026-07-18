@@ -22,6 +22,7 @@ const workspace = (over: Partial<Workspace> = {}): Workspace => ({
   activeTabId: null,
   sortOrder: 0,
   projectId: null,
+  projectSource: 'auto',
   ...over
 })
 

@@ -1,21 +1,26 @@
 import type { IpcMain } from 'electron'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { Channel, type IpcApi } from '@common/ipc'
-import { createProjectRepo, type ProjectRepo } from '../db/projectRepo'
-import { makeTestDb, makeTestDeps } from '../db/testkit'
+import { createProjectOverrideRepo } from '../db/projectOverrideRepo'
+import type { ProjectRepo } from '../db/projectRepo'
+import { makeTestDeps } from '../db/testkit'
+import type { WorkspaceRepo } from '../db/workspaceRepo'
+import { makeHandlerContext } from './handlerTestkit'
 import { createProjectHandlers, registerProjectHandlers } from './projects.ipc'
 
-function makeHandlers(): { projects: ProjectRepo; h: IpcApi['projects'] } {
-  const db = makeTestDb()
-  const projects = createProjectRepo(db, { ...makeTestDeps(), canonicalize: (p) => p })
+function makeHandlers(): {
+  projects: ProjectRepo
+  workspaces: WorkspaceRepo
+  h: IpcApi['projects']
+} {
+  const ctx = makeHandlerContext()
   const h = createProjectHandlers({
-    projects,
-    pathDeps: {
-      canonicalize: (p) => p,
-      worktreeParentRoot: (p) => (p.startsWith('/wt/') ? '/repos/' + p.split('/')[2] : null)
-    }
+    projects: ctx.projects,
+    pathDeps: ctx.pathDeps,
+    workspaces: ctx.workspaces,
+    overrides: createProjectOverrideRepo(ctx.db, makeTestDeps())
   })
-  return { projects, h }
+  return { projects: ctx.projects, workspaces: ctx.workspaces, h }
 }
 
 describe('project handlers', () => {
@@ -66,6 +71,50 @@ describe('project handlers', () => {
     )
     await expect(h.update('missing', { name: 'X' })).rejects.toThrow('Project not found')
   })
+
+  test('binding changes re-resolve auto-assigned workspaces but never manual ones', async () => {
+    const made = makeHandlers()
+    const auto = made.workspaces.create('/repos/spot/src')
+    const manual = made.workspaces.create('/repos/spot/tools')
+
+    const p = await made.h.create('SPOT', '/repos/spot')
+    expect(made.workspaces.getById(auto.id)?.projectId).toBe(p.id)
+
+    made.workspaces.setProject(manual.id, null, 'manual')
+    await made.h.remove(p.id)
+    expect(made.workspaces.getById(auto.id)?.projectId).toBeNull()
+    expect(made.workspaces.getById(manual.id)?.projectSource).toBe('manual')
+  })
+
+  test('archiving a project releases its auto-assigned workspaces to Other', async () => {
+    const made = makeHandlers()
+    const p = await made.h.create('SPOT', '/repos/spot')
+    const w = made.workspaces.create('/repos/spot/src', undefined, p.id)
+    await made.h.setArchived(p.id, true)
+    expect(made.workspaces.getById(w.id)?.projectId).toBeNull()
+  })
+
+  test('overrides round-trip: set wins, clear falls back, project delete cascades', async () => {
+    const made = makeHandlers()
+    const p = await made.h.create('SPOT', '/repos/spot')
+
+    await made.h.setOverride('pr', 'repo1:42', p.id)
+    await made.h.setOverride('jira', 'FID2507-1', null)
+    expect(await made.h.listOverrides()).toEqual([
+      { kind: 'pr', key: 'repo1:42', projectId: p.id },
+      { kind: 'jira', key: 'FID2507-1', projectId: null }
+    ])
+
+    await made.h.clearOverride('jira', 'FID2507-1')
+    expect((await made.h.listOverrides()).map((o) => o.key)).toEqual(['repo1:42'])
+
+    await made.h.remove(p.id)
+    expect(await made.h.listOverrides()).toEqual([])
+  })
+
+  test('listWorktrees rejects for an unknown project', async () => {
+    await expect(h.listWorktrees('missing')).rejects.toThrow('Project not found')
+  })
 })
 
 describe('registerProjectHandlers', () => {
@@ -95,7 +144,11 @@ describe('registerProjectHandlers', () => {
         Channel.projectsRemove,
         Channel.projectsAddRepoPath,
         Channel.projectsRemoveRepoPath,
-        Channel.projectsResolvePath
+        Channel.projectsResolvePath,
+        Channel.projectsListOverrides,
+        Channel.projectsSetOverride,
+        Channel.projectsClearOverride,
+        Channel.projectsListWorktrees
       ].sort()
     )
   })

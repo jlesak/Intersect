@@ -17,6 +17,10 @@ interface WorkspacesState {
   remove(id: string): Promise<void>
   select(id: string): Promise<void>
   pickFolder(): Promise<string | null>
+  /** Manually place a workspace in a project (null = Other); persisted and wins over inference. */
+  assignProject(id: string, projectId: string | null): Promise<void>
+  /** Return a workspace to automatic assignment, re-resolving it from its folder path. */
+  autoAssignProject(id: string): Promise<void>
 }
 
 /** The workspaces in sidebar order. */
@@ -27,6 +31,11 @@ export function selectWorkspaceList(state: WorkspacesState): Workspace[] {
 /** The currently selected workspace, or undefined. */
 export function selectSelectedWorkspace(state: WorkspacesState): Workspace | undefined {
   return state.selectedWorkspaceId ? state.byId[state.selectedWorkspaceId] : undefined
+}
+
+/** The workspaces of one project context (null = the virtual Other bucket), in sidebar order. */
+export function workspacesForProject(state: WorkspacesState, projectId: string | null): Workspace[] {
+  return selectWorkspaceList(state).filter((w) => w.projectId === projectId)
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -111,6 +120,24 @@ export const useWorkspacesStore = create<WorkspacesState>()((set) => ({
     } catch (e) {
       reportError('Could not open the folder picker', e)
       return null
+    }
+  },
+
+  async assignProject(id, projectId) {
+    try {
+      const ws = await api.assignProject(id, projectId)
+      set((s) => ({ byId: { ...s.byId, [id]: ws } }))
+    } catch (e) {
+      reportError('Could not move the workspace', e)
+    }
+  },
+
+  async autoAssignProject(id) {
+    try {
+      const ws = await api.autoAssignProject(id)
+      set((s) => ({ byId: { ...s.byId, [id]: ws } }))
+    } catch (e) {
+      reportError('Could not reset the workspace assignment', e)
     }
   }
 }))

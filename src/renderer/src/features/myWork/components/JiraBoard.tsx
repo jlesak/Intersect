@@ -21,8 +21,17 @@ function ColumnHead({ column, count }: { column: JiraColumn; count?: number }) {
   )
 }
 
-/** The five-column kanban board over the fetched issues. */
-export function JiraBoard({ issues }: { issues: JiraIssue[] }) {
+/**
+ * The five-column kanban board over the fetched issues. `onIssueContextMenu` lets an embedding
+ * surface (the project Kanban) attach a per-card menu without the board knowing about it.
+ */
+export function JiraBoard({
+  issues,
+  onIssueContextMenu
+}: {
+  issues: JiraIssue[]
+  onIssueContextMenu?: (issue: JiraIssue, x: number, y: number) => void
+}) {
   const board = useMemo(() => groupByColumn(issues), [issues])
   return (
     <div className="ix-mw-board">
@@ -30,9 +39,21 @@ export function JiraBoard({ issues }: { issues: JiraIssue[] }) {
         <div key={column} className={`ix-mw-col ix-mw-col--${column}`}>
           <ColumnHead column={column} count={board[column].length} />
           {board[column].length === 0 && <div className="ix-mw-col__empty">No issues</div>}
-          {board[column].map((issue) => (
-            <JiraCard key={issue.key} issue={issue} />
-          ))}
+          {board[column].map((issue) =>
+            onIssueContextMenu ? (
+              <div
+                key={issue.key}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  onIssueContextMenu(issue, e.clientX, e.clientY)
+                }}
+              >
+                <JiraCard issue={issue} />
+              </div>
+            ) : (
+              <JiraCard key={issue.key} issue={issue} />
+            )
+          )}
         </div>
       ))}
     </div>

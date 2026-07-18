@@ -1,17 +1,26 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAttentionStore, workspaceStatus } from '@renderer/features/attention'
+import { selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
 import { disposeWorkspaceSessions } from '@renderer/features/terminal'
-import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
+import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { Dialog } from '@renderer/shared/ui/Dialog'
 import { IconFolder, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { selectWorkspaceList, useWorkspacesStore } from '../store'
 
-/** The sidebar body: the workspace list plus the add-workspace affordance. */
-export function WorkspaceList() {
-  const workspaces = useWorkspacesStore(useShallow(selectWorkspaceList))
+/**
+ * The sidebar body: the workspace list plus the add-workspace affordance. `projectScope` narrows
+ * it to one project context (null = the Other bucket); adding a workspace whose folder resolves
+ * elsewhere is then pinned manually to the open project - an explicit add into a context is the
+ * user's placement decision, and manual placement always wins over inference.
+ */
+export function WorkspaceList({ projectScope }: { projectScope?: string | null }) {
+  const all = useWorkspacesStore(useShallow(selectWorkspaceList))
+  const workspaces =
+    projectScope === undefined ? all : all.filter((w) => w.projectId === projectScope)
   const selectedId = useWorkspacesStore((s) => s.selectedWorkspaceId)
   const attention = useAttentionStore((s) => s.status)
+  const projects = useProjectsStore(useShallow(selectActiveProjects))
 
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -30,7 +39,11 @@ export function WorkspaceList() {
     const path = await useWorkspacesStore.getState().pickFolder()
     if (!path) return
     const ws = await useWorkspacesStore.getState().create(path)
-    if (ws) beginRename(ws.id, ws.name)
+    if (!ws) return
+    if (typeof projectScope === 'string' && ws.projectId !== projectScope) {
+      await useWorkspacesStore.getState().assignProject(ws.id, projectScope)
+    }
+    beginRename(ws.id, ws.name)
   }
   const remove = (id: string): void => {
     void useWorkspacesStore.getState().remove(id)
@@ -99,23 +112,51 @@ export function WorkspaceList() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          entries={[
-            {
-              label: 'Rename',
-              icon: <IconPencil />,
-              onClick: () => {
-                const w = workspaces.find((w) => w.id === menu.id)
-                if (w) beginRename(w.id, w.name)
+          entries={(() => {
+            const w = workspaces.find((w) => w.id === menu.id)
+            const moveEntries: MenuEntry[] = [
+              ...projects
+                .filter((p) => p.id !== w?.projectId)
+                .map((p) => ({
+                  label: `Move to ${p.name}`,
+                  onClick: () => void useWorkspacesStore.getState().assignProject(menu.id, p.id)
+                })),
+              ...(w?.projectId !== null
+                ? [
+                    {
+                      label: 'Move to Other',
+                      onClick: () => void useWorkspacesStore.getState().assignProject(menu.id, null)
+                    }
+                  ]
+                : []),
+              ...(w?.projectSource === 'manual'
+                ? [
+                    {
+                      label: 'Assign automatically (by folder)',
+                      onClick: () => void useWorkspacesStore.getState().autoAssignProject(menu.id)
+                    }
+                  ]
+                : [])
+            ]
+            return [
+              {
+                label: 'Rename',
+                icon: <IconPencil />,
+                onClick: () => {
+                  if (w) beginRename(w.id, w.name)
+                }
+              },
+              { separator: true } as MenuEntry,
+              ...moveEntries,
+              { separator: true } as MenuEntry,
+              {
+                label: 'Delete workspace',
+                icon: <IconTrash />,
+                danger: true,
+                onClick: () => setConfirmId(menu.id)
               }
-            },
-            { separator: true },
-            {
-              label: 'Delete workspace',
-              icon: <IconTrash />,
-              danger: true,
-              onClick: () => setConfirmId(menu.id)
-            }
-          ]}
+            ]
+          })()}
         />
       )}
 

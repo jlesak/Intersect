@@ -1,25 +1,12 @@
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
-import { registerSidebarSection } from '@renderer/shared/registries/sidebarRegistry'
-import { IconClaude } from '@renderer/shared/ui/icons'
-import { WorkspaceList } from './components/WorkspaceList'
-import { WorkspaceView } from './components/WorkspaceView'
 import { useWorkspacesStore } from './store'
 
-/** The sidebar section id for the workspaces area - the single source both app-layer coordinators
- * (attention navigation, session resume) key off when they need to reveal a live terminal. */
-export const WORKSPACES_SECTION_ID = 'workspaces'
-
-/** Registers the workspaces sidebar section (owning the main area) and its commands. */
+/**
+ * Registers the workspaces slice's commands. The slice no longer owns a sidebar section: the
+ * terminal experience lives inside each project context (and the virtual Other bucket), so the
+ * rail shows project pins instead of a global Claude Code entry.
+ */
 export function registerWorkspacesFeature(): void {
-  registerSidebarSection({
-    id: WORKSPACES_SECTION_ID,
-    order: -3,
-    label: 'Claude Code',
-    icon: IconClaude,
-    component: WorkspaceList,
-    mainComponent: WorkspaceView,
-    prominent: true
-  })
   registerCommand({
     id: 'workspaces.create',
     title: 'Add Workspace',
