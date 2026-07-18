@@ -68,6 +68,8 @@ import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ip
 import { createMyWorkHandlers, myWorkWireRoutes } from './api/myWork.ipc'
 import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
 import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
+import { createAgentToolingHandlers, agentToolingWireRoutes } from './api/agentTooling.ipc'
+import { createClaudeConfigReader } from './agentTooling/claudeConfigReader'
 import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
@@ -604,6 +606,19 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     }
   })
 
+  // --- Agent Tooling slice: read-only browse of the effective Claude Code configuration,
+  // skills, and agents. Project scope resolves to the project's canonical repository roots, the
+  // containment allowlist the reader gates every project-level file access against.
+  const agentToolingHandlers = createAgentToolingHandlers({
+    reader: createClaudeConfigReader(),
+    resolveScope: (scope) => {
+      if (scope.kind === 'global') return { kind: 'global' }
+      const project = projects.getById(scope.projectId)
+      if (!project) throw new Error(`Project not found: ${scope.projectId}`)
+      return { kind: 'project', repoRoots: project.repoPaths }
+    }
+  })
+
   // --- 1:1 slice: the two workflows behind hidden Claude Code sessions + run history ---
   // Any run still 'running' in the DB belonged to a previous core process and can never finish.
   const otoRuns = createOtoRunRepo(db, repoDeps)
@@ -646,6 +661,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     myWorkWireRoutes(myWorkHandlers),
     oneOnOneWireRoutes(oneOnOneHandlers),
     settingsWireRoutes(settingsHandlers),
+    agentToolingWireRoutes(agentToolingHandlers),
     usageWireRoutes(usageHandlers)
   )
   assertRoutesCoverBridge(routes)

@@ -1,10 +1,14 @@
 import type {
   AdoConnectionResult,
   AdoSettings,
+  AgentCatalogItem,
+  AgentToolingScope,
   AppSettings,
   BootState,
   ClaudeUsage,
   DraftComment,
+  EffectiveConfig,
+  SkillCatalogItem,
   FileDiff,
   JiraBoardSnapshot,
   JiraLoginResult,
@@ -293,9 +297,26 @@ export interface IpcApi {
      */
     testAdoConnection(ado: AdoSettings): Promise<AdoConnectionResult>
   }
+  agentTooling: {
+    /**
+     * The fully resolved effective Claude Code configuration for the scope, every leaf carrying
+     * its provenance. Malformed layers degrade to per-file diagnostics; the rest still resolves.
+     */
+    getEffectiveConfig(scope: AgentToolingScope): Promise<EffectiveConfig>
+    /** The searchable skills catalog for the scope (user + plugin, plus project-level in a Project). */
+    listSkills(scope: AgentToolingScope): Promise<SkillCatalogItem[]>
+    /** The searchable agents catalog for the scope (user + plugin, plus project-level in a Project). */
+    listAgents(scope: AgentToolingScope): Promise<AgentCatalogItem[]>
+  }
   system: {
     /** Open an allowlisted https URL in the system default browser. Rejects anything else. */
     openExternal(url: string): Promise<void>
+    /**
+     * Reveal a discovered config/skill/agent source file in the OS file manager. Electron-only and
+     * guarded: the path must be an existing regular file contained under a `.claude` root. Fails
+     * closed on anything else.
+     */
+    revealPath(path: string): Promise<void>
     /**
      * The absolute filesystem path of a dropped File. Implemented entirely in preload (Electron's
      * webUtils is preload-only) - it never crosses IPC and main does not implement it.
@@ -517,8 +538,13 @@ export const Channel = {
   settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
   settingsSetReview: 'settings:setReview',
   settingsTestAdoConnection: 'settings:testAdoConnection',
+  // agentTooling (request/response)
+  agentToolingGetEffectiveConfig: 'agentTooling:getEffectiveConfig',
+  agentToolingListSkills: 'agentTooling:listSkills',
+  agentToolingListAgents: 'agentTooling:listAgents',
   // system (request/response, plus a main -> renderer broadcast for core lifecycle)
   systemOpenExternal: 'system:openExternal',
+  systemRevealPath: 'system:revealPath',
   systemRestartApp: 'system:restartApp',
   systemRetryCore: 'system:retryCore',
   systemQuitApp: 'system:quitApp',

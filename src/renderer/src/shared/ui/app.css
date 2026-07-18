@@ -3446,3 +3446,269 @@
   font-size: 12.5px;
   cursor: pointer;
 }
+
+/* --- Agent Tooling settings pane (read-only Claude Code config / skills / agents browser) --- */
+
+.ix-at-hint {
+  margin: -8px 0 14px;
+}
+
+/* Adapter + scope selectors, kept visible above the sub-navigation. */
+.ix-at-scopebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.ix-at-scopebar__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-at-select {
+  min-width: 200px;
+}
+
+/* Sub-navigation tab strip: reuses .ix-ctx__tab visuals but left-aligned and wrapping. */
+.ix-at-tabs {
+  margin-left: 0;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+
+.ix-at-body {
+  min-height: 120px;
+}
+.ix-at-empty {
+  padding: 30px 20px;
+}
+
+.ix-at-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ix-at-subhead {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 16px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Overview count tiles. */
+.ix-at-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ix-at-count {
+  flex: 1 1 90px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 10px 12px;
+}
+.ix-at-count__value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ix-at-count__label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Provenance tables scroll inside their own container (the settings body is narrow). */
+.ix-at-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ix-at-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ix-at-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ix-at-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.ix-at-table tr:last-child td {
+  border-bottom: none;
+}
+.ix-at-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ix-at-table__cmd {
+  max-width: 340px;
+  overflow-wrap: anywhere;
+}
+.ix-at-table__path {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.ix-at-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+/* File presence chips. */
+.ix-at-filestate {
+  font-size: 11px;
+}
+.ix-at-filestate--present {
+  color: var(--status-done);
+}
+.ix-at-filestate--absent {
+  color: var(--text-faint);
+}
+.ix-at-filestate--malformed {
+  color: var(--danger);
+}
+
+/* Provenance + source badges. */
+.ix-at-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+.ix-at-badge--global,
+.ix-at-badge--global-local {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+.ix-at-badge--project,
+.ix-at-badge--project-local {
+  color: var(--status-working);
+  border-color: var(--status-working);
+  background: transparent;
+}
+.ix-at-badge--mcp-file {
+  color: var(--status-waiting);
+  border-color: var(--status-waiting);
+}
+.ix-at-badge--default {
+  color: var(--text-faint);
+}
+.ix-at-badge--src-user {
+  color: var(--accent);
+}
+.ix-at-badge--src-project {
+  color: var(--status-working);
+}
+.ix-at-badge--src-plugin {
+  color: var(--status-waiting);
+}
+.ix-at-badge--external {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.ix-at-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Permission list chips. */
+.ix-at-perm {
+  font-size: 11px;
+  font-weight: 600;
+}
+.ix-at-perm--allow {
+  color: var(--status-done);
+}
+.ix-at-perm--deny {
+  color: var(--danger);
+}
+.ix-at-perm--ask {
+  color: var(--status-waiting);
+}
+
+/* Searchable skills / agents catalog. */
+.ix-at-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ix-at-search {
+  width: 100%;
+}
+.ix-at-catalog__empty {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  padding: 12px 4px;
+}
+.ix-at-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ix-at-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  background: var(--panel);
+}
+.ix-at-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ix-at-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.ix-at-item__name {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+}
+.ix-at-item__meta,
+.ix-at-item__tools {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.ix-at-item__desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ix-at-item__reveal {
+  flex: none;
+  font-size: 11.5px;
+}
