@@ -1,4 +1,4 @@
-import type { BootState, Layout, Preset, Tab, Workspace } from '@common/domain'
+import type { BootState, Layout, NewWorkItemRef, Preset, Tab, Workspace } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // The tabs slice owns the selected workspace's terminal view, so it touches both the tabs
@@ -10,8 +10,9 @@ export const workspaceState = (): Promise<BootState> => ipc().workspaces.getStat
 export const create = (
   workspaceId: string,
   preset: Preset,
-  resumeSessionId?: string | null
-): Promise<Tab> => ipc().tabs.create(workspaceId, preset, resumeSessionId)
+  resumeSessionId?: string | null,
+  primaryWorkItem?: NewWorkItemRef | null
+): Promise<Tab> => ipc().tabs.create(workspaceId, preset, resumeSessionId, primaryWorkItem)
 export const rename = (id: string, title: string): Promise<Tab> => ipc().tabs.rename(id, title)
 export const remove = (id: string): Promise<void> => ipc().tabs.remove(id)
 export const reorder = (workspaceId: string, orderedIds: string[]): Promise<Tab[]> =>

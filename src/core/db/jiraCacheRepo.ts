@@ -16,6 +16,17 @@ export interface JiraCacheRepo {
   putSuccess(sourceKey: string, issues: JiraIssueSnapshot[], fetchedAt: number, partial: boolean): void
   /** Land one failed fetch: record the error, keeping the issues and last-good fetch time. */
   putError(sourceKey: string, error: JiraSyncError): void
+  /**
+   * Whether the issue is known to any source's cache: 'present' when at least one source still
+   * returns it, 'absent' when every caching source has flagged it gone, 'unknown' when no cache
+   * has ever seen it. Feeds the work-item liveness computation across all sources at once.
+   */
+  issuePresence(issueKey: string): 'present' | 'absent' | 'unknown'
+  /**
+   * Every cached issue across all sources, deduplicated by issue key (a present row beats an
+   * absent one, then the freshest fetch wins) - the corpus the work-item picker searches.
+   */
+  listAllIssues(): JiraIssueSnapshot[]
 }
 
 interface StateRow {
@@ -87,6 +98,40 @@ export function createJiraCacheRepo(db: DatabaseSync): JiraCacheRepo {
              error_kind = NULL, error_message = NULL`
         ).run(sourceKey, fetchedAt, partial ? 1 : 0)
       })
+    },
+
+    issuePresence(issueKey) {
+      const rows = db
+        .prepare('SELECT absent FROM jira_issue_cache WHERE issue_key = ?')
+        .all(issueKey) as { absent: number }[]
+      if (rows.length === 0) return 'unknown'
+      return rows.some((row) => row.absent === 0) ? 'present' : 'absent'
+    },
+
+    listAllIssues() {
+      const rows = db
+        .prepare('SELECT data_json, absent, fetched_at FROM jira_issue_cache')
+        .all() as { data_json: string; absent: number; fetched_at: number }[]
+      const byKey = new Map<string, { issue: JiraIssueSnapshot; fetchedAt: number }>()
+      for (const row of rows) {
+        let parsed: JiraIssueSnapshot
+        try {
+          parsed = JSON.parse(row.data_json) as JiraIssueSnapshot
+        } catch {
+          // A corrupt row degrades to a missing issue rather than a broken listing.
+          continue
+        }
+        const issue = { ...parsed, absent: row.absent === 1 }
+        const existing = byKey.get(issue.key)
+        const wins =
+          !existing ||
+          (existing.issue.absent && !issue.absent) ||
+          (existing.issue.absent === issue.absent && row.fetched_at > existing.fetchedAt)
+        if (wins) byKey.set(issue.key, { issue, fetchedAt: row.fetched_at })
+      }
+      return [...byKey.values()]
+        .map((entry) => entry.issue)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
     },
 
     putError(sourceKey, error) {

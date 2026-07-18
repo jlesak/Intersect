@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { createAppStateRepo, type AppStateRepo } from '../db/appStateRepo'
 import { createProjectRepo, type ProjectRepo } from '../db/projectRepo'
 import { createTabRepo, type TabRepo } from '../db/tabRepo'
+import { createWorkItemRefRepo, type WorkItemRefRepo } from '../db/workItemRefRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from '../db/workspaceRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { ProjectPathDeps } from '../projects/resolveProject'
@@ -46,6 +47,7 @@ export interface HandlerContext extends FakeSessions {
   db: DatabaseSync
   workspaces: WorkspaceRepo
   tabs: TabRepo
+  workItemRefs: WorkItemRefRepo
   appState: AppStateRepo
   projects: ProjectRepo
   pathDeps: ProjectPathDeps
@@ -59,6 +61,7 @@ export function makeHandlerContext(): HandlerContext {
     db,
     workspaces: createWorkspaceRepo(db, deps),
     tabs: createTabRepo(db, deps),
+    workItemRefs: createWorkItemRefRepo(db, deps),
     appState: createAppStateRepo(db),
     projects: createProjectRepo(db, { ...deps, canonicalize: (p) => p }),
     // Identity canonicalization plus a /wt/<repo> convention for worktree-parent tests.

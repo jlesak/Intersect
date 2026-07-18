@@ -7,6 +7,7 @@ import {
   useMyWorkStore,
   useProjectBoard
 } from '@renderer/features/myWork'
+import { launchFromJiraIssue } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconRefresh } from '@renderer/shared/ui/icons'
 import { selectActiveProjects, useProjectsStore } from '../store'
@@ -29,6 +30,7 @@ export function ProjectKanban({ projectId }: { projectId: string | null }) {
 /** A project's own board, served from the core's per-project Jira source. */
 function ProjectOwnBoard({ projectId }: { projectId: string }) {
   const { board, refreshing, refresh } = useProjectBoard(projectId)
+  const [menu, setMenu] = useState<{ x: number; y: number; issue: JiraIssue } | null>(null)
 
   if (board === null || (board.fetchedAt === null && board.error === null)) {
     return <JiraBoardSkeleton />
@@ -80,7 +82,23 @@ function ProjectOwnBoard({ projectId }: { projectId: string }) {
           <p className="ix-empty__hint">The project’s Jira query returned no unresolved issues.</p>
         </div>
       ) : (
-        <JiraBoard issues={issues} />
+        <JiraBoard
+          issues={issues}
+          onIssueContextMenu={(issue, x, y) => setMenu({ x, y, issue })}
+        />
+      )}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          entries={[
+            {
+              label: 'Start Claude session with this issue',
+              onClick: () => launchFromJiraIssue(menu.issue)
+            }
+          ]}
+        />
       )}
     </div>
   )
@@ -112,6 +130,11 @@ function GlobalFilteredKanban({ projectId }: { projectId: string | null }) {
     const active = selectActiveProjects(useProjectsStore.getState())
     const hasOverride = overrides.some((o) => o.kind === 'jira' && o.key === issue.key)
     return [
+      {
+        label: 'Start Claude session with this issue',
+        onClick: () => launchFromJiraIssue(issue)
+      },
+      { separator: true },
       ...active
         .filter((p) => p.id !== projectId)
         .map((p) => ({

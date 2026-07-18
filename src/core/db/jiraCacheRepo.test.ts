@@ -170,4 +170,28 @@ describe('migration 17: legacy my_work_cache seeds the global source', () => {
     expect(() => runMigrations(db)).not.toThrow()
     expect(createJiraCacheRepo(db).getBoard('global')).toBeNull()
   })
+
+  test('issuePresence looks across sources: present anywhere beats absent, no row is unknown', () => {
+    const repo = createJiraCacheRepo(makeTestDb())
+    repo.putSuccess('global', [snapshot('A-1'), snapshot('A-2')], 1, false)
+    repo.putSuccess('project:p1', [snapshot('A-1')], 2, false)
+    // A-2 vanished from the global fetch; A-1 stays present through the project source.
+    repo.putSuccess('global', [snapshot('A-3')], 3, false)
+    expect(repo.issuePresence('A-1')).toBe('present')
+    expect(repo.issuePresence('A-2')).toBe('absent')
+    expect(repo.issuePresence('A-3')).toBe('present')
+    expect(repo.issuePresence('NOPE-1')).toBe('unknown')
+  })
+
+  test('listAllIssues dedupes by key across sources, preferring present then freshest rows', () => {
+    const repo = createJiraCacheRepo(makeTestDb())
+    repo.putSuccess('global', [snapshot('A-1', { summary: 'stale copy' }), snapshot('A-2')], 1, false)
+    repo.putSuccess('project:p1', [snapshot('A-1', { summary: 'fresh copy' }), snapshot('B-1')], 2, false)
+    // A-2 drops from the next global fetch but must still be listed (marked absent).
+    repo.putSuccess('global', [snapshot('A-1', { summary: 'stale copy' })], 3, false)
+    const issues = repo.listAllIssues()
+    expect(issues.map((i) => i.key).sort()).toEqual(['A-1', 'A-2', 'B-1'])
+    expect(issues.find((i) => i.key === 'A-1')?.summary).toBe('stale copy')
+    expect(issues.find((i) => i.key === 'A-2')?.absent).toBe(true)
+  })
 })

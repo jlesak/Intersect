@@ -64,6 +64,7 @@ import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
 import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
 import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
+import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ipc'
 import { createMyWorkHandlers, myWorkWireRoutes } from './api/myWork.ipc'
 import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
 import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
@@ -74,6 +75,7 @@ import { createTodoRepo } from './db/todoRepo'
 import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
+import { createWorkItemRefRepo } from './db/workItemRefRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
@@ -219,6 +221,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const settings = createSettingsRepo(db)
   // Created up front (not with its slice below) because workspace creation resolves its project.
   const projects = createProjectRepo(db, { ...repoDeps, canonicalize: canonicalizePath })
+  // Created up front because tab creation can write a primary work item in the same transaction.
+  const workItemRefs = createWorkItemRefRepo(db, repoDeps)
+  // Shared with the work-items slice, which resolves candidate projects through the overrides.
+  const projectOverrides = createProjectOverrideRepo(db, repoDeps)
 
   // The main window's focus, as last reported over the port. Main owns the window; the core
   // only needs the flag to suppress alerts for a session the user is already looking at.
@@ -373,7 +379,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     projects,
     pathDeps: projectPathDeps
   })
-  const tabHandlers = createTabHandlers({ db, workspaces, tabs, sessions })
+  const tabHandlers = createTabHandlers({ db, workspaces, tabs, workItems: workItemRefs, sessions })
 
   // Wrap spawn/write to drive the 'working' status: record each session's preset, then flag
   // a claude session 'working' the moment the user submits a prompt (Enter, i.e. '\r').
@@ -495,7 +501,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     projects,
     pathDeps: projectPathDeps,
     workspaces,
-    overrides: createProjectOverrideRepo(db, repoDeps),
+    overrides: projectOverrides,
     terminalLayouts: createTerminalLayoutRepo(db, repoDeps)
   })
 
@@ -531,9 +537,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     }
     return query.kind === 'jql' ? jiraClient.searchByJql(query.jql) : jiraClient.fetchBoard(query.board)
   }
+  const jiraCache = createJiraCacheRepo(db)
   const jiraEngine = createJiraSyncEngine({
     runQuery: runJiraQuery,
-    repo: createJiraCacheRepo(db),
+    repo: jiraCache,
     getProject: (id) => projects.getById(id),
     now: () => Date.now(),
     onChanged: (sourceKey) => emitPush(Channel.myWorkChanged, { sourceKey })
@@ -541,6 +548,18 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const myWorkHandlers = createMyWorkHandlers({
     engine: jiraEngine,
     login: jiraStub ? { login: () => jiraStub.login(), dispose: () => {} } : jiraLogin
+  })
+
+  // --- Work items slice: each session's one durable primary work item. Reads only the source
+  // caches the other slices maintain; the only writers are the explicit user actions.
+  const workItemsHandlers = createWorkItemsHandlers({
+    refs: workItemRefs,
+    workspaces,
+    projects,
+    overrides: projectOverrides,
+    todos,
+    prCache,
+    jiraCache
   })
 
   // --- Claude usage slice: sidebar panel showing Claude Code's own rate-limit usage ---
@@ -618,6 +637,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     workspacesWireRoutes(workspaceHandlers),
     projectsWireRoutes(projectHandlers),
     tabsWireRoutes(tabHandlers),
+    workItemsWireRoutes(workItemsHandlers),
     terminalWireRoutes(terminalHandlers, (sessionId) => notifier.reportActive(sessionId)),
     prInboxWireRoutes(prInboxHandlers),
     sessionsWireRoutes(createSessionHandlers({ index: sessionIndex })),

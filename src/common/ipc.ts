@@ -36,6 +36,10 @@ import type {
   TodoLists,
   TodoTask,
   TodoTaskPatch,
+  NewWorkItemRef,
+  WorkItemCandidateGroup,
+  WorkItemRef,
+  WorkItemRefEvent,
   Workspace
 } from './domain'
 import type {
@@ -103,13 +107,39 @@ export interface IpcApi {
   }
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
-    /** `resumeSessionId` makes a Claude tab launch `claude --resume <id>` (see Tab.resumeSessionId). */
-    create(workspaceId: string, preset: Preset, resumeSessionId?: string | null): Promise<Tab>
+    /**
+     * `resumeSessionId` makes a Claude tab launch `claude --resume <id>` (see Tab.resumeSessionId).
+     * `primaryWorkItem` assigns the session's primary work item in the same transaction as the tab
+     * itself (the card-launch path), also defaulting the tab title from the item's snapshot.
+     */
+    create(
+      workspaceId: string,
+      preset: Preset,
+      resumeSessionId?: string | null,
+      primaryWorkItem?: NewWorkItemRef | null
+    ): Promise<Tab>
     rename(id: string, title: string): Promise<Tab>
     remove(id: string): Promise<void>
     reorder(workspaceId: string, orderedIds: string[]): Promise<Tab[]>
     assignToPane(id: string, slot: number | null): Promise<Tab>
     setActive(workspaceId: string, tabId: string): Promise<void>
+  }
+  workItems: {
+    /** Every primary ref of the workspace's tabs, each with its freshly computed state. */
+    listForWorkspace(workspaceId: string): Promise<WorkItemRef[]>
+    /** Assign or replace the tab's primary work item; the audit history records which. */
+    setPrimary(tabId: string, ref: NewWorkItemRef): Promise<WorkItemRef>
+    /** Drop the tab's primary work item (audited); a tab without one is a silent no-op. */
+    clearPrimary(tabId: string): Promise<void>
+    /** The tab's full assign/change/clear history, oldest first. Survives tab deletion. */
+    history(tabId: string): Promise<WorkItemRefEvent[]>
+    /**
+     * Searchable picker candidates across every source (cached Jira issues, open TODO tasks,
+     * cached PRs), matched on key and title, grouped by source, each carrying a ready-to-assign
+     * ref with its effective project resolved. `workspaceId` ranks the workspace's own project
+     * first; null skips the ranking.
+     */
+    searchCandidates(query: string, workspaceId: string | null): Promise<WorkItemCandidateGroup[]>
   }
   terminal: {
     spawn(
@@ -408,6 +438,12 @@ export const Channel = {
   tabsReorder: 'tabs:reorder',
   tabsAssignToPane: 'tabs:assignToPane',
   tabsSetActive: 'tabs:setActive',
+  // workItems (request/response)
+  workItemsListForWorkspace: 'workItems:listForWorkspace',
+  workItemsSetPrimary: 'workItems:setPrimary',
+  workItemsClearPrimary: 'workItems:clearPrimary',
+  workItemsHistory: 'workItems:history',
+  workItemsSearchCandidates: 'workItems:searchCandidates',
   // terminal (request/response for spawn and attach; fire-and-forget for the rest)
   terminalSpawn: 'terminal:spawn',
   terminalAttach: 'terminal:attach',

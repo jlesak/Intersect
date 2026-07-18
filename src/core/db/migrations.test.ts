@@ -335,4 +335,58 @@ describe('migrations', () => {
         .run('t1', 'w1', 'T', 'browser', null, 0, 1)
     ).toThrow()
   })
+
+  test('work_item_refs enforces one ref per tab and cascades away with the tab', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
+    ).run('w1', 'W', '/tmp', 'single', null, 0, 1)
+    db.prepare(
+      'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
+    ).run('t1', 'w1', 'T', 'claude', null, 0, 1)
+    const insertRef = db.prepare(
+      `INSERT INTO work_item_refs
+         (tab_id, source, external_key, project_id, snapshot_key, snapshot_title, snapshot_type, assigned_at)
+       VALUES ('t1', ?, 'FID-1', NULL, 'FID-1', 'Summary', 'issue', 1)`
+    )
+    insertRef.run('jira')
+    // The tab-id primary key forbids a second primary ref on the same session.
+    expect(() => insertRef.run('todo')).toThrow()
+    // An unknown source is rejected by the CHECK constraint.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO work_item_refs
+             (tab_id, source, external_key, project_id, snapshot_key, snapshot_title, snapshot_type, assigned_at)
+           VALUES ('t1', 'github', 'x', NULL, 'x', 'x', 'x', 1)`
+        )
+        .run()
+    ).toThrow()
+    db.prepare('DELETE FROM tabs WHERE id=?').run('t1')
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM work_item_refs').get() as { c: number }).c
+    ).toBe(0)
+  })
+
+  test('work_item_ref_events has no tab foreign key so audit history survives tab deletion', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO work_item_ref_events (tab_id, action, source, external_key, snapshot_key, snapshot_title, at)
+       VALUES ('gone-tab', 'assign', 'jira', 'FID-1', 'FID-1', 'Summary', 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM work_item_ref_events').get() as { c: number }).c
+    ).toBe(1)
+    // An unknown action is rejected by the CHECK constraint.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO work_item_ref_events (tab_id, action, source, external_key, snapshot_key, snapshot_title, at)
+           VALUES ('t', 'rename', NULL, NULL, NULL, NULL, 1)`
+        )
+        .run()
+    ).toThrow()
+  })
 })

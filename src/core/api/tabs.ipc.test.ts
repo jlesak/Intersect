@@ -15,6 +15,7 @@ describe('tab handlers', () => {
       db: ctx.db,
       workspaces: ctx.workspaces,
       tabs: ctx.tabs,
+      workItems: ctx.workItemRefs,
       sessions: ctx.sessions
     })
     wsId = ctx.workspaces.create('/a').id
@@ -31,6 +32,43 @@ describe('tab handlers', () => {
     expect(ctx.tabs.getById(t.id)?.resumeSessionId).toBe('sess-uuid-42')
     // A plain tab carries no resume id.
     expect((await tabs.create(wsId, 'shell')).resumeSessionId).toBeNull()
+  })
+
+  test('create with a primary work item writes tab and ref atomically and titles the tab', async () => {
+    const t = await tabs.create(wsId, 'claude', null, {
+      source: 'jira',
+      externalKey: 'FID-7',
+      projectId: null,
+      snapshot: { key: 'FID-7', title: 'Fix it', type: 'issue' }
+    })
+    expect(t.title).toBe('FID-7')
+    const ref = ctx.workItemRefs.get(t.id)
+    expect(ref?.externalKey).toBe('FID-7')
+    expect(ctx.workItemRefs.history(t.id).map((e) => e.action)).toEqual(['assign'])
+  })
+
+  test('a failing ref write rolls the tab creation back (nothing half-created)', async () => {
+    await expect(
+      tabs.create(wsId, 'claude', null, {
+        source: 'not-a-source' as never,
+        externalKey: 'x',
+        projectId: null,
+        snapshot: { key: 'x', title: 'x', type: 'x' }
+      })
+    ).rejects.toThrow()
+    expect(await tabs.listByWorkspace(wsId)).toEqual([])
+  })
+
+  test('renaming a tab leaves its primary work item untouched', async () => {
+    const t = await tabs.create(wsId, 'claude', null, {
+      source: 'jira',
+      externalKey: 'FID-7',
+      projectId: null,
+      snapshot: { key: 'FID-7', title: 'Fix it', type: 'issue' }
+    })
+    await tabs.rename(t.id, 'My own name')
+    expect(ctx.tabs.getById(t.id)?.title).toBe('My own name')
+    expect(ctx.workItemRefs.get(t.id)?.externalKey).toBe('FID-7')
   })
 
   test('remove kills the PTY for that session and deletes the tab', async () => {

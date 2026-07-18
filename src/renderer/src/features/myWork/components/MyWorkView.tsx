@@ -1,4 +1,7 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useState } from 'react'
+import type { JiraIssue } from '@common/domain'
+import { launchFromJiraIssue } from '@renderer/features/workItems'
+import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
 import { IconRefresh } from '@renderer/shared/ui/icons'
 import { formatRelativeTime, useMyWorkStore } from '../store'
 import { JiraBoard, JiraBoardSkeleton } from './JiraBoard'
@@ -16,6 +19,29 @@ function JiraSectionBody() {
   const errorKind = useMyWorkStore((s) => s.errorKind)
   const partial = useMyWorkStore((s) => s.partial)
   const hasBoard = useMyWorkStore((s) => s.fetchedAt) !== null
+  const [menu, setMenu] = useState<{ x: number; y: number; issue: JiraIssue } | null>(null)
+
+  const boardWithMenu = (
+    <>
+      <JiraBoard
+        issues={issues}
+        onIssueContextMenu={(issue, x, y) => setMenu({ x, y, issue })}
+      />
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          entries={[
+            {
+              label: 'Start Claude session with this issue',
+              onClick: () => launchFromJiraIssue(menu.issue)
+            }
+          ]}
+        />
+      )}
+    </>
+  )
 
   if (hasBoard) {
     return (
@@ -55,7 +81,7 @@ function JiraSectionBody() {
             </div>
           </div>
         ) : (
-          <JiraBoard issues={issues} />
+          boardWithMenu
         )}
       </>
     )
@@ -129,7 +155,7 @@ function JiraSectionBody() {
     )
   }
 
-  return <JiraBoard issues={issues} />
+  return boardWithMenu
 }
 
 /**

@@ -30,6 +30,8 @@ function toTask(row: TodoRow): TodoTask {
 const DUE_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 export interface TodoRepo {
+  /** The task by id (open or done), or undefined once it has been hard-deleted. */
+  getById(id: string): TodoTask | undefined
   /** Open tasks in persisted manual order. */
   listOpen(): TodoTask[]
   /** Done tasks, most recently completed first. */
@@ -69,6 +71,11 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
   }
 
   return {
+    getById(id) {
+      const row = db.prepare('SELECT * FROM todo_task WHERE id = ?').get(id) as TodoRow | undefined
+      return row ? toTask(row) : undefined
+    },
+
     listOpen,
 
     listDone() {

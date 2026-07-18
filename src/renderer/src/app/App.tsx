@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { CommandPalette } from '@renderer/features/commandPalette'
 import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
+import { WorkItemPickerHost } from '@renderer/features/workItems'
 import { selectSelectedWorkspace, useWorkspacesStore } from '@renderer/features/workspaces'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { Toaster } from '@renderer/shared/ui/Toaster'
@@ -43,6 +44,7 @@ export function App() {
       {main}
       <Toaster />
       <CommandPalette />
+      <WorkItemPickerHost />
       <CoreStatusOverlay />
     </div>
   )

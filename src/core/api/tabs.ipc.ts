@@ -1,7 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, makeSessionId, type IpcApi } from '@common/ipc'
+import { workItemTabTitle } from '@common/workItems'
 import type { TabRepo } from '../db/tabRepo'
+import type { WorkItemRefRepo } from '../db/workItemRefRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import { tx } from '../db/tx'
 import type { SessionManager } from '../pty/sessionManager'
@@ -10,6 +12,7 @@ export interface TabHandlerDeps {
   db: DatabaseSync
   workspaces: WorkspaceRepo
   tabs: TabRepo
+  workItems: WorkItemRefRepo
   sessions: SessionManager
 }
 
@@ -19,8 +22,16 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
       return d.tabs.listByWorkspace(workspaceId)
     },
 
-    async create(workspaceId, preset, resumeSessionId) {
-      const tab = d.tabs.create(workspaceId, preset, undefined, resumeSessionId)
+    async create(workspaceId, preset, resumeSessionId, primaryWorkItem) {
+      // Tab and primary work item land in one transaction, so a card launch can never leave a
+      // session without its ref (or a ref without its session). The item also supplies the
+      // default title; renaming later never touches the ref.
+      const tab = tx(d.db, () => {
+        const title = primaryWorkItem ? workItemTabTitle(primaryWorkItem) : undefined
+        const created = d.tabs.create(workspaceId, preset, title, resumeSessionId)
+        if (primaryWorkItem) d.workItems.set(created.id, primaryWorkItem)
+        return created
+      })
       d.workspaces.setActiveTab(workspaceId, tab.id)
       return tab
     },
