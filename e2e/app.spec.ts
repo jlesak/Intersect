@@ -12,8 +12,8 @@ async function launch(userDataDir: string): Promise<{ app: ElectronApplication; 
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
-  // Boot lands on Claude Code (formerly labeled Workspaces), the section these tests exercise.
-  await win.locator('.ix-rail__btn', { hasText: 'Claude Code' }).click()
+  // A fresh profile has no projects, so terminals live under the virtual Other context.
+  await win.locator('.ix-rail__btn--other').click()
   return { app, win }
 }
 

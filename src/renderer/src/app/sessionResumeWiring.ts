@@ -1,8 +1,8 @@
 import type { SessionSummary, Workspace } from '@common/domain'
 import { useSessionsStore } from '@renderer/features/sessions'
 import { useTabsStore } from '@renderer/features/tabs'
-import { selectWorkspaceList, useWorkspacesStore, WORKSPACES_SECTION_ID } from '@renderer/features/workspaces'
-import { useShellStore } from './shellStore'
+import { selectWorkspaceList, useWorkspacesStore } from '@renderer/features/workspaces'
+import { revealWorkspaceContext } from './attentionWiring'
 import { waitForTabsReady } from './waitForTabsReady'
 
 /**
@@ -17,16 +17,17 @@ async function findOrCreateWorkspace(cwd: string): Promise<Workspace | null> {
 }
 
 /**
- * Resume a past Claude Code session: reveal the Claude Code section, ensure a workspace for the
- * session's folder is selected and its tabs are loaded, then open a Claude tab that launches
- * `claude --resume <id>`. The tab persists its resume id, so the conversation is restored on the
- * next launch too, and carries the session's own title so it stays recognizable in the tab bar
- * rather than reading as a generic "Claude" tab.
+ * Resume a past Claude Code session: reveal the terminal context of the workspace owning the
+ * session's folder (its project, or Other), ensure that workspace is selected and its tabs are
+ * loaded, then open a Claude tab that launches `claude --resume <id>`. The tab persists its
+ * resume id, so the conversation is restored on the next launch too, and carries the session's
+ * own title so it stays recognizable in the tab bar rather than reading as a generic "Claude"
+ * tab.
  */
 async function resume(summary: SessionSummary): Promise<void> {
-  useShellStore.getState().setActiveSection(WORKSPACES_SECTION_ID)
   const ws = await findOrCreateWorkspace(summary.cwd)
   if (!ws) return
+  revealWorkspaceContext(ws.id)
   if (useWorkspacesStore.getState().selectedWorkspaceId !== ws.id) {
     await useWorkspacesStore.getState().select(ws.id)
   }

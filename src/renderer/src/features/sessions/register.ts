@@ -9,7 +9,7 @@ import { useSessionsStore } from './store'
 export function registerSessionsFeature(): void {
   registerSidebarSection({
     id: 'sessions',
-    order: 2,
+    order: 15,
     label: 'Sessions',
     icon: IconHistory,
     component: SidebarSessions,

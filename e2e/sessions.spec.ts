@@ -69,7 +69,7 @@ async function launch(userDataDir: string, projectsDir: string): Promise<{ app: 
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
   // Boot lands on Claude Code (formerly labeled Workspaces), the section these tests start from.
-  await win.locator('.ix-rail__btn', { hasText: 'Claude Code' }).click()
+  await win.locator('.ix-rail__btn--other').click()
   return { app, win }
 }
 

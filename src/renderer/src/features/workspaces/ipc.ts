@@ -12,3 +12,7 @@ export const setLayout = (id: string, layout: Layout): Promise<Workspace> =>
   ipc().workspaces.setLayout(id, layout)
 export const setActive = (id: string): Promise<void> => ipc().workspaces.setActive(id)
 export const pickFolder = (): Promise<string | null> => ipc().workspaces.pickFolder()
+export const assignProject = (id: string, projectId: string | null): Promise<Workspace> =>
+  ipc().workspaces.assignProject(id, projectId)
+export const autoAssignProject = (id: string): Promise<Workspace> =>
+  ipc().workspaces.autoAssignProject(id)

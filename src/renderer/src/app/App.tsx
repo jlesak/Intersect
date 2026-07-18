@@ -1,12 +1,16 @@
+import { useShallow } from 'zustand/react/shallow'
 import { CommandPalette } from '@renderer/features/commandPalette'
+import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
+import { selectSelectedWorkspace, useWorkspacesStore } from '@renderer/features/workspaces'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { Toaster } from '@renderer/shared/ui/Toaster'
 import { Sidebar } from './Sidebar'
-import { resolveActiveSection, useShellStore } from './shellStore'
+import { resolveShellContext, useShellStore } from './shellStore'
 
 /**
- * App shell: sidebar plus a main region owned by the active section's mainComponent. Switching
- * sections unmounts the inactive section's main component rather than hiding it.
+ * App shell: sidebar plus a main region owned by the resolved context - a project context (the
+ * daily default), the virtual Other bucket, or a global section's mainComponent. Switching
+ * contexts unmounts the inactive main component rather than hiding it.
  *
  * This is safe for live terminals: the terminal slice keeps its xterm instances (and the PTYs they
  * front) in a module-level Map, and unmounting `WorkspaceView`/`SplitStage`/`TerminalPane` only
@@ -16,15 +20,26 @@ import { resolveActiveSection, useShellStore } from './shellStore'
  * Because that holds, plain conditional rendering is preferred over a CSS display:none toggle.
  */
 export function App() {
-  const activeSectionId = useShellStore((s) => s.activeSectionId)
+  const context = useShellStore((s) => s.context)
   const collapsed = useShellStore((s) => s.sidebarCollapsed)
-  const active = resolveActiveSection(getSidebarSections(), activeSectionId)
-  const Main = active?.mainComponent
+  const projects = useProjectsStore(useShallow(selectActiveProjects))
+  const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
+  const sections = getSidebarSections()
+  const resolved = resolveShellContext(context, projects, sections, selectedWorkspace)
+
+  let main = <div className="ix-main" />
+  if (resolved?.kind === 'project' || resolved?.kind === 'other') {
+    const key = resolved.kind === 'project' ? resolved.id : 'other'
+    main = <ProjectContextView key={key} context={resolved} />
+  } else if (resolved?.kind === 'section') {
+    const Main = sections.find((s) => s.id === resolved.id)?.mainComponent
+    if (Main) main = <Main key={resolved.id} />
+  }
 
   return (
     <div className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}>
       <Sidebar />
-      {Main ? <Main key={active?.id} /> : <div className="ix-main" />}
+      {main}
       <Toaster />
       <CommandPalette />
     </div>

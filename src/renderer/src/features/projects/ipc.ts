@@ -1,4 +1,10 @@
-import type { Project, ProjectPatch } from '@common/domain'
+import type {
+  Project,
+  ProjectOverride,
+  ProjectOverrideKind,
+  ProjectPatch,
+  RepoWorktrees
+} from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin, mockable seam between the projects store and the preload bridge.
@@ -18,3 +24,13 @@ export const removeRepoPath = (id: string, folderPath: string): Promise<Project>
   ipc().projects.removeRepoPath(id, folderPath)
 /** The native folder picker is owned by the workspaces slice in main; reuse it verbatim. */
 export const pickFolder = (): Promise<string | null> => ipc().workspaces.pickFolder()
+export const listOverrides = (): Promise<ProjectOverride[]> => ipc().projects.listOverrides()
+export const setOverride = (
+  kind: ProjectOverrideKind,
+  key: string,
+  projectId: string | null
+): Promise<void> => ipc().projects.setOverride(kind, key, projectId)
+export const clearOverride = (kind: ProjectOverrideKind, key: string): Promise<void> =>
+  ipc().projects.clearOverride(kind, key)
+export const listWorktrees = (id: string): Promise<RepoWorktrees[]> =>
+  ipc().projects.listWorktrees(id)

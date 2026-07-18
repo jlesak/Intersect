@@ -9,7 +9,7 @@ import { useTimeTrackingStore } from './store'
 export function registerTimeTrackingFeature(): void {
   registerSidebarSection({
     id: 'timeTracking',
-    order: -1,
+    order: 12,
     label: 'Time Tracking',
     icon: IconClock,
     component: SidebarTimeTracking,

@@ -315,6 +315,26 @@ const MIGRATIONS: Migration[] = [
         UPDATE workspaces SET project_id = id;
       `)
     }
+  },
+  {
+    // Project rail (F1): traceable workspace assignment plus durable manual overrides for
+    // external content. Overrides cascade away with their project so items fall back to
+    // inference instead of pointing at a ghost.
+    version: 14,
+    up(db) {
+      db.exec(`
+        ALTER TABLE workspaces ADD COLUMN project_source TEXT NOT NULL DEFAULT 'auto'
+          CHECK (project_source IN ('auto','manual'));
+
+        CREATE TABLE project_overrides (
+          kind       TEXT NOT NULL CHECK (kind IN ('pr','jira')),
+          ext_key    TEXT NOT NULL,
+          project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (kind, ext_key)
+        );
+      `)
+    }
   }
 ]
 

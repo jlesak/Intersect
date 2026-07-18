@@ -1,4 +1,9 @@
-export { useWorkspacesStore, selectWorkspaceList, selectSelectedWorkspace } from './store'
+export {
+  useWorkspacesStore,
+  selectWorkspaceList,
+  selectSelectedWorkspace,
+  workspacesForProject
+} from './store'
 export { WorkspaceList } from './components/WorkspaceList'
 export { WorkspaceView } from './components/WorkspaceView'
-export { registerWorkspacesFeature, WORKSPACES_SECTION_ID } from './register'
+export { registerWorkspacesFeature } from './register'

@@ -57,6 +57,7 @@ import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
+import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
@@ -224,6 +225,8 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
   const tabs = createTabRepo(database, deps)
   const appState = createAppStateRepo(database)
   const settings = createSettingsRepo(database)
+  // Created up front (not with its slice below) because workspace creation resolves its project.
+  const projects = createProjectRepo(database, { ...deps, canonicalize: canonicalizePath })
 
   // Attention pipeline: detect Claude's "waiting for you" markers in the PTY stream, then raise a
   // native notification and recolor the tab (unless the user is already looking at that session).
@@ -285,7 +288,16 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
 
   registerWorkspaceHandlers(
     ipcMain,
-    createWorkspaceHandlers({ db: database, workspaces, tabs, appState, sessions, pickFolder })
+    createWorkspaceHandlers({
+      db: database,
+      workspaces,
+      tabs,
+      appState,
+      sessions,
+      pickFolder,
+      projects,
+      pathDeps: projectPathDeps
+    })
   )
   registerTabHandlers(ipcMain, createTabHandlers({ db: database, workspaces, tabs, sessions }))
 
@@ -391,8 +403,15 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
   )
 
   // --- Projects slice: the umbrella entity binding repo folders and external tools ---
-  const projects = createProjectRepo(database, { ...deps, canonicalize: canonicalizePath })
-  registerProjectHandlers(ipcMain, createProjectHandlers({ projects, pathDeps: projectPathDeps }))
+  registerProjectHandlers(
+    ipcMain,
+    createProjectHandlers({
+      projects,
+      pathDeps: projectPathDeps,
+      workspaces,
+      overrides: createProjectOverrideRepo(database, deps)
+    })
+  )
 
   // --- TODO list slice: a personal task list living entirely in local SQLite ---
   // The repo is shared with the 1:1 slice, which fulltext-matches task texts (read-only).

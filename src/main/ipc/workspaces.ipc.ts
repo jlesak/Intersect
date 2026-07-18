@@ -4,9 +4,12 @@ import type { Layout } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
 import { SELECTED_WORKSPACE_KEY, type AppStateRepo } from '../db/appStateRepo'
+import type { ProjectRepo } from '../db/projectRepo'
 import type { TabRepo } from '../db/tabRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import { tx } from '../db/tx'
+import type { ProjectPathDeps } from '../projects/resolveProject'
+import { resolveProjectForPath } from '../projects/resolveProject'
 import type { SessionManager } from '../pty/sessionManager'
 
 export interface WorkspaceHandlerDeps {
@@ -16,6 +19,8 @@ export interface WorkspaceHandlerDeps {
   appState: AppStateRepo
   sessions: SessionManager
   pickFolder: () => Promise<string | null>
+  projects: ProjectRepo
+  pathDeps: ProjectPathDeps
 }
 
 export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['workspaces'] {
@@ -28,8 +33,10 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
     },
 
     async create(folderPath, name) {
-      // Creating a workspace switches to it - the user just added it to use it.
-      const ws = d.workspaces.create(folderPath, name)
+      // Creating a workspace switches to it - the user just added it to use it. The folder decides
+      // which project it lands in; no match means the virtual Other bucket.
+      const projectId = resolveProjectForPath(folderPath, d.projects.list(), d.pathDeps)
+      const ws = d.workspaces.create(folderPath, name, projectId)
       d.appState.set(SELECTED_WORKSPACE_KEY, ws.id)
       return ws
     },
@@ -65,6 +72,17 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
 
     async pickFolder() {
       return d.pickFolder()
+    },
+
+    async assignProject(id, projectId) {
+      return d.workspaces.setProject(id, projectId, 'manual')
+    },
+
+    async autoAssignProject(id) {
+      const ws = d.workspaces.getById(id)
+      if (!ws) throw new Error(`Workspace not found: ${id}`)
+      const projectId = resolveProjectForPath(ws.folderPath, d.projects.list(), d.pathDeps)
+      return d.workspaces.setProject(id, projectId, 'auto')
     }
   }
 }
@@ -82,4 +100,8 @@ export function registerWorkspaceHandlers(ipcMain: IpcMain, h: IpcApi['workspace
   )
   ipcMain.handle(Channel.workspacesSetActive, (_e, id: string) => h.setActive(id))
   ipcMain.handle(Channel.workspacesPickFolder, () => h.pickFolder())
+  ipcMain.handle(Channel.workspacesAssignProject, (_e, id: string, projectId: string | null) =>
+    h.assignProject(id, projectId)
+  )
+  ipcMain.handle(Channel.workspacesAutoAssignProject, (_e, id: string) => h.autoAssignProject(id))
 }

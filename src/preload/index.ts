@@ -17,7 +17,10 @@ const api: IpcApi = {
     remove: (id) => ipcRenderer.invoke(Channel.workspacesRemove, id),
     setLayout: (id, layout) => ipcRenderer.invoke(Channel.workspacesSetLayout, id, layout),
     setActive: (id) => ipcRenderer.invoke(Channel.workspacesSetActive, id),
-    pickFolder: () => ipcRenderer.invoke(Channel.workspacesPickFolder)
+    pickFolder: () => ipcRenderer.invoke(Channel.workspacesPickFolder),
+    assignProject: (id, projectId) =>
+      ipcRenderer.invoke(Channel.workspacesAssignProject, id, projectId),
+    autoAssignProject: (id) => ipcRenderer.invoke(Channel.workspacesAutoAssignProject, id)
   },
   projects: {
     list: () => ipcRenderer.invoke(Channel.projectsList),
@@ -29,7 +32,12 @@ const api: IpcApi = {
     addRepoPath: (id, folderPath) => ipcRenderer.invoke(Channel.projectsAddRepoPath, id, folderPath),
     removeRepoPath: (id, folderPath) =>
       ipcRenderer.invoke(Channel.projectsRemoveRepoPath, id, folderPath),
-    resolvePath: (path) => ipcRenderer.invoke(Channel.projectsResolvePath, path)
+    resolvePath: (path) => ipcRenderer.invoke(Channel.projectsResolvePath, path),
+    listOverrides: () => ipcRenderer.invoke(Channel.projectsListOverrides),
+    setOverride: (kind, key, projectId) =>
+      ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
+    clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
+    listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id)
   },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),

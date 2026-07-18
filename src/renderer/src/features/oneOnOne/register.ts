@@ -7,8 +7,8 @@ import { SidebarOneOnOne } from './components/SidebarOneOnOne'
 export function registerOneOnOneFeature(): void {
   registerSidebarSection({
     id: 'oneOnOne',
-    order: -0.25,
-    label: '1:1',
+    order: 10,
+    label: 'People',
     icon: IconPeople,
     component: SidebarOneOnOne,
     mainComponent: OneOnOneView

@@ -18,7 +18,10 @@ import type {
   Preset,
   PrChangeFile,
   Project,
+  ProjectOverride,
+  ProjectOverrideKind,
   ProjectPatch,
+  RepoWorktrees,
   PrThread,
   PrVote,
   PullRequest,
@@ -51,6 +54,10 @@ export interface IpcApi {
     setLayout(id: string, layout: Layout): Promise<Workspace>
     setActive(id: string): Promise<void>
     pickFolder(): Promise<string | null>
+    /** Manually place the workspace in a project (null = the Other bucket); wins over inference. */
+    assignProject(id: string, projectId: string | null): Promise<Workspace>
+    /** Return the workspace to automatic assignment and re-resolve it from its folder path. */
+    autoAssignProject(id: string): Promise<Workspace>
   }
   projects: {
     /** Every project (archived included), in manual order. */
@@ -68,6 +75,14 @@ export interface IpcApi {
     removeRepoPath(id: string, folderPath: string): Promise<Project>
     /** Which project a filesystem path belongs to; null means the virtual Other bucket. */
     resolvePath(path: string): Promise<string | null>
+    /** Every persisted manual assignment override for external content (PRs, Jira issues). */
+    listOverrides(): Promise<ProjectOverride[]>
+    /** Pin one external item to a project (null = Other); persists and wins over inference. */
+    setOverride(kind: ProjectOverrideKind, key: string, projectId: string | null): Promise<void>
+    /** Drop the item's manual pin so it falls back to binding-based inference. */
+    clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
+    /** The git worktrees under each of the project's repository bindings. */
+    listWorktrees(id: string): Promise<RepoWorktrees[]>
   }
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
@@ -276,6 +291,8 @@ export const Channel = {
   workspacesSetLayout: 'workspaces:setLayout',
   workspacesSetActive: 'workspaces:setActive',
   workspacesPickFolder: 'workspaces:pickFolder',
+  workspacesAssignProject: 'workspaces:assignProject',
+  workspacesAutoAssignProject: 'workspaces:autoAssignProject',
   // projects (request/response)
   projectsList: 'projects:list',
   projectsCreate: 'projects:create',
@@ -286,6 +303,10 @@ export const Channel = {
   projectsAddRepoPath: 'projects:addRepoPath',
   projectsRemoveRepoPath: 'projects:removeRepoPath',
   projectsResolvePath: 'projects:resolvePath',
+  projectsListOverrides: 'projects:listOverrides',
+  projectsSetOverride: 'projects:setOverride',
+  projectsClearOverride: 'projects:clearOverride',
+  projectsListWorktrees: 'projects:listWorktrees',
   // tabs (request/response)
   tabsListByWorkspace: 'tabs:listByWorkspace',
   tabsCreate: 'tabs:create',

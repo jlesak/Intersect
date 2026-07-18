@@ -17,7 +17,9 @@ describe('workspace handlers', () => {
       tabs: ctx.tabs,
       appState: ctx.appState,
       sessions: ctx.sessions,
-      pickFolder
+      pickFolder,
+      projects: ctx.projects,
+      pathDeps: ctx.pathDeps
     })
   })
 
@@ -89,5 +91,31 @@ describe('workspace handlers', () => {
     expect(await ws.pickFolder()).toBe('/picked')
     pickFolder.mockResolvedValueOnce(null)
     expect(await ws.pickFolder()).toBeNull()
+  })
+
+  test('create resolves the project from the folder path (worktrees included)', async () => {
+    const p = ctx.projects.create('SPOT', '/repos/spot')
+    expect((await ws.create('/repos/spot/src')).projectId).toBe(p.id)
+    expect((await ws.create('/wt/spot/feature')).projectId).toBe(p.id)
+    const other = await ws.create('/elsewhere')
+    expect(other.projectId).toBeNull()
+    expect(other.projectSource).toBe('auto')
+  })
+
+  test('assignProject places the workspace manually and wins over inference', async () => {
+    const p = ctx.projects.create('SPOT', '/repos/spot')
+    const w = await ws.create('/elsewhere')
+    const assigned = await ws.assignProject(w.id, p.id)
+    expect(assigned.projectId).toBe(p.id)
+    expect(assigned.projectSource).toBe('manual')
+  })
+
+  test('autoAssignProject re-resolves from the folder and restores automatic tracking', async () => {
+    const p = ctx.projects.create('SPOT', '/repos/spot')
+    const w = await ws.create('/repos/spot/src')
+    await ws.assignProject(w.id, null)
+    const reverted = await ws.autoAssignProject(w.id)
+    expect(reverted.projectId).toBe(p.id)
+    expect(reverted.projectSource).toBe('auto')
   })
 })

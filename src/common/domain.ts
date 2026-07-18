@@ -52,7 +52,17 @@ export interface Workspace {
   sortOrder: number
   /** The project this terminal context belongs to; null means the virtual "Other" bucket. */
   projectId: string | null
+  /**
+   * How `projectId` was assigned: 'auto' means inferred from the folder path and re-resolved
+   * whenever project bindings change; 'manual' means the user placed it and inference never
+   * touches it again until the user switches it back to automatic.
+   */
+  projectSource: ProjectAssignmentSource
 }
+
+/** How a workspace's project assignment came to be; manual placement always wins over inference. */
+export const PROJECT_ASSIGNMENT_SOURCES = ['auto', 'manual'] as const
+export type ProjectAssignmentSource = (typeof PROJECT_ASSIGNMENT_SOURCES)[number]
 
 /**
  * A tab belongs to a workspace and, when placed, occupies one pane slot of the current
@@ -117,6 +127,40 @@ export interface ProjectPatch {
   jiraBoardUrl?: string | null
   adoRepositories?: string[]
   togglProjectId?: number | null
+}
+
+/** External content kinds that can carry a manual project-assignment override. */
+export const PROJECT_OVERRIDE_KINDS = ['pr', 'jira'] as const
+export type ProjectOverrideKind = (typeof PROJECT_OVERRIDE_KINDS)[number]
+
+/**
+ * A durable manual assignment of one external item (a PR or a Jira issue) to a project. It always
+ * wins over binding-based inference; deleting the target project drops the override so the item
+ * falls back to inference. `projectId` null pins the item to the virtual Other bucket. `key` is
+ * the item's stable external identity: `${repositoryId}:${prId}` for PRs, the issue key for Jira.
+ */
+export interface ProjectOverride {
+  kind: ProjectOverrideKind
+  key: string
+  projectId: string | null
+}
+
+/** One git worktree discovered under a project's repository binding. */
+export interface WorktreeInfo {
+  path: string
+  /** Checked-out branch ref short name, or null for a detached HEAD. */
+  branch: string | null
+  head: string
+}
+
+/**
+ * The worktrees of one repository binding of a project. A binding whose folder is not a usable
+ * git repository reports an error instead of failing the whole listing.
+ */
+export interface RepoWorktrees {
+  repoPath: string
+  worktrees: WorktreeInfo[]
+  error: string | null
 }
 
 // ---------------------------------------------------------------------------

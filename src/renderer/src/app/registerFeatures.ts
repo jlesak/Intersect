@@ -1,3 +1,4 @@
+import { registerDashboardFeature } from '@renderer/features/dashboard'
 import { registerMyWorkFeature } from '@renderer/features/myWork'
 import { registerOneOnOneFeature } from '@renderer/features/oneOnOne'
 import { registerPrInboxFeature } from '@renderer/features/prInbox'
@@ -13,6 +14,7 @@ import { registerWorkspacesFeature } from '@renderer/features/workspaces'
  * the slice's own register() - no other shell code changes.
  */
 export function registerFeatures(): void {
+  registerDashboardFeature()
   registerMyWorkFeature()
   registerTimeTrackingFeature()
   registerTodoFeature()
