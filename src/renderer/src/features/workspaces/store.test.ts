@@ -12,6 +12,7 @@ const ws = (id: string, over: Partial<Workspace> = {}): Workspace => ({
   layout: 'single',
   activeTabId: null,
   sortOrder: 0,
+  projectId: null,
   ...over
 })
 

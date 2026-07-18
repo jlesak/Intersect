@@ -149,7 +149,8 @@ describe('migrations', () => {
 
   test('priority-era TODO rows seed one exact manual order without losing content', () => {
     const db = new DatabaseSync(':memory:')
-    runMigrations(db)
+    // A database genuinely at the priority-era schema version.
+    runMigrations(db, 11)
     const insert = db.prepare(
       `INSERT INTO todo_task
          (id, text, description, due_day, priority, sort_order, done_at, created_at)
@@ -164,8 +165,6 @@ describe('migrations', () => {
     insert.run('tie-a', 'Tie A', 'keep tie a', null, 3, 7, null, 105)
     insert.run('done', 'Completed', 'keep done', '2026-01-01', 1, 77, 999, 99)
 
-    // The fixture represents a database whose last applied migration was the priority-era schema.
-    db.exec('PRAGMA user_version = 11')
     runMigrations(db)
 
     const open = db
@@ -203,6 +202,98 @@ describe('migrations', () => {
     const snapshot = db.prepare('SELECT * FROM todo_task ORDER BY id').all()
     runMigrations(db)
     expect(db.prepare('SELECT * FROM todo_task ORDER BY id').all()).toEqual(snapshot)
+  })
+
+  test('creates the project tables and links workspaces to projects', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    const names = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
+    ).map((r) => r.name)
+    expect(names).toEqual(expect.arrayContaining(['projects', 'project_repo', 'project_ado_repo']))
+    db.prepare(
+      'INSERT INTO projects (id,name,sort_order,archived,created_at) VALUES (?,?,?,?,?)'
+    ).run('p1', 'P', 0, 0, 1)
+    db.prepare(
+      'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at,project_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).run('w1', 'W', '/tmp', 'single', null, 0, 1, 'p1')
+    expect(
+      (db.prepare("SELECT project_id AS p FROM workspaces WHERE id='w1'").get() as { p: string }).p
+    ).toBe('p1')
+  })
+
+  test('every pre-project workspace migrates into exactly one project preserving all state', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the last pre-project schema version.
+    // Two workspaces deliberately share a folder to prove duplicates survive without loss.
+    runMigrations(db, 12)
+    const insertWs = db.prepare(
+      'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
+    )
+    insertWs.run('w1', 'SPOT', '/repos/spot', 'grid', 't1', 0, 100)
+    insertWs.run('w2', 'Intersect', '/repos/intersect', 'single', null, 1, 200)
+    insertWs.run('w3', 'SPOT again', '/repos/spot', 'columns', null, 2, 300)
+    db.prepare(
+      'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at,resume_session_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).run('t1', 'w1', 'Claude', 'claude', 0, 0, 100, 'resume-uuid')
+
+    runMigrations(db)
+
+    const projects = db
+      .prepare('SELECT id, name, sort_order AS s, archived AS a FROM projects ORDER BY sort_order')
+      .all() as unknown as Array<Record<string, unknown>>
+    expect(projects).toEqual([
+      { id: 'w1', name: 'SPOT', s: 0, a: 0 },
+      { id: 'w2', name: 'Intersect', s: 1, a: 0 },
+      { id: 'w3', name: 'SPOT again', s: 2, a: 0 }
+    ])
+    expect(
+      db.prepare('SELECT project_id AS p, path FROM project_repo ORDER BY project_id').all()
+    ).toEqual([
+      { p: 'w1', path: '/repos/spot' },
+      { p: 'w2', path: '/repos/intersect' },
+      { p: 'w3', path: '/repos/spot' }
+    ])
+    // Workspace state survives verbatim: layout, active tab, ordering, tabs, resume ids.
+    expect(
+      db
+        .prepare("SELECT project_id AS p, layout, active_tab_id AS t FROM workspaces WHERE id='w1'")
+        .get()
+    ).toEqual({ p: 'w1', layout: 'grid', t: 't1' })
+    expect(
+      db.prepare("SELECT resume_session_id AS r, pane_slot AS s FROM tabs WHERE id='t1'").get()
+    ).toEqual({ r: 'resume-uuid', s: 0 })
+
+    const snapshot = {
+      projects: db.prepare('SELECT * FROM projects ORDER BY id').all(),
+      repos: db.prepare('SELECT * FROM project_repo ORDER BY project_id, path').all(),
+      workspaces: db.prepare('SELECT * FROM workspaces ORDER BY id').all()
+    }
+    runMigrations(db)
+    expect({
+      projects: db.prepare('SELECT * FROM projects ORDER BY id').all(),
+      repos: db.prepare('SELECT * FROM project_repo ORDER BY project_id, path').all(),
+      workspaces: db.prepare('SELECT * FROM workspaces ORDER BY id').all()
+    }).toEqual(snapshot)
+  })
+
+  test('deleting a project detaches its workspaces instead of deleting them', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      'INSERT INTO projects (id,name,sort_order,archived,created_at) VALUES (?,?,?,?,?)'
+    ).run('p1', 'P', 0, 0, 1)
+    db.prepare(
+      'INSERT INTO project_repo (project_id,path,sort_order,created_at) VALUES (?,?,?,?)'
+    ).run('p1', '/repos/spot', 0, 1)
+    db.prepare(
+      'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at,project_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).run('w1', 'W', '/repos/spot', 'single', null, 0, 1, 'p1')
+    db.prepare('DELETE FROM projects WHERE id=?').run('p1')
+    expect((db.prepare('SELECT count(*) AS c FROM project_repo').get() as { c: number }).c).toBe(0)
+    expect(
+      db.prepare("SELECT project_id AS p FROM workspaces WHERE id='w1'").get()
+    ).toEqual({ p: null })
   })
 
   test('deleting a workspace cascades to its tabs', () => {

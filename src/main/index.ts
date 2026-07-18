@@ -48,6 +48,7 @@ import { createPrInboxHandlers, registerPrInboxHandlers } from './ipc/prInbox.ip
 import { createSessionHandlers, registerSessionHandlers } from './ipc/sessions.ipc'
 import { createTimeTrackingHandlers, registerTimeTrackingHandlers } from './ipc/timeTracking.ipc'
 import { createTodoHandlers, registerTodoHandlers } from './ipc/todo.ipc'
+import { createProjectHandlers, registerProjectHandlers } from './ipc/projects.ipc'
 import { createMyWorkHandlers, registerMyWorkHandlers } from './ipc/myWork.ipc'
 import { createOneOnOneHandlers, registerOneOnOneHandlers } from './ipc/oneOnOne.ipc'
 import { createSettingsHandlers, registerSettingsHandlers } from './ipc/settings.ipc'
@@ -56,6 +57,8 @@ import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
 import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
+import { createProjectRepo } from './db/projectRepo'
+import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
 import { createJiraFetcher } from './myWork/jiraFetch'
@@ -386,6 +389,10 @@ function wireIpc(database: DatabaseSync, notifSettingsPath: string, usageSnapsho
       })
     })
   )
+
+  // --- Projects slice: the umbrella entity binding repo folders and external tools ---
+  const projects = createProjectRepo(database, { ...deps, canonicalize: canonicalizePath })
+  registerProjectHandlers(ipcMain, createProjectHandlers({ projects, pathDeps: projectPathDeps }))
 
   // --- TODO list slice: a personal task list living entirely in local SQLite ---
   // The repo is shared with the 1:1 slice, which fulltext-matches task texts (read-only).

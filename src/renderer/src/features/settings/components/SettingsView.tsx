@@ -5,9 +5,11 @@ import {
   type AdoSettings,
   type NotificationSettings
 } from '@common/domain'
+import { ProjectsPane } from '@renderer/features/projects'
 import { useSettingsStore } from '../store'
 
 const CATEGORIES = [
+  { id: 'projects', label: 'Projekty' },
   { id: 'notif', label: 'Notifikace' },
   { id: 'ado', label: 'Azure DevOps' },
   { id: 'review', label: 'PR Review' },
@@ -18,12 +20,12 @@ const CATEGORIES = [
 type CategoryId = (typeof CATEGORIES)[number]['id']
 
 /**
- * The Settings section's main region: a left sub-navigation over four categories, content on the
- * right. All four panes stay mounted (the inactive ones only hidden), and every field binds to
+ * The Settings section's main region: a left sub-navigation over the categories, content on the
+ * right. All panes stay mounted (the inactive ones only hidden), and every field binds to
  * the store which persists on change - so switching categories can never lose anything.
  */
 export function SettingsView() {
-  const [category, setCategory] = useState<CategoryId>('notif')
+  const [category, setCategory] = useState<CategoryId>('projects')
 
   useEffect(() => {
     void useSettingsStore.getState().load()
@@ -49,6 +51,9 @@ export function SettingsView() {
         </nav>
 
         <div className="ix-settings__body">
+          <div className={pane('projects')}>
+            <ProjectsPane />
+          </div>
           <div className={pane('notif')}>
             <NotificationsPane />
           </div>

@@ -50,6 +50,8 @@ export interface Workspace {
   /** The focused tab; intentionally not a DB foreign key - reconciled by the app. */
   activeTabId: string | null
   sortOrder: number
+  /** The project this terminal context belongs to; null means the virtual "Other" bucket. */
+  projectId: string | null
 }
 
 /**
@@ -76,6 +78,45 @@ export interface Tab {
 export interface BootState {
   workspaces: Workspace[]
   selectedWorkspaceId: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Projects (F1) - see docs/2026-07-07-intersect-final-form-design.md §3.2
+// ---------------------------------------------------------------------------
+
+/**
+ * The umbrella entity binding repositories and external tools into one durable work context.
+ * A project owns one or more repository-folder bindings (`repoPaths`, canonical absolute paths
+ * in binding order - the first is the original/primary folder) plus optional Jira, Azure DevOps
+ * and Toggl bindings. Sessions, PRs, issues and time attach to a project automatically through
+ * these bindings; anything unmatched falls into a virtual "Other" bucket that is never persisted
+ * as a project. Deleting or archiving a project is app-state only and never touches the
+ * filesystem or any remote resource.
+ */
+export interface Project {
+  id: string
+  name: string
+  sortOrder: number
+  archived: boolean
+  /** Canonical absolute repository folders bound to this project, in binding order (never empty). */
+  repoPaths: string[]
+  /** Jira JQL filter selecting this project's issues (e.g. `project = FID2507`), or null. */
+  jiraJql: string | null
+  /** Jira board URL opened from the project context, or null. */
+  jiraBoardUrl: string | null
+  /** Azure DevOps repository names whose PRs belong to this project. */
+  adoRepositories: string[]
+  /** Toggl project id time is booked against, or null. */
+  togglProjectId: number | null
+}
+
+/** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
+export interface ProjectPatch {
+  name?: string
+  jiraJql?: string | null
+  jiraBoardUrl?: string | null
+  adoRepositories?: string[]
+  togglProjectId?: number | null
 }
 
 // ---------------------------------------------------------------------------

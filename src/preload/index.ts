@@ -19,6 +19,18 @@ const api: IpcApi = {
     setActive: (id) => ipcRenderer.invoke(Channel.workspacesSetActive, id),
     pickFolder: () => ipcRenderer.invoke(Channel.workspacesPickFolder)
   },
+  projects: {
+    list: () => ipcRenderer.invoke(Channel.projectsList),
+    create: (name, folderPath) => ipcRenderer.invoke(Channel.projectsCreate, name, folderPath),
+    update: (id, patch) => ipcRenderer.invoke(Channel.projectsUpdate, id, patch),
+    setArchived: (id, archived) => ipcRenderer.invoke(Channel.projectsSetArchived, id, archived),
+    reorder: (orderedIds) => ipcRenderer.invoke(Channel.projectsReorder, orderedIds),
+    remove: (id) => ipcRenderer.invoke(Channel.projectsRemove, id),
+    addRepoPath: (id, folderPath) => ipcRenderer.invoke(Channel.projectsAddRepoPath, id, folderPath),
+    removeRepoPath: (id, folderPath) =>
+      ipcRenderer.invoke(Channel.projectsRemoveRepoPath, id, folderPath),
+    resolvePath: (path) => ipcRenderer.invoke(Channel.projectsResolvePath, path)
+  },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),
     create: (wsId, preset, resumeSessionId) =>

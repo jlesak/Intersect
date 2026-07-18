@@ -268,6 +268,53 @@ const MIGRATIONS: Migration[] = [
         WHERE done_at IS NULL;
       `)
     }
+  },
+  {
+    // Projects (F1): the umbrella entity binding repo folders and external tools into one durable
+    // work context. Every existing workspace becomes exactly one project (reusing the workspace id
+    // as the project id - the explicit legacy mapping) whose first repository binding is the former
+    // workspace folder; the workspace itself lives on as the project's terminal context via
+    // `workspaces.project_id`. Deleting a project detaches its workspaces (SET NULL - they fall
+    // into the virtual "Other" bucket) and never deletes filesystem folders or remote resources.
+    version: 13,
+    up(db) {
+      db.exec(`
+        CREATE TABLE projects (
+          id              TEXT PRIMARY KEY,
+          name            TEXT NOT NULL,
+          sort_order      INTEGER NOT NULL,
+          archived        INTEGER NOT NULL DEFAULT 0,
+          jira_jql        TEXT,
+          jira_board_url  TEXT,
+          toggl_project_id INTEGER,
+          created_at      INTEGER NOT NULL
+        );
+
+        CREATE TABLE project_repo (
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          path       TEXT NOT NULL,
+          sort_order INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, path)
+        );
+
+        CREATE TABLE project_ado_repo (
+          project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          repository_name TEXT NOT NULL,
+          PRIMARY KEY (project_id, repository_name)
+        );
+
+        ALTER TABLE workspaces ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+
+        INSERT INTO projects (id, name, sort_order, archived, created_at)
+          SELECT id, name, sort_order, 0, created_at FROM workspaces;
+
+        INSERT INTO project_repo (project_id, path, sort_order, created_at)
+          SELECT id, folder_path, 0, created_at FROM workspaces;
+
+        UPDATE workspaces SET project_id = id;
+      `)
+    }
   }
 ]
 
@@ -277,13 +324,15 @@ export const CURRENT_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version
 /**
  * Apply every migration newer than the database's current `user_version`, each inside its own
  * transaction so a failure rolls back that migration (including its `user_version` bump).
- * Safe to run on every launch; already-applied migrations are skipped.
+ * Safe to run on every launch; already-applied migrations are skipped. `upTo` stops after the
+ * given version - it exists so upgrade-path tests can build a database at any historic schema
+ * version; production callers omit it.
  */
-export function runMigrations(db: DatabaseSync): void {
+export function runMigrations(db: DatabaseSync, upTo: number = Infinity): void {
   const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
 
   for (const migration of MIGRATIONS) {
-    if (migration.version <= current) continue
+    if (migration.version <= current || migration.version > upTo) continue
     db.exec('BEGIN')
     try {
       migration.up(db)
