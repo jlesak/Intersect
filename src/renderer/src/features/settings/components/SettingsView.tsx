@@ -6,10 +6,12 @@ import {
   type NotificationSettings
 } from '@common/domain'
 import { ProjectsPane } from '@renderer/features/projects'
+import { AgentToolingPane } from '@renderer/features/agentTooling'
 import { useSettingsStore } from '../store'
 
 const CATEGORIES = [
   { id: 'projects', label: 'Projekty' },
+  { id: 'agentTooling', label: 'Agent Tooling' },
   { id: 'notif', label: 'Notifikace' },
   { id: 'ado', label: 'Azure DevOps' },
   { id: 'review', label: 'PR Review' },
@@ -53,6 +55,9 @@ export function SettingsView() {
         <div className="ix-settings__body">
           <div className={pane('projects')}>
             <ProjectsPane />
+          </div>
+          <div className={pane('agentTooling')}>
+            <AgentToolingPane />
           </div>
           <div className={pane('notif')}>
             <NotificationsPane />

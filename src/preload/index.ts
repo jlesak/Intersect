@@ -191,8 +191,15 @@ const api: IpcApi = {
     setReview: (review) => ipcRenderer.invoke(Channel.settingsSetReview, review),
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
+  agentTooling: {
+    getEffectiveConfig: (scope) =>
+      ipcRenderer.invoke(Channel.agentToolingGetEffectiveConfig, scope),
+    listSkills: (scope) => ipcRenderer.invoke(Channel.agentToolingListSkills, scope),
+    listAgents: (scope) => ipcRenderer.invoke(Channel.agentToolingListAgents, scope)
+  },
   system: {
     openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),
+    revealPath: (path) => ipcRenderer.invoke(Channel.systemRevealPath, path),
     // webUtils only exists in preload; the renderer needs it to turn a dropped File into a path.
     getPathForFile: (file) => webUtils.getPathForFile(file),
     restartApp: () => ipcRenderer.invoke(Channel.systemRestartApp),

@@ -789,3 +789,131 @@ export interface ClaudeUsage {
   sevenDay: ClaudeUsageWindow | null
   capturedAt: number
 }
+
+// ---------------------------------------------------------------------------
+// Agent Tooling - read-only browser of the effective Claude Code configuration,
+// skills, and agents (global scope or one bound Project).
+// ---------------------------------------------------------------------------
+
+/**
+ * Which tooling surface Agent Tooling browses. The adapter dimension exists so the same shell
+ * can host non-Claude agent CLIs later; today Claude Code is the only value.
+ */
+export const AGENT_ADAPTERS = ['claude-code'] as const
+export type AgentAdapter = (typeof AGENT_ADAPTERS)[number]
+
+/**
+ * The scope a browse request resolves against: the user-global Claude configuration, or one
+ * bound Project (whose repository roots gate every project-level file access).
+ */
+export type AgentToolingScope = { kind: 'global' } | { kind: 'project'; projectId: string }
+
+/**
+ * Where an effective value came from, so the UI can label provenance on every row:
+ *   - `global`        - `~/.claude/settings.json`
+ *   - `global-local`  - `~/.claude/settings.local.json` (global scope only)
+ *   - `project`       - `<repo>/.claude/settings.json`
+ *   - `project-local` - `<repo>/.claude/settings.local.json`
+ *   - `mcp-file`      - `<repo>/.mcp.json`
+ *   - `default`       - no file provided it; Intersect's built-in fallback
+ */
+export type ConfigSource =
+  | 'global'
+  | 'global-local'
+  | 'project'
+  | 'project-local'
+  | 'mcp-file'
+  | 'default'
+
+/** One settings layer's on-disk status, so the Overview can show what exists and what is broken. */
+export interface ConfigFileState {
+  source: ConfigSource
+  /** The absolute path the layer resolves to (even when it does not exist). */
+  path: string
+  exists: boolean
+  /**
+   * A per-file diagnostic that degrades this layer alone: a JSON parse failure, or a containment
+   * block when the path escapes its Project root. Null when the layer read cleanly (or is simply
+   * absent). Other layers still resolve regardless.
+   */
+  error: string | null
+}
+
+/** One effective permission rule (an entry of the `permissions` allow/deny/ask lists). */
+export interface PermissionEntry {
+  list: 'allow' | 'deny' | 'ask'
+  rule: string
+  source: ConfigSource
+}
+
+/** One effective hook: a single command bound to a lifecycle event, with its optional matcher. */
+export interface HookEntry {
+  event: string
+  matcher: string | null
+  type: string
+  command: string
+  source: ConfigSource
+}
+
+/** One effective MCP server, summarized to its transport detail (command line or URL). */
+export interface McpServerEntry {
+  name: string
+  /** `stdio`, `http`, `sse`, or whatever `type` the server declares (best-effort). */
+  transport: string
+  /** The command+args or the URL, whichever the server config carries. */
+  detail: string
+  source: ConfigSource
+}
+
+/** One effective advanced setting: any top-level key that is not permissions/hooks/mcpServers. */
+export interface AdvancedEntry {
+  key: string
+  /** The value rendered as compact JSON (objects/arrays included). */
+  value: string
+  source: ConfigSource
+}
+
+/**
+ * The fully resolved, read-only view of the effective Claude Code configuration for one scope,
+ * with every leaf carrying its provenance. Malformed layers surface as per-file diagnostics in
+ * `files` rather than failing the whole result.
+ */
+export interface EffectiveConfig {
+  scope: AgentToolingScope
+  adapter: AgentAdapter
+  files: ConfigFileState[]
+  permissions: PermissionEntry[]
+  hooks: HookEntry[]
+  mcpServers: McpServerEntry[]
+  advanced: AdvancedEntry[]
+}
+
+/** Where a catalog item is owned, and how the UI must treat it (plugin items are read-only). */
+export interface CatalogSource {
+  kind: 'user' | 'project' | 'plugin'
+  /** `User`, the Project name/label, or the plugin id (e.g. `superpowers@official`). */
+  label: string
+}
+
+/** One discovered skill (`SKILL.md` in a `skills/<name>/` directory). */
+export interface SkillCatalogItem {
+  name: string
+  source: CatalogSource
+  /** Absolute path of the `SKILL.md` file (already containment-validated by the core). */
+  path: string
+  description: string
+  /** True for plugin-managed items: external, read-only, never editable by Intersect. */
+  external: boolean
+}
+
+/** One discovered agent (a flat `<name>.md` in an `agents/` directory). */
+export interface AgentCatalogItem {
+  name: string
+  source: CatalogSource
+  /** Absolute path of the agent `.md` file (already containment-validated by the core). */
+  path: string
+  description: string
+  model: string
+  tools: string
+  external: boolean
+}

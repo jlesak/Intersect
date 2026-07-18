@@ -192,6 +192,7 @@ function wireCore(userDataDir: string): void {
 
   const system = createSystemHandlers({
     openExternal: (url) => shell.openExternal(url),
+    revealInFolder: (path) => shell.showItemInFolder(path),
     restartApp: () => {
       app.relaunch()
       app.exit(0)
@@ -207,6 +208,7 @@ function wireCore(userDataDir: string): void {
       [Channel.workspacesPickFolder]: pickFolder,
       [Channel.oneOnOnePickVtt]: pickVttFile,
       [Channel.systemOpenExternal]: system.openExternal,
+      [Channel.systemRevealPath]: system.revealPath,
       [Channel.systemRestartApp]: system.restartApp,
       [Channel.systemRetryCore]: system.retryCore,
       [Channel.systemQuitApp]: system.quitApp
