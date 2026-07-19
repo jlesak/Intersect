@@ -917,3 +917,106 @@ export interface AgentCatalogItem {
   tools: string
   external: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Agent Tooling - guarded mutation of the effective Claude Code configuration
+// (preview, atomic save, one-shot undo). Every write is described as a
+// structured edit against exactly one target file; the core applies it, so the
+// edit logic and its validation live in one place behind the IPC boundary.
+// ---------------------------------------------------------------------------
+
+/**
+ * A single structured change to one config file. The `raw` variant replaces the whole file with
+ * user-supplied text (the guarded raw editor); every other variant names one slice to add, set,
+ * or remove while every unknown key and sibling entry is preserved. The core turns the descriptor
+ * into proposed content, so the renderer never has to reason about JSON preservation.
+ */
+export type ConfigEdit =
+  | { kind: 'raw'; content: string }
+  | { kind: 'permission'; op: 'add' | 'remove'; list: 'allow' | 'deny' | 'ask'; rule: string }
+  | {
+      kind: 'hook'
+      op: 'add' | 'remove'
+      event: string
+      matcher: string | null
+      hookType: string
+      command: string
+    }
+  /** `server` is the server body as a JSON string (an object such as `{"command":"npx",...}`). */
+  | { kind: 'mcp'; op: 'set' | 'remove'; name: string; server: string }
+  /** `value` is the setting value as a JSON string (`"opus"`, `true`, `{"a":1}`, ...). */
+  | { kind: 'advanced'; op: 'set' | 'remove'; key: string; value: string }
+
+/** The renderer's request to preview or commit a mutation of one config file. */
+export interface ConfigEditRequest {
+  scope: AgentToolingScope
+  source: ConfigSource
+  edit: ConfigEdit
+}
+
+/** A commit request additionally carries the revision the preview was computed against. */
+export interface ConfigSaveRequest extends ConfigEditRequest {
+  /** The revision token the user reviewed; a mismatch on disk aborts the save. */
+  revision: string
+}
+
+/**
+ * The result of previewing a mutation: the exact bytes that would be replaced and written (both
+ * pretty-printed), the revision guard the commit must echo, and any validation errors. Never
+ * mutates or creates anything - a missing target still previews (as a create).
+ */
+export interface ConfigPreview {
+  scope: AgentToolingScope
+  source: ConfigSource
+  /** The absolute target path the write would land on. */
+  path: string
+  /** A human one-line provenance: which scope and file this writes. */
+  provenance: string
+  /** Whether the target file exists today (false means the save would create it). */
+  exists: boolean
+  /** True for a global-scoped target (`~/.claude/...`), so the UI can demand stronger confirmation. */
+  global: boolean
+  currentContent: string
+  proposedContent: string
+  /** sha256 of the current on-disk bytes (a stable sentinel when the file is absent). */
+  revision: string
+  valid: boolean
+  errors: string[]
+}
+
+/** The read-back of one target file for the raw editor: its current text and revision guard. */
+export interface RawTargetView {
+  scope: AgentToolingScope
+  source: ConfigSource
+  path: string
+  exists: boolean
+  global: boolean
+  content: string
+  revision: string
+}
+
+/** Why a save or undo was refused, so the UI can tailor its guidance. */
+export type ConfigWriteFailure = 'invalid' | 'changed-externally' | 'blocked' | 'io'
+
+/** The outcome of a commit: the backup path and new revision on success, a typed reason otherwise. */
+export interface ConfigSaveResult {
+  ok: boolean
+  /** The absolute target path, so a successful save can be offered a one-shot Undo keyed on it. */
+  path: string
+  error?: string
+  reason?: ConfigWriteFailure
+  /** The timestamped backup of the prior bytes (absent when the target did not exist before). */
+  backupPath?: string
+  newRevision?: string
+}
+
+/** Why an undo was refused. */
+export type ConfigUndoFailure = 'no-handle' | 'changed-since-save' | 'blocked' | 'io'
+
+/** The outcome of a one-shot undo: it restores the exact prior bytes, or explains why it cannot. */
+export interface ConfigUndoResult {
+  ok: boolean
+  error?: string
+  reason?: ConfigUndoFailure
+  restoredRevision?: string
+}

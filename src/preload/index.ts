@@ -195,7 +195,11 @@ const api: IpcApi = {
     getEffectiveConfig: (scope) =>
       ipcRenderer.invoke(Channel.agentToolingGetEffectiveConfig, scope),
     listSkills: (scope) => ipcRenderer.invoke(Channel.agentToolingListSkills, scope),
-    listAgents: (scope) => ipcRenderer.invoke(Channel.agentToolingListAgents, scope)
+    listAgents: (scope) => ipcRenderer.invoke(Channel.agentToolingListAgents, scope),
+    readRaw: (scope, source) => ipcRenderer.invoke(Channel.agentToolingReadRaw, scope, source),
+    previewSave: (req) => ipcRenderer.invoke(Channel.agentToolingPreviewSave, req),
+    commitSave: (req) => ipcRenderer.invoke(Channel.agentToolingCommitSave, req),
+    undoSave: (targetPath) => ipcRenderer.invoke(Channel.agentToolingUndoSave, targetPath)
   },
   system: {
     openExternal: (url) => ipcRenderer.invoke(Channel.systemOpenExternal, url),

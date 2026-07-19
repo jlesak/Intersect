@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join } from 'node:path'
 import type {
   AdvancedEntry,
   AgentCatalogItem,
@@ -14,13 +14,9 @@ import type {
 } from '@common/domain'
 import { readFrontmatterField, splitFrontmatter } from './frontmatter'
 import { defaultConfigFs, type ConfigFs } from './configFs'
+import { createConfigPaths, isContained, type LayerSpec, type ResolvedScope } from './configPaths'
 
-/**
- * The scope a read resolves against, already translated from a Project id to its canonical
- * repository roots. Global scope layers the user's own settings; project scope gates every
- * project-level file access against these roots.
- */
-export type ResolvedScope = { kind: 'global' } | { kind: 'project'; repoRoots: string[] }
+export type { ResolvedScope } from './configPaths'
 
 export interface ClaudeConfigReaderDeps {
   /** The Claude home directory. Defaults to `INTERSECT_CLAUDE_HOME` then `~/.claude`. */
@@ -31,27 +27,10 @@ export interface ClaudeConfigReaderDeps {
 /** A settings document, once parsed - an object of unknown-typed top-level keys. */
 type SettingsDoc = Record<string, unknown>
 
-/** A settings layer resolved to its file, plus the root it must stay contained under (project only). */
-interface LayerSpec {
-  source: ConfigSource
-  path: string
-  /** Non-null for project layers: the canonical repo root the file's realpath must resolve inside. */
-  containRoot: string | null
-}
-
 /** The outcome of loading one layer: its on-disk diagnostic plus the parsed document (or null). */
 interface LayerLoad {
   state: ConfigFileState
   doc: SettingsDoc | null
-}
-
-const SETTINGS_FILE = 'settings.json'
-const SETTINGS_LOCAL_FILE = 'settings.local.json'
-const MCP_FILE = '.mcp.json'
-
-/** Whether `target` is the root itself or lies beneath it, both already canonical. */
-function isContained(target: string, root: string): boolean {
-  return target === root || target.startsWith(root + sep)
 }
 
 /**
@@ -64,6 +43,7 @@ export function createClaudeConfigReader(deps: ClaudeConfigReaderDeps = {}) {
   const fs = deps.fs ?? defaultConfigFs
   const claudeHome =
     deps.claudeHome ?? process.env.INTERSECT_CLAUDE_HOME ?? join(homedir(), '.claude')
+  const paths = createConfigPaths({ fs, claudeHome })
 
   /**
    * Load one settings layer. A project layer whose file resolves outside its root fails closed:
@@ -123,51 +103,10 @@ export function createClaudeConfigReader(deps: ClaudeConfigReaderDeps = {}) {
     }
   }
 
-  /**
-   * For a project-level relative file, the first repo root that has it (contained or not, so an
-   * escaping symlink still surfaces as blocked), falling back to the first root's missing path.
-   */
-  function pickProjectFile(repoRoots: string[], relPath: string): { path: string; containRoot: string } {
-    for (const root of repoRoots) {
-      const candidate = join(root, '.claude', relPath)
-      if (fs.realpath(candidate) !== null) return { path: candidate, containRoot: root }
-    }
-    return { path: join(repoRoots[0], '.claude', relPath), containRoot: repoRoots[0] }
-  }
-
-  /** The ordered settings layers (low to high precedence) that apply to the scope. */
-  function settingsLayers(scope: ResolvedScope): LayerSpec[] {
-    if (scope.kind === 'global') {
-      return [
-        { source: 'global', path: join(claudeHome, SETTINGS_FILE), containRoot: null },
-        { source: 'global-local', path: join(claudeHome, SETTINGS_LOCAL_FILE), containRoot: null }
-      ]
-    }
-    const project = pickProjectFile(scope.repoRoots, SETTINGS_FILE)
-    const projectLocal = pickProjectFile(scope.repoRoots, SETTINGS_LOCAL_FILE)
-    return [
-      { source: 'global', path: join(claudeHome, SETTINGS_FILE), containRoot: null },
-      { source: 'project', path: project.path, containRoot: project.containRoot },
-      { source: 'project-local', path: projectLocal.path, containRoot: projectLocal.containRoot }
-    ]
-  }
-
-  /** The project `.mcp.json` layer spec, or null in global scope. */
-  function mcpFileSpec(scope: ResolvedScope): LayerSpec | null {
-    if (scope.kind === 'global') return null
-    // .mcp.json lives at the repo root, not under .claude/.
-    for (const root of scope.repoRoots) {
-      const candidate = join(root, MCP_FILE)
-      if (fs.realpath(candidate) !== null)
-        return { source: 'mcp-file', path: candidate, containRoot: root }
-    }
-    return { source: 'mcp-file', path: join(scope.repoRoots[0], MCP_FILE), containRoot: scope.repoRoots[0] }
-  }
-
   function getEffectiveConfig(scope: ResolvedScope): Omit<EffectiveConfig, 'scope' | 'adapter'> {
-    const layers = settingsLayers(scope)
+    const layers = paths.settingsLayers(scope)
     const loads = layers.map((spec) => ({ spec, load: loadLayer(spec) }))
-    const mcpSpec = mcpFileSpec(scope)
+    const mcpSpec = paths.mcpFileSpec(scope)
     const mcpLoad = mcpSpec ? loadLayer(mcpSpec) : null
 
     const files: ConfigFileState[] = loads.map((l) => l.load.state)

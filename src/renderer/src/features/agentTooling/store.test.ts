@@ -1,13 +1,44 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { AgentCatalogItem, EffectiveConfig, SkillCatalogItem } from '@common/domain'
+import type {
+  AgentCatalogItem,
+  ConfigEditRequest,
+  ConfigPreview,
+  EffectiveConfig,
+  SkillCatalogItem
+} from '@common/domain'
 
+const toastMocks = vi.hoisted(() => ({ push: vi.fn(), reportError: vi.fn() }))
 vi.mock('./ipc')
-vi.mock('@renderer/shared/ui/toast')
+vi.mock('@renderer/shared/ui/toast', () => ({
+  reportError: toastMocks.reportError,
+  useToastStore: { getState: () => ({ push: toastMocks.push }) }
+}))
 import * as api from './ipc'
 import { reportError } from '@renderer/shared/ui/toast'
 import { scopesEqual, useAgentToolingStore } from './store'
 
 const mocked = vi.mocked(api)
+
+const editRequest: ConfigEditRequest = {
+  scope: { kind: 'global' },
+  source: 'global',
+  edit: { kind: 'permission', op: 'add', list: 'allow', rule: 'Bash(git status)' }
+}
+
+const preview = (over: Partial<ConfigPreview> = {}): ConfigPreview => ({
+  scope: { kind: 'global' },
+  source: 'global',
+  path: '/home/u/.claude/settings.json',
+  provenance: 'global · settings.json',
+  exists: true,
+  global: true,
+  currentContent: '{}',
+  proposedContent: '{\n  "permissions": {}\n}',
+  revision: 'rev-1',
+  valid: true,
+  errors: [],
+  ...over
+})
 
 const config = (over: Partial<EffectiveConfig> = {}): EffectiveConfig => ({
   scope: { kind: 'global' },
@@ -46,7 +77,10 @@ const reset = (): void =>
       error: null,
       config: null,
       skills: [],
-      agents: []
+      agents: [],
+      pendingPreview: null,
+      saving: false,
+      lastUndo: null
     },
     false
   )
@@ -128,6 +162,88 @@ describe('reveal', () => {
     mocked.revealPath.mockRejectedValue(new Error('blocked'))
     await useAgentToolingStore.getState().reveal('/etc/passwd')
     expect(reportError).toHaveBeenCalled()
+  })
+})
+
+describe('preview', () => {
+  test('stores the preview paired with its request for the confirm dialog', async () => {
+    mocked.previewSave.mockResolvedValue(preview())
+    await useAgentToolingStore.getState().preview(editRequest)
+    const pending = useAgentToolingStore.getState().pendingPreview
+    expect(mocked.previewSave).toHaveBeenCalledWith(editRequest)
+    expect(pending?.request).toEqual(editRequest)
+    expect(pending?.preview.revision).toBe('rev-1')
+  })
+
+  test('a preview failure toasts and leaves nothing pending', async () => {
+    mocked.previewSave.mockRejectedValue(new Error('blocked'))
+    await useAgentToolingStore.getState().preview(editRequest)
+    expect(reportError).toHaveBeenCalled()
+    expect(useAgentToolingStore.getState().pendingPreview).toBeNull()
+  })
+})
+
+describe('commit', () => {
+  test('commits under the preview revision, offers undo, and refetches', async () => {
+    useAgentToolingStore.setState({ pendingPreview: { request: editRequest, preview: preview() } }, false)
+    mocked.commitSave.mockResolvedValue({
+      ok: true,
+      path: '/home/u/.claude/settings.json',
+      backupPath: '/home/u/.claude/settings.json.bak.20260719-101112',
+      newRevision: 'rev-2'
+    })
+    await useAgentToolingStore.getState().commit()
+    const s = useAgentToolingStore.getState()
+    expect(mocked.commitSave).toHaveBeenCalledWith({ ...editRequest, revision: 'rev-1' })
+    expect(s.pendingPreview).toBeNull()
+    expect(s.lastUndo).toEqual({
+      path: '/home/u/.claude/settings.json',
+      backupPath: '/home/u/.claude/settings.json.bak.20260719-101112'
+    })
+    expect(mocked.getEffectiveConfig).toHaveBeenCalled()
+  })
+
+  test('a rejected save clears the preview, offers no undo, and warns', async () => {
+    useAgentToolingStore.setState({ pendingPreview: { request: editRequest, preview: preview() } }, false)
+    mocked.commitSave.mockResolvedValue({
+      ok: false,
+      path: '/home/u/.claude/settings.json',
+      reason: 'changed-externally'
+    })
+    await useAgentToolingStore.getState().commit()
+    const s = useAgentToolingStore.getState()
+    expect(s.pendingPreview).toBeNull()
+    expect(s.lastUndo).toBeNull()
+    expect(toastMocks.push).toHaveBeenCalled()
+  })
+
+  test('never commits an invalid preview', async () => {
+    useAgentToolingStore.setState(
+      { pendingPreview: { request: editRequest, preview: preview({ valid: false, errors: ['bad'] }) } },
+      false
+    )
+    await useAgentToolingStore.getState().commit()
+    expect(mocked.commitSave).not.toHaveBeenCalled()
+  })
+})
+
+describe('undo', () => {
+  test('undoes the last save, clears the affordance, and refetches', async () => {
+    useAgentToolingStore.setState({ lastUndo: { path: '/home/u/.claude/settings.json' } }, false)
+    mocked.undoSave.mockResolvedValue({ ok: true, restoredRevision: 'rev-1' })
+    await useAgentToolingStore.getState().undo()
+    const s = useAgentToolingStore.getState()
+    expect(mocked.undoSave).toHaveBeenCalledWith('/home/u/.claude/settings.json')
+    expect(s.lastUndo).toBeNull()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalled()
+  })
+
+  test('a rejected undo keeps the affordance and warns', async () => {
+    useAgentToolingStore.setState({ lastUndo: { path: '/home/u/.claude/settings.json' } }, false)
+    mocked.undoSave.mockResolvedValue({ ok: false, reason: 'changed-since-save' })
+    await useAgentToolingStore.getState().undo()
+    expect(useAgentToolingStore.getState().lastUndo).not.toBeNull()
+    expect(toastMocks.push).toHaveBeenCalled()
   })
 })
 
