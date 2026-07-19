@@ -115,4 +115,35 @@ describe('AgentToolingPaneBody', () => {
     )
     expect(skillTile?.querySelector('.ix-at-count__value')?.textContent).toBe('1')
   })
+
+  test('is strictly read-only without onEdit: no add or remove controls', () => {
+    const host = render({ initialTab: 'permissions' })
+    expect(host.querySelector('.ix-at-add')).toBeNull()
+    expect(host.querySelector('.ix-at-remove')).toBeNull()
+    // The effective rule is still shown.
+    expect(host.textContent).toContain('Read(*)')
+  })
+
+  test('with onEdit, the permissions editor exposes add rows and a remove for a same-source rule', () => {
+    const host = render({ initialTab: 'permissions', onEdit: noop })
+    // One add input per allow / deny / ask list.
+    expect(host.querySelectorAll('.ix-at-add').length).toBe(3)
+    expect(host.querySelector('[aria-label="Add allow rule"]')).toBeTruthy()
+    // The Read(*) rule is sourced from the global settings file, the edit target for global scope,
+    // so it can be removed.
+    expect(host.querySelector('.ix-at-remove')).toBeTruthy()
+    expect(host.querySelector('.ix-at-targetnote')?.textContent).toContain('global')
+  })
+
+  test('with onEdit, a rule from a non-target layer shows no remove control', () => {
+    const host = render({
+      initialTab: 'permissions',
+      onEdit: noop,
+      config: { ...config, permissions: [{ list: 'allow', rule: 'Read(*)', source: 'global-local' }] }
+    })
+    // The rule lives in settings.local.json, not the structured edit target, so no inline remove.
+    expect(host.querySelector('.ix-at-remove')).toBeNull()
+    // Add controls are still available.
+    expect(host.querySelectorAll('.ix-at-add').length).toBe(3)
+  })
 })

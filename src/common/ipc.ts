@@ -6,8 +6,15 @@ import type {
   AppSettings,
   BootState,
   ClaudeUsage,
+  ConfigEditRequest,
+  ConfigPreview,
+  ConfigSaveRequest,
+  ConfigSaveResult,
+  ConfigSource,
+  ConfigUndoResult,
   DraftComment,
   EffectiveConfig,
+  RawTargetView,
   SkillCatalogItem,
   FileDiff,
   JiraBoardSnapshot,
@@ -307,6 +314,24 @@ export interface IpcApi {
     listSkills(scope: AgentToolingScope): Promise<SkillCatalogItem[]>
     /** The searchable agents catalog for the scope (user + plugin, plus project-level in a Project). */
     listAgents(scope: AgentToolingScope): Promise<AgentCatalogItem[]>
+    /**
+     * The current text + revision of one writable target file, for the guarded raw JSON editor.
+     * Never creates a missing file; a containment breach rejects.
+     */
+    readRaw(scope: AgentToolingScope, source: ConfigSource): Promise<RawTargetView>
+    /**
+     * Preview a structured or raw mutation of one config file: the current and proposed bytes,
+     * the revision guard, and any validation errors. Mutates nothing (a missing target still
+     * previews as a create).
+     */
+    previewSave(req: ConfigEditRequest): Promise<ConfigPreview>
+    /**
+     * Commit a previewed mutation. Rejects when the file changed since the preview (revision
+     * mismatch), backs up the prior bytes, writes atomically, and arms a one-shot undo.
+     */
+    commitSave(req: ConfigSaveRequest): Promise<ConfigSaveResult>
+    /** Undo the last committed save of `targetPath`, restoring the exact prior bytes (guarded). */
+    undoSave(targetPath: string): Promise<ConfigUndoResult>
   }
   system: {
     /** Open an allowlisted https URL in the system default browser. Rejects anything else. */
@@ -542,6 +567,10 @@ export const Channel = {
   agentToolingGetEffectiveConfig: 'agentTooling:getEffectiveConfig',
   agentToolingListSkills: 'agentTooling:listSkills',
   agentToolingListAgents: 'agentTooling:listAgents',
+  agentToolingReadRaw: 'agentTooling:readRaw',
+  agentToolingPreviewSave: 'agentTooling:previewSave',
+  agentToolingCommitSave: 'agentTooling:commitSave',
+  agentToolingUndoSave: 'agentTooling:undoSave',
   // system (request/response, plus a main -> renderer broadcast for core lifecycle)
   systemOpenExternal: 'system:openExternal',
   systemRevealPath: 'system:revealPath',
