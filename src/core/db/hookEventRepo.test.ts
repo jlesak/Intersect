@@ -27,6 +27,15 @@ describe('hookEventRepo', () => {
     expect(repo.listBySession('b:2')).toHaveLength(1)
   })
 
+  test('listSessions returns each distinct session id once, sorted', () => {
+    const repo = createHookEventRepo(makeTestDb(), makeTestDeps())
+    expect(repo.listSessions()).toEqual([])
+    repo.append('b:2', 'Stop', {})
+    repo.append('a:1', 'Stop', {})
+    repo.append('a:1', 'UserPromptSubmit', {})
+    expect(repo.listSessions()).toEqual(['a:1', 'b:2'])
+  })
+
   test('a non-JSON payload (raw truncated body) survives the round trip as a string', () => {
     const repo = createHookEventRepo(makeTestDb(), makeTestDeps())
     repo.append('a:1', 'Stop', '{"truncat')

@@ -62,6 +62,7 @@ import {
 import { createPrInboxHandlers, prInboxWireRoutes } from './api/prInbox.ipc'
 import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
+import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentRuntime.ipc'
 import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
 import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
 import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ipc'
@@ -81,6 +82,11 @@ import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { createWorkItemRefRepo } from './db/workItemRefRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
 import { createTimeTracking } from './timeTracking/timeTracking'
+import { createAgentRuntimeRepo } from './db/agentRuntimeRepo'
+import {
+  createAgentRuntimeService,
+  type AgentRuntimeService
+} from './agentRuntime/agentRuntimeService'
 import { createJiraE2eStub } from './myWork/jiraE2eStub'
 import { createJiraFetcher, type JiraFetcher } from './myWork/jiraFetch'
 import { createJiraClient, type JiraFetchResult } from './myWork/jiraClient'
@@ -279,6 +285,11 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // Which preset each live session is (only a claude session's input drives 'working').
   const presetsBySession = new Map<string, Preset>()
 
+  // Agent runtime evidence recompute, wired once its dependencies (the session index) exist. The
+  // PTY-exit handler below closes over this holder, so it must be declared before the session
+  // manager; `.current` is filled in when the service is constructed further down.
+  const agentRuntimeRef: { current?: AgentRuntimeService } = {}
+
   // Hook lifecycle: raw event persistence with real retention, plus the per-session state
   // machine fed by the authenticated listener below. Alerts flow through the one notifier so
   // hook and marker paths share dedupe, presence gating, and the dock badge.
@@ -357,6 +368,12 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         terminalStream.dispose(event.sessionId)
         emitPush(Channel.terminalExit, event)
         lifecycle.onPtyExit(event.sessionId, event.exitCode)
+        // The session ended: reconcile its agent runtime evidence from the now-complete pings.
+        try {
+          agentRuntimeRef.current?.recomputeSession(event.sessionId)
+        } catch (err) {
+          console.warn('[agentRuntime] recompute on exit failed:', err)
+        }
         notifier.forget(event.sessionId)
         detector.forget(event.sessionId)
         presetsBySession.delete(event.sessionId)
@@ -499,6 +516,28 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       overrides: createTimeOverrideRepo(db, repoDeps)
     })
   })
+
+  // --- Agent runtime evidence slice: measured agent runtime derived from hook pings (primary)
+  // and historical JSONL transcripts (coarse fallback), kept strictly separate from human
+  // worklogs and never uploaded. Reuses the shared session index and the same project/ref
+  // attribution the rest of the app uses. Recompute is idempotent, so the boot pass (after the
+  // hook retention prune above) safely rebuilds the whole evidence set from current inputs.
+  const agentRuntime = createAgentRuntimeService({
+    hookEvents,
+    workItemRefs,
+    workspaces,
+    tabs,
+    projects,
+    sessions: sessionIndex,
+    pathDeps: projectPathDeps,
+    repo: createAgentRuntimeRepo(db),
+    now: () => Date.now()
+  })
+  agentRuntimeRef.current = agentRuntime
+  void agentRuntime.recomputeAll().catch((err) => {
+    console.warn('[agentRuntime] boot recompute failed:', err)
+  })
+  const agentRuntimeHandlers = createAgentRuntimeHandlers({ service: agentRuntime })
 
   const projectHandlers = createProjectHandlers({
     projects,
@@ -660,6 +699,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     prInboxWireRoutes(prInboxHandlers),
     sessionsWireRoutes(createSessionHandlers({ index: sessionIndex })),
     timeTrackingWireRoutes(timeTrackingHandlers),
+    agentRuntimeWireRoutes(agentRuntimeHandlers),
     todoWireRoutes(todoHandlers),
     myWorkWireRoutes(myWorkHandlers),
     oneOnOneWireRoutes(oneOnOneHandlers),

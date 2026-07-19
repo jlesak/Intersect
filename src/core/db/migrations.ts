@@ -484,6 +484,36 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_work_item_ref_events_tab ON work_item_ref_events(tab_id, at);
       `)
     }
+  },
+  {
+    // Agent runtime evidence: measured agent runtime, kept strictly separate from human worklogs
+    // and never uploaded. One row per session per local day (the composite primary key is the
+    // idempotency guard - a recompute upserts in place). `source` distinguishes primary hook
+    // pings from the coarse JSONL transcript fallback; `confidence` labels how trustworthy the
+    // figure is. `project_id` and the optional work-item columns carry attribution, all nullable
+    // so unknown context simply stays unassigned. `external_id` is the stable idempotent key.
+    // This table is NOT a Toggl outbox and holds nothing that is confirmed human time.
+    version: 19,
+    up(db) {
+      db.exec(`
+        CREATE TABLE agent_runtime_evidence (
+          session_id       TEXT NOT NULL,
+          local_date       TEXT NOT NULL,
+          minutes          INTEGER NOT NULL,
+          source           TEXT NOT NULL CHECK (source IN ('hook','jsonl')),
+          confidence       TEXT NOT NULL CHECK (confidence IN ('high','low')),
+          project_id       TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          work_item_source TEXT,
+          work_item_key    TEXT,
+          external_id      TEXT NOT NULL,
+          computed_at      INTEGER NOT NULL,
+          PRIMARY KEY (session_id, local_date)
+        );
+
+        CREATE INDEX idx_agent_runtime_date ON agent_runtime_evidence(local_date);
+        CREATE INDEX idx_agent_runtime_project ON agent_runtime_evidence(project_id, local_date);
+      `)
+    }
   }
 ]
 

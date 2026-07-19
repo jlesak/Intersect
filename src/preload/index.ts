@@ -152,6 +152,13 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, source, id, update),
     deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id)
   },
+  agentRuntime: {
+    getWeek: (weekStart) => ipcRenderer.invoke(Channel.agentRuntimeGetWeek, weekStart),
+    getForProject: (projectId, weekStart) =>
+      ipcRenderer.invoke(Channel.agentRuntimeGetForProject, projectId, weekStart),
+    getForSession: (sessionId) => ipcRenderer.invoke(Channel.agentRuntimeGetForSession, sessionId),
+    refresh: () => ipcRenderer.invoke(Channel.agentRuntimeRefresh)
+  },
   todo: {
     list: () => ipcRenderer.invoke(Channel.todoList),
     add: (text, dueDay) => ipcRenderer.invoke(Channel.todoAdd, text, dueDay),

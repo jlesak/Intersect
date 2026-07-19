@@ -369,6 +369,70 @@ describe('migrations', () => {
     ).toBe(0)
   })
 
+  test('agent_runtime_evidence enforces one row per session per day and constrains source/confidence', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    const insert = db.prepare(
+      `INSERT INTO agent_runtime_evidence
+         (session_id, local_date, minutes, source, confidence, project_id,
+          work_item_source, work_item_key, external_id, computed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`
+    )
+    insert.run('ws1:tab1', '2026-07-06', 30, 'hook', 'high', null, null, null, 'hook:ws1:tab1:2026-07-06', 1)
+    // The (session, day) primary key forbids a second row for the same session and day.
+    expect(() =>
+      insert.run('ws1:tab1', '2026-07-06', 40, 'hook', 'high', null, null, null, 'x', 2)
+    ).toThrow()
+    // A row on a different day is allowed.
+    insert.run('ws1:tab1', '2026-07-07', 12, 'jsonl', 'low', null, null, null, 'jsonl:ws1:tab1:2026-07-07', 3)
+    expect(
+      (db.prepare("SELECT count(*) AS c FROM agent_runtime_evidence WHERE session_id='ws1:tab1'").get() as { c: number }).c
+    ).toBe(2)
+    // Unknown source and confidence are rejected by the CHECK constraints.
+    expect(() =>
+      insert.run('s2', '2026-07-06', 1, 'toggl', 'high', null, null, null, 'x', 1)
+    ).toThrow()
+    expect(() =>
+      insert.run('s2', '2026-07-06', 1, 'hook', 'medium', null, null, null, 'x', 1)
+    ).toThrow()
+  })
+
+  test('deleting a project nulls agent_runtime_evidence.project_id instead of the row', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      'INSERT INTO projects (id,name,sort_order,archived,created_at) VALUES (?,?,?,?,?)'
+    ).run('p1', 'P', 0, 0, 1)
+    db.prepare(
+      `INSERT INTO agent_runtime_evidence
+         (session_id, local_date, minutes, source, confidence, project_id,
+          work_item_source, work_item_key, external_id, computed_at)
+       VALUES ('ws1:tab1','2026-07-06',30,'hook','high','p1',NULL,NULL,'hook:ws1:tab1:2026-07-06',1)`
+    ).run()
+    db.prepare('DELETE FROM projects WHERE id=?').run('p1')
+    expect(
+      db.prepare("SELECT project_id AS p FROM agent_runtime_evidence WHERE session_id='ws1:tab1'").get()
+    ).toEqual({ p: null })
+  })
+
+  test('agent_runtime_evidence is created only at v19, not before', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 18)
+    const before = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_evidence'")
+        .all() as { name: string }[]
+    ).length
+    expect(before).toBe(0)
+    runMigrations(db)
+    const after = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_evidence'")
+        .all() as { name: string }[]
+    ).length
+    expect(after).toBe(1)
+  })
+
   test('work_item_ref_events has no tab foreign key so audit history survives tab deletion', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

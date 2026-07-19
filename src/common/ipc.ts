@@ -2,6 +2,8 @@ import type {
   AdoConnectionResult,
   AdoSettings,
   AgentCatalogItem,
+  AgentRuntimeDay,
+  AgentRuntimeEvidence,
   AgentToolingScope,
   AppSettings,
   BootState,
@@ -250,6 +252,20 @@ export interface IpcApi {
     updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
     deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+  }
+  agentRuntime: {
+    /**
+     * Per-day agent-runtime rollup for the Monday-Friday week (minutes SUMMED across sessions, so
+     * three parallel one-hour agents read as 180 minutes). Supporting context only - never a
+     * worklog and never uploaded.
+     */
+    getWeek(weekStart: string): Promise<AgentRuntimeDay[]>
+    /** The same per-day rollup restricted to one project. */
+    getForProject(projectId: string, weekStart: string): Promise<AgentRuntimeDay[]>
+    /** The raw evidence rows for one session (hook `workspaceId:tabId` or `jsonl:<uuid>`). */
+    getForSession(sessionId: string): Promise<AgentRuntimeEvidence[]>
+    /** Recompute all evidence from hook pings plus the JSONL fallback; idempotent and converging. */
+    refresh(): Promise<void>
   }
   todo: {
     /** Both TODO lists: open tasks in manual order, done most recently first. */
@@ -537,6 +553,11 @@ export const Channel = {
   timeTrackingAddManual: 'timeTracking:addManual',
   timeTrackingUpdateEntry: 'timeTracking:updateEntry',
   timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
+  // agentRuntime (request/response)
+  agentRuntimeGetWeek: 'agentRuntime:getWeek',
+  agentRuntimeGetForProject: 'agentRuntime:getForProject',
+  agentRuntimeGetForSession: 'agentRuntime:getForSession',
+  agentRuntimeRefresh: 'agentRuntime:refresh',
   // todo (request/response)
   todoList: 'todo:list',
   todoAdd: 'todo:add',

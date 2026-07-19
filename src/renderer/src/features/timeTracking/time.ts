@@ -1,4 +1,4 @@
-import type { TimeEntry } from '@common/domain'
+import type { AgentRuntimeDay, TimeEntry } from '@common/domain'
 import { addDays, dateOfDayKey } from '@common/week'
 import { formatDuration } from '@renderer/features/sessions'
 
@@ -59,6 +59,16 @@ const pad = (n: number): string => String(n).padStart(2, '0')
 export function formatDayDate(dayKey: string): string {
   const d = dateOfDayKey(dayKey)
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`
+}
+
+/**
+ * A day's supporting agent-runtime label, e.g. `2 agents · 1h 34m runtime`. This is context that
+ * sits under the worklog column header, deliberately phrased as agent runtime (not worked time)
+ * so it can never be mistaken for a human worklog entry.
+ */
+export function formatAgentRuntime(day: AgentRuntimeDay): string {
+  const runtime = formatDuration(day.minutes * 60_000)
+  return `${day.agents} agent${day.agents === 1 ? '' : 's'} · ${runtime} runtime`
 }
 
 /** The topbar's week range label, `dd.mm – dd.mm.yyyy` (Monday through Sunday). */

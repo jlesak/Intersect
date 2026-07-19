@@ -594,6 +594,64 @@ export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueK
 export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>
 
 // ---------------------------------------------------------------------------
+// Agent runtime evidence - see docs/2026-07-07-intersect-final-form-design.md section 9.4
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a piece of agent runtime evidence was derived from. `hook` is the primary,
+ * high-confidence input (authenticated activity pings from a managed session's lifecycle
+ * hooks); `jsonl` is the coarse, lower-confidence fallback derived from a historical Claude
+ * Code transcript that was never wired to hooks.
+ */
+export const AGENT_RUNTIME_SOURCES = ['hook', 'jsonl'] as const
+export type AgentRuntimeSource = (typeof AGENT_RUNTIME_SOURCES)[number]
+
+/** How trustworthy the evidence is: hook-derived is `high`, transcript-derived is `low`. */
+export const AGENT_RUNTIME_CONFIDENCES = ['high', 'low'] as const
+export type AgentRuntimeConfidence = (typeof AGENT_RUNTIME_CONFIDENCES)[number]
+
+/**
+ * One row of measured agent runtime for a single session (or transcript) on a single local
+ * calendar day. This is emphatically NOT a human worklog and is never uploaded anywhere: it is
+ * supporting evidence about how long agents ran. Parallel sessions each keep their own row, so
+ * their minutes SUM as agent-hours rather than collapsing into one wall-clock timeline.
+ *
+ * `sessionId` is the Intersect instance id (`workspaceId:tabId`) for hook evidence, or
+ * `jsonl:<uuid>` for a transcript fallback. `localDate` is the `yyyy-mm-dd` bucket. `externalId`
+ * is the stable, idempotent key `${source}:${sessionId}:${localDate}`. `workItemSource` /
+ * `workItemKey` carry the session's primary work item when one is assigned; both null means
+ * unattributed. `projectId` is null when the session resolves to no project (unassigned).
+ */
+export interface AgentRuntimeEvidence {
+  sessionId: string
+  localDate: string
+  minutes: number
+  source: AgentRuntimeSource
+  confidence: AgentRuntimeConfidence
+  projectId: string | null
+  workItemSource: string | null
+  workItemKey: string | null
+  externalId: string
+  computedAt: number
+}
+
+/** The fields the recompute service supplies for one evidence row; `externalId` is derived. */
+export type NewAgentRuntimeEvidence = Omit<AgentRuntimeEvidence, 'externalId'>
+
+/**
+ * A per-day rollup of agent runtime for a week: the total minutes SUMMED across every session
+ * that ran that day (agent-hours, so three parallel one-hour agents show as 180 minutes), how
+ * many distinct sessions/agents contributed, and whether any contributing row is low-confidence
+ * (so the UI can mark a transcript-derived figure). Days without any evidence are simply absent.
+ */
+export interface AgentRuntimeDay {
+  localDate: string
+  minutes: number
+  agents: number
+  hasLowConfidence: boolean
+}
+
+// ---------------------------------------------------------------------------
 // TODO list - see docs/superpowers/specs/2026-07-06-todo-list-design.md
 // ---------------------------------------------------------------------------
 
