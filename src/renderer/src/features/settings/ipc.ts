@@ -3,7 +3,8 @@ import type {
   AdoSettings,
   AppSettings,
   NotificationSettings,
-  ReviewSettings
+  ReviewSettings,
+  SessionSettings
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
@@ -16,5 +17,7 @@ export const setTerminalFontSize = (px: number): Promise<AppSettings> =>
   ipc().settings.setTerminalFontSize(px)
 export const setReview = (review: ReviewSettings): Promise<AppSettings> =>
   ipc().settings.setReview(review)
+export const setSession = (session: SessionSettings): Promise<AppSettings> =>
+  ipc().settings.setSession(session)
 export const testAdoConnection = (ado: AdoSettings): Promise<AdoConnectionResult> =>
   ipc().settings.testAdoConnection(ado)

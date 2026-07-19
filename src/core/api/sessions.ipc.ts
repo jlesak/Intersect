@@ -1,9 +1,20 @@
+import type { DatabaseSync } from 'node:sqlite'
 import { type WireRoutes } from '@common/coreBridge'
-import { Channel, type IpcApi } from '@common/ipc'
+import type { LiveClaudeSession } from '@common/domain'
+import { Channel, parseSessionId, type IpcApi } from '@common/ipc'
 import type { SessionIndex } from '../sessions/sessionIndex'
+import type { SessionLifecycleService } from '../hooks/sessionLifecycleService'
+import type { TabRepo } from '../db/tabRepo'
+import type { WorkspaceRepo } from '../db/workspaceRepo'
+import { tx } from '../db/tx'
 
 export interface SessionHandlerDeps {
   index: SessionIndex
+  /** The in-memory lifecycle tracking whose live set the quit modal reads. */
+  lifecycle: SessionLifecycleService
+  tabs: TabRepo
+  workspaces: WorkspaceRepo
+  db: DatabaseSync
 }
 
 /**
@@ -19,14 +30,39 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Session search handlers: thin delegation to the in-memory {@link SessionIndex}. The index owns
- * the caching and disk I/O; these handlers only bridge it to IPC and normalize errors.
+ * Session handlers: the read-only search index delegation, plus the suspend/resume surface. The
+ * live list joins the canonical in-memory lifecycle tracking with the persisted tab/workspace names
+ * so the quit modal in Electron main can name each running session without duplicating core state.
  */
 export function createSessionHandlers(deps: SessionHandlerDeps): IpcApi['sessions'] {
   return {
     list: () => surface(() => deps.index.list()),
     refresh: () => surface(() => deps.index.refresh()),
-    getTranscript: (id) => surface(() => deps.index.getTranscript(id))
+    getTranscript: (id) => surface(() => deps.index.getTranscript(id)),
+
+    listLive: () =>
+      surface(async () => {
+        const live: LiveClaudeSession[] = []
+        for (const session of deps.lifecycle.listLive()) {
+          const parsed = parseSessionId(session.sessionId)
+          if (!parsed) continue
+          const tab = deps.tabs.getById(parsed.tabId)
+          const ws = deps.workspaces.getById(parsed.workspaceId)
+          live.push({
+            sessionId: session.sessionId,
+            tabId: parsed.tabId,
+            title: tab?.title ?? 'Claude Code',
+            workspace: ws?.name ?? session.cwd,
+            cwd: session.cwd
+          })
+        }
+        return live
+      }),
+
+    clearSuspended: (tabId) =>
+      surface(async () => {
+        tx(deps.db, () => deps.tabs.clearSuspended(tabId))
+      })
   }
 }
 
@@ -34,6 +70,8 @@ export function sessionsWireRoutes(h: IpcApi['sessions']): WireRoutes {
   return {
     [Channel.sessionsList]: h.list,
     [Channel.sessionsRefresh]: h.refresh,
-    [Channel.sessionsGetTranscript]: h.getTranscript
+    [Channel.sessionsGetTranscript]: h.getTranscript,
+    [Channel.sessionsListLive]: h.listLive,
+    [Channel.sessionsClearSuspended]: h.clearSuspended
   }
 }

@@ -142,7 +142,9 @@ const api: IpcApi = {
   sessions: {
     list: () => ipcRenderer.invoke(Channel.sessionsList),
     refresh: () => ipcRenderer.invoke(Channel.sessionsRefresh),
-    getTranscript: (id) => ipcRenderer.invoke(Channel.sessionsGetTranscript, id)
+    getTranscript: (id) => ipcRenderer.invoke(Channel.sessionsGetTranscript, id),
+    listLive: () => ipcRenderer.invoke(Channel.sessionsListLive),
+    clearSuspended: (tabId) => ipcRenderer.invoke(Channel.sessionsClearSuspended, tabId)
   },
   timeTracking: {
     getWeek: (weekStart) => ipcRenderer.invoke(Channel.timeTrackingGetWeek, weekStart),
@@ -196,6 +198,7 @@ const api: IpcApi = {
     setAdo: (ado) => ipcRenderer.invoke(Channel.settingsSetAdo, ado),
     setTerminalFontSize: (px) => ipcRenderer.invoke(Channel.settingsSetTerminalFontSize, px),
     setReview: (review) => ipcRenderer.invoke(Channel.settingsSetReview, review),
+    setSession: (session) => ipcRenderer.invoke(Channel.settingsSetSession, session),
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
   agentTooling: {

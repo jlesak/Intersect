@@ -7,6 +7,7 @@ import {
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_NOTIFICATION_SETTINGS,
   DEFAULT_REVIEW_SETTINGS,
+  DEFAULT_SESSION_SETTINGS,
   type SettingsRepo
 } from '../db/settingsRepo'
 import { createSettingsHandlers, settingsWireRoutes } from './settings.ipc'
@@ -44,8 +45,21 @@ describe('settings handlers', () => {
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: FALLBACK_ADO.orgUrl, project: FALLBACK_ADO.project, hasPat: true },
       appearance: DEFAULT_APPEARANCE_SETTINGS,
-      review: DEFAULT_REVIEW_SETTINGS
+      review: DEFAULT_REVIEW_SETTINGS,
+      session: DEFAULT_SESSION_SETTINGS
     })
+  })
+
+  test('setSession persists the auto-resume toggle and returns the fresh settings', async () => {
+    const result = await h.setSession({ autoResume: false })
+    expect(result.session).toEqual({ autoResume: false })
+    expect(settings.getSession()).toEqual({ autoResume: false })
+  })
+
+  test('setSession rejects a non-boolean autoResume', async () => {
+    await expect(
+      h.setSession({ autoResume: 'yes' as unknown as boolean })
+    ).rejects.toThrow(/autoResume must be a boolean/)
   })
 
   test('get never leaks the fallback PAT to the renderer, only whether one exists', async () => {
@@ -195,6 +209,7 @@ describe('settingsWireRoutes', () => {
         Channel.settingsSetAdo,
         Channel.settingsSetTerminalFontSize,
         Channel.settingsSetReview,
+        Channel.settingsSetSession,
         Channel.settingsTestAdoConnection
       ].sort()
     )

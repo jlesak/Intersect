@@ -6,7 +6,8 @@ import {
   type AdoSettings,
   type AppearanceSettings,
   type NotificationSettings,
-  type ReviewSettings
+  type ReviewSettings,
+  type SessionSettings
 } from '@common/domain'
 
 // app_state keys the settings live under, one JSON document per category so saving one
@@ -15,6 +16,7 @@ const NOTIFICATIONS_KEY = 'settings.notifications'
 const ADO_KEY = 'settings.ado'
 const APPEARANCE_KEY = 'settings.appearance'
 const REVIEW_KEY = 'settings.review'
+const SESSION_KEY = 'settings.session'
 
 /** The pre-settings behavior: waiting/done alert with sound, working stays quiet. */
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -34,6 +36,11 @@ export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = {
   prompt: DEFAULT_PR_REVIEW_PROMPT
 }
 
+/** The approved default: a confirmed quit resumes its suspended claude sessions automatically. */
+export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
+  autoResume: true
+}
+
 /**
  * Typed user settings over the app_state key/value table. Reads merge the stored JSON over the
  * defaults, so a document written by an older app version (or a corrupted one) degrades to the
@@ -46,6 +53,8 @@ export interface SettingsRepo {
   setAppearance(appearance: AppearanceSettings): void
   getReview(): ReviewSettings
   setReview(review: ReviewSettings): void
+  getSession(): SessionSettings
+  setSession(session: SessionSettings): void
   /** The ADO settings saved from the UI, or null when the user never saved any. */
   getSavedAdo(): AdoSettings | null
   setAdo(ado: AdoSettings): void
@@ -114,6 +123,17 @@ export function createSettingsRepo(db: DatabaseSync): SettingsRepo {
 
     setReview(review) {
       write(REVIEW_KEY, review)
+    },
+
+    getSession() {
+      const raw = read(SESSION_KEY)
+      const d = DEFAULT_SESSION_SETTINGS
+      if (!raw) return { ...d }
+      return { autoResume: bool(raw.autoResume, d.autoResume) }
+    },
+
+    setSession(session) {
+      write(SESSION_KEY, session)
     },
 
     getSavedAdo() {

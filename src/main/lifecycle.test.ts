@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { activateAction, shouldQuitOnWindowAllClosed, shouldZeroDockBadge } from './lifecycle'
+import {
+  activateAction,
+  quitDecision,
+  shouldQuitOnWindowAllClosed,
+  shouldZeroDockBadge
+} from './lifecycle'
 
 describe('shouldQuitOnWindowAllClosed', () => {
   test('on macOS, closing the last window keeps the app (and core/PTYs) alive', () => {
@@ -28,6 +33,25 @@ describe('activateAction', () => {
   test('never creates windows while the app is quitting', () => {
     expect(activateAction({ hasLiveWindow: false, quitting: true })).toBe('none')
     expect(activateAction({ hasLiveWindow: true, quitting: true })).toBe('none')
+  })
+})
+
+describe('quitDecision', () => {
+  test('with no live sessions the quit proceeds without a dialog', () => {
+    expect(quitDecision(0, null)).toBe('quit')
+  })
+
+  test('Suspend & Quit (response 0) proceeds to teardown', () => {
+    expect(quitDecision(2, 0)).toBe('quit')
+  })
+
+  test('Cancel (response 1) leaves the app and every session untouched', () => {
+    expect(quitDecision(2, 1)).toBe('stay')
+  })
+
+  test('a dismissed dialog (any non-zero response) is treated as cancel', () => {
+    expect(quitDecision(1, -1)).toBe('stay')
+    expect(quitDecision(1, null)).toBe('stay')
   })
 })
 

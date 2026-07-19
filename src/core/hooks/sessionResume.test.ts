@@ -1,8 +1,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { hookCwdMatches, projectSessionDir, sessionFileExists } from './sessionResume'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  hookCwdMatches,
+  projectSessionDir,
+  reconcileSuspendedTabs,
+  resolveResumeTarget,
+  sessionFileExists,
+  type SuspendedTab
+} from './sessionResume'
 
 describe('hookCwdMatches', () => {
   const CWD = '/Users/jan/Projects/Intersect'
@@ -81,5 +88,65 @@ describe('sessionFileExists', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('resolveResumeTarget', () => {
+  const CWD = '/Users/jan/Projects/Intersect'
+
+  it('returns the stored id when its transcript exists under this cwd', () => {
+    const exists = (cwd: string, id: string): boolean => cwd === CWD && id === 'stored-uuid'
+    expect(resolveResumeTarget(CWD, 'stored-uuid', exists)).toBe('stored-uuid')
+  })
+
+  it('rejects a foreign/nested id with no transcript under this cwd (returns null)', () => {
+    // The nested id has a transcript, but only under a DIFFERENT cwd, so from here it is unresolvable.
+    const exists = (cwd: string, id: string): boolean => cwd === '/private/tmp' && id === 'nested-uuid'
+    expect(resolveResumeTarget(CWD, 'nested-uuid', exists)).toBeNull()
+  })
+
+  it('returns null when the stored id has no transcript at all (fresh spawn)', () => {
+    expect(resolveResumeTarget(CWD, 'missing-uuid', () => false)).toBeNull()
+  })
+
+  it('returns null when there is no stored id', () => {
+    expect(resolveResumeTarget(CWD, null, () => true)).toBeNull()
+  })
+})
+
+describe('reconcileSuspendedTabs', () => {
+  const cwdOf = (id: string): string | undefined => (id === 'ws-ok' ? '/repo' : id === 'ws-missing' ? undefined : '/other')
+
+  it('keeps a suspended tab whose transcript resolves and never spawns anything', () => {
+    const setResumeFailed = vi.fn()
+    const tabs: SuspendedTab[] = [{ id: 't-ok', workspaceId: 'ws-ok', resumeSessionId: 'good-uuid' }]
+    reconcileSuspendedTabs(
+      { listSuspended: () => tabs, workspaceCwd: cwdOf, setResumeFailed },
+      (cwd, id) => cwd === '/repo' && id === 'good-uuid'
+    )
+    expect(setResumeFailed).not.toHaveBeenCalled()
+  })
+
+  it('degrades a tab with no resolvable transcript to resume-failed', () => {
+    const setResumeFailed = vi.fn()
+    const tabs: SuspendedTab[] = [{ id: 't-bad', workspaceId: 'ws-ok', resumeSessionId: 'gone-uuid' }]
+    reconcileSuspendedTabs({ listSuspended: () => tabs, workspaceCwd: cwdOf, setResumeFailed }, () => false)
+    expect(setResumeFailed).toHaveBeenCalledWith('t-bad', 'resume-failed')
+  })
+
+  it('degrades a tab whose workspace cwd is unknown, without calling the fs check', () => {
+    const setResumeFailed = vi.fn()
+    const exists = vi.fn(() => true)
+    const tabs: SuspendedTab[] = [{ id: 't-nocwd', workspaceId: 'ws-missing', resumeSessionId: 'x' }]
+    reconcileSuspendedTabs({ listSuspended: () => tabs, workspaceCwd: cwdOf, setResumeFailed }, exists)
+    expect(setResumeFailed).toHaveBeenCalledWith('t-nocwd', 'resume-failed')
+    expect(exists).not.toHaveBeenCalled()
+  })
+
+  it('degrades a tab that never captured a resume id (no-session-id case)', () => {
+    const setResumeFailed = vi.fn()
+    const tabs: SuspendedTab[] = [{ id: 't-none', workspaceId: 'ws-ok', resumeSessionId: null }]
+    reconcileSuspendedTabs({ listSuspended: () => tabs, workspaceCwd: cwdOf, setResumeFailed }, () => true)
+    expect(setResumeFailed).toHaveBeenCalledWith('t-none', 'resume-failed')
   })
 })

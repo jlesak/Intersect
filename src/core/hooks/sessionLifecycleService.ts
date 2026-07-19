@@ -1,6 +1,6 @@
 import type { PermissionRisk, SessionStatus } from '@common/ipc'
 import type { HookEventName } from './hookListener'
-import { transition, type LifecycleEvent, type LifecycleState } from './lifecycle'
+import { isTerminalState, transition, type LifecycleEvent, type LifecycleState } from './lifecycle'
 import { classifyPermissionRisk, type PendingToolUse } from './permissionRisk'
 import { hookCwdMatches } from './sessionResume'
 
@@ -34,6 +34,12 @@ export interface SessionLifecycleService {
    * event arrived). While true, the PTY marker fallback should stand down - hooks win.
    */
   isHookHealthy(sessionId: string): boolean
+  /**
+   * Every tracked managed claude session currently in a live (non-terminal) state, with its spawn
+   * cwd. This is the canonical live list the quit modal and the suspend-on-quit transaction read;
+   * shells are never tracked here, and an exited session has already dropped out of tracking.
+   */
+  listLive(): { sessionId: string; cwd: string; state: LifecycleState }[]
 }
 
 interface TrackedSession {
@@ -202,6 +208,16 @@ export function createSessionLifecycleService(deps: SessionLifecycleDeps): Sessi
 
     isHookHealthy(sessionId) {
       return sessions.get(sessionId)?.hookHealthy ?? false
+    },
+
+    listLive() {
+      const live: { sessionId: string; cwd: string; state: LifecycleState }[] = []
+      for (const [sessionId, session] of sessions) {
+        if (!isTerminalState(session.state)) {
+          live.push({ sessionId, cwd: session.cwd, state: session.state })
+        }
+      }
+      return live
     }
   }
 }

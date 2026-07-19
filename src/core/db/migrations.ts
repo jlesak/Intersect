@@ -514,6 +514,31 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_agent_runtime_project ON agent_runtime_evidence(project_id, local_date);
       `)
     }
+  },
+  {
+    // Suspend-on-quit / resume-on-launch: a claude tab carries the suspend lifecycle inline on its
+    // row (`session_status` nullable: 'suspended' | 'resuming' | 'resume-failed' | NULL = normal),
+    // written before the destructive shutdown and cleared on a successful respawn. The append-only
+    // event table durably audits every suspend/resume/resume-failed with its reason; it has no tab
+    // foreign key on purpose - the history outlives the tab.
+    version: 20,
+    up(db) {
+      db.exec(`
+        ALTER TABLE tabs ADD COLUMN session_status TEXT;
+        ALTER TABLE tabs ADD COLUMN suspend_reason TEXT;
+        ALTER TABLE tabs ADD COLUMN suspended_at INTEGER;
+
+        CREATE TABLE session_lifecycle_events (
+          id      INTEGER PRIMARY KEY AUTOINCREMENT,
+          tab_id  TEXT NOT NULL,
+          action  TEXT NOT NULL CHECK (action IN ('suspend','resume','resume-failed')),
+          reason  TEXT,
+          at      INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_session_lifecycle_events_tab ON session_lifecycle_events(tab_id, at);
+      `)
+    }
   }
 ]
 

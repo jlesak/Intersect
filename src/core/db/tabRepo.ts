@@ -1,5 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { PRESET_META, type Preset, type Tab } from '@common/domain'
+import {
+  PRESET_META,
+  type Preset,
+  type SessionLifecycleEvent,
+  type SuspendStatus,
+  type Tab
+} from '@common/domain'
 import type { RepoDeps } from './deps'
 
 interface TabRow {
@@ -11,6 +17,9 @@ interface TabRow {
   sort_order: number
   created_at: number
   resume_session_id: string | null
+  session_status: string | null
+  suspend_reason: string | null
+  suspended_at: number | null
 }
 
 function toTab(row: TabRow): Tab {
@@ -21,7 +30,10 @@ function toTab(row: TabRow): Tab {
     preset: row.preset as Preset,
     paneSlot: row.pane_slot,
     sortOrder: row.sort_order,
-    resumeSessionId: row.resume_session_id ?? null
+    resumeSessionId: row.resume_session_id ?? null,
+    sessionStatus: (row.session_status as SuspendStatus | null) ?? null,
+    suspendReason: row.suspend_reason ?? null,
+    suspendedAt: row.suspended_at ?? null
   }
 }
 
@@ -42,6 +54,20 @@ export interface TabRepo {
   setResumeSessionId(id: string, resumeSessionId: string | null): void
   /** Clear the given pane slot for every tab of the workspace except `exceptId`. */
   clearPaneSlot(workspaceId: string, slot: number, exceptId: string): void
+  /**
+   * Mark the tab `suspended` with a termination reason and append a `suspend` audit event. Two
+   * statements, deliberately without its own transaction - the caller (the coordinated shutdown)
+   * wraps the whole suspend pass in one `tx()`. Tolerates an unknown tab id as a no-op.
+   */
+  setSuspended(id: string, reason: string): void
+  /** Move a suspended tab to the recoverable `resume-failed` state and audit it. */
+  setResumeFailed(id: string, reason: string): void
+  /** Clear a tab's suspend marker after a successful respawn and append a `resume` audit event. */
+  clearSuspended(id: string): void
+  /** Every tab currently marked `suspended`, across all workspaces (the boot reconcile input). */
+  listSuspended(): Tab[]
+  /** The tab's full suspend/resume audit history, oldest first. Survives tab deletion. */
+  history(id: string): SessionLifecycleEvent[]
 }
 
 export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
@@ -126,6 +152,70 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
       db.prepare(
         'UPDATE tabs SET pane_slot = NULL WHERE workspace_id = ? AND pane_slot = ? AND id != ?'
       ).run(workspaceId, slot, exceptId)
+    },
+
+    setSuspended(id, reason) {
+      const at = deps.now()
+      const changed = db
+        .prepare(
+          "UPDATE tabs SET session_status = 'suspended', suspend_reason = ?, suspended_at = ? WHERE id = ?"
+        )
+        .run(reason, at, id)
+      if (changed.changes === 0) return
+      appendEvent(id, 'suspend', reason, at)
+    },
+
+    setResumeFailed(id, reason) {
+      const at = deps.now()
+      const changed = db
+        .prepare(
+          "UPDATE tabs SET session_status = 'resume-failed', suspend_reason = ?, suspended_at = ? WHERE id = ?"
+        )
+        .run(reason, at, id)
+      if (changed.changes === 0) return
+      appendEvent(id, 'resume-failed', reason, at)
+    },
+
+    clearSuspended(id) {
+      const changed = db
+        .prepare(
+          'UPDATE tabs SET session_status = NULL, suspend_reason = NULL, suspended_at = NULL WHERE id = ?'
+        )
+        .run(id)
+      if (changed.changes === 0) return
+      appendEvent(id, 'resume', null, deps.now())
+    },
+
+    listSuspended() {
+      const rows = db
+        .prepare("SELECT * FROM tabs WHERE session_status = 'suspended' ORDER BY suspended_at")
+        .all() as unknown as TabRow[]
+      return rows.map(toTab)
+    },
+
+    history(id) {
+      const rows = db
+        .prepare(
+          'SELECT tab_id, action, reason, at FROM session_lifecycle_events WHERE tab_id = ? ORDER BY at, id'
+        )
+        .all(id) as { tab_id: string; action: string; reason: string | null; at: number }[]
+      return rows.map((r) => ({
+        tabId: r.tab_id,
+        action: r.action as SessionLifecycleEvent['action'],
+        reason: r.reason ?? null,
+        at: r.at
+      }))
     }
+  }
+
+  function appendEvent(
+    tabId: string,
+    action: SessionLifecycleEvent['action'],
+    reason: string | null,
+    at: number
+  ): void {
+    db.prepare(
+      'INSERT INTO session_lifecycle_events (tab_id, action, reason, at) VALUES (?,?,?,?)'
+    ).run(tabId, action, reason, at)
   }
 }

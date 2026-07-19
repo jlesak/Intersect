@@ -30,6 +30,12 @@ interface TabsState {
   setActiveTab(id: string): Promise<void>
   setLayout(layout: Layout): Promise<void>
   assignToPane(id: string, slot: number | null): Promise<void>
+  /**
+   * Locally clear a tab's suspend marker once its session has been respawned, so the pane stops
+   * showing the restored/resume state without waiting for a full re-hydrate. Mirrors the DB clear
+   * the core performs via sessions.clearSuspended.
+   */
+  markResumed(id: string): void
 }
 
 /** Tabs of the current workspace in bar order. */
@@ -187,5 +193,18 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
     } catch (e) {
       reportError('Could not place the tab', e)
     }
+  },
+
+  markResumed(id) {
+    set((s) => {
+      const tab = s.byId[id]
+      if (!tab || tab.sessionStatus === null) return s
+      return {
+        byId: {
+          ...s.byId,
+          [id]: { ...tab, sessionStatus: null, suspendReason: null, suspendedAt: null }
+        }
+      }
+    })
   }
 }))

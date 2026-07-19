@@ -82,6 +82,60 @@ export interface Tab {
    * `${workspaceId}:${tabId}` session id. Persisted, so the resumed conversation survives a restart.
    */
   resumeSessionId: string | null
+  /**
+   * The suspend/resume lifecycle marker written by a coordinated quit and cleared on a successful
+   * respawn. `null` is the ordinary case (nothing to recover). `'suspended'` means a confirmed quit
+   * marked this session for resume; the boot reconcile either keeps it (a valid transcript exists)
+   * or moves it to `'resume-failed'` (no safe target - the renderer offers manual recovery instead).
+   * Only ever set on claude tabs.
+   */
+  sessionStatus: SuspendStatus | null
+  /** Why the session was suspended or why resume failed (audited); null when never suspended. */
+  suspendReason: string | null
+  /** When the session was suspended (epoch ms); null when never suspended. */
+  suspendedAt: number | null
+}
+
+/**
+ * The suspend/resume lifecycle state a claude tab can carry between a confirmed quit and the next
+ * launch. `suspended` is written before the destructive shutdown; the boot reconcile keeps it when
+ * a transcript is resumable, otherwise degrades it to the recoverable `resume-failed`. `resuming`
+ * is the transient renderer-owned state while the new process comes up.
+ */
+export const SUSPEND_STATUSES = ['suspended', 'resuming', 'resume-failed'] as const
+export type SuspendStatus = (typeof SUSPEND_STATUSES)[number]
+
+/**
+ * Why a session was terminated for suspend, or why its resume could not proceed. `app-quit-suspend`
+ * is the ordinary confirmed-quit reason; `no-session-id` records a live session that never captured
+ * a resumable Claude UUID; `resume-failed` marks a suspended session whose transcript/cwd could not
+ * be verified at boot.
+ */
+export const TERMINATION_REASONS = ['app-quit-suspend', 'no-session-id', 'resume-failed'] as const
+export type TerminationReason = (typeof TERMINATION_REASONS)[number]
+
+/**
+ * One durable audit entry of a session's suspend/resume lifecycle. Appended (never mutated) and
+ * deliberately without a tab foreign key, so the history survives the tab's deletion.
+ */
+export interface SessionLifecycleEvent {
+  tabId: string
+  action: 'suspend' | 'resume' | 'resume-failed'
+  reason: string | null
+  at: number
+}
+
+/**
+ * A live managed Claude session as surfaced to the quit modal: enough to name it in the dialog and
+ * to know it is genuinely resumable. Built by the core from its in-memory lifecycle tracking joined
+ * with the tab/workspace display names.
+ */
+export interface LiveClaudeSession {
+  sessionId: string
+  tabId: string
+  title: string
+  workspace: string
+  cwd: string
 }
 
 /** Full state needed to hydrate the renderer at boot. */
@@ -801,6 +855,15 @@ export interface ReviewSettings {
   prompt: string
 }
 
+/**
+ * How the app treats sessions suspended by a confirmed quit. When `autoResume` is on, boot respawns
+ * each resumable claude session automatically; when off, boot only surfaces the suspended sessions
+ * and the user resumes each one manually from its pane.
+ */
+export interface SessionSettings {
+  autoResume: boolean
+}
+
 /** All user settings fetched together, so a single call hydrates the whole section. */
 export interface AppSettings {
   notifications: NotificationSettings
@@ -809,6 +872,7 @@ export interface AppSettings {
   adoFallback: AdoFallback
   appearance: AppearanceSettings
   review: ReviewSettings
+  session: SessionSettings
 }
 
 /** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */

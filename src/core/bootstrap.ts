@@ -14,6 +14,7 @@ import {
   type WireRoutes
 } from '@common/coreBridge'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
+import type { TerminationReason } from '@common/domain'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
 import { createAppStateRepo } from './db/appStateRepo'
@@ -40,6 +41,7 @@ import {
   writeListenerSidecar
 } from './hooks/listenerSidecar'
 import { createSessionLifecycleService } from './hooks/sessionLifecycleService'
+import { reconcileSuspendedTabs } from './hooks/sessionResume'
 import { createHookEventRepo, HOOK_EVENT_RETENTION_MS } from './db/hookEventRepo'
 import {
   USAGE_SNAPSHOT_FILENAME,
@@ -234,6 +236,17 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const workItemRefs = createWorkItemRefRepo(db, repoDeps)
   // Shared with the work-items slice, which resolves candidate projects through the overrides.
   const projectOverrides = createProjectOverrideRepo(db, repoDeps)
+
+  // Suspended-session boot reconcile: any claude tab a prior coordinated quit left `suspended`
+  // is verified here - a valid transcript under its canonical cwd keeps it suspended (the renderer
+  // owns the actual respawn), anything unresolvable degrades to the recoverable `resume-failed`.
+  // A pure DB+FS pass with no spawn, so it terminates deterministically and cannot boot-loop.
+  // Mirrors otoRuns.reconcileOnBoot: reconcile before serving requests, once per process.
+  reconcileSuspendedTabs({
+    listSuspended: () => tabs.listSuspended(),
+    workspaceCwd: (workspaceId) => workspaces.getById(workspaceId)?.folderPath,
+    setResumeFailed: (tabId, reason) => tabs.setResumeFailed(tabId, reason)
+  })
 
   // The main window's focus, as last reported over the port. Main owns the window; the core
   // only needs the flag to suppress alerts for a session the user is already looking at.
@@ -697,7 +710,9 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     workItemsWireRoutes(workItemsHandlers),
     terminalWireRoutes(terminalHandlers, (sessionId) => notifier.reportActive(sessionId)),
     prInboxWireRoutes(prInboxHandlers),
-    sessionsWireRoutes(createSessionHandlers({ index: sessionIndex })),
+    sessionsWireRoutes(
+      createSessionHandlers({ index: sessionIndex, lifecycle, tabs, workspaces, db })
+    ),
     timeTrackingWireRoutes(timeTrackingHandlers),
     agentRuntimeWireRoutes(agentRuntimeHandlers),
     todoWireRoutes(todoHandlers),
@@ -722,6 +737,31 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     hookListenerStopped = true
     void hookListenerHandle?.stop().catch(() => {})
     clearInterval(hookRetentionTimer)
+    // Genuine persisted suspend, committed BEFORE anything destructive: while the DB is still open
+    // and every PTY still alive, mark each live managed claude session `suspended` in one
+    // transaction. runtime.shutdown() is only reached on a coordinated quit (never a window close
+    // or a crash), so this is the one place suspend state is ever written. FS verification is
+    // deferred to the boot reconcile - here we only record intent, in a single synchronous tx that
+    // is well within the coordinated-shutdown budget.
+    try {
+      const live = lifecycle.listLive()
+      if (live.length > 0) {
+        tx(db, () => {
+          for (const session of live) {
+            const parsed = parseSessionId(session.sessionId)
+            if (!parsed) continue
+            const tab = tabs.getById(parsed.tabId)
+            if (!tab) continue
+            // A session that never captured a resumable Claude UUID records a distinct reason, so
+            // the boot reconcile routes it straight to recoverable failure instead of a blind resume.
+            const reason: TerminationReason = tab.resumeSessionId ? 'app-quit-suspend' : 'no-session-id'
+            tabs.setSuspended(parsed.tabId, reason)
+          }
+        })
+      }
+    } catch (err) {
+      console.warn('[lifecycle] suspend-on-quit marking failed:', err)
+    }
     sessions.killAll()
     terminalStream.disposeAll()
     review.shutdown()

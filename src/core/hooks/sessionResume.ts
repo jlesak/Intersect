@@ -51,3 +51,50 @@ export function sessionFileExists(cwd: string, sessionId: string): boolean {
   if (!sessionId) return false
   return fs.existsSync(path.join(projectSessionDir(cwd), `${sessionId}.jsonl`))
 }
+
+/**
+ * Decide what to hand `claude --resume` for a suspended tab being reconciled at boot. Intersect only
+ * ever resumes by the stored Claude session UUID (there is no `--session-id <rowId>` fallback), so
+ * there is a single candidate: the stored id is used iff its transcript exists under the canonical
+ * project-session dir for THIS cwd. A foreign/nested id inherited from another cwd has no transcript
+ * under this project, so it resolves to null - the nested rejection is implicit - and the caller
+ * treats null as "no safe resume target" (fresh spawn / recoverable failure). `exists` is injected
+ * so the decision is unit-testable without touching the filesystem.
+ */
+export function resolveResumeTarget(
+  cwd: string,
+  resumeSessionId: string | null,
+  exists: (cwd: string, sessionId: string) => boolean = sessionFileExists
+): string | null {
+  if (resumeSessionId && exists(cwd, resumeSessionId)) return resumeSessionId
+  return null
+}
+
+/** A suspended claude tab as the boot reconcile sees it (the minimal shape it needs). */
+export interface SuspendedTab {
+  id: string
+  workspaceId: string
+  resumeSessionId: string | null
+}
+
+/**
+ * The boot-time reconcile of suspended claude sessions: a pure DB+FS pass with no spawn, so it
+ * terminates deterministically and can never enter a boot loop. Each suspended tab whose stored
+ * resume id resolves to a real transcript under its workspace cwd is left `suspended` (the renderer
+ * owns the actual respawn); anything else - a missing cwd, a missing/foreign transcript - degrades
+ * to the recoverable `resume-failed` state. `exists` is injected for testing.
+ */
+export function reconcileSuspendedTabs(
+  deps: {
+    listSuspended(): SuspendedTab[]
+    workspaceCwd(workspaceId: string): string | undefined
+    setResumeFailed(tabId: string, reason: string): void
+  },
+  exists: (cwd: string, sessionId: string) => boolean = sessionFileExists
+): void {
+  for (const tab of deps.listSuspended()) {
+    const cwd = deps.workspaceCwd(tab.workspaceId)
+    const target = cwd ? resolveResumeTarget(cwd, tab.resumeSessionId, exists) : null
+    if (!target) deps.setResumeFailed(tab.id, 'resume-failed')
+  }
+}

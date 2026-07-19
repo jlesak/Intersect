@@ -56,7 +56,8 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         hasPat: fallback.pat.trim() !== ''
       },
       appearance: d.settings.getAppearance(),
-      review: d.settings.getReview()
+      review: d.settings.getReview(),
+      session: d.settings.getSession()
     }
   }
 
@@ -133,6 +134,15 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         return current()
       }),
 
+    setSession: (session) =>
+      surface(() => {
+        if (typeof session?.autoResume !== 'boolean') {
+          throw new Error('autoResume must be a boolean')
+        }
+        d.settings.setSession({ autoResume: session.autoResume })
+        return current()
+      }),
+
     testAdoConnection: (ado) => surface(() => d.testConnection(effectiveAdo(ado)))
   }
 }
@@ -144,6 +154,7 @@ export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
     [Channel.settingsSetAdo]: h.setAdo,
     [Channel.settingsSetTerminalFontSize]: h.setTerminalFontSize,
     [Channel.settingsSetReview]: h.setReview,
+    [Channel.settingsSetSession]: h.setSession,
     [Channel.settingsTestAdoConnection]: h.testAdoConnection
   }
 }

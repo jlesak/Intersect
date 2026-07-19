@@ -14,6 +14,7 @@ const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },
   appearance: { terminalFontSize: 14 },
   review: { prompt: 'Review precisely.' },
+  session: { autoResume: true },
   ...over
 })
 
@@ -27,6 +28,7 @@ const reset = (): void => {
       adoFallback: { orgUrl: '', project: '', hasPat: false },
       terminalFontSize: 12.5,
       review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+      autoResume: true,
       adoTest: { status: 'idle' }
     },
     false
@@ -41,6 +43,7 @@ beforeEach(() => {
   mocked.setAdo.mockResolvedValue(settings())
   mocked.setTerminalFontSize.mockResolvedValue(settings())
   mocked.setReview.mockResolvedValue(settings())
+  mocked.setSession.mockResolvedValue(settings())
 })
 
 describe('load', () => {

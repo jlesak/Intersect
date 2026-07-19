@@ -453,4 +453,25 @@ describe('migrations', () => {
         .run()
     ).toThrow()
   })
+
+  test('tabs gains the suspend columns and the session_lifecycle_events audit table', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    const cols = (db.prepare('PRAGMA table_info(tabs)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).toEqual(expect.arrayContaining(['session_status', 'suspend_reason', 'suspended_at']))
+
+    // The audit table has no tab foreign key, so history survives tab deletion.
+    db.prepare(
+      `INSERT INTO session_lifecycle_events (tab_id, action, reason, at) VALUES ('gone', 'suspend', 'app-quit-suspend', 1)`
+    ).run()
+    expect(
+      (db.prepare('SELECT count(*) AS c FROM session_lifecycle_events').get() as { c: number }).c
+    ).toBe(1)
+    // An unknown action is rejected by the CHECK constraint.
+    expect(() =>
+      db
+        .prepare(`INSERT INTO session_lifecycle_events (tab_id, action, reason, at) VALUES ('t', 'pause', NULL, 1)`)
+        .run()
+    ).toThrow()
+  })
 })
