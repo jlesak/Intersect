@@ -4,6 +4,7 @@ import { IconClock } from '@renderer/shared/ui/icons'
 import { SidebarTimeTracking } from './components/SidebarTimeTracking'
 import { TimeTrackingView } from './components/TimeTrackingView'
 import { useTimeTrackingStore } from './store'
+import { useAgentRuntimeStore } from './agentRuntimeStore'
 
 /** Registers the Time Tracking sidebar section (owning the main area) and its refresh command. */
 export function registerTimeTrackingFeature(): void {
@@ -18,6 +19,12 @@ export function registerTimeTrackingFeature(): void {
   registerCommand({
     id: 'timeTracking.refresh',
     title: 'Refresh Time Tracking',
-    handler: () => useTimeTrackingStore.getState().refresh()
+    handler: async () => {
+      // Refresh the worklog board and the agent-runtime supporting figures together.
+      await Promise.all([
+        useTimeTrackingStore.getState().refresh(),
+        useAgentRuntimeStore.getState().refresh()
+      ])
+    }
   })
 }

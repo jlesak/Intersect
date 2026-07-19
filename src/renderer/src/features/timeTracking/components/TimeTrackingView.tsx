@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { dayKeyOf, weekdayKeys } from '@common/week'
 import { IconChevronLeft, IconChevronRight } from '@renderer/shared/ui/icons'
 import { useTimeTrackingStore } from '../store'
+import { useAgentRuntimeStore } from '../agentRuntimeStore'
 import { formatTotal, formatWeekRange, groupByDay, totalMs } from '../time'
 import { DayColumn } from './DayColumn'
 
@@ -16,10 +17,16 @@ export function TimeTrackingView() {
   const entries = useTimeTrackingStore((s) => s.entries)
   const status = useTimeTrackingStore((s) => s.status)
   const error = useTimeTrackingStore((s) => s.error)
+  const runtimeByDay = useAgentRuntimeStore((s) => s.byDay)
 
   useEffect(() => {
     void useTimeTrackingStore.getState().hydrate()
   }, [])
+
+  // The agent-runtime figures track the shown week alongside the worklog board.
+  useEffect(() => {
+    void useAgentRuntimeStore.getState().loadWeek(weekStart)
+  }, [weekStart])
 
   const days = weekdayKeys(weekStart)
   const byDay = groupByDay(entries)
@@ -80,6 +87,7 @@ export function TimeTrackingView() {
               name={DAY_NAMES[i]}
               entries={byDay.get(day) ?? []}
               isToday={day === today}
+              runtime={runtimeByDay[day]}
             />
           ))}
         </div>

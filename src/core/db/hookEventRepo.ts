@@ -20,6 +20,8 @@ export interface HookEventRepo {
   append(sessionId: string, eventName: string, payload: unknown): void
   /** A session's stored events in arrival order, for diagnostics and tests. */
   listBySession(sessionId: string): HookEventRow[]
+  /** Every distinct session id that has at least one stored event, for whole-corpus recompute. */
+  listSessions(): string[]
   /** Delete every event older than the cutoff timestamp; returns how many rows went. */
   pruneOlderThan(cutoff: number): number
 }
@@ -49,6 +51,13 @@ export function createHookEventRepo(db: DatabaseSync, deps: RepoDeps): HookEvent
         payload: JSON.parse(row.payload_json),
         receivedAt: row.received_at
       }))
+    },
+
+    listSessions() {
+      const rows = db
+        .prepare('SELECT DISTINCT session_id FROM hook_events ORDER BY session_id')
+        .all() as { session_id: string }[]
+      return rows.map((row) => row.session_id)
     },
 
     pruneOlderThan(cutoff) {
