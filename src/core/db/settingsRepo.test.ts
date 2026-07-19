@@ -6,6 +6,7 @@ import {
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_NOTIFICATION_SETTINGS,
   DEFAULT_REVIEW_SETTINGS,
+  DEFAULT_SESSION_SETTINGS,
   type SettingsRepo
 } from './settingsRepo'
 
@@ -22,7 +23,24 @@ describe('settingsRepo', () => {
     expect(repo.getNotifications()).toEqual(DEFAULT_NOTIFICATION_SETTINGS)
     expect(repo.getAppearance()).toEqual(DEFAULT_APPEARANCE_SETTINGS)
     expect(repo.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
+    expect(repo.getSession()).toEqual(DEFAULT_SESSION_SETTINGS)
     expect(repo.getSavedAdo()).toBeNull()
+  })
+
+  test('session settings round-trip and default to auto-resume on', () => {
+    expect(repo.getSession()).toEqual({ autoResume: true })
+    repo.setSession({ autoResume: false })
+    expect(repo.getSession()).toEqual({ autoResume: false })
+    repo.setSession({ autoResume: true })
+    expect(repo.getSession()).toEqual({ autoResume: true })
+  })
+
+  test('a session document with a non-boolean autoResume falls back to the default', () => {
+    db.prepare('INSERT INTO app_state (key, value) VALUES (?, ?)').run(
+      'settings.session',
+      JSON.stringify({ autoResume: 'yes' })
+    )
+    expect(repo.getSession()).toEqual({ autoResume: true })
   })
 
   test('notifications round-trip', () => {

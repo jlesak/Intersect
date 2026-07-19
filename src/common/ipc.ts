@@ -22,6 +22,7 @@ import type {
   JiraBoardSnapshot,
   JiraLoginResult,
   Layout,
+  LiveClaudeSession,
   NewManualDraft,
   NewManualTimeEntry,
   NewPrComment,
@@ -40,6 +41,7 @@ import type {
   PullRequest,
   ReviewSettings,
   ReviewSession,
+  SessionSettings,
   SessionSummary,
   SessionTranscript,
   Tab,
@@ -238,6 +240,13 @@ export interface IpcApi {
     refresh(): Promise<SessionSummary[]>
     /** The full, on-demand transcript for one session id. */
     getTranscript(id: string): Promise<SessionTranscript>
+    /**
+     * Every managed Claude session currently live, with its tab/workspace display names. Read by the
+     * quit modal so it can list what would be suspended; empty when nothing is running.
+     */
+    listLive(): Promise<LiveClaudeSession[]>
+    /** Clear a tab's suspend marker once the renderer has respawned it (audited as a resume). */
+    clearSuspended(tabId: string): Promise<void>
   }
   timeTracking: {
     /**
@@ -314,6 +323,7 @@ export interface IpcApi {
     setAdo(ado: AdoSettings): Promise<AppSettings>
     setTerminalFontSize(px: number): Promise<AppSettings>
     setReview(review: ReviewSettings): Promise<AppSettings>
+    setSession(session: SessionSettings): Promise<AppSettings>
     /**
      * Hit the real Azure DevOps API with exactly the given (possibly unsaved) form values and
      * report who the PAT authenticates as, or a readable failure. Never touches saved settings.
@@ -547,6 +557,8 @@ export const Channel = {
   sessionsList: 'sessions:list',
   sessionsRefresh: 'sessions:refresh',
   sessionsGetTranscript: 'sessions:getTranscript',
+  sessionsListLive: 'sessions:listLive',
+  sessionsClearSuspended: 'sessions:clearSuspended',
   // timeTracking (request/response)
   timeTrackingGetWeek: 'timeTracking:getWeek',
   timeTrackingRefreshWeek: 'timeTracking:refreshWeek',
@@ -583,6 +595,7 @@ export const Channel = {
   settingsSetAdo: 'settings:setAdo',
   settingsSetTerminalFontSize: 'settings:setTerminalFontSize',
   settingsSetReview: 'settings:setReview',
+  settingsSetSession: 'settings:setSession',
   settingsTestAdoConnection: 'settings:testAdoConnection',
   // agentTooling (request/response)
   agentToolingGetEffectiveConfig: 'agentTooling:getEffectiveConfig',

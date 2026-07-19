@@ -33,6 +33,8 @@ interface SettingsState {
   adoFallback: AdoFallback
   terminalFontSize: number
   review: ReviewSettings
+  /** Whether a confirmed quit resumes its suspended claude sessions automatically on next launch. */
+  autoResume: boolean
   adoTest: AdoTestState
   load(): Promise<void>
   /** Flip one notification toggle; persists immediately so nothing is ever lost. */
@@ -54,6 +56,8 @@ interface SettingsState {
   setReviewPrompt(prompt: string): Promise<void>
   /** Restore and immediately persist the shared built-in prompt. */
   resetReviewPrompt(): Promise<void>
+  /** Flip automatic resume-after-quit; persists immediately. */
+  setAutoResume(value: boolean): Promise<void>
   /** Probe Azure DevOps with the current form values (saved or not) and record the outcome. */
   testConnection(): Promise<void>
 }
@@ -95,6 +99,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     adoFallback: EMPTY_ADO_FALLBACK,
     terminalFontSize: 12.5,
     review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+    autoResume: true,
     adoTest: { status: 'idle' },
 
     async load() {
@@ -108,7 +113,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
           ado: settings.ado,
           adoFallback: settings.adoFallback,
           terminalFontSize: settings.appearance.terminalFontSize,
-          review: settings.review
+          review: settings.review,
+          autoResume: settings.session.autoResume
         })
       } catch (e) {
         set({ status: 'error', error: message(e) })
@@ -147,6 +153,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
         () => api.setReview({ prompt: DEFAULT_PR_REVIEW_PROMPT }),
         'Could not reset the PR review prompt'
       )
+    },
+
+    async setAutoResume(value) {
+      set({ autoResume: value })
+      await persist(() => api.setSession({ autoResume: value }), 'Could not save the session settings')
     },
 
     async testConnection() {

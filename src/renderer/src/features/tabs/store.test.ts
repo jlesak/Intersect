@@ -34,6 +34,9 @@ const tab = (id: string, over: Partial<Tab> = {}): Tab => ({
   paneSlot: null,
   sortOrder: 0,
   resumeSessionId: null,
+  sessionStatus: null,
+  suspendReason: null,
+  suspendedAt: null,
   ...over
 })
 

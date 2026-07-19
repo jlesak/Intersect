@@ -10,12 +10,18 @@ import {
   utilityProcess
 } from 'electron'
 import { Channel, type CoreStatus } from '@common/ipc'
+import type { LiveClaudeSession } from '@common/domain'
 import { WINDOW_FOCUS_CHANGED, type NativeNotificationRequest } from '@common/coreBridge'
 import type { RpcPort } from '@common/portRpc'
 import { createCoreHost, type CoreHost } from './coreHost'
 import { registerCoreBridge } from './ipc/bridge'
 import { createSystemHandlers } from './ipc/system.ipc'
-import { activateAction, shouldQuitOnWindowAllClosed, shouldZeroDockBadge } from './lifecycle'
+import {
+  activateAction,
+  quitDecision,
+  shouldQuitOnWindowAllClosed,
+  shouldZeroDockBadge
+} from './lifecycle'
 
 /**
  * Electron main is a thin shell now: it owns windows, the Dock, dialogs, native
@@ -237,14 +243,56 @@ app.whenReady().then(() => {
   })
 })
 
-// Coordinated shutdown: give the core a bounded chance to close PTYs, services, and the
-// database in order, then exit for real. app.exit() skips this handler the second time.
+// Coordinated shutdown with a suspend-confirm guard. Cmd+Q / the Quit menu / system:quitApp all
+// funnel through before-quit. When live Claude sessions exist we confirm first: the core's
+// shutdown marks them `suspended` before it tears anything down, and the next launch resumes them
+// in fresh processes - so this is an intentional suspend, not a claim that shell/dev-server
+// process trees were frozen. We preventDefault synchronously (keeping the ordering valid), then
+// query the canonical live list and, if any, show a synchronous modal. Cancel changes nothing and
+// leaves `quitting` false so a later quit re-prompts. Ordinary window close never reaches here.
 app.on('before-quit', (event) => {
   if (quitting || !host) return
   event.preventDefault()
-  quitting = true
-  void host.shutdown().finally(() => app.exit(0))
+  void confirmAndQuit()
 })
+
+/**
+ * Query the core for live Claude sessions, confirm the suspend with the user when any are running,
+ * and proceed to the coordinated teardown only when the decision is to quit. The modal is
+ * synchronous on purpose; the async live-session query is safe because before-quit already vetoed
+ * the default quit.
+ */
+async function confirmAndQuit(): Promise<void> {
+  let live: LiveClaudeSession[] = []
+  try {
+    live = (await host!.request(Channel.sessionsListLive, [])) as LiveClaudeSession[]
+  } catch {
+    // Core unreachable: nothing useful to preserve when we cannot see its state - proceed to quit.
+    live = []
+  }
+
+  let response: number | null = null
+  if (live.length > 0) {
+    const lines = live.map((s) => `  - ${s.title} (${s.workspace})`).join('\n')
+    const options = {
+      type: 'question' as const,
+      buttons: ['Suspend & Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Quit Intersect',
+      message: `${live.length} Claude session${live.length === 1 ? ' is' : 's are'} still running.`,
+      detail: `${lines}\n\nThey will be suspended and can resume on next launch.`
+    }
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    response = win
+      ? dialog.showMessageBoxSync(win, options)
+      : dialog.showMessageBoxSync(options)
+  }
+
+  if (quitDecision(live.length, response) === 'stay') return
+  quitting = true
+  void host!.shutdown().finally(() => app.exit(0))
+}
 
 // Dock-only lifecycle on macOS: closing the last window leaves Electron, the core, and its
 // PTYs running - a Dock click reattaches to the same live sessions. Elsewhere (and during a

@@ -9,7 +9,10 @@ const tab = (id: string, paneSlot: number | null = null): Tab => ({
   preset: 'shell',
   paneSlot,
   sortOrder: 0,
-  resumeSessionId: null
+  resumeSessionId: null,
+  sessionStatus: null,
+  suspendReason: null,
+  suspendedAt: null
 })
 
 describe('slotCount', () => {

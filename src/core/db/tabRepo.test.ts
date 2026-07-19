@@ -114,4 +114,75 @@ describe('tabRepo', () => {
   test('rename throws for a missing tab', () => {
     expect(() => tabs.rename('missing', 'x')).toThrow(/not found/i)
   })
+
+  describe('suspend/resume lifecycle', () => {
+    test('a fresh tab has no suspend marker', () => {
+      const t = tabs.create(wsId, 'claude')
+      expect(t.sessionStatus).toBeNull()
+      expect(t.suspendReason).toBeNull()
+      expect(t.suspendedAt).toBeNull()
+    })
+
+    test('setSuspended marks the tab suspended, records the reason and time, and audits it', () => {
+      const t = tabs.create(wsId, 'claude')
+      tabs.setSuspended(t.id, 'app-quit-suspend')
+      const stored = tabs.getById(t.id)
+      expect(stored?.sessionStatus).toBe('suspended')
+      expect(stored?.suspendReason).toBe('app-quit-suspend')
+      expect(typeof stored?.suspendedAt).toBe('number')
+      const history = tabs.history(t.id)
+      expect(history.map((e) => e.action)).toEqual(['suspend'])
+      expect(history[0].reason).toBe('app-quit-suspend')
+      expect(history[0].tabId).toBe(t.id)
+    })
+
+    test('a distinct reason is preserved for a session that never captured a resume id', () => {
+      const t = tabs.create(wsId, 'claude')
+      tabs.setSuspended(t.id, 'no-session-id')
+      expect(tabs.getById(t.id)?.suspendReason).toBe('no-session-id')
+    })
+
+    test('setResumeFailed moves a tab to the recoverable state and audits it', () => {
+      const t = tabs.create(wsId, 'claude')
+      tabs.setSuspended(t.id, 'app-quit-suspend')
+      tabs.setResumeFailed(t.id, 'resume-failed')
+      expect(tabs.getById(t.id)?.sessionStatus).toBe('resume-failed')
+      expect(tabs.history(t.id).map((e) => e.action)).toEqual(['suspend', 'resume-failed'])
+    })
+
+    test('clearSuspended wipes the marker and audits a resume', () => {
+      const t = tabs.create(wsId, 'claude')
+      tabs.setSuspended(t.id, 'app-quit-suspend')
+      tabs.clearSuspended(t.id)
+      const stored = tabs.getById(t.id)
+      expect(stored?.sessionStatus).toBeNull()
+      expect(stored?.suspendReason).toBeNull()
+      expect(stored?.suspendedAt).toBeNull()
+      expect(tabs.history(t.id).map((e) => e.action)).toEqual(['suspend', 'resume'])
+    })
+
+    test('listSuspended returns only currently-suspended tabs, ordered by suspend time', () => {
+      const a = tabs.create(wsId, 'claude')
+      const b = tabs.create(wsId, 'claude')
+      const c = tabs.create(wsId, 'claude')
+      tabs.setSuspended(a.id, 'app-quit-suspend')
+      tabs.setSuspended(b.id, 'app-quit-suspend')
+      tabs.setResumeFailed(b.id, 'resume-failed') // no longer 'suspended'
+      tabs.setSuspended(c.id, 'app-quit-suspend')
+      expect(tabs.listSuspended().map((t) => t.id)).toEqual([a.id, c.id])
+    })
+
+    test('the suspend audit survives the tab being deleted', () => {
+      const t = tabs.create(wsId, 'claude')
+      tabs.setSuspended(t.id, 'app-quit-suspend')
+      tabs.remove(t.id)
+      expect(tabs.getById(t.id)).toBeUndefined()
+      expect(tabs.history(t.id).map((e) => e.action)).toEqual(['suspend'])
+    })
+
+    test('setSuspended on an unknown tab is a silent no-op and audits nothing', () => {
+      expect(() => tabs.setSuspended('nope', 'app-quit-suspend')).not.toThrow()
+      expect(tabs.history('nope')).toEqual([])
+    })
+  })
 })

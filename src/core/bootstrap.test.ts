@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NATIVE_DOCK_BADGE_PUSH, WINDOW_FOCUS_CHANGED } from '@common/coreBridge'
 import { Channel } from '@common/ipc'
@@ -362,6 +363,91 @@ describe('createCoreRuntime', () => {
       await expect(rt.handleRequest(Channel.terminalAttach, [sessionId])).resolves.toEqual({
         live: false
       })
+    })
+  })
+
+  describe('suspend on quit', () => {
+    /** Read the tabs and audit rows straight from the closed DB file after a coordinated shutdown. */
+    const readAfterShutdown = (): {
+      tabs: { id: string; session_status: string | null; suspend_reason: string | null }[]
+      events: { tab_id: string; action: string; reason: string | null }[]
+    } => {
+      const db = new DatabaseSync(join(dir, 'intersect.db'))
+      try {
+        const tabs = db
+          .prepare('SELECT id, session_status, suspend_reason FROM tabs')
+          .all() as { id: string; session_status: string | null; suspend_reason: string | null }[]
+        const events = db
+          .prepare('SELECT tab_id, action, reason FROM session_lifecycle_events ORDER BY id')
+          .all() as { tab_id: string; action: string; reason: string | null }[]
+        return { tabs, events }
+      } finally {
+        db.close()
+      }
+    }
+
+    const spawn = async (
+      rt: CoreRuntime,
+      preset: 'shell' | 'claude',
+      resumeSessionId: string | null
+    ): Promise<{ tabId: string }> => {
+      const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, preset, resumeSessionId])) as {
+        id: string
+      }
+      await rt.handleRequest(Channel.terminalSpawn, [
+        `${ws.id}:${tab.id}`,
+        preset,
+        dir,
+        80,
+        24,
+        resumeSessionId
+      ])
+      return { tabId: tab.id }
+    }
+
+    test('marks a live claude session suspended with app-quit-suspend before killing PTYs, and audits it', async () => {
+      const rt = boot()
+      const { tabId } = await spawn(rt, 'claude', 'resume-uuid-1')
+      rt.shutdown()
+      // The PTY was still killed (order: mark, then kill).
+      expect(fake.procs[0].calls).toContain('kill')
+
+      const { tabs, events } = readAfterShutdown()
+      const marked = tabs.find((t) => t.id === tabId)
+      expect(marked?.session_status).toBe('suspended')
+      expect(marked?.suspend_reason).toBe('app-quit-suspend')
+      expect(events).toEqual([
+        { tab_id: tabId, action: 'suspend', reason: 'app-quit-suspend' }
+      ])
+    })
+
+    test('records the distinct no-session-id reason for a live claude session that never captured a resume id', async () => {
+      const rt = boot()
+      const { tabId } = await spawn(rt, 'claude', null)
+      rt.shutdown()
+
+      const { tabs } = readAfterShutdown()
+      const marked = tabs.find((t) => t.id === tabId)
+      expect(marked?.session_status).toBe('suspended')
+      expect(marked?.suspend_reason).toBe('no-session-id')
+    })
+
+    test('never suspends a shell session (shells are never in the lifecycle)', async () => {
+      const rt = boot()
+      const { tabId } = await spawn(rt, 'shell', null)
+      rt.shutdown()
+
+      const { tabs, events } = readAfterShutdown()
+      expect(tabs.find((t) => t.id === tabId)?.session_status).toBeNull()
+      expect(events).toEqual([])
+    })
+
+    test('a shutdown with no live sessions marks nothing', async () => {
+      const rt = boot()
+      await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])
+      rt.shutdown()
+      expect(readAfterShutdown().events).toEqual([])
     })
   })
 

@@ -68,6 +68,7 @@ export function SplitStage({
         preset={tab.preset}
         cwd={cwd}
         resumeSessionId={tab.resumeSessionId}
+        sessionStatus={tab.sessionStatus}
       />
     ) : (
       <EmptyPane unplaced={unplaced} onAssign={(id) => onAssign(id, slot)} />

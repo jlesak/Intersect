@@ -50,6 +50,11 @@ export interface LifecycleTransition {
 
 const TERMINAL: readonly LifecycleState[] = ['finished', 'crashed']
 
+/** Whether a session state is terminal - reached only through the PTY exiting, never revived. */
+export function isTerminalState(state: LifecycleState): boolean {
+  return TERMINAL.includes(state)
+}
+
 /**
  * Pure transition function - no clocks, no I/O, fully table-testable. The rules that carry
  * real-world weight:

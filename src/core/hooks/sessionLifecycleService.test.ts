@@ -270,4 +270,32 @@ describe('sessionLifecycleService', () => {
       expect(() => h.service.onPtyExit('nope:x', 1)).not.toThrow()
     })
   })
+
+  describe('listLive', () => {
+    it('lists every tracked session in a live state with its spawn cwd', () => {
+      const h = harness()
+      h.service.onSpawn('ws:a', '/repo/a')
+      h.service.onSpawn('ws:b', '/repo/b')
+      expect(h.service.listLive()).toEqual([
+        { sessionId: 'ws:a', cwd: '/repo/a', state: 'spawning' },
+        { sessionId: 'ws:b', cwd: '/repo/b', state: 'spawning' }
+      ])
+    })
+
+    it('reflects the working state once the session starts its turn', () => {
+      const h = startedHarness()
+      expect(h.service.listLive()).toEqual([{ sessionId: SID, cwd: CWD, state: 'working' }])
+    })
+
+    it('excludes a session whose PTY has exited (terminal, and dropped from tracking)', () => {
+      const h = startedHarness()
+      h.service.onPtyExit(SID, 0)
+      expect(h.service.listLive()).toEqual([])
+    })
+
+    it('is empty when nothing is tracked (only claude sessions ever spawn into it)', () => {
+      const h = harness()
+      expect(h.service.listLive()).toEqual([])
+    })
+  })
 })

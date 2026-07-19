@@ -23,6 +23,19 @@ describe('buildSpawn', () => {
     expect(spec.initialCommand).toBeNull()
   })
 
+  test('a resumed shell reopens clean: a login shell that replays no command, even with resume/settings set', () => {
+    // Suspend/resume respawns a shell tab in its prior cwd, but a shell process tree is never
+    // preserved and never replayed - it must come back as a plain interactive login shell with
+    // nothing typed into it, regardless of resume/settings inputs meant for the claude preset.
+    const spec = buildSpawn('shell', {
+      env,
+      resumeSessionId: 'abc-123',
+      notifSettingsPath: '/App Support/Intersect/n.json'
+    })
+    expect(spec.args).toEqual(['-l'])
+    expect(spec.initialCommand).toBeNull()
+  })
+
   test('claude preset carries claude as the initial command (typed into the shell), preceded by disabling stty ixon', () => {
     expect(buildSpawn('claude', { env }).initialCommand).toBe('stty -ixon; claude')
   })

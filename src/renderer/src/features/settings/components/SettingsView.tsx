@@ -15,6 +15,7 @@ const CATEGORIES = [
   { id: 'notif', label: 'Notifikace' },
   { id: 'ado', label: 'Azure DevOps' },
   { id: 'review', label: 'PR Review' },
+  { id: 'sessions', label: 'Sessions' },
   { id: 'keys', label: 'Klávesové zkratky' },
   { id: 'appearance', label: 'Vzhled' }
 ] as const
@@ -67,6 +68,9 @@ export function SettingsView() {
           </div>
           <div className={pane('review')}>
             <ReviewPane />
+          </div>
+          <div className={pane('sessions')}>
+            <SessionsPane />
           </div>
           <div className={pane('keys')}>
             <ShortcutsPane />
@@ -244,6 +248,26 @@ function ReviewPane() {
       >
         Obnovit výchozí prompt
       </button>
+    </>
+  )
+}
+
+function SessionsPane() {
+  const autoResume = useSettingsStore((s) => s.autoResume)
+
+  return (
+    <>
+      <div className="ix-settings__title">Sessions</div>
+      <SettingRow
+        label="Automaticky obnovit sessions po ukončení"
+        hint="Po potvrzeném Cmd+Q se pozastavené Claude sessions při dalším startu obnoví v novém procesu. Když je vypnuto, start je jen zobrazí a obnovíš je ručně."
+      >
+        <Toggle
+          checked={autoResume}
+          onChange={(value) => void useSettingsStore.getState().setAutoResume(value)}
+          label="Automaticky obnovit sessions po ukončení"
+        />
+      </SettingRow>
     </>
   )
 }

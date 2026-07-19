@@ -28,4 +28,18 @@ describe('SettingsView PR Review pane', () => {
     expect(textarea?.value).toBe(DEFAULT_PR_REVIEW_PROMPT)
     expect(reset?.getAttribute('type')).toBe('button')
   })
+
+  test('exposes a Sessions category with the auto-resume toggle', () => {
+    const host = document.createElement('div')
+    host.innerHTML = renderToStaticMarkup(React.createElement(SettingsView))
+
+    const navButton = [...host.querySelectorAll('.ix-settings__nav-btn')].find(
+      (button) => button.textContent === 'Sessions'
+    )
+    const toggle = host.querySelector(
+      'input[aria-label="Automaticky obnovit sessions po ukončení"]'
+    )
+    expect(navButton).toBeTruthy()
+    expect(toggle).toBeTruthy()
+  })
 })

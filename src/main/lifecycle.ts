@@ -30,6 +30,19 @@ export function activateAction(opts: {
 }
 
 /**
+ * Whether a confirmed quit should proceed to teardown or leave the app alive, extracted pure so
+ * the Electron dialog glue in index.ts stays testable without a window. With no live Claude
+ * sessions there is nothing to confirm - the quit proceeds. Otherwise the modal decides: response
+ * 0 (Suspend & Quit) proceeds, response 1 (Cancel) or a dismissed dialog leaves every session and
+ * process untouched so a later quit re-prompts. `response` is only meaningful when a dialog was
+ * shown (liveCount > 0).
+ */
+export function quitDecision(liveCount: number, response: number | null): 'quit' | 'stay' {
+  if (liveCount === 0) return 'quit'
+  return response === 0 ? 'quit' : 'stay'
+}
+
+/**
  * Whether a core status transition must zero the Dock badge. The badge is sourced solely
  * from the core's canonical attention count, and a fresh core only pushes on changes - so a
  * count left over from a dead core would silently survive a restart unless main clears it
