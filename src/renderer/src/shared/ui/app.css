@@ -76,7 +76,7 @@
   border-color: var(--accent);
 }
 
-/* workspace item: amber signal line on the left when selected */
+/* workspace item: accent signal line on the left when selected */
 .ix-ws {
   position: relative;
   display: flex;
@@ -170,7 +170,7 @@
   border-left: 1px solid var(--border);
 }
 
-/* tab: amber signal line on top when active */
+/* tab: accent signal line on top when active */
 .ix-tab {
   position: relative;
   display: flex;
@@ -487,7 +487,7 @@
 
 /* ---------------- command palette ---------------- */
 /* A top-anchored overlay (distinct from the centered dialog) for running commands by keyboard.
-   The active row wears the app's amber signal line, matching active workspaces and tabs. */
+   The active row wears the app's accent signal line, matching active workspaces and tabs. */
 .ix-palette-overlay {
   position: fixed;
   inset: 0;
@@ -655,7 +655,7 @@
 }
 
 /* ---------------- sidebar section rail ---------------- */
-/* One button per registered section; the active one wears the amber signal line, matching the
+/* One button per registered section; the active one wears the accent signal line, matching the
    language used for active workspaces, tabs, and palette rows. */
 .ix-rail {
   display: flex;
@@ -710,7 +710,7 @@
 .ix-rail__btn--primary {
   padding: 11px 10px;
   background: var(--accent-soft);
-  border: 1px solid rgba(240, 168, 96, 0.25);
+  border: 1px solid rgba(76, 201, 232, 0.25);
 }
 .ix-rail__btn--primary svg {
   width: 18px;
@@ -874,7 +874,7 @@
 .ix-board-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   margin-bottom: 9px;
   cursor: pointer;
@@ -909,20 +909,7 @@
   display: flex;
   gap: 3px;
 }
-.ix-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 1px 7px;
-  border-radius: 9px;
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-.ix-chip--accent {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
+/* Chip base and the accent variant live in theme.css; only feature variants here. */
 .ix-chip--review {
   color: #8fce9b;
   border-color: rgba(143, 206, 155, 0.5);
@@ -966,7 +953,7 @@
 }
 .ix-pr-vote--waiting {
   color: var(--accent);
-  border-color: rgba(240, 168, 96, 0.4);
+  border-color: rgba(76, 201, 232, 0.4);
   background: var(--accent-soft);
 }
 .ix-pr-vote--rejected {
@@ -1607,7 +1594,7 @@
   text-align: center;
 }
 
-/* session row: amber signal line on the left when selected, matching workspaces/tabs */
+/* session row: accent signal line on the left when selected, matching workspaces/tabs */
 .ix-session-row {
   position: relative;
   display: grid;
@@ -1882,7 +1869,7 @@
 .ix-mw-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -2646,7 +2633,7 @@
 .ix-todo-item--done .ix-todo-item__check {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1206;
+  color: var(--accent-contrast);
 }
 
 /* Inline editor - an open row expanded in place */
@@ -3600,17 +3587,7 @@
   color: var(--danger);
 }
 
-/* Provenance + source badges. */
-.ix-at-badge {
-  display: inline-block;
-  font-size: 10.5px;
-  padding: 1px 7px;
-  border-radius: 9px;
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
-  background: var(--panel-2);
-  white-space: nowrap;
-}
+/* Provenance + source badges: semantic modifiers riding on the shared .ix-chip base. */
 .ix-at-badge--global,
 .ix-at-badge--global-local {
   color: var(--accent);

@@ -92,7 +92,7 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 600,
     show: false,
-    backgroundColor: '#0e0f13',
+    backgroundColor: '#171d28',
     title: 'Intersect',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
