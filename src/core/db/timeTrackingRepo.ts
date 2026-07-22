@@ -65,11 +65,9 @@ export function createManualTimeEntryRepo(db: DatabaseSync, deps: RepoDeps): Man
 
     update(id, update) {
       mustGet(id)
-      db.prepare('UPDATE time_entry_manual SET issue_key = ?, duration_ms = ? WHERE id = ?').run(
-        update.issueKey,
-        update.durationMs,
-        id
-      )
+      db.prepare(
+        'UPDATE time_entry_manual SET description = ?, issue_key = ?, duration_ms = ? WHERE id = ?'
+      ).run(update.description, update.issueKey, update.durationMs, id)
       return mustGet(id)
     },
 
@@ -86,6 +84,8 @@ export function createManualTimeEntryRepo(db: DatabaseSync, deps: RepoDeps): Man
  */
 export interface TimeOverride {
   sessionId: string
+  /** The user's edited description, or null when never edited (the board derives it instead). */
+  description: string | null
   issueKey: string | null
   durationMs: number
   deleted: boolean
@@ -93,6 +93,7 @@ export interface TimeOverride {
 
 interface OverrideRow {
   session_id: string
+  description: string | null
   issue_key: string | null
   duration_ms: number
   deleted: number
@@ -101,6 +102,7 @@ interface OverrideRow {
 function toOverride(row: OverrideRow): TimeOverride {
   return {
     sessionId: row.session_id,
+    description: row.description,
     issueKey: row.issue_key,
     durationMs: row.duration_ms,
     deleted: row.deleted === 1
@@ -136,14 +138,22 @@ export function createTimeOverrideRepo(db: DatabaseSync, deps: RepoDeps): TimeOv
 
     upsert(sessionId, value) {
       db.prepare(
-        `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, deleted, updated_at)
-         VALUES (?,?,?,?,?)
+        `INSERT INTO time_entry_override (session_id, description, issue_key, duration_ms, deleted, updated_at)
+         VALUES (?,?,?,?,?,?)
          ON CONFLICT(session_id) DO UPDATE SET
+           description = excluded.description,
            issue_key = excluded.issue_key,
            duration_ms = excluded.duration_ms,
            deleted = excluded.deleted,
            updated_at = excluded.updated_at`
-      ).run(sessionId, value.issueKey, value.durationMs, value.deleted ? 1 : 0, deps.now())
+      ).run(
+        sessionId,
+        value.description,
+        value.issueKey,
+        value.durationMs,
+        value.deleted ? 1 : 0,
+        deps.now()
+      )
       return get(sessionId)!
     },
 

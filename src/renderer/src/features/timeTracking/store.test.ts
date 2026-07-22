@@ -149,8 +149,14 @@ describe('mutations reload the shown week', () => {
     const e = entry('s1')
     mocked.updateEntry.mockResolvedValue({ ...e, durationMs: 1 })
     mocked.getWeek.mockResolvedValue([{ ...e, durationMs: 1 }])
-    await useTimeTrackingStore.getState().updateEntry(e, { issueKey: 'AB-1', durationMs: 1 })
-    expect(mocked.updateEntry).toHaveBeenCalledWith('auto', 's1', { issueKey: 'AB-1', durationMs: 1 })
+    await useTimeTrackingStore
+      .getState()
+      .updateEntry(e, { description: 'Entry s1', issueKey: 'AB-1', durationMs: 1 })
+    expect(mocked.updateEntry).toHaveBeenCalledWith('auto', 's1', {
+      description: 'Entry s1',
+      issueKey: 'AB-1',
+      durationMs: 1
+    })
     expect(useTimeTrackingStore.getState().entries[0].durationMs).toBe(1)
   })
 
@@ -168,7 +174,9 @@ describe('mutations reload the shown week', () => {
     const e = entry('s1')
     mocked.updateEntry.mockRejectedValue(new Error('nope'))
     mocked.getWeek.mockResolvedValue([e])
-    await useTimeTrackingStore.getState().updateEntry(e, { issueKey: null, durationMs: 1 })
+    await useTimeTrackingStore
+      .getState()
+      .updateEntry(e, { description: 'Entry s1', issueKey: null, durationMs: 1 })
     expect(useTimeTrackingStore.getState().entries.map((x) => x.id)).toEqual(['s1'])
     expect(useTimeTrackingStore.getState().status).toBe('ready')
   })
