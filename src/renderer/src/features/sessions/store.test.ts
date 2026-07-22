@@ -21,6 +21,7 @@ const summary = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
   firstTimestamp: 0,
   lastTimestamp: 1000,
   durationMs: 1000,
+  activeDurationMs: 1000,
   messageCount: 2,
   userPrompts: [],
   ...over

@@ -1,5 +1,6 @@
 import { basename } from 'node:path'
 import type { SessionSummary, SessionTranscript, TranscriptEntry } from '@common/domain'
+import { IDLE_CAP_MS } from '../agentRuntime/activeMinutes'
 
 /**
  * The subset of a `.jsonl` line this parser reads. The Claude Code transcript format is
@@ -136,6 +137,18 @@ function parseTimestamp(value: unknown): number {
   return Number.isNaN(ms) ? 0 : ms
 }
 
+/** Sum of consecutive-timestamp gaps, each capped at IDLE_CAP_MS - the session's active time. */
+function activeSpanMs(timestamps: number[]): number {
+  const sorted = [...timestamps].sort((a, b) => a - b)
+  let total = 0
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1]
+    if (gap <= 0) continue
+    total += Math.min(gap, IDLE_CAP_MS)
+  }
+  return total
+}
+
 const isUser = (r: RawLine): boolean => r.type === 'user'
 const isAssistant = (r: RawLine): boolean => r.type === 'assistant'
 const isNonMetaUser = (r: RawLine): boolean => isUser(r) && r.isMeta !== true
@@ -157,6 +170,7 @@ export function parseSummary(filePath: string, lines: string[]): SessionSummary 
   let hasTimestamp = false
   let messageCount = 0
   const userPrompts: string[] = []
+  const timestamps: number[] = []
 
   for (const record of records) {
     if (!cwd) {
@@ -175,6 +189,7 @@ export function parseSummary(filePath: string, lines: string[]): SessionSummary 
     if (isUser(record) || isAssistant(record)) {
       const ts = parseTimestamp(record.timestamp)
       if (ts > 0) {
+        timestamps.push(ts)
         if (!hasTimestamp) {
           firstTimestamp = ts
           lastTimestamp = ts
@@ -208,6 +223,7 @@ export function parseSummary(filePath: string, lines: string[]): SessionSummary 
     firstTimestamp,
     lastTimestamp,
     durationMs: Math.max(0, lastTimestamp - firstTimestamp),
+    activeDurationMs: activeSpanMs(timestamps),
     messageCount,
     userPrompts
   }
