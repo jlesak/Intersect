@@ -75,7 +75,7 @@ function editTargetFor(scope: AgentToolingScope): ConfigSource {
 /** A provenance badge: the layer an effective value came from. */
 export function SourceBadge({ source }: { source: ConfigSource }) {
   return (
-    <span className={`ix-at-badge ix-at-badge--${source}`} title={`Source: ${SOURCE_LABELS[source]}`}>
+    <span className={`ix-chip ix-at-badge ix-at-badge--${source}`} title={`Source: ${SOURCE_LABELS[source]}`}>
       {SOURCE_LABELS[source]}
     </span>
   )
@@ -84,7 +84,7 @@ export function SourceBadge({ source }: { source: ConfigSource }) {
 /** The read-only "external / plugin-managed" marker on catalog items. */
 function ExternalBadge() {
   return (
-    <span className="ix-at-badge ix-at-badge--external" title="Plugin-managed - external, read-only">
+    <span className="ix-chip ix-at-badge ix-at-badge--external" title="Plugin-managed - external, read-only">
       external
     </span>
   )
@@ -1039,7 +1039,7 @@ function SkillsSection({
         <>
           <div className="ix-at-item__head">
             <span className="ix-at-item__name">{s.name}</span>
-            <span className={`ix-at-badge ix-at-badge--src-${s.source.kind}`}>{s.source.label}</span>
+            <span className={`ix-chip ix-at-badge ix-at-badge--src-${s.source.kind}`}>{s.source.label}</span>
             {s.external && <ExternalBadge />}
           </div>
           {s.description && <div className="ix-at-item__desc">{s.description}</div>}
@@ -1077,7 +1077,7 @@ function AgentsSection({
         <>
           <div className="ix-at-item__head">
             <span className="ix-at-item__name">{a.name}</span>
-            <span className={`ix-at-badge ix-at-badge--src-${a.source.kind}`}>{a.source.label}</span>
+            <span className={`ix-chip ix-at-badge ix-at-badge--src-${a.source.kind}`}>{a.source.label}</span>
             {a.model && <span className="ix-at-item__meta">model: {a.model}</span>}
             {a.external && <ExternalBadge />}
           </div>

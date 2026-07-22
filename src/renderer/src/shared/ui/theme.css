@@ -1,24 +1,27 @@
 /* ============================================================================
-   Intersect design system - a calm graphite instrument panel with a single amber
-   signal. Amber marks active/selected state only; everything else stays quiet
+   Intersect design system - a calm slate instrument panel with a single cyan
+   signal. Cyan marks active/selected state only; everything else stays quiet
    so the terminal content is the focus. Monospace carries structure (labels,
    wordmark, hints) as the terminal vernacular.
    ============================================================================ */
 
 :root {
-  --bg: #0d1017;
-  --panel: #12171f;
-  --panel-2: #1a212b;
-  --panel-3: #222b37;
-  --border: #212a36;
-  --border-strong: #313c4b;
+  --bg: #171d28;
+  --panel: #1d2532;
+  --panel-2: #242e3e;
+  --panel-3: #2d394d;
+  --border: #2d3949;
+  --border-strong: #3d4b61;
 
-  --text: #e8ebf1;
-  --text-dim: #97a1b0;
-  --text-faint: #5c6675;
+  --text: #edf1f7;
+  --text-dim: #aab6c6;
+  --text-faint: #7d89a0;
 
-  --accent: #f0a860;
-  --accent-soft: rgba(240, 168, 96, 0.13);
+  --accent: #4cc9e8;
+  --accent-hover: #72d6ef;
+  --accent-soft: rgba(76, 201, 232, 0.13);
+  /* Dark ink for text sitting on an accent-filled surface (primary buttons, checks). */
+  --accent-contrast: #06222c;
   --danger: #e06a6a;
   --danger-soft: rgba(224, 106, 106, 0.13);
 
@@ -33,8 +36,10 @@
   /* The My Work board's Test column - a teal distinct from the session-status hues. */
   --status-test: #8bd4d0;
 
-  --radius: 7px;
-  --radius-sm: 5px;
+  /* Radius scale: controls (buttons, inputs, popovers), small (inner elements), cards. */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
 
   --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
@@ -59,8 +64,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   cursor: default;
@@ -126,11 +131,11 @@ input {
 .ix-btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1206;
+  color: var(--accent-contrast);
   font-weight: 600;
 }
 .ix-btn--primary:hover {
-  background: #f4b878;
+  background: var(--accent-hover);
 }
 .ix-btn--ghost {
   background: transparent;
@@ -168,6 +173,25 @@ input {
   color: var(--text);
 }
 
+/* --- chips ---
+   The single chip/badge grammar for the whole app: a quiet mono pill. Feature code
+   adds semantic modifiers (color/border/background only) on top of this base. */
+.ix-chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.ix-chip--accent {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* --- inputs --- */
 .ix-input {
   width: 100%;
@@ -200,7 +224,7 @@ input {
   max-width: calc(100vw - 40px);
   background: var(--panel);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   padding: 22px;
 }
