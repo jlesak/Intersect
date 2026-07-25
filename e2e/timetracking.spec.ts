@@ -1,9 +1,15 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import {
+  expect,
+  launch,
+  openRailSection,
+  RAIL_LABELS,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 /** The local `yyyy-mm-dd` day key of a Date (mirrors the app's local-calendar bucketing). */
 function dayKey(d: Date): string {
@@ -20,114 +26,151 @@ function weekdayThisWeek(offsetFromMonday: number): string {
   )
 }
 
-/** An ISO timestamp at a local time of day on the given day key. */
+/** An ISO timestamp at a local time of day on the given day key; minute overflow rolls the hour. */
 function isoAt(day: string, hour: number, minute = 0): string {
   const [y, m, d] = day.split('-').map(Number)
   return new Date(y, m - 1, d, hour, minute).toISOString()
 }
 
-// The fixture's three sessions, placed relative to the current week at test runtime: Monday and
-// Tuesday cards (durations 1h 45m and 55m) plus a Saturday session that must never appear.
+// The fixture's four sessions, placed relative to the current week at test runtime: two Monday
+// cards, one Tuesday card, plus a Saturday session that must never appear.
 const MONDAY = weekdayThisWeek(0)
 const TUESDAY = weekdayThisWeek(1)
 const WEDNESDAY = weekdayThisWeek(2)
 const SATURDAY = weekdayThisWeek(5)
 
 /**
+ * A session's active time is the sum of the gaps between its consecutive timestamped records, each
+ * gap capped at ten minutes of idle. The fixture therefore states each session as its list of gaps,
+ * and every expected card duration and day total below is the arithmetic on these lists:
+ *
+ * - Monday, `Lock owner on the card`: 8+9+7+9+8+9+6+7 = 63m, so `1h 3m`.
+ * - Monday, `Rail spacing pass`: 5+7 = 12m, so `12m`.
+ *   Monday's column total is therefore 1h 15m - a figure no single card carries, which is what
+ *   makes the day total a real assertion about grouping rather than an echo of one card.
+ * - Tuesday, `Board scaffolding`: a single 60m gap, clamped by the idle cap to `10m`. This is the
+ *   one session that pins the cap; every other gap stays under ten minutes on purpose.
+ * - The whole board: 63 + 12 + 10 = 85m, so `1h 25m total`.
+ */
+const MONDAY_LONG_GAPS = [8, 9, 7, 9, 8, 9, 6, 7]
+const MONDAY_SHORT_GAPS = [5, 7]
+const TUESDAY_IDLE_GAPS = [60]
+
+/**
  * A fixture `~/.claude/projects`-shaped tree with sessions at known weekdays/durations/branches of
  * the current week, so the board has deterministic auto entries without touching real user data.
  */
 function buildProjectsFixture(): string {
-  const projectsDir = mkdtempSync(join(tmpdir(), 'intersect-tt-'))
+  const projectsDir = tempDir('intersect-tt-')
   const write = (folder: string, id: string, lines: object[]): void => {
     const dir = join(projectsDir, folder)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'))
   }
 
+  /**
+   * One session file: an untimestamped title record, then alternating user/assistant records placed
+   * at the running sum of `gapMinutes` after `startHour`. Several records per session is what lets
+   * the fixture dictate an exact active time - two records alone can only ever express one gap.
+   */
   const session = (
     title: string,
     day: string,
     startHour: number,
-    minutes: number,
+    gapMinutes: number[],
     gitBranch: string
-  ): object[] => [
-    { type: 'ai-title', aiTitle: title },
-    {
-      type: 'user',
-      message: { role: 'user', content: 'do the work' },
-      timestamp: isoAt(day, startHour),
-      cwd: '/tmp/proj',
-      gitBranch,
-      isMeta: false
-    },
-    {
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
-      timestamp: isoAt(day, startHour, minutes),
-      cwd: '/tmp/proj'
-    }
-  ]
+  ): object[] => {
+    const records: object[] = [
+      { type: 'ai-title', aiTitle: title },
+      {
+        type: 'user',
+        message: { role: 'user', content: 'do the work' },
+        timestamp: isoAt(day, startHour),
+        cwd: '/tmp/proj',
+        gitBranch,
+        isMeta: false
+      }
+    ]
+    let minute = 0
+    gapMinutes.forEach((gap, i) => {
+      minute += gap
+      const timestamp = isoAt(day, startHour, minute)
+      records.push(
+        i % 2 === 0
+          ? {
+              type: 'assistant',
+              message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+              timestamp,
+              cwd: '/tmp/proj'
+            }
+          : {
+              type: 'user',
+              message: { role: 'user', content: 'keep going' },
+              timestamp,
+              cwd: '/tmp/proj',
+              isMeta: false
+            }
+      )
+    })
+    return records
+  }
 
   write(
     'proj-a',
     'aaaaaaaa-1111-2222-3333-444444444444',
-    session('Lock owner on the card', MONDAY, 9, 105, 'feature/fid2507-611-lock-owner')
+    session(
+      'Lock owner on the card',
+      MONDAY,
+      9,
+      MONDAY_LONG_GAPS,
+      'feature/fid2507-611-lock-owner'
+    )
+  )
+  write(
+    'proj-a',
+    'dddddddd-1111-2222-3333-444444444444',
+    session('Rail spacing pass', MONDAY, 14, MONDAY_SHORT_GAPS, 'feature/fid2507-650-rail-spacing')
   )
   write(
     'proj-a',
     'bbbbbbbb-5555-6666-7777-888888888888',
-    session('Board scaffolding', TUESDAY, 13, 55, 'feature/time-tracking')
+    session('Board scaffolding', TUESDAY, 13, TUESDAY_IDLE_GAPS, 'feature/time-tracking')
   )
   write(
     'proj-b',
     'cccccccc-9999-aaaa-bbbb-cccccccccccc',
-    session('Weekend experiment', SATURDAY, 10, 60, 'feature/fid2507-999-weekend')
+    session('Weekend experiment', SATURDAY, 10, [9, 9], 'feature/fid2507-999-weekend')
   )
 
   return projectsDir
 }
 
-async function launch(
-  userDataDir: string,
+/** Boot the app against the fixture tree; the harness default would show an empty projects dir. */
+async function launchWithFixture(
+  profileDir: string,
   projectsDir: string
 ): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', INTERSECT_CLAUDE_PROJECTS_DIR: projectsDir }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  return { app, win }
+  return launch(profileDir, { env: { INTERSECT_CLAUDE_PROJECTS_DIR: projectsDir } })
 }
 
 async function openTimeTracking(win: Page): Promise<void> {
-  await win.locator('.ix-rail__btn', { hasText: 'Time Tracking' }).click()
-  await win.locator('.ix-tt__board').waitFor()
+  await openRailSection(win, 'Time Tracking', '.ix-tt__board')
 }
 
-const dayColumn = (win: Page, day: string) => win.locator(`.ix-tt__day[data-day="${day}"]`)
+const dayColumn = (win: Page, day: string): Locator => win.locator(`.ix-tt__day[data-day="${day}"]`)
+
+/** A day's nth card, needed wherever a column holds more than one. */
+const cardAt = (column: Locator, index: number): Locator =>
+  column.locator('.ix-tt-card').nth(index)
 
 // The TODAY badge only exists when the suite runs on a weekday; a weekend run shows the current
 // week without a highlighted column.
 const RUNS_ON_WEEKDAY = ![0, 6].includes(new Date().getDay())
 
-test('the section sits third in the rail and shows the week with auto cards in their days', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir, buildProjectsFixture())
+test('the rail lists every section and the board shows the week with auto cards in their days', async () => {
+  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
 
-  // Sidebar order: Claude Code, My Work, Time Tracking, TODO, 1:1, PR Review, Sessions,
-  // then Settings pinned in the footer rail.
-  await expect(win.locator('.ix-rail__label')).toHaveText([
-    'Claude Code',
-    'My Work',
-    'Time Tracking',
-    'TODO',
-    '1:1',
-    'PR Review',
-    'Sessions',
-    'Settings'
-  ])
+  await expect(win.locator('.ix-rail__label')).toHaveText([...RAIL_LABELS])
 
   await openTimeTracking(win)
 
@@ -145,44 +188,50 @@ test('the section sits third in the rail and shows the week with auto cards in t
     await expect(win.locator('.ix-tt__day--today .ix-tt__day-badge')).toHaveText('TODAY')
   }
 
-  // The Monday session card: derived issue key, title, and duration; day total matches.
+  // Monday's two session cards, chronological: derived issue key, title and summed active time.
   const monday = dayColumn(win, MONDAY)
-  await expect(monday.locator('.ix-tt-card')).toHaveCount(1)
-  await expect(monday.locator('.ix-tt-card__key')).toHaveValue('FID2507-611')
-  await expect(monday.locator('.ix-tt-card__title')).toHaveText('Lock owner on the card')
-  await expect(monday.locator('.ix-tt-card__dur')).toHaveValue('1h 45m')
-  await expect(monday.locator('.ix-tt__day-total')).toHaveText('1h 45m')
+  await expect(monday.locator('.ix-tt-card')).toHaveCount(2)
+  await expect(cardAt(monday, 0).locator('.ix-tt-card__key')).toHaveValue('FID2507-611')
+  await expect(cardAt(monday, 0).locator('.ix-tt-card__title')).toHaveValue('Lock owner on the card')
+  await expect(cardAt(monday, 0).locator('.ix-tt-card__dur')).toHaveValue('1h 3m')
+  await expect(cardAt(monday, 1).locator('.ix-tt-card__key')).toHaveValue('FID2507-650')
+  await expect(cardAt(monday, 1).locator('.ix-tt-card__title')).toHaveValue('Rail spacing pass')
+  await expect(cardAt(monday, 1).locator('.ix-tt-card__dur')).toHaveValue('12m')
 
-  // The Tuesday session has no key in its branch: empty editable key showing "no issue".
+  // The day total is the sum of both cards, so it matches neither on its own.
+  await expect(monday.locator('.ix-tt__day-total')).toHaveText('1h 15m')
+
+  // The Tuesday session has no key in its branch: empty editable key showing "no issue". Its single
+  // hour-long gap is idle time, so the ten-minute cap is what the card reports.
   const tuesday = dayColumn(win, TUESDAY)
   await expect(tuesday.locator('.ix-tt-card__key')).toHaveValue('')
   await expect(tuesday.locator('.ix-tt-card__key')).toHaveAttribute('placeholder', 'no issue')
-  await expect(tuesday.locator('.ix-tt-card__dur')).toHaveValue('55m')
+  await expect(tuesday.locator('.ix-tt-card__dur')).toHaveValue('10m')
+  await expect(tuesday.locator('.ix-tt__day-total')).toHaveText('10m')
 
-  // The Saturday session is excluded entirely: two cards on the whole board, weekend not counted.
-  await expect(win.locator('.ix-tt-card')).toHaveCount(2)
-  await expect(win.locator('.ix-tt__total')).toHaveText('2h 40m total')
+  // The Saturday session is excluded entirely: three cards on the whole board, weekend not counted.
+  await expect(win.locator('.ix-tt-card')).toHaveCount(3)
+  await expect(win.locator('.ix-tt__total')).toHaveText('1h 25m total')
 
   await app.close()
 })
 
 test('manual add, inline edits and delete update the cards and totals', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir, buildProjectsFixture())
+  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
   await openTimeTracking(win)
-  await expect(win.locator('.ix-tt-card')).toHaveCount(2)
+  await expect(win.locator('.ix-tt-card')).toHaveCount(3)
 
-  // Add a manual entry without an issue key on Wednesday.
+  // Add a manual entry without an issue key on Wednesday: 85m + 30m = 1h 55m.
   const wednesday = dayColumn(win, WEDNESDAY)
   await wednesday.locator('.ix-tt__add').click()
   await wednesday.getByPlaceholder('Description (e.g. 1:1 with Marek)').fill('Team sync meeting')
   await wednesday.getByPlaceholder('Time (e.g. 45m)').fill('30m')
   await wednesday.locator('.ix-tt-form__actions .ix-btn--primary', { hasText: 'Save' }).click()
 
-  await expect(wednesday.locator('.ix-tt-card__title')).toHaveText('Team sync meeting')
+  await expect(wednesday.locator('.ix-tt-card__title')).toHaveValue('Team sync meeting')
   await expect(wednesday.locator('.ix-tt-card__key')).toHaveValue('')
   await expect(wednesday.locator('.ix-tt__day-total')).toHaveText('30m')
-  await expect(win.locator('.ix-tt__total')).toHaveText('3h 10m total')
+  await expect(win.locator('.ix-tt__total')).toHaveText('1h 55m total')
 
   // A nonsense time is rejected with an inline error and no card.
   const thursday = dayColumn(win, weekdayThisWeek(3))
@@ -194,12 +243,14 @@ test('manual add, inline edits and delete update the cards and totals', async ()
   await thursday.locator('.ix-tt-form__actions .ix-btn--ghost', { hasText: 'Cancel' }).click()
   await expect(thursday.locator('.ix-tt-card')).toHaveCount(0)
 
-  // Edit the Monday auto card's duration in place: totals follow.
+  // Edit the first Monday auto card's duration in place: 1h 3m becomes 2h, so Monday's total moves
+  // to 2h + 12m and the week's to 2h 12m + 10m + 30m.
   const monday = dayColumn(win, MONDAY)
-  await monday.locator('.ix-tt-card__dur').fill('2h')
-  await monday.locator('.ix-tt-card__dur').press('Enter')
-  await expect(monday.locator('.ix-tt__day-total')).toHaveText('2h 0m')
-  await expect(win.locator('.ix-tt__total')).toHaveText('3h 25m total')
+  const mondayFirstDur = cardAt(monday, 0).locator('.ix-tt-card__dur')
+  await mondayFirstDur.fill('2h')
+  await mondayFirstDur.press('Enter')
+  await expect(monday.locator('.ix-tt__day-total')).toHaveText('2h 12m')
+  await expect(win.locator('.ix-tt__total')).toHaveText('2h 52m total')
 
   // Edit the Tuesday auto card's issue key in place (it had none).
   const tuesday = dayColumn(win, TUESDAY)
@@ -208,26 +259,25 @@ test('manual add, inline edits and delete update the cards and totals', async ()
   await expect(tuesday.locator('.ix-tt-card__key')).toHaveValue('FID2507-612')
 
   // An unparsable duration edit reverts to the previous value.
-  await monday.locator('.ix-tt-card__dur').fill('garbage')
-  await monday.locator('.ix-tt-card__dur').press('Enter')
-  await expect(monday.locator('.ix-tt-card__dur')).toHaveValue('2h 0m')
+  await mondayFirstDur.fill('garbage')
+  await mondayFirstDur.press('Enter')
+  await expect(mondayFirstDur).toHaveValue('2h 0m')
 
-  // Delete the Tuesday auto card (actions appear on hover).
+  // Delete the Tuesday auto card (actions appear on hover): the week loses its 10m.
   const tuesdayCard = tuesday.locator('.ix-tt-card')
   await tuesdayCard.hover()
   await tuesdayCard.locator('.ix-iconbtn[title="Delete"]').click()
   await expect(tuesday.locator('.ix-tt-card')).toHaveCount(0)
   await expect(tuesday.locator('.ix-tt__day-total')).toHaveText('—')
-  await expect(win.locator('.ix-tt__total')).toHaveText('2h 30m total')
+  await expect(win.locator('.ix-tt__total')).toHaveText('2h 42m total')
 
   await app.close()
 })
 
 test('week navigation moves the range, empties the board, and Today returns', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir, buildProjectsFixture())
+  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
   await openTimeTracking(win)
-  await expect(win.locator('.ix-tt-card')).toHaveCount(2)
+  await expect(win.locator('.ix-tt-card')).toHaveCount(3)
 
   const currentRange = await win.locator('.ix-tt__range').textContent()
 
@@ -239,19 +289,19 @@ test('week navigation moves the range, empties the board, and Today returns', as
 
   await win.locator('.ix-tt__topbar .ix-btn', { hasText: 'Today' }).click()
   await expect(win.locator('.ix-tt__range')).toHaveText(currentRange!)
-  await expect(win.locator('.ix-tt-card')).toHaveCount(2)
+  await expect(win.locator('.ix-tt-card')).toHaveCount(3)
   if (RUNS_ON_WEEKDAY) await expect(win.locator('.ix-tt__day--today')).toHaveCount(1)
 
   await app.close()
 })
 
 test('manual entries, auto-card edits and deletions persist across a relaunch', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const profileDir = userDataDir()
   const projectsDir = buildProjectsFixture()
 
-  const first = await launch(userDataDir, projectsDir)
+  const first = await launchWithFixture(profileDir, projectsDir)
   await openTimeTracking(first.win)
-  await expect(first.win.locator('.ix-tt-card')).toHaveCount(2)
+  await expect(first.win.locator('.ix-tt-card')).toHaveCount(3)
 
   const wednesday = dayColumn(first.win, WEDNESDAY)
   await wednesday.locator('.ix-tt__add').click()
@@ -261,28 +311,35 @@ test('manual entries, auto-card edits and deletions persist across a relaunch', 
   await wednesday.locator('.ix-tt-form__actions .ix-btn--primary', { hasText: 'Save' }).click()
   await expect(wednesday.locator('.ix-tt-card')).toHaveCount(1)
 
+  // 3h + 12m Monday, 10m Tuesday, 1h Wednesday = 4h 22m.
   const monday = dayColumn(first.win, MONDAY)
-  await monday.locator('.ix-tt-card__dur').fill('3h')
-  await monday.locator('.ix-tt-card__dur').press('Enter')
-  await expect(first.win.locator('.ix-tt__total')).toHaveText('4h 55m total')
+  const mondayFirstDur = cardAt(monday, 0).locator('.ix-tt-card__dur')
+  await mondayFirstDur.fill('3h')
+  await mondayFirstDur.press('Enter')
+  await expect(first.win.locator('.ix-tt__total')).toHaveText('4h 22m total')
 
   const tuesdayCard = dayColumn(first.win, TUESDAY).locator('.ix-tt-card')
   await tuesdayCard.hover()
   await tuesdayCard.locator('.ix-iconbtn[title="Delete"]').click()
-  await expect(first.win.locator('.ix-tt__total')).toHaveText('4h 0m total')
+  await expect(first.win.locator('.ix-tt__total')).toHaveText('4h 12m total')
   await first.app.close()
 
   // Same profile and projects dir: the manual card, the edited duration and the deletion survive.
-  const second = await launch(userDataDir, projectsDir)
+  const second = await launchWithFixture(profileDir, projectsDir)
   await openTimeTracking(second.win)
-  await expect(dayColumn(second.win, WEDNESDAY).locator('.ix-tt-card__title')).toHaveText(
+  await expect(dayColumn(second.win, WEDNESDAY).locator('.ix-tt-card__title')).toHaveValue(
     '1:1 with Marek'
   )
   await expect(dayColumn(second.win, WEDNESDAY).locator('.ix-tt-card__key')).toHaveValue(
     'FID2507-700'
   )
-  await expect(dayColumn(second.win, MONDAY).locator('.ix-tt-card__dur')).toHaveValue('3h 0m')
+  await expect(
+    cardAt(dayColumn(second.win, MONDAY), 0).locator('.ix-tt-card__dur')
+  ).toHaveValue('3h 0m')
+  await expect(cardAt(dayColumn(second.win, MONDAY), 1).locator('.ix-tt-card__dur')).toHaveValue(
+    '12m'
+  )
   await expect(dayColumn(second.win, TUESDAY).locator('.ix-tt-card')).toHaveCount(0)
-  await expect(second.win.locator('.ix-tt__total')).toHaveText('4h 0m total')
+  await expect(second.win.locator('.ix-tt__total')).toHaveText('4h 12m total')
   await second.app.close()
 })

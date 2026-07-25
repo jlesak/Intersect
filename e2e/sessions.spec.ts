@@ -1,9 +1,14 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  expect,
+  launch,
+  stubQuitConfirm,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 /**
  * A fixture `~/.claude/projects`-shaped tree with two sessions in two folders, so the Sessions slice
@@ -15,7 +20,7 @@ function isoDaysAgo(daysAgo: number): string {
 }
 
 function buildProjectsFixture(cwdA: string, cwdB: string): string {
-  const projectsDir = mkdtempSync(join(tmpdir(), 'intersect-sessions-'))
+  const projectsDir = tempDir('intersect-sessions-')
   const write = (folder: string, id: string, lines: object[]): void => {
     const dir = join(projectsDir, folder)
     mkdirSync(dir, { recursive: true })
@@ -61,16 +66,15 @@ function buildProjectsFixture(cwdA: string, cwdB: string): string {
   return projectsDir
 }
 
-async function launch(userDataDir: string, projectsDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', INTERSECT_CLAUDE_PROJECTS_DIR: projectsDir }
+async function launchWithSessions(
+  profileDir: string,
+  projectsDir: string
+): Promise<{ app: ElectronApplication; win: Page }> {
+  // Boot lands on the virtual Other context, the section these tests start from.
+  return launch(profileDir, {
+    env: { INTERSECT_CLAUDE_PROJECTS_DIR: projectsDir },
+    openOther: true
   })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  // Boot lands on Claude Code (formerly labeled Workspaces), the section these tests start from.
-  await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
 }
 
 async function openSessions(win: Page): Promise<void> {
@@ -79,11 +83,11 @@ async function openSessions(win: Page): Promise<void> {
 }
 
 test('lists indexed sessions, filters by search, and reads a transcript', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const cwdA = mkdtempSync(join(tmpdir(), 'proj-a-'))
-  const cwdB = mkdtempSync(join(tmpdir(), 'proj-b-'))
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launch(userDataDir, projectsDir)
+  const { app, win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
 
@@ -107,11 +111,11 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
 })
 
 test('folder multiselect narrows the list to the checked folders', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const cwdA = mkdtempSync(join(tmpdir(), 'proj-a-'))
-  const cwdB = mkdtempSync(join(tmpdir(), 'proj-b-'))
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launch(userDataDir, projectsDir)
+  const { app, win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
   await expect(win.locator('.ix-session-row')).toHaveCount(2)
@@ -128,12 +132,14 @@ test('folder multiselect narrows the list to the checked folders', async () => {
 })
 
 test('resume opens a Claude tab in a workspace for the session folder', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const cwdA = mkdtempSync(join(tmpdir(), 'proj-a-'))
-  const cwdB = mkdtempSync(join(tmpdir(), 'proj-b-'))
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launch(userDataDir, projectsDir)
+  const { app, win } = await launchWithSessions(profileDir, projectsDir)
 
+  // The resumed session stays live, so quitting will ask to suspend it.
+  await stubQuitConfirm(app)
   await openSessions(win)
   await win.locator('.ix-session-row', { hasText: 'Building the widget factory' }).click()
   await win.locator('.ix-transcript__header .ix-btn--primary', { hasText: 'Resume' }).click()

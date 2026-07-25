@@ -261,8 +261,8 @@ app.whenReady().then(() => {
 // shutdown marks them `suspended` before it tears anything down, and the next launch resumes them
 // in fresh processes - so this is an intentional suspend, not a claim that shell/dev-server
 // process trees were frozen. We preventDefault synchronously (keeping the ordering valid), then
-// query the canonical live list and, if any, show a synchronous modal. Cancel changes nothing and
-// leaves `quitting` false so a later quit re-prompts. Ordinary window close never reaches here.
+// query the canonical live list and, if any, show a modal. Cancel changes nothing and leaves
+// `quitting` false so a later quit re-prompts. Ordinary window close never reaches here.
 app.on('before-quit', (event) => {
   if (quitting || !host) return
   event.preventDefault()
@@ -271,9 +271,9 @@ app.on('before-quit', (event) => {
 
 /**
  * Query the core for live Claude sessions, confirm the suspend with the user when any are running,
- * and proceed to the coordinated teardown only when the decision is to quit. The modal is
- * synchronous on purpose; the async live-session query is safe because before-quit already vetoed
- * the default quit.
+ * and proceed to the coordinated teardown only when the decision is to quit. Both the live-session
+ * query and the modal are async, which before-quit already made safe by vetoing the default quit;
+ * a modal that blocked the main loop would also stall the shutdown it is supposed to guard.
  */
 async function confirmAndQuit(): Promise<void> {
   let live: LiveClaudeSession[] = []
@@ -297,9 +297,16 @@ async function confirmAndQuit(): Promise<void> {
       detail: `${lines}\n\nThey will be suspended and can resume on next launch.`
     }
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
-    response = win
-      ? dialog.showMessageBoxSync(win, options)
-      : dialog.showMessageBoxSync(options)
+    try {
+      const answer = win
+        ? await dialog.showMessageBox(win, options)
+        : await dialog.showMessageBox(options)
+      response = answer.response
+    } catch {
+      // A prompt that cannot be shown must not quit behind the user's back: leave every session
+      // and process alive, exactly as Cancel would.
+      return
+    }
   }
 
   if (quitDecision(live.length, response) === 'stay') return

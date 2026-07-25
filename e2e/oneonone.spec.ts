@@ -1,31 +1,23 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(
-  userDataDir: string,
-  extraEnv: Record<string, string> = {}
-): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', ...extraEnv }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  return { app, win }
-}
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  expect,
+  launch,
+  openRailSection,
+  RAIL_LABELS,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 async function openOneOnOne(win: Page): Promise<void> {
-  await win.locator('.ix-rail__btn', { hasText: '1:1' }).click()
-  await win.locator('.ix-oto').waitFor()
+  await openRailSection(win, 'People', '.ix-oto')
 }
 
 /** A real .vtt fixture on disk, so the main-side existence/extension validation passes. */
 function writeVttFixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'intersect-oto-'))
+  const dir = tempDir('intersect-oto-')
   const path = join(dir, 'marek-1-1.vtt')
   writeFileSync(path, 'WEBVTT\n\n00:00.000 --> 00:05.000\n<v Jan Lesák>Ahoj\n')
   return path
@@ -41,20 +33,11 @@ async function stubVttDialog(app: ElectronApplication, vttPath: string): Promise
   }, vttPath)
 }
 
-test('the 1:1 section sits between TODO and PR Review and starts empty', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+test('the 1:1 section sits under People between Other and TODO, and starts empty', async () => {
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir)
 
-  await expect(win.locator('.ix-rail__label')).toHaveText([
-    'Claude Code',
-    'My Work',
-    'Time Tracking',
-    'TODO',
-    '1:1',
-    'PR Review',
-    'Sessions',
-    'Settings'
-  ])
+  await expect(win.locator('.ix-rail__label')).toHaveText([...RAIL_LABELS])
 
   await openOneOnOne(win)
   await expect(win.locator('.ix-empty__title')).toHaveText('No runs yet.')
@@ -64,8 +47,8 @@ test('the 1:1 section sits between TODO and PR Review and starts empty', async (
 })
 
 test('the form opens from New and the VTT field follows the workflow type', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir)
   await openOneOnOne(win)
 
   // No form until New is clicked.
@@ -89,8 +72,8 @@ test('the form opens from New and the VTT field follows the workflow type', asyn
 })
 
 test('a process run goes running -> done and shows the Notion link and Slack confirmation', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir)
   await stubVttDialog(app, writeVttFixture())
   await openOneOnOne(win)
 
@@ -118,8 +101,8 @@ test('a process run goes running -> done and shows the Notion link and Slack con
 })
 
 test('a prepare run renders the briefing markdown on the card', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir)
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -142,8 +125,8 @@ test('a prepare run renders the briefing markdown on the card', async () => {
 })
 
 test('the run history persists across a relaunch', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const first = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const first = await launch(profileDir)
   await openOneOnOne(first.win)
 
   await first.win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -154,7 +137,7 @@ test('the run history persists across a relaunch', async () => {
   await first.app.close()
 
   // Same profile: the finished run is still there with its result.
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir)
   await openOneOnOne(second.win)
   const card = second.win.locator('.ix-oto-run')
   await expect(card).toHaveCount(1)
@@ -165,8 +148,8 @@ test('the run history persists across a relaunch', async () => {
 })
 
 test('a run interrupted by an app restart is reconciled to failed on boot', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const first = await launch(userDataDir, { INTERSECT_E2E_OTO: 'running' })
+  const profileDir = userDataDir()
+  const first = await launch(profileDir, { env: { INTERSECT_E2E_OTO: 'running' } })
   await openOneOnOne(first.win)
 
   await first.win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -176,7 +159,7 @@ test('a run interrupted by an app restart is reconciled to failed on boot', asyn
   await expect(first.win.locator('.ix-oto-run__status')).toHaveText(/Running in background/)
   await first.app.close()
 
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir)
   await openOneOnOne(second.win)
   await expect(second.win.locator('.ix-oto-run__status--failed')).toHaveText(
     /Failed: Interrupted by app restart/
@@ -185,8 +168,8 @@ test('a run interrupted by an app restart is reconciled to failed on boot', asyn
 })
 
 test('failed mode shows the error on the card', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir, { INTERSECT_E2E_OTO: 'failed' })
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir, { env: { INTERSECT_E2E_OTO: 'failed' } })
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -203,8 +186,8 @@ test('failed mode shows the error on the card', async () => {
 })
 
 test('an empty person is rejected inline and no run starts', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const { app, win } = await launch(profileDir)
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()

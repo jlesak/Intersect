@@ -1,34 +1,13 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  // A fresh profile has no projects, so terminals live under the virtual Other context.
-  await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
-}
-
-async function addWorkspace(win: Page, app: ElectronApplication, dir: string): Promise<void> {
-  await app.evaluate(({ dialog }, folder) => {
-    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [folder]
-    })
-  }, dir)
-  await win.locator('.ix-add').click()
-  await win.locator('.ix-ws__rename').waitFor()
-  await win.keyboard.press('Enter')
-  await expect(win.locator('.ix-ws--active')).toBeVisible()
-}
+import { type Page } from '@playwright/test'
+import {
+  addWorkspace,
+  expect,
+  launch,
+  stubQuitConfirm,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 async function openShellTab(win: Page): Promise<void> {
   await win.locator('.ix-iconbtn[title="New terminal"]').click()
@@ -41,9 +20,9 @@ async function openShellTab(win: Page): Promise<void> {
  * suppressed as "already viewed". Clicking the tab acknowledges it and clears the status.
  */
 test('a background session that signals idle turns its tab done, and viewing it clears the status', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'attn-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('attn-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
 
   // Tab A: schedule the idle marker to print shortly, in the background, then hand focus away.
@@ -75,11 +54,13 @@ test('a background session that signals idle turns its tab done, and viewing it 
  * the user's keystroke into a claude-preset session, not by anything Claude itself outputs.
  */
 test('submitting a prompt in a Claude tab marks it working', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'attn-working-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('attn-working-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
 
+  // The prompt leaves the session live, so quitting will ask to suspend it.
+  await stubQuitConfirm(app)
   await win.locator('.ix-iconbtn[title="New terminal"]').click()
   await win.locator('.ix-preset', { hasText: 'Claude Code' }).click()
   await expect(win.locator('.ix-tab')).toHaveCount(1)
