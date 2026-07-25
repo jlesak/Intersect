@@ -3462,6 +3462,58 @@
   cursor: pointer;
 }
 
+/* --- Caught render failure (ErrorBoundary): the core-failure visual language, two reaches --- */
+
+/* The card is centred on both axes. The direction is declared here rather than inherited, because
+   the contained variant also carries .ix-main - the shell's own main slot, which already sizes that
+   variant (so it needs no rules of its own) and whose column direction would otherwise be what
+   decides which axis align-items and justify-content each mean. */
+.ix-crash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+/* Last resort: the shell is gone, so cover the viewport the way a blocking overlay would. */
+.ix-crash--window {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 500;
+}
+.ix-crash__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+  padding: 20px 22px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ix-crash__card h1 {
+  margin: 0;
+  font-size: 15px;
+}
+.ix-crash__card p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.ix-crash__reason {
+  font-family: var(--font-mono);
+  color: var(--danger);
+  word-break: break-word;
+}
+.ix-crash__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 /* --- Agent Tooling settings pane (read-only Claude Code config / skills / agents browser) --- */
 
 .ix-at-hint {

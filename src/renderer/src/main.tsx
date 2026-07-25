@@ -5,6 +5,7 @@ import './shared/ui/theme.css'
 import './shared/ui/app.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ErrorBoundary } from './shared/ui/ErrorBoundary'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
 import { wireAttention } from './app/attentionWiring'
@@ -27,9 +28,13 @@ registerFeatures()
 const root = document.getElementById('root')
 if (!root) throw new Error('root element missing')
 
+// The outermost boundary is the last resort: anything the shell's own region boundary did not
+// contain would otherwise leave a blank window with no message and no way out but relaunching.
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary scope="window">
+      <App />
+    </ErrorBoundary>
   </StrictMode>
 )
 

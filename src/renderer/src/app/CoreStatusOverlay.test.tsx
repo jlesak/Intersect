@@ -1,11 +1,7 @@
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { CoreStatusOverlay } from './CoreStatusOverlay'
-
-// Vitest transforms TSX without the renderer's Vite React plugin, so provide its classic JSX
-// runtime explicitly for the imported production component.
-vi.stubGlobal('React', React)
 
 describe('CoreStatusOverlay', () => {
   test('renders nothing while the core is starting or ready', () => {

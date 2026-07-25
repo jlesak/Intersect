@@ -1,11 +1,8 @@
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import type { AgentRuntimeDay, TimeEntry } from '@common/domain'
 import { DayColumn } from './DayColumn'
-
-// Vitest transforms TSX without the renderer's Vite React plugin, so provide the classic runtime.
-vi.stubGlobal('React', React)
 
 function entry(over: Partial<TimeEntry> = {}): TimeEntry {
   return {

@@ -23,7 +23,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const overrides = useProjectsStore((s) => s.overrides)
   const workspaces = useWorkspacesStore(useShallow((s) => workspacesForProject(s, projectId)))
   const issues = useMyWorkStore((s) => s.issues)
-  const prs = usePrInboxStore(selectPrList)
+  // The selector derives a fresh array on every call, so it must be compared shallowly - an
+  // unstable snapshot would make React re-render this panel without end.
+  const prs = usePrInboxStore(useShallow(selectPrList))
 
   const counts = useMemo(() => {
     const index = indexOverrides(overrides)

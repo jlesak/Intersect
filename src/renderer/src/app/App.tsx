@@ -4,6 +4,7 @@ import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@ren
 import { WorkItemPickerHost } from '@renderer/features/workItems'
 import { selectSelectedWorkspace, useWorkspacesStore } from '@renderer/features/workspaces'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
+import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { Toaster } from '@renderer/shared/ui/Toaster'
 import { CoreStatusOverlay } from './CoreStatusOverlay'
 import { Sidebar } from './Sidebar'
@@ -30,18 +31,25 @@ export function App() {
   const resolved = resolveShellContext(context, projects, sections, selectedWorkspace)
 
   let main = <div className="ix-main" />
+  let mainKey = 'empty'
   if (resolved?.kind === 'project' || resolved?.kind === 'other') {
-    const key = resolved.kind === 'project' ? resolved.id : 'other'
-    main = <ProjectContextView key={key} context={resolved} />
+    mainKey = resolved.kind === 'project' ? resolved.id : 'other'
+    main = <ProjectContextView key={mainKey} context={resolved} />
   } else if (resolved?.kind === 'section') {
     const Main = sections.find((s) => s.id === resolved.id)?.mainComponent
-    if (Main) main = <Main key={resolved.id} />
+    if (Main) {
+      mainKey = resolved.id
+      main = <Main key={mainKey} />
+    }
   }
 
   return (
     <div className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}>
       <Sidebar />
-      {main}
+      {/* Keyed by context so navigating away from a crashed view always lands on a fresh mount. */}
+      <ErrorBoundary key={mainKey} scope="region">
+        {main}
+      </ErrorBoundary>
       <Toaster />
       <CommandPalette />
       <WorkItemPickerHost />

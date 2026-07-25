@@ -1,12 +1,11 @@
+import { act, render as renderClient } from '@testing-library/react'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { AgentToolingScope, EffectiveConfig, SkillCatalogItem } from '@common/domain'
-import { AgentToolingPaneBody } from './AgentToolingPane'
-
-// Vitest transforms TSX without the renderer's Vite React plugin, so provide the classic JSX
-// runtime explicitly for the imported production component.
-vi.stubGlobal('React', React)
+import { useProjectsStore } from '@renderer/features/projects'
+import { useAgentToolingStore } from '../store'
+import { AgentToolingPane, AgentToolingPaneBody } from './AgentToolingPane'
 
 const config: EffectiveConfig = {
   scope: { kind: 'global' },
@@ -145,5 +144,62 @@ describe('AgentToolingPaneBody', () => {
     expect(host.querySelector('.ix-at-remove')).toBeNull()
     // Add controls are still available.
     expect(host.querySelectorAll('.ix-at-add').length).toBe(3)
+  })
+})
+
+/**
+ * The store-reading container, mounted client-side. Static markup cannot expose a re-render loop,
+ * so only a real root exercises how the pane subscribes to the projects slice.
+ */
+describe('AgentToolingPane container', () => {
+  afterEach(() => {
+    delete (window as { intersect?: unknown }).intersect
+    useProjectsStore.setState({ status: 'idle', error: null, projects: [], overrides: [] })
+    useAgentToolingStore.setState({ status: 'idle', error: null, config: null, skills: [], agents: [] })
+  })
+
+  /** The bridge calls the container makes on mount, so a client render can reach a ready state. */
+  function stubBridge(): void {
+    ;(window as { intersect?: unknown }).intersect = {
+      projects: {
+        list: () => Promise.resolve([{ id: 'p1', name: 'SPOT', archived: false }]),
+        listOverrides: () => Promise.resolve([])
+      },
+      agentTooling: {
+        getEffectiveConfig: () => Promise.resolve(config),
+        listSkills: () => Promise.resolve([]),
+        listAgents: () => Promise.resolve([])
+      }
+    }
+  }
+
+  test('mounts and settles without a render loop', async () => {
+    stubBridge()
+    const logged: string[] = []
+    const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' '))
+    })
+    try {
+      await act(async () => {
+        renderClient(<AgentToolingPane />)
+      })
+
+      expect(logged).toEqual([])
+      expect(document.querySelector('.ix-at-scopebar')).toBeTruthy()
+      expect(document.querySelector('select[aria-label="Scope"]')).toBeTruthy()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  test('offers the loaded active projects as scopes', async () => {
+    stubBridge()
+    await act(async () => {
+      renderClient(<AgentToolingPane />)
+    })
+
+    const scope = document.querySelector<HTMLSelectElement>('select[aria-label="Scope"]')
+    const options = [...(scope?.querySelectorAll('option') ?? [])].map((o) => o.textContent)
+    expect(options).toEqual(['Global (~/.claude)', 'SPOT'])
   })
 })

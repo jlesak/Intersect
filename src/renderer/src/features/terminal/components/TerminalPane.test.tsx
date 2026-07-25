@@ -4,8 +4,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { SuspendStatus } from '@common/domain'
 
-vi.stubGlobal('React', React)
-
 // The terminal controller owns xterm/PTY side effects; mock its surface so the test asserts
 // whether a spawn was even attempted, without booting a real terminal.
 const controllerMock = vi.hoisted(() => ({
