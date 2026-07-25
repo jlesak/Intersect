@@ -1,1 +1,2 @@
-export { useAttentionStore, workspaceStatus, projectStatus } from './store'
+export type { AttentionEntry } from './store'
+export { useAttentionStore, workspaceStatus, projectStatus, oldestWaitingSession } from './store'

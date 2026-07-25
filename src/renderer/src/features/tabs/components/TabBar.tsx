@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { PRESET_META, type WorkItemRef } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
@@ -33,6 +33,7 @@ export function TabBar() {
   const activeTabId = useTabsStore((s) => s.activeTabId)
   const workspaceId = useTabsStore((s) => s.workspaceId)
   const layout = useTabsStore((s) => s.layout)
+  const presetPickerOpen = useTabsStore((s) => s.presetPickerOpen)
   const attention = useAttentionStore((s) => s.status)
   const workItems = useWorkItemsStore((s) => s.byTabId)
   const store = useTabsStore.getState()
@@ -40,6 +41,11 @@ export function TabBar() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+
+  // The popover is the only thing that reads this flag, and the shortcut can raise it while no tab
+  // bar is on screen at all. Dropping it on unmount stops the popover appearing unbidden the next
+  // time the user returns to a terminal.
+  useEffect(() => () => useTabsStore.getState().setPresetPickerOpen(false), [])
 
   const move = (id: string, dir: -1 | 1): void => {
     const ids = tabs.map((t) => t.id)
@@ -101,7 +107,9 @@ export function TabBar() {
     <div className="ix-tabbar">
       <div className="ix-tabs">
         {tabs.map((tab) => {
-          const status = workspaceId ? attention[makeSessionId(workspaceId, tab.id)] : undefined
+          const status = workspaceId
+            ? attention[makeSessionId(workspaceId, tab.id)]?.status
+            : undefined
           return (
           <div
             key={tab.id}
@@ -145,7 +153,11 @@ export function TabBar() {
           </div>
           )
         })}
-        <PresetPicker onPick={(preset) => void store.createTab(preset)} />
+        <PresetPicker
+          open={presetPickerOpen}
+          onOpenChange={store.setPresetPickerOpen}
+          onPick={(preset) => void store.createTab(preset)}
+        />
       </div>
       <div className="ix-tabbar__tools">
         <LayoutPicker layout={layout} onChange={(l) => void store.setLayout(l)} />

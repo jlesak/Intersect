@@ -232,6 +232,13 @@ const api: IpcApi = {
       ipcRenderer.on(Channel.usageChanged, listener)
       return () => ipcRenderer.removeListener(Channel.usageChanged, listener)
     }
+  },
+  shortcuts: {
+    onInvoked: (cb) => {
+      const listener = (_e: unknown, id: string): void => cb(id)
+      ipcRenderer.on(Channel.shortcutInvoked, listener)
+      return () => ipcRenderer.removeListener(Channel.shortcutInvoked, listener)
+    }
   }
 }
 

@@ -51,8 +51,8 @@ export function revealWorkspaceContext(workspaceId: string): void {
   useProjectContextStore.getState().setTab(projectId ?? OTHER_CONTEXT_KEY, 'terminals')
 }
 
-/** Focus the workspace/tab a clicked notification points at, hydrating the workspace if needed. */
-async function navigateToSession(sessionId: string): Promise<void> {
+/** Focus the workspace/tab a session id points at, hydrating the workspace if needed. */
+export async function navigateToSession(sessionId: string): Promise<void> {
   const parsed = parseSessionId(sessionId)
   if (!parsed) return
   revealWorkspaceContext(parsed.workspaceId)

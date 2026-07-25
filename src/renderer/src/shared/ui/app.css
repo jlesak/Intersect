@@ -579,11 +579,17 @@
   background: var(--accent);
 }
 .ix-palette__title {
+  /* Absorbs the free space so the namespace and the key hint stay pinned to the right edge,
+     whether or not the row has a hint. */
+  flex: 1;
   font-size: 13.5px;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ix-palette__item .ix-kbd {
+  flex: none;
 }
 .ix-palette__ns {
   font-family: var(--font-mono);

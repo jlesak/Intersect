@@ -11,3 +11,8 @@ afterEach(() => {
 // multi-line "not implemented" dump on stderr. That noise buries the actual test output, and no
 // renderer test asserts on anything drawn, so an inert context is enough.
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext
+
+// jsdom implements no layout, so it ships no scrollIntoView at all. Any component that keeps a
+// selected row in view calls it from an effect, where the resulting TypeError fails the test for a
+// reason that has nothing to do with the behaviour under test. Scrolling is not observable here.
+Element.prototype.scrollIntoView = (() => {}) as typeof Element.prototype.scrollIntoView

@@ -391,6 +391,14 @@ export interface IpcApi {
     /** Fired whenever a fresh statusline snapshot is captured. */
     onUsageChanged(cb: (usage: ClaudeUsage | null) => void): () => void
   }
+  shortcuts: {
+    /**
+     * Fired when the user picks a native menu item or presses its accelerator. The payload is
+     * the command id from the shortcut map; the renderer resolves it through the command
+     * registry, so the menu carries no behaviour of its own.
+     */
+    onInvoked(cb: (id: string) => void): () => void
+  }
 }
 
 export interface TerminalDataEvent {
@@ -614,7 +622,9 @@ export const Channel = {
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',
-  usageChanged: 'usage:changed'
+  usageChanged: 'usage:changed',
+  // shortcuts (main -> renderer broadcast)
+  shortcutInvoked: 'shortcut:invoked'
 } as const
 
 export type ChannelName = (typeof Channel)[keyof typeof Channel]

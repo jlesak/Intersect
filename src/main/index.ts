@@ -4,6 +4,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   MessageChannelMain,
   Notification,
   shell,
@@ -16,6 +17,7 @@ import type { RpcPort } from '@common/portRpc'
 import { createCoreHost, type CoreHost } from './coreHost'
 import { registerCoreBridge } from './ipc/bridge'
 import { createSystemHandlers } from './ipc/system.ipc'
+import { appMenuTemplate } from './menu'
 import {
   activateAction,
   quitDecision,
@@ -231,6 +233,17 @@ app.whenReady().then(() => {
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   wireCore(userDataDir)
   createWindow()
+
+  // The native menu owns every app-wide shortcut: macOS resolves accelerators before the key
+  // reaches web contents, so they work even while a terminal holds keyboard focus. Items carry
+  // no behaviour - each one forwards its command id to the renderer's command registry.
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      appMenuTemplate((id) => sendToRenderer(Channel.shortcutInvoked, id), {
+        devTools: !app.isPackaged
+      })
+    )
+  )
 
   // Dock activation: focus the live window, or create exactly one new one that reattaches to
   // the still-running core sessions. `mainWindow` is assigned synchronously in createWindow,

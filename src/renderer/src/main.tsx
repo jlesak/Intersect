@@ -8,12 +8,14 @@ import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from './shared/ui/ErrorBoundary'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
+import { registerShellCommands } from './app/shellCommands'
 import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
+import { wireShortcuts } from './app/shortcutWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
@@ -24,6 +26,7 @@ import { useWorkspacesStore } from './features/workspaces'
 // Registration is synchronous and must complete before first render so the shell can read the
 // registries. Store hydration is fired after render (non-blocking); slices show their own state.
 registerFeatures()
+registerShellCommands()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('root element missing')
@@ -63,3 +66,5 @@ wireProjectsToWorkspaces()
 wireSettings()
 // Mark sessions interrupted on a core crash and re-hydrate the stores once it recovers.
 wireCoreRecovery()
+// Run the command a native menu accelerator asked for (the app-wide keyboard layer).
+wireShortcuts()
