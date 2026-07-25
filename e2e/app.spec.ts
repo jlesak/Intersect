@@ -1,53 +1,28 @@
-import { existsSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  // A fresh profile has no projects, so terminals live under the virtual Other context.
-  await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
-}
-
-/** Stub the native folder picker so "Add workspace" resolves to a real temp dir. */
-async function stubFolderPick(app: ElectronApplication, dir: string): Promise<void> {
-  await app.evaluate(({ dialog }, folder) => {
-    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [folder]
-    })
-  }, dir)
-}
-
-async function addWorkspace(win: Page, app: ElectronApplication, dir: string): Promise<void> {
-  await stubFolderPick(app, dir)
-  await win.locator('.ix-add').click()
-  await win.locator('.ix-ws__rename').waitFor()
-  await win.keyboard.press('Enter')
-  await expect(win.locator('.ix-ws--active')).toBeVisible()
-}
+import { existsSync } from 'node:fs'
+import { basename } from 'node:path'
+import {
+  addWorkspace,
+  expect,
+  launch,
+  stubQuitConfirm,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 test('creates a workspace via the folder picker with the basename as its name', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'myproject-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('myproject-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
   await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(wsDir))
   await app.close()
 })
 
 test('opens a Shell terminal and streams command output', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'shellws-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('shellws-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
 
   // Open Shell preset.
@@ -66,11 +41,13 @@ test('opens a Shell terminal and streams command output', async () => {
 })
 
 test('opens a Claude Code tab rooted in the workspace', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'claudews-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('claudews-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
 
+  // This tab stays live to the end, so quitting will ask to suspend it.
+  await stubQuitConfirm(app)
   await win.locator('.ix-iconbtn[title="New terminal"]').click()
   await win.locator('.ix-preset', { hasText: 'Claude Code' }).click()
   // The tab + its terminal exist regardless of whether `claude` is installed on this machine.
@@ -82,9 +59,9 @@ test('opens a Claude Code tab rooted in the workspace', async () => {
 })
 
 test('splits into two columns and places both terminals', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'splitws-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('splitws-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
 
   const open = async (): Promise<void> => {
@@ -107,9 +84,9 @@ test('splits into two columns and places both terminals', async () => {
 })
 
 test('deletes a workspace after confirming, leaving the folder on disk untouched', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'delws-'))
-  const { app, win } = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const wsDir = tempDir('delws-')
+  const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
   await expect(win.locator('.ix-ws')).toHaveCount(1)
 
@@ -124,10 +101,10 @@ test('deletes a workspace after confirming, leaving the folder on disk untouched
 })
 
 test('restores the selected workspace, its tabs and layout after restart', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'persistws-'))
+  const profileDir = userDataDir()
+  const wsDir = tempDir('persistws-')
 
-  const first = await launch(userDataDir)
+  const first = await launch(profileDir, { openOther: true })
   await addWorkspace(first.win, first.app, wsDir)
   await first.win.locator('.ix-iconbtn[title="New terminal"]').click()
   await first.win.locator('.ix-preset', { hasText: 'Shell' }).click()
@@ -137,7 +114,7 @@ test('restores the selected workspace, its tabs and layout after restart', async
   await first.app.close()
 
   // Relaunch against the same user-data dir.
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir, { openOther: true })
   await expect(second.win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(wsDir))
   await expect(second.win.locator('.ix-tab')).toHaveCount(1)
   await expect(second.win.locator('.ix-stage--columns')).toBeVisible()

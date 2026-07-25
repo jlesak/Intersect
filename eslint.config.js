@@ -26,6 +26,29 @@ const CORE_OWNERSHIP = [
   }
 ]
 
+// Every spec used to launch Electron itself, so one navigation change broke fifteen tests across
+// separate files. Launching belongs to the harness; the specs listed below still predate it.
+const PLAYWRIGHT_ELECTRON = {
+  name: '@playwright/test',
+  importNames: ['_electron'],
+  message: 'Launch the app via e2e/harness.ts so boot and navigation fixes land in one place.'
+}
+
+// Shrinking list: specs not yet moved onto the harness. Do not add to it.
+const UNMIGRATED_E2E_SPECS = [
+  'e2e/mywork.spec.ts',
+  'e2e/palette.spec.ts',
+  'e2e/prInbox.live.spec.ts',
+  'e2e/prInbox.spec.ts',
+  'e2e/prvote.spec.ts',
+  'e2e/review-pane-shot.spec.ts',
+  'e2e/settings.spec.ts',
+  'e2e/shortcuts.spec.ts',
+  'e2e/smoke.spec.ts',
+  'e2e/theme.spec.ts',
+  'e2e/todo.spec.ts'
+]
+
 export default tseslint.config(
   {
     ignores: [
@@ -37,6 +60,9 @@ export default tseslint.config(
       'test-results/**',
       'e2e-userdata/**',
       '_*.cjs',
+      // Gitignored dev scratch specs: present locally, never part of the committed suite.
+      'e2e/diag.spec.ts',
+      'e2e/screenshot.spec.ts',
       '*.config.ts',
       '*.config.js'
     ]
@@ -74,6 +100,19 @@ export default tseslint.config(
         'error',
         { paths: [NO_ELECTRON_IN_CORE], patterns: [FEATURE_BOUNDARY] }
       ]
+    }
+  },
+  {
+    files: ['e2e/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [PLAYWRIGHT_ELECTRON] }]
+    }
+  },
+  {
+    // The harness is the sanctioned launcher; the unmigrated specs are tracked debt.
+    files: ['e2e/harness.ts', ...UNMIGRATED_E2E_SPECS],
+    rules: {
+      'no-restricted-imports': 'off'
     }
   }
 )
