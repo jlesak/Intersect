@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { OtoRun, OtoStartInput } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
@@ -31,7 +31,7 @@ function upsertRun(runs: OtoRun[], run: OtoRun): OtoRun[] {
     : [run, ...runs]
 }
 
-export const useOneOnOneStore = create<OneOnOneState>()((set, get) => ({
+export const useOneOnOneStore = createStore<OneOnOneState>()((set, get) => ({
   status: 'idle',
   error: null,
   runs: [],

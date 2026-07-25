@@ -1,9 +1,9 @@
-import { create } from 'zustand'
 import type { Layout, NewWorkItemRef, Preset, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { reconcilePanes } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
 import { disposeSession } from '@renderer/features/terminal'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -75,7 +75,7 @@ const EMPTY = {
   presetPickerOpen: false
 }
 
-export const useTabsStore = create<TabsState>()((set, get) => ({
+export const useTabsStore = createStore<TabsState>()((set, get) => ({
   ...EMPTY,
   lastPreset: 'shell',
 

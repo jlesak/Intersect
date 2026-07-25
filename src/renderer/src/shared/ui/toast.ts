@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createStore } from '../store/createStore'
 
 export interface Toast {
   id: number
@@ -13,7 +13,7 @@ interface ToastState {
 
 let seq = 0
 
-export const useToastStore = create<ToastState>()((set) => ({
+export const useToastStore = createStore<ToastState>()((set) => ({
   toasts: [],
   push(message) {
     const id = ++seq

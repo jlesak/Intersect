@@ -1,4 +1,3 @@
-import { create } from 'zustand'
 import { debounce } from '@common/debounce'
 import {
   equalShares,
@@ -9,6 +8,7 @@ import {
   type PairShares,
   type ResizableLayout
 } from '@common/terminalLayoutShares'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -50,7 +50,7 @@ const defaults = (): Pick<LayoutRatiosState, 'columns' | 'rows' | 'grid'> => ({
   grid: equalShares('grid')
 })
 
-export const useLayoutRatiosStore = create<LayoutRatiosState>()((set, get) => ({
+export const useLayoutRatiosStore = createStore<LayoutRatiosState>()((set, get) => ({
   projectKey: null,
   loaded: false,
   ...defaults(),

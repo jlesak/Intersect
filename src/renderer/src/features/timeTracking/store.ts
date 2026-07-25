@@ -1,6 +1,6 @@
-import { create } from 'zustand'
 import type { NewManualTimeEntry, TimeEntry, TimeEntryUpdate } from '@common/domain'
 import { addDays, weekStartOf } from '@common/week'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -28,7 +28,7 @@ interface TimeTrackingState {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-export const useTimeTrackingStore = create<TimeTrackingState>()((set, get) => {
+export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) => {
   /** Reload the shown week; a response for a week no longer shown is dropped. */
   async function reload(): Promise<void> {
     const weekStart = get().weekStart

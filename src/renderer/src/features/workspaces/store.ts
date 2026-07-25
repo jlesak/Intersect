@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { Workspace } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -40,7 +40,7 @@ export function workspacesForProject(state: WorkspacesState, projectId: string |
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-export const useWorkspacesStore = create<WorkspacesState>()((set) => ({
+export const useWorkspacesStore = createStore<WorkspacesState>()((set) => ({
   status: 'idle',
   error: null,
   byId: {},

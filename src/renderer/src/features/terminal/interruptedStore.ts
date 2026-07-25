@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createStore } from '@renderer/shared/store/createStore'
 
 /**
  * Sessions whose PTY died with a core crash. Their xterms (and scrollback) stay alive, but
@@ -12,7 +12,7 @@ interface InterruptedState {
   clear(sessionId: string): void
 }
 
-export const useInterruptedStore = create<InterruptedState>()((set) => ({
+export const useInterruptedStore = createStore<InterruptedState>()((set) => ({
   interrupted: {},
 
   markMany(sessionIds) {

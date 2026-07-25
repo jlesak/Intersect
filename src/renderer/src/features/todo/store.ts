@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { TodoTask, TodoTaskPatch } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -27,7 +27,7 @@ interface TodoState {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-export const useTodoStore = create<TodoState>()((set, get) => {
+export const useTodoStore = createStore<TodoState>()((set, get) => {
   let reorderRevision = 0
 
   async function reload(): Promise<void> {

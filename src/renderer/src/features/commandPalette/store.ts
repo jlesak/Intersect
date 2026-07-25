@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createStore } from '@renderer/shared/store/createStore'
 
 /**
  * Whether the command palette overlay is showing. It lives in a store rather than the component
@@ -11,7 +11,7 @@ interface CommandPaletteState {
   close(): void
 }
 
-export const useCommandPaletteStore = create<CommandPaletteState>()((set) => ({
+export const useCommandPaletteStore = createStore<CommandPaletteState>()((set) => ({
   open: false,
 
   toggle() {

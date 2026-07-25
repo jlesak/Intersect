@@ -1,4 +1,3 @@
-import { create } from 'zustand'
 import {
   GLOBAL_JIRA_SOURCE,
   JIRA_COLUMNS,
@@ -9,6 +8,7 @@ import {
   type JiraSyncErrorKind
 } from '@common/domain'
 import { usePrInboxStore } from '@renderer/features/prInbox'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -70,7 +70,7 @@ export function formatRelativeTime(timestamp: number, now: number = Date.now()):
   return days < 2 ? 'yesterday' : `${days}d ago`
 }
 
-export const useMyWorkStore = create<MyWorkState>()((set, get) => {
+export const useMyWorkStore = createStore<MyWorkState>()((set, get) => {
   /**
    * Land a board envelope from the core. A board that fetched at least once renders alongside
    * any sync error (the error shows as an inline warning); an error with nothing to fall back

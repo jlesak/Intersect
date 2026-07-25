@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createStore } from '@renderer/shared/store/createStore'
 
 /** The entry points inside one project context; Terminals is the daily default. */
 export const PROJECT_TABS = ['terminals', 'kanban', 'prs', 'worktrees', 'overview'] as const
@@ -19,7 +19,7 @@ interface ProjectContextState {
   rememberWorkspace(contextKey: string, workspaceId: string): void
 }
 
-export const useProjectContextStore = create<ProjectContextState>()((set) => ({
+export const useProjectContextStore = createStore<ProjectContextState>()((set) => ({
   activeTab: {},
   lastWorkspace: {},
 

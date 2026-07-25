@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { SessionSummary, SessionTranscript } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -85,7 +85,7 @@ export function formatDuration(ms: number): string {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
-export const useSessionsStore = create<SessionsState>()((set, get) => ({
+export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
   status: 'idle',
   error: null,
   all: [],
