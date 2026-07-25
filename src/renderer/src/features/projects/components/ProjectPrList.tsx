@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { PullRequest } from '@common/domain'
 import { effectiveProject, indexOverrides, prOverrideKey, resolvePrProject } from '@common/projectAssign'
 import { useMyWorkStore } from '@renderer/features/myWork'
@@ -14,7 +15,9 @@ import { selectActiveProjects, useProjectsStore } from '../store'
  */
 export function ProjectPrList({ projectId }: { projectId: string | null }) {
   const status = usePrInboxStore((s) => s.status)
-  const prs = usePrInboxStore(selectPrList)
+  // The selector derives a fresh array on every call, so it must be compared shallowly - an
+  // unstable snapshot would make React re-render this panel without end.
+  const prs = usePrInboxStore(useShallow(selectPrList))
   const projects = useProjectsStore((s) => s.projects)
   const overrides = useProjectsStore((s) => s.overrides)
   const [menu, setMenu] = useState<{ x: number; y: number; pr: PullRequest } | null>(null)

@@ -8,10 +8,6 @@ import { useLayoutRatiosStore } from '../layoutRatios'
 import * as ipc from '../ipc'
 import { SplitStage, type SplitStageProps } from './SplitStage'
 
-// Vitest transforms TSX without the renderer's Vite React plugin, so provide its classic JSX
-// runtime explicitly for the imported production component.
-vi.stubGlobal('React', React)
-
 // The stage's structure is under test, not the terminal controller; a marker div stands in
 // for the live xterm host.
 vi.mock('./TerminalPane', async () => {
@@ -112,7 +108,6 @@ afterEach(() => {
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetDescriptors.height)
   }
   vi.unstubAllGlobals()
-  vi.stubGlobal('React', React)
 })
 
 async function render(element: React.ReactElement): Promise<void> {

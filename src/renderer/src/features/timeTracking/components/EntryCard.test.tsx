@@ -3,9 +3,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TimeEntry } from '@common/domain'
-
-vi.stubGlobal('React', React)
-
 import { useTimeTrackingStore } from '../store'
 import { EntryCard } from './EntryCard'
 

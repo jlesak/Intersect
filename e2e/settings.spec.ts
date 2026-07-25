@@ -29,21 +29,28 @@ async function flipToggle(win: Page, label: string): Promise<void> {
     .click()
 }
 
-test('Settings opens from the footer rail with five categories and the notification defaults', async () => {
+test('Settings opens from the footer rail with every category and the notification defaults', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir)
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__nav-btn')).toHaveText([
+    'Projekty',
+    'Agent Tooling',
     'Notifikace',
     'Azure DevOps',
     'PR Review',
+    'Sessions',
     'Klávesové zkratky',
     'Vzhled'
   ])
 
-  // Notifications is the default pane, with the pre-settings behavior as defaults:
-  // everything alerts except the informational 'working' status.
+  // Projects is the landing pane: the daily entry point is managing what the rail pins.
+  await expect(win.locator('.ix-settings__pane--active .ix-settings__title')).toHaveText('Projekty')
+
+  // Notifications keep the pre-settings behavior as defaults: everything alerts except the
+  // informational 'working' status.
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await expect(win.locator('.ix-settings__pane--active .ix-settings__title')).toHaveText('Notifikace')
   await expect(win.getByLabel('Systémové notifikace', { exact: true })).toBeChecked()
   await expect(win.getByLabel('Working', { exact: true })).not.toBeChecked()
@@ -99,6 +106,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
   const first = await launch(userDataDir)
   await openSettings(first.win)
 
+  await first.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await flipToggle(first.win, 'Zvuk')
   await expect(first.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
 
@@ -118,6 +126,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   const second = await launch(userDataDir)
   await openSettings(second.win)
+  await second.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await expect(second.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await expect(second.win.locator('#ix-set-ado-repository')).toHaveValue('spot-repo')

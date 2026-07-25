@@ -3,6 +3,7 @@
   "include": [
     "electron.vite.config.*",
     "vitest.config.*",
+    "vitest.setup.dom.ts",
     "playwright.config.*",
     "src/core/**/*",
     "src/main/**/*",

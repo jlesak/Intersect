@@ -4,10 +4,6 @@ import { describe, expect, test, vi } from 'vitest'
 import type { Project } from '@common/domain'
 import { ProjectsPaneBody } from './ProjectsPane'
 
-// Vitest transforms TSX without the renderer's Vite React plugin, so provide its classic JSX
-// runtime explicitly for the imported production component.
-vi.stubGlobal('React', React)
-
 vi.mock('../ipc')
 
 function project(partial: Partial<Project> & Pick<Project, 'id'>): Project {

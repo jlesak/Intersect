@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type {
   AdvancedEntry,
   AgentCatalogItem,
@@ -114,7 +115,9 @@ export function AgentToolingPane() {
   const pendingPreview = useAgentToolingStore((s) => s.pendingPreview)
   const saving = useAgentToolingStore((s) => s.saving)
   const lastUndo = useAgentToolingStore((s) => s.lastUndo)
-  const projects = useProjectsStore(selectActiveProjects)
+  // The selector derives a fresh array on every call, so it must be compared shallowly - an
+  // unstable snapshot would make React re-render this pane without end.
+  const projects = useProjectsStore(useShallow(selectActiveProjects))
 
   useEffect(() => {
     void useProjectsStore.getState().load()
