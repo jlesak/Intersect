@@ -72,7 +72,10 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
 
   // Away to the shortcuts overview and back: the typed values are still there.
   await win.locator('.ix-settings__nav-btn', { hasText: 'Klávesové zkratky' }).click()
-  await expect(win.locator('.ix-kshort-table tr').first()).toContainText('Command Palette')
+  // The app-wide rows come from the same map the native menu is built from, so the overview cannot
+  // drift from what is actually bound. Row order follows that map and is not asserted here.
+  await expect(win.locator('.ix-kshort-table tr', { hasText: 'Command Palette' })).toHaveCount(1)
+  await expect(win.locator('.ix-kshort-table tr', { hasText: 'Toggle Sidebar' })).toHaveCount(1)
   await expect(win.locator('.ix-kshort-table input')).toHaveCount(0)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()

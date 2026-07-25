@@ -9,6 +9,11 @@ vi.mock('@renderer/features/terminal', () => ({
 }))
 import * as api from './ipc'
 import { disposeSession } from '@renderer/features/terminal'
+import {
+  getCommand,
+  __resetCommandRegistryForTests
+} from '@renderer/shared/registries/commandRegistry'
+import { registerTabsFeature } from './register'
 import { selectTabList, useTabsStore } from './store'
 
 const mocked = vi.mocked(api)
@@ -49,7 +54,9 @@ beforeEach(() => {
       byId: {},
       order: [],
       layout: 'single',
-      activeTabId: null
+      activeTabId: null,
+      lastPreset: 'shell',
+      presetPickerOpen: false
     },
     false
   )
@@ -152,5 +159,137 @@ describe('tabsStore', () => {
     expect(s.workspaceId).toBeNull()
     expect(s.order).toEqual([])
     expect(s.status).toBe('idle')
+  })
+})
+
+describe('lastPreset', () => {
+  test('creating a tab makes its preset the one a bare new-tab repeats', async () => {
+    await hydrateWith([])
+    mocked.create.mockResolvedValue(tab('a', { preset: 'claude' }))
+    await useTabsStore.getState().createTab('claude')
+    expect(useTabsStore.getState().lastPreset).toBe('claude')
+  })
+
+  test('a failed create leaves the remembered preset alone', async () => {
+    await hydrateWith([])
+    mocked.create.mockRejectedValue(new Error('no pty'))
+    await useTabsStore.getState().createTab('claude')
+    expect(useTabsStore.getState().lastPreset).toBe('shell')
+  })
+
+  // The remembered preset is a user habit, not workspace data - switching workspace must not
+  // silently send the next Cmd+T back to a shell.
+  test('switching workspace keeps the remembered preset', async () => {
+    await hydrateWith([])
+    mocked.create.mockResolvedValue(tab('a', { preset: 'claude' }))
+    await useTabsStore.getState().createTab('claude')
+    await hydrateWith([], workspace({ id: 'w2' }))
+    expect(useTabsStore.getState().lastPreset).toBe('claude')
+  })
+
+  test('switching workspace closes the preset popover', async () => {
+    useTabsStore.getState().setPresetPickerOpen(true)
+    await hydrateWith([])
+    expect(useTabsStore.getState().presetPickerOpen).toBe(false)
+  })
+})
+
+describe('keyboard tab navigation', () => {
+  test('nextTab walks the bar order and wraps past the end', async () => {
+    await hydrateWith([tab('a'), tab('b'), tab('c')], workspace({ activeTabId: 'a' }))
+    mocked.setActive.mockResolvedValue(undefined)
+    await useTabsStore.getState().nextTab()
+    expect(useTabsStore.getState().activeTabId).toBe('b')
+    await useTabsStore.getState().nextTab()
+    expect(useTabsStore.getState().activeTabId).toBe('c')
+    await useTabsStore.getState().nextTab()
+    expect(useTabsStore.getState().activeTabId).toBe('a')
+  })
+
+  test('nextTab does nothing with fewer than two tabs', async () => {
+    await hydrateWith([tab('a')], workspace({ activeTabId: 'a' }))
+    await useTabsStore.getState().nextTab()
+    expect(mocked.setActive).not.toHaveBeenCalled()
+    expect(useTabsStore.getState().activeTabId).toBe('a')
+  })
+
+  test('jumpToTab selects the tab at that 1-based position', async () => {
+    await hydrateWith([tab('a'), tab('b'), tab('c')])
+    mocked.setActive.mockResolvedValue(undefined)
+    await useTabsStore.getState().jumpToTab(2)
+    expect(useTabsStore.getState().activeTabId).toBe('b')
+  })
+
+  // Nine fixed accelerators against a variable tab count: the high ones must land somewhere
+  // useful rather than doing nothing.
+  test('jumpToTab past the last tab lands on the last tab', async () => {
+    await hydrateWith([tab('a'), tab('b'), tab('c')])
+    mocked.setActive.mockResolvedValue(undefined)
+    await useTabsStore.getState().jumpToTab(9)
+    expect(useTabsStore.getState().activeTabId).toBe('c')
+  })
+
+  test('jumpToTab does nothing when the workspace has no tabs', async () => {
+    await hydrateWith([])
+    await useTabsStore.getState().jumpToTab(1)
+    expect(mocked.setActive).not.toHaveBeenCalled()
+    expect(useTabsStore.getState().activeTabId).toBeNull()
+  })
+})
+
+describe('tabs commands', () => {
+  beforeEach(() => {
+    __resetCommandRegistryForTests()
+    registerTabsFeature()
+  })
+
+  test('a bare new tab repeats the last preset used', async () => {
+    await hydrateWith([])
+    mocked.create.mockResolvedValue(tab('a', { preset: 'claude' }))
+    await useTabsStore.getState().createTab('claude')
+    mocked.create.mockClear()
+
+    await getCommand('tabs.new')?.handler()
+    expect(mocked.create).toHaveBeenCalledWith('w1', 'claude', undefined, undefined)
+  })
+
+  test('asking for a preset opens the picker popover', async () => {
+    await hydrateWith([])
+    await getCommand('tabs.newWithPreset')?.handler()
+    expect(useTabsStore.getState().presetPickerOpen).toBe(true)
+  })
+
+  // Both openers need somewhere to put the tab. Fired from an accelerator there is no button to
+  // grey out, so they must decline rather than look broken - and must not leave the popover armed
+  // to appear later, once a tab bar is finally on screen.
+  test('both new-tab commands decline when no workspace is selected', async () => {
+    expect(useTabsStore.getState().workspaceId).toBeNull()
+
+    await getCommand('tabs.new')?.handler()
+    expect(mocked.create).not.toHaveBeenCalled()
+
+    await getCommand('tabs.newWithPreset')?.handler()
+    expect(useTabsStore.getState().presetPickerOpen).toBe(false)
+  })
+
+  // The File menu item stays enabled whatever the tab count, so the handler itself has to
+  // tolerate being fired with nothing open.
+  test('closing a tab with none open does nothing', async () => {
+    await hydrateWith([])
+    await getCommand('tabs.close')?.handler()
+    expect(mocked.remove).not.toHaveBeenCalled()
+  })
+
+  test('closing a tab removes the active one', async () => {
+    await hydrateWith([tab('a'), tab('b')], workspace({ activeTabId: 'b' }))
+    mocked.remove.mockResolvedValue(undefined)
+    await getCommand('tabs.close')?.handler()
+    expect(mocked.remove).toHaveBeenCalledWith('b')
+  })
+
+  test('the nine positional jumps are all registered', () => {
+    for (let n = 1; n <= 9; n++) {
+      expect(getCommand(`tabs.jump.${n}`)?.title).toBe(`Tab ${n}`)
+    }
   })
 })

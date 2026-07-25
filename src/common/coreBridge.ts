@@ -60,7 +60,8 @@ export const RENDERER_PUSH_CHANNELS: ReadonlyMap<ChannelName, 'core' | 'main'> =
   [Channel.myWorkChanged, 'core'],
   [Channel.usageChanged, 'core'],
   [Channel.terminalNotificationClicked, 'main'],
-  [Channel.systemCoreStatus, 'main']
+  [Channel.systemCoreStatus, 'main'],
+  [Channel.shortcutInvoked, 'main']
 ])
 
 /**

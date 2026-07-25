@@ -5,6 +5,7 @@ import {
   type AdoSettings,
   type NotificationSettings
 } from '@common/domain'
+import { formatAccelerator, SHORTCUT_ACTIONS } from '@common/shortcuts'
 import { ProjectsPane } from '@renderer/features/projects'
 import { AgentToolingPane } from '@renderer/features/agentTooling'
 import { useSettingsStore } from '../store'
@@ -272,9 +273,12 @@ function SessionsPane() {
   )
 }
 
-/** The shortcuts the app actually binds today (see CommandPalette, Dialog, ContextMenu, renames). */
-const SHORTCUTS: { action: string; keys: string[] }[] = [
-  { action: 'Otevřít / zavřít Command Palette', keys: ['⌘', 'K'] },
+/**
+ * Shortcuts that belong to one surface rather than the whole app, so they have no menu item and no
+ * entry in the shortcut map (see CommandPalette, Dialog, ContextMenu, renames). Everything
+ * app-wide is read from the map instead, so this list can never contradict what the menu binds.
+ */
+const LOCAL_SHORTCUTS: { action: string; keys: string[] }[] = [
   { action: 'Pohyb ve výsledcích palety', keys: ['↑', '↓'] },
   { action: 'Spustit vybraný příkaz palety', keys: ['⏎'] },
   { action: 'Zavřít paletu / dialog / menu', keys: ['Esc'] },
@@ -291,7 +295,16 @@ function ShortcutsPane() {
       </div>
       <table className="ix-kshort-table">
         <tbody>
-          {SHORTCUTS.map((s) => (
+          {/* Straight from the map the native menu is built from, so the two always agree. */}
+          {SHORTCUT_ACTIONS.map((action) => (
+            <tr key={action.id}>
+              <td>{action.label}</td>
+              <td>
+                <span className="ix-kbd">{formatAccelerator(action.accelerator)}</span>
+              </td>
+            </tr>
+          ))}
+          {LOCAL_SHORTCUTS.map((s) => (
             <tr key={s.action}>
               <td>{s.action}</td>
               <td>

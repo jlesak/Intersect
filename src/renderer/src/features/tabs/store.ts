@@ -17,6 +17,15 @@ interface TabsState {
   order: string[]
   layout: Layout
   activeTabId: string | null
+  /**
+   * The preset the user reached for last, so the bare new-tab shortcut repeats their habit instead
+   * of always opening a shell. Deliberately outlives switching workspace, but not the window: it is
+   * never persisted, so every launch starts from the default again.
+   */
+  lastPreset: Preset
+  /** Whether the "+" preset popover is showing, so the keyboard can open it as well as a click. */
+  presetPickerOpen: boolean
+  setPresetPickerOpen(open: boolean): void
   hydrate(workspaceId: string): Promise<void>
   clear(): void
   createTab(
@@ -28,6 +37,14 @@ interface TabsState {
   removeTab(id: string): Promise<void>
   reorderTabs(orderedIds: string[]): Promise<void>
   setActiveTab(id: string): Promise<void>
+  /** Activate the next tab in bar order, wrapping past the last one back to the first. */
+  nextTab(): Promise<void>
+  /**
+   * Activate the tab at a 1-based position in bar order. The nine positional accelerators are
+   * fixed while the tab count is not, so a position beyond the last tab lands on the last tab
+   * rather than doing nothing.
+   */
+  jumpToTab(position: number): Promise<void>
   setLayout(layout: Layout): Promise<void>
   assignToPane(id: string, slot: number | null): Promise<void>
   /**
@@ -52,11 +69,19 @@ const EMPTY = {
   byId: {} as Record<string, Tab>,
   order: [] as string[],
   layout: 'single' as Layout,
-  activeTabId: null as string | null
+  activeTabId: null as string | null,
+  // Workspace-scoped: a popover left open over the old workspace's tab bar has no meaning in
+  // the new one. `lastPreset` is deliberately absent - it is a user habit, not workspace data.
+  presetPickerOpen: false
 }
 
 export const useTabsStore = create<TabsState>()((set, get) => ({
   ...EMPTY,
+  lastPreset: 'shell',
+
+  setPresetPickerOpen(open) {
+    set({ presetPickerOpen: open })
+  },
 
   async hydrate(workspaceId) {
     set({ ...EMPTY, status: 'loading', workspaceId })
@@ -93,7 +118,12 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
     if (!workspaceId) return null
     try {
       const t = await api.create(workspaceId, preset, resumeSessionId, primaryWorkItem)
-      set((s) => ({ byId: { ...s.byId, [t.id]: t }, order: [...s.order, t.id], activeTabId: t.id }))
+      set((s) => ({
+        byId: { ...s.byId, [t.id]: t },
+        order: [...s.order, t.id],
+        activeTabId: t.id,
+        lastPreset: preset
+      }))
       return t
     } catch (e) {
       reportError('Could not open a terminal', e)
@@ -155,6 +185,21 @@ export const useTabsStore = create<TabsState>()((set, get) => ({
     } catch (e) {
       reportError('Could not switch tabs', e)
     }
+  },
+
+  async nextTab() {
+    const { order, activeTabId } = get()
+    if (order.length < 2) return
+    // No active tab means the cycle has not started yet, so it starts at the first tab.
+    const current = activeTabId === null ? -1 : order.indexOf(activeTabId)
+    await get().setActiveTab(order[(current + 1) % order.length])
+  },
+
+  async jumpToTab(position) {
+    const { order } = get()
+    if (order.length === 0) return
+    const index = Math.min(Math.max(position, 1), order.length) - 1
+    await get().setActiveTab(order[index])
   },
 
   async setLayout(layout) {
