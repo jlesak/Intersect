@@ -1,4 +1,3 @@
-import { create } from 'zustand'
 import type {
   AgentAdapter,
   AgentCatalogItem,
@@ -8,6 +7,7 @@ import type {
   EffectiveConfig,
   SkillCatalogItem
 } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -74,7 +74,7 @@ interface AgentToolingState {
   dismissUndo(): void
 }
 
-export const useAgentToolingStore = create<AgentToolingState>()((set, get) => {
+export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) => {
   // Answers can land out of order (a fast scope switch); only the latest load may set state.
   let requestSeq = 0
 

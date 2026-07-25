@@ -4,8 +4,8 @@ import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/
 vi.mock('./ipc')
 import * as api from './ipc'
 import {
+  groupBoardColumns,
   prKey,
-  selectBoardColumns,
   selectDrafts,
   selectFilteredThreads,
   selectPrList,
@@ -315,7 +315,7 @@ describe('review session', () => {
   })
 })
 
-describe('selectBoardColumns', () => {
+describe('groupBoardColumns', () => {
   test('splits PRs by boardColumn, newest first', () => {
     usePrInboxStore.setState({
       prsByKey: {
@@ -330,7 +330,7 @@ describe('selectBoardColumns', () => {
       },
       order: ['r:1', 'r:2', 'r:3', 'r:4']
     })
-    const cols = selectBoardColumns(usePrInboxStore.getState())
+    const cols = groupBoardColumns(selectPrList(usePrInboxStore.getState()))
     expect(cols.action.map((p) => p.prId)).toEqual([4, 1])
     expect(cols.waiting.map((p) => p.prId)).toEqual([2])
     expect(cols.approved.map((p) => p.prId)).toEqual([3])

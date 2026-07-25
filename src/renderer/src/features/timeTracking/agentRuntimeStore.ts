@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { AgentRuntimeDay } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import * as api from './agentRuntimeIpc'
 
 /**
@@ -23,7 +23,7 @@ function index(days: AgentRuntimeDay[]): Record<string, AgentRuntimeDay> {
   return byDay
 }
 
-export const useAgentRuntimeStore = create<AgentRuntimeState>()((set, get) => ({
+export const useAgentRuntimeStore = createStore<AgentRuntimeState>()((set, get) => ({
   weekStart: null,
   byDay: {},
 

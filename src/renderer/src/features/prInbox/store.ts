@@ -1,4 +1,3 @@
-import { create } from 'zustand'
 import type {
   DraftComment,
   FileDiff,
@@ -8,6 +7,7 @@ import type {
   PullRequest
 } from '@common/domain'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -140,15 +140,6 @@ export function groupBoardColumns(prs: PullRequest[]): {
   return cols
 }
 
-/** The board's three columns computed from the store state (test seam over groupBoardColumns). */
-export function selectBoardColumns(state: PrInboxState): {
-  action: PullRequest[]
-  waiting: PullRequest[]
-  approved: PullRequest[]
-} {
-  return groupBoardColumns(selectPrList(state))
-}
-
 /** How many PRs currently need my action (the sidebar badge). */
 export function selectActionCount(state: PrInboxState): number {
   return selectPrList(state).filter((pr) => boardColumn(pr) === 'action').length
@@ -175,7 +166,7 @@ const indexPrs = (prs: PullRequest[]): { prsByKey: Record<string, PullRequest>; 
   return { prsByKey, order }
 }
 
-export const usePrInboxStore = create<PrInboxState>()((set, get) => ({
+export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   status: 'idle',
   error: null,
   syncing: false,

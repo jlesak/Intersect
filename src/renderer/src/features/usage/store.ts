@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { ClaudeUsage } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import * as api from './ipc'
 
 interface UsageState {
@@ -16,7 +16,7 @@ interface UsageState {
  * UI of its own - a fetch failure or a snapshot that has not arrived yet both read the same way
  * (null), which the panel shows as its quiet "no data yet" hint.
  */
-export const useUsageStore = create<UsageState>()((set) => ({
+export const useUsageStore = createStore<UsageState>()((set) => ({
   usage: null,
 
   async hydrate() {

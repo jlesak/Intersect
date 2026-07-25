@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { Project, ProjectOverride, ProjectOverrideKind, ProjectPatch } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -30,7 +30,7 @@ interface ProjectsState {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-export const useProjectsStore = create<ProjectsState>()((set, get) => {
+export const useProjectsStore = createStore<ProjectsState>()((set, get) => {
   async function reload(): Promise<void> {
     try {
       const [projects, overrides] = await Promise.all([api.list(), api.listOverrides()])

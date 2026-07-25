@@ -1,4 +1,3 @@
-import { create } from 'zustand'
 import {
   DEFAULT_PR_REVIEW_PROMPT,
   type AdoFallback,
@@ -7,6 +6,7 @@ import {
   type ReviewSettings
 } from '@common/domain'
 import { debounce } from '@common/debounce'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -75,7 +75,7 @@ export const INITIAL_NOTIFICATIONS: NotificationSettings = {
 
 const EMPTY_ADO: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
 
-export const useSettingsStore = create<SettingsState>()((set, get) => {
+export const useSettingsStore = createStore<SettingsState>()((set, get) => {
   /** Persist a mutation the local state already reflects; a failure only toasts (no rollback -
       the next load() resyncs, and clobbering in-progress typing would be worse). */
   async function persist(op: () => Promise<unknown>, failure: string): Promise<void> {

@@ -1,6 +1,6 @@
-import { create } from 'zustand'
 import type { Project, Workspace } from '@common/domain'
 import type { SidebarSection } from '@renderer/shared/registries/sidebarRegistry'
+import { createStore } from '@renderer/shared/store/createStore'
 
 /**
  * What owns the main area: a global section (Dashboard, TODO, Settings, ...), one project's
@@ -27,7 +27,7 @@ interface ShellState {
   toggleSidebar(): void
 }
 
-export const useShellStore = create<ShellState>()((set) => ({
+export const useShellStore = createStore<ShellState>()((set) => ({
   context: null,
   setActiveSection(id) {
     set({ context: { kind: 'section', id } })

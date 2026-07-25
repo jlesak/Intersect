@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { SessionStatus } from '@common/ipc'
+import { createStore } from '@renderer/shared/store/createStore'
 
 /** A session's current attention state and the moment it entered it. */
 export interface AttentionEntry {
@@ -36,7 +36,7 @@ interface AttentionState {
   clearAll(): void
 }
 
-export const useAttentionStore = create<AttentionState>()((set) => ({
+export const useAttentionStore = createStore<AttentionState>()((set) => ({
   status: {},
 
   mark(sessionId, status) {

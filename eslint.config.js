@@ -26,6 +26,16 @@ const CORE_OWNERSHIP = [
   }
 ]
 
+// A selector that builds a fresh array or object makes the store snapshot unstable and React
+// re-renders forever. Only stores built by the shared factory carry the guard that catches it.
+const ZUSTAND_CREATE_MESSAGE =
+  'Build renderer stores with createStore from @renderer/shared/store/createStore - it catches unstable selectors while developing.'
+
+const ZUSTAND_CREATE = [
+  { name: 'zustand', importNames: ['create'], message: ZUSTAND_CREATE_MESSAGE },
+  { name: 'zustand/react', importNames: ['create'], message: ZUSTAND_CREATE_MESSAGE }
+]
+
 // Every spec used to launch Electron itself, so one navigation change broke fifteen tests across
 // separate files. Launching belongs to the harness; the specs listed below still predate it.
 const PLAYWRIGHT_ELECTRON = {
@@ -85,6 +95,28 @@ export default tseslint.config(
   },
   {
     files: ['src/main/**/*.{ts,tsx}', 'src/preload/**/*.{ts,tsx}', 'src/renderer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: [NODE_PTY], patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP] }
+      ]
+    }
+  },
+  {
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [NODE_PTY, ...ZUSTAND_CREATE],
+          patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP]
+        }
+      ]
+    }
+  },
+  {
+    // The single sanctioned zustand caller keeps the other rules but not the ban.
+    files: ['src/renderer/src/shared/store/createStore.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

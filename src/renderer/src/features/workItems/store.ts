@@ -1,5 +1,5 @@
-import { create } from 'zustand'
 import type { NewWorkItemRef, WorkItemRef } from '@common/domain'
+import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
@@ -44,7 +44,7 @@ const index = (refs: WorkItemRef[]): Record<string, WorkItemRef> => {
   return byTabId
 }
 
-export const useWorkItemsStore = create<WorkItemsState>()((set, get) => ({
+export const useWorkItemsStore = createStore<WorkItemsState>()((set, get) => ({
   workspaceId: null,
   byTabId: {},
   pendingLaunch: null,
