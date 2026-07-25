@@ -479,6 +479,8 @@ export interface SessionSummary {
   /** Last activity - the key both the date filter and default sort use. */
   lastTimestamp: number
   durationMs: number
+  /** Capped-gap active time (gaps over 10m count as 10m) - suspends and idle excluded. */
+  activeDurationMs: number
   /** Count of user + assistant messages. */
   messageCount: number
   /** Every user prompt (command wrappers stripped) - the searchable text alongside the title. */
@@ -644,8 +646,8 @@ export interface TimeEntry {
 /** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
 export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'>
 
-/** The two fields editable in place on any card, auto or manual. */
-export type TimeEntryUpdate = Pick<TimeEntry, 'issueKey' | 'durationMs'>
+/** The three fields editable in place on any card, auto or manual. */
+export type TimeEntryUpdate = Pick<TimeEntry, 'description' | 'issueKey' | 'durationMs'>
 
 // ---------------------------------------------------------------------------
 // Agent runtime evidence - see docs/2026-07-07-intersect-final-form-design.md section 9.4

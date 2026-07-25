@@ -27,6 +27,7 @@ const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
   firstTimestamp: at(6, 9),
   lastTimestamp: at(6, 10),
   durationMs: 60 * 60_000,
+  activeDurationMs: 60 * 60_000,
   messageCount: 2,
   userPrompts: [],
   ...over
@@ -101,7 +102,12 @@ describe('timeTracking service', () => {
 
   test('an override replaces both editable fields, including a cleared issue key', async () => {
     const svc = make([session('s1', { gitBranch: 'fid2507-611' })])
-    overrides.upsert('s1', { issueKey: null, durationMs: 45 * 60_000, deleted: false })
+    overrides.upsert('s1', {
+      description: 'Edited',
+      issueKey: null,
+      durationMs: 45 * 60_000,
+      deleted: false
+    })
     const [e] = await svc.getWeek(WEEK)
     expect(e.issueKey).toBeNull()
     expect(e.durationMs).toBe(45 * 60_000)
@@ -109,7 +115,7 @@ describe('timeTracking service', () => {
 
   test('a tombstoned session yields no card', async () => {
     const svc = make([session('s1')])
-    overrides.upsert('s1', { issueKey: null, durationMs: 0, deleted: true })
+    overrides.upsert('s1', { description: null, issueKey: null, durationMs: 0, deleted: true })
     expect(await svc.getWeek(WEEK)).toEqual([])
   })
 
@@ -143,6 +149,7 @@ describe('timeTracking service', () => {
   test('updateEntry on an auto card upserts the override and survives a re-read', async () => {
     const svc = make([session('s1', { gitBranch: 'fid2507-611' })])
     const updated = await svc.updateEntry('auto', 's1', {
+      description: 'Session s1',
       issueKey: 'FID2507-999',
       durationMs: 2 * 60 * 60_000
     })
@@ -162,6 +169,7 @@ describe('timeTracking service', () => {
       durationMs: 60 * 60_000
     })
     const updated = await svc.updateEntry('manual', created.id, {
+      description: '1:1 with Marek',
       issueKey: 'FID2507-1',
       durationMs: 30 * 60_000
     })
@@ -171,9 +179,9 @@ describe('timeTracking service', () => {
 
   test('updateEntry on an unknown session throws', async () => {
     const svc = make([])
-    await expect(svc.updateEntry('auto', 'nope', { issueKey: null, durationMs: 1 })).rejects.toThrow(
-      /Unknown session/
-    )
+    await expect(
+      svc.updateEntry('auto', 'nope', { description: 'x', issueKey: null, durationMs: 1 })
+    ).rejects.toThrow(/Unknown session/)
   })
 
   test('deleteEntry on an auto card tombstones it - the card never resurrects', async () => {
@@ -184,12 +192,21 @@ describe('timeTracking service', () => {
     expect(await svc.refreshWeek(WEEK)).toEqual([])
   })
 
+  test('deleting an unedited auto card snapshots its active time, not wall clock', async () => {
+    const svc = make([
+      session('s1', { durationMs: 8 * 60 * 60_000, activeDurationMs: 20 * 60_000 })
+    ])
+    await svc.deleteEntry('auto', 's1')
+    expect(overrides.get('s1')?.durationMs).toBe(20 * 60_000)
+  })
+
   test('deleting an edited auto card keeps the override snapshot but marks it deleted', async () => {
     const svc = make([session('s1')])
-    await svc.updateEntry('auto', 's1', { issueKey: 'AB-12', durationMs: 5 })
+    await svc.updateEntry('auto', 's1', { description: 'Edited', issueKey: 'AB-12', durationMs: 5 })
     await svc.deleteEntry('auto', 's1')
     expect(overrides.get('s1')).toEqual({
       sessionId: 's1',
+      description: 'Edited',
       issueKey: 'AB-12',
       durationMs: 5,
       deleted: true
@@ -217,8 +234,12 @@ describe('timeTracking service', () => {
 
   test('refreshWeek prunes overrides of sessions whose transcript is gone', async () => {
     const svc = make([session('s1')])
-    await svc.updateEntry('auto', 's1', { issueKey: 'ABC-1', durationMs: 5 * 60_000 })
-    overrides.upsert('gone', { issueKey: null, durationMs: 1, deleted: true })
+    await svc.updateEntry('auto', 's1', {
+      description: 'Session s1',
+      issueKey: 'ABC-1',
+      durationMs: 5 * 60_000
+    })
+    overrides.upsert('gone', { description: null, issueKey: null, durationMs: 1, deleted: true })
 
     await svc.refreshWeek(WEEK)
 
@@ -243,11 +264,74 @@ describe('timeTracking service', () => {
       issueKey: null,
       durationMs: 15 * 60_000
     })
-    await expect(svc.updateEntry('manual', created.id, { issueKey: null, durationMs: 0 })).rejects.toThrow(
-      /positive/
-    )
-    await expect(svc.updateEntry('auto', 's1', { issueKey: null, durationMs: -1 })).rejects.toThrow(
-      /positive/
-    )
+    await expect(
+      svc.updateEntry('manual', created.id, { description: 'x', issueKey: null, durationMs: 0 })
+    ).rejects.toThrow(/positive/)
+    await expect(
+      svc.updateEntry('auto', 's1', { description: 'x', issueKey: null, durationMs: -1 })
+    ).rejects.toThrow(/positive/)
+  })
+
+  test('auto entries log active time, not wall-clock duration', async () => {
+    const svc = make([
+      session('s1', { durationMs: 8 * 60 * 60_000, activeDurationMs: 15 * 60_000 })
+    ])
+    const [e] = await svc.getWeek(WEEK)
+    expect(e.durationMs).toBe(15 * 60_000)
+  })
+
+  test('an auto description is sanitized, falling back to a user prompt', async () => {
+    const svc = make([
+      session('s1', {
+        title: '<task-notification><task-id>x</task-id></task-notification>',
+        userPrompts: ['Wire up the worklog board']
+      })
+    ])
+    const [e] = await svc.getWeek(WEEK)
+    expect(e.description).toBe('Wire up the worklog board')
+  })
+
+  test('updateEntry persists an edited description for an auto card', async () => {
+    const svc = make([session('s1')])
+    await svc.updateEntry('auto', 's1', {
+      description: 'Pair-review with Marek',
+      issueKey: 'AB-1',
+      durationMs: 30 * 60_000
+    })
+    expect(overrides.get('s1')?.description).toBe('Pair-review with Marek')
+    const [e] = await svc.getWeek(WEEK)
+    expect(e.description).toBe('Pair-review with Marek')
+  })
+
+  test('an override with a null description still applies its duration and issue key', async () => {
+    const svc = make([
+      session('s1', { title: 'Auto label', activeDurationMs: 90 * 60_000 })
+    ])
+    overrides.upsert('s1', {
+      description: null,
+      issueKey: 'AB-2',
+      durationMs: 20 * 60_000,
+      deleted: false
+    })
+    const [e] = await svc.getWeek(WEEK)
+    expect(e.description).toBe('Auto label')
+    expect(e.issueKey).toBe('AB-2')
+    expect(e.durationMs).toBe(20 * 60_000)
+  })
+
+  test('updateEntry rejects an empty description for both kinds', async () => {
+    const svc = make([session('s1')])
+    const created = svc.addManual({
+      day: WEEK,
+      description: 'standup',
+      issueKey: null,
+      durationMs: 15 * 60_000
+    })
+    await expect(
+      svc.updateEntry('manual', created.id, { description: '  ', issueKey: null, durationMs: 1 })
+    ).rejects.toThrow(/description/)
+    await expect(
+      svc.updateEntry('auto', 's1', { description: '', issueKey: null, durationMs: 1 })
+    ).rejects.toThrow(/description/)
   })
 })

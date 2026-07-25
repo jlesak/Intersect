@@ -188,6 +188,61 @@ describe('parseSummary', () => {
   })
 })
 
+describe('parseSummary activeDurationMs', () => {
+  test('two messages five minutes apart credit the whole gap', () => {
+    const s = parseSummary('/p/s.jsonl', [
+      userLine('a', { timestamp: '2026-01-01T09:00:00Z' }),
+      assistantLine([{ type: 'text', text: 'b' }], { timestamp: '2026-01-01T09:05:00Z' })
+    ])
+    expect(s.activeDurationMs).toBe(300_000)
+    expect(s.activeDurationMs).toBe(s.durationMs)
+  })
+
+  test('an idle gap is capped while wall-clock duration is not', () => {
+    const s = parseSummary('/p/s.jsonl', [
+      userLine('a', { timestamp: '2026-01-01T09:00:00Z' }),
+      assistantLine([{ type: 'text', text: 'b' }], { timestamp: '2026-01-01T09:05:00Z' }),
+      userLine('c', { timestamp: '2026-01-01T17:00:00Z' })
+    ])
+    expect(s.activeDurationMs).toBe(900_000)
+    expect(s.durationMs).toBe(8 * 60 * 60_000)
+  })
+
+  test('a multi-day gap contributes exactly one idle cap', () => {
+    const s = parseSummary('/p/s.jsonl', [
+      userLine('a', { timestamp: '2026-01-01T09:00:00Z' }),
+      assistantLine([{ type: 'text', text: 'b' }], { timestamp: '2026-01-03T09:00:00Z' })
+    ])
+    expect(s.activeDurationMs).toBe(10 * 60 * 1000)
+  })
+
+  test('out-of-order timestamps are sorted before summing gaps', () => {
+    const s = parseSummary('/p/s.jsonl', [
+      userLine('c', { timestamp: '2026-01-01T17:00:00Z' }),
+      userLine('a', { timestamp: '2026-01-01T09:00:00Z' }),
+      assistantLine([{ type: 'text', text: 'b' }], { timestamp: '2026-01-01T09:05:00Z' })
+    ])
+    expect(s.activeDurationMs).toBe(900_000)
+  })
+
+  test('zero or one timestamp yields no active time', () => {
+    expect(parseSummary('/p/s.jsonl', []).activeDurationMs).toBe(0)
+    expect(
+      parseSummary('/p/s.jsonl', [userLine('a', { timestamp: '2026-01-01T09:00:00Z' })])
+        .activeDurationMs
+    ).toBe(0)
+  })
+
+  test('untimestamped messages are ignored', () => {
+    const s = parseSummary('/p/s.jsonl', [
+      userLine('a', { timestamp: '2026-01-01T09:00:00Z' }),
+      userLine('no timestamp here'),
+      assistantLine([{ type: 'text', text: 'b' }], { timestamp: '2026-01-01T09:05:00Z' })
+    ])
+    expect(s.activeDurationMs).toBe(300_000)
+  })
+})
+
 describe('parseTranscript', () => {
   test('builds one entry per non-meta user and assistant message, in file order', () => {
     const lines = [

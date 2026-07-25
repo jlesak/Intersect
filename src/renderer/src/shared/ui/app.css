@@ -2374,10 +2374,22 @@
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
+/* The description is an input styled as the card's body line, editable in place on every card.
+   Its hover/focus background echoes .ix-tt-card__dur. */
 .ix-tt-card__title {
   font-size: 12px;
   color: var(--text);
   line-height: 1.35;
+  background: transparent;
+  border: none;
+  width: 100%;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.ix-tt-card__title:hover,
+.ix-tt-card__title:focus {
+  background: var(--panel-2);
+  outline: none;
 }
 .ix-tt-card__bottom {
   display: flex;

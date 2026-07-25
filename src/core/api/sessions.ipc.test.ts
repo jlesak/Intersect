@@ -20,6 +20,7 @@ const summary = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   firstTimestamp: 1,
   lastTimestamp: 2,
   durationMs: 1,
+  activeDurationMs: 1,
   messageCount: 2,
   userPrompts: ['hi'],
   ...over

@@ -454,6 +454,23 @@ describe('migrations', () => {
     ).toThrow()
   })
 
+  test('time_entry_override gains a nullable description that survives on legacy rows', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the pre-description-edit schema version.
+    runMigrations(db, 20)
+    db.prepare(
+      `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, deleted, updated_at)
+       VALUES ('s1', 'FID2507-611', 3600000, 0, 1)`
+    ).run()
+
+    runMigrations(db)
+
+    const row = db
+      .prepare('SELECT description AS d FROM time_entry_override WHERE session_id = ?')
+      .get('s1') as { d: string | null }
+    expect(row.d).toBeNull()
+  })
+
   test('tabs gains the suspend columns and the session_lifecycle_events audit table', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

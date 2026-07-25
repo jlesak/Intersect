@@ -61,16 +61,22 @@ describe('manualTimeEntryRepo', () => {
     expect(repo.listByDays([])).toEqual([])
   })
 
-  test('update overwrites time and issue key, including clearing the key', () => {
+  test('update overwrites description, time and issue key, including clearing the key', () => {
     const e = repo.create(entry({ issueKey: 'FID2507-611' }))
-    const updated = repo.update(e.id, { issueKey: null, durationMs: 60 * 60_000 })
+    const updated = repo.update(e.id, {
+      description: 'Renamed meeting',
+      issueKey: null,
+      durationMs: 60 * 60_000
+    })
     expect(updated.issueKey).toBeNull()
     expect(updated.durationMs).toBe(60 * 60_000)
-    expect(updated.description).toBe('Team sync meeting')
+    expect(updated.description).toBe('Renamed meeting')
   })
 
   test('update of a missing entry throws a message-only error', () => {
-    expect(() => repo.update('nope', { issueKey: null, durationMs: 1 })).toThrow(/not found/i)
+    expect(() =>
+      repo.update('nope', { description: 'x', issueKey: null, durationMs: 1 })
+    ).toThrow(/not found/i)
   })
 
   test('remove hard-deletes the row', () => {
@@ -90,20 +96,37 @@ describe('timeOverrideRepo', () => {
   })
 
   test('upsert inserts a new override and get reads it back', () => {
-    repo.upsert('sess-1', { issueKey: 'FID2507-611', durationMs: 90 * 60_000, deleted: false })
+    repo.upsert('sess-1', {
+      description: 'Edited label',
+      issueKey: 'FID2507-611',
+      durationMs: 90 * 60_000,
+      deleted: false
+    })
     expect(repo.get('sess-1')).toEqual({
       sessionId: 'sess-1',
+      description: 'Edited label',
       issueKey: 'FID2507-611',
       durationMs: 90 * 60_000,
       deleted: false
     })
   })
 
+  test('a never-edited description round-trips as null', () => {
+    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1000, deleted: false })
+    expect(repo.get('sess-1')?.description).toBeNull()
+  })
+
   test('upsert replaces an existing override whole, including clearing the issue key', () => {
-    repo.upsert('sess-1', { issueKey: 'FID2507-611', durationMs: 1000, deleted: false })
-    repo.upsert('sess-1', { issueKey: null, durationMs: 2000, deleted: false })
+    repo.upsert('sess-1', {
+      description: 'first',
+      issueKey: 'FID2507-611',
+      durationMs: 1000,
+      deleted: false
+    })
+    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 2000, deleted: false })
     expect(repo.get('sess-1')).toEqual({
       sessionId: 'sess-1',
+      description: null,
       issueKey: null,
       durationMs: 2000,
       deleted: false
@@ -111,7 +134,12 @@ describe('timeOverrideRepo', () => {
   })
 
   test('a tombstone survives round-trip and keeps its snapshot fields', () => {
-    repo.upsert('sess-1', { issueKey: 'FID2507-611', durationMs: 1000, deleted: true })
+    repo.upsert('sess-1', {
+      description: 'kept',
+      issueKey: 'FID2507-611',
+      durationMs: 1000,
+      deleted: true
+    })
     const o = repo.get('sess-1')
     expect(o?.deleted).toBe(true)
     expect(o?.issueKey).toBe('FID2507-611')
@@ -122,14 +150,14 @@ describe('timeOverrideRepo', () => {
   })
 
   test('listAll returns every override', () => {
-    repo.upsert('sess-1', { issueKey: null, durationMs: 1, deleted: false })
-    repo.upsert('sess-2', { issueKey: 'AB-1', durationMs: 2, deleted: true })
+    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1, deleted: false })
+    repo.upsert('sess-2', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
     expect(repo.listAll().map((o) => o.sessionId).sort()).toEqual(['sess-1', 'sess-2'])
   })
 
   test('pruneAbsent drops only overrides whose session is gone', () => {
-    repo.upsert('sess-1', { issueKey: null, durationMs: 1, deleted: false })
-    repo.upsert('sess-2', { issueKey: 'AB-1', durationMs: 2, deleted: true })
+    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1, deleted: false })
+    repo.upsert('sess-2', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
     repo.pruneAbsent(['sess-1'])
     expect(repo.listAll().map((o) => o.sessionId)).toEqual(['sess-1'])
   })

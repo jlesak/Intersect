@@ -57,6 +57,7 @@ function summary(over: Partial<SessionSummary> = {}): SessionSummary {
     firstTimestamp: at(2026, 7, 6, 10, 0),
     lastTimestamp: at(2026, 7, 6, 12, 0),
     durationMs: 60 * MIN,
+    activeDurationMs: 60 * MIN,
     messageCount: 2,
     userPrompts: [],
     ...over

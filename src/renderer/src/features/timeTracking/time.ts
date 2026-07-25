@@ -71,8 +71,8 @@ export function formatAgentRuntime(day: AgentRuntimeDay): string {
   return `${day.agents} agent${day.agents === 1 ? '' : 's'} · ${runtime} runtime`
 }
 
-/** The topbar's week range label, `dd.mm – dd.mm.yyyy` (Monday through Sunday). */
+/** The topbar's week range label, `dd.mm – dd.mm.yyyy` (Monday through Friday - the board's span). */
 export function formatWeekRange(weekStart: string): string {
-  const end = dateOfDayKey(addDays(weekStart, 6))
-  return `${formatDayDate(weekStart)} – ${formatDayDate(addDays(weekStart, 6))}.${end.getFullYear()}`
+  const end = dateOfDayKey(addDays(weekStart, 4))
+  return `${formatDayDate(weekStart)} – ${formatDayDate(addDays(weekStart, 4))}.${end.getFullYear()}`
 }

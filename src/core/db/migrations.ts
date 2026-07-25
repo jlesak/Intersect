@@ -539,6 +539,14 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX idx_session_lifecycle_events_tab ON session_lifecycle_events(tab_id, at);
       `)
     }
+  },
+  {
+    // Worklog description edits: a nullable snapshot on the auto-entry override. NULL means
+    // "never edited" and the board keeps deriving the sanitized description from the session.
+    version: 21,
+    up(db) {
+      db.exec(`ALTER TABLE time_entry_override ADD COLUMN description TEXT;`)
+    }
   }
 ]
 

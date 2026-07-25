@@ -8,6 +8,7 @@ import { dayKeyOf, weekdayKeys } from '@common/week'
 import type { ManualTimeEntryRepo, TimeOverrideRepo } from '../db/timeTrackingRepo'
 import type { SessionIndex } from '../sessions/sessionIndex'
 import { issueKeyFromBranch } from './issueKey'
+import { autoDescription } from './worklogDescription'
 
 export interface TimeTrackingDeps {
   /** The app-wide session index instance - the same one the Sessions slice reads. */
@@ -68,9 +69,9 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
           id: session.id,
           source: 'auto',
           day,
-          description: session.title,
+          description: override?.description ?? autoDescription(session),
           issueKey: override ? override.issueKey : issueKeyFromBranch(session.gitBranch),
-          durationMs: override ? override.durationMs : session.durationMs
+          durationMs: override ? override.durationMs : session.activeDurationMs
         }
       })
     }
@@ -102,9 +103,11 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
 
     async updateEntry(source, id, update) {
       assertDuration(update.durationMs)
+      if (!update.description.trim()) throw new Error('A description is required')
       if (source === 'manual') return deps.manual.update(id, update)
       const session = await findSession(id)
       deps.overrides.upsert(id, {
+        description: update.description,
         issueKey: update.issueKey,
         durationMs: update.durationMs,
         deleted: false
@@ -113,7 +116,7 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
         id,
         source: 'auto',
         day: dayKeyOf(session.lastTimestamp),
-        description: session.title,
+        description: update.description,
         issueKey: update.issueKey,
         durationMs: update.durationMs
       }
@@ -133,8 +136,9 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
       }
       const session = await findSession(id)
       deps.overrides.upsert(id, {
+        description: null,
         issueKey: issueKeyFromBranch(session.gitBranch),
-        durationMs: session.durationMs,
+        durationMs: session.activeDurationMs,
         deleted: true
       })
     }

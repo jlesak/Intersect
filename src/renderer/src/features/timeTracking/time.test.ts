@@ -95,11 +95,11 @@ describe('date labels', () => {
     expect(formatDayDate('2026-11-30')).toBe('30.11')
   })
 
-  test('formatWeekRange renders the Monday-to-Sunday range with the year', () => {
-    expect(formatWeekRange('2026-06-29')).toBe('29.06 – 05.07.2026')
+  test('formatWeekRange renders the Monday-to-Friday range with the year', () => {
+    expect(formatWeekRange('2026-06-29')).toBe('29.06 – 03.07.2026')
   })
 
   test('formatWeekRange across a year boundary uses the end year', () => {
-    expect(formatWeekRange('2026-12-28')).toBe('28.12 – 03.01.2027')
+    expect(formatWeekRange('2026-12-28')).toBe('28.12 – 01.01.2027')
   })
 })

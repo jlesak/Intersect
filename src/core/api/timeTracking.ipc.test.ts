@@ -51,7 +51,7 @@ describe('timeTracking handlers', () => {
   test('updateEntry delegates source, id and update', async () => {
     const service = makeService()
     const h = createTimeTrackingHandlers({ service })
-    const update = { issueKey: null, durationMs: 1 }
+    const update = { description: 'Session s1', issueKey: null, durationMs: 1 }
     expect((await h.updateEntry('auto', 's1', update)).durationMs).toBe(1)
     expect(service.updateEntry).toHaveBeenCalledWith('auto', 's1', update)
   })
@@ -70,9 +70,9 @@ describe('timeTracking handlers', () => {
       })
     })
     const h = createTimeTrackingHandlers({ service })
-    await expect(h.updateEntry('auto', 'nope', { issueKey: null, durationMs: 1 })).rejects.toThrow(
-      /Unknown session: nope/
-    )
+    await expect(
+      h.updateEntry('auto', 'nope', { description: 'x', issueKey: null, durationMs: 1 })
+    ).rejects.toThrow(/Unknown session: nope/)
   })
 
   test('wraps a non-Error throw into an Error with a message', async () => {
@@ -107,6 +107,7 @@ describe('timeTrackingWireRoutes', () => {
     expect(week.map((e) => e.id)).toEqual(['s1'])
 
     const updated = (await call(Channel.timeTrackingUpdateEntry, 'auto', 's1', {
+      description: 'Session s1',
       issueKey: null,
       durationMs: 1
     })) as TimeEntry

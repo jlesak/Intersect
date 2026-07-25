@@ -44,17 +44,19 @@ function blurOnEnter(e: KeyboardEvent<HTMLInputElement>, discard?: () => void): 
 }
 
 /**
- * One worklog card. The issue key and the duration are editable in place on every card (auto and
- * manual alike); a failed duration parse reverts to the previous value. Both fields commit on
- * blur, so Enter simply blurs.
+ * One worklog card. The issue key, the description and the duration are editable in place on every
+ * card (auto and manual alike); a failed duration parse reverts to the previous value. Every field
+ * commits on blur, so Enter simply blurs.
  */
 export function EntryCard({ entry }: { entry: TimeEntry }) {
   const [key, setKey] = useState(entry.issueKey ?? '')
+  const [desc, setDesc] = useState(entry.description)
   const [time, setTime] = useState(formatDuration(entry.durationMs))
   // A ref (not state) so the Escape keydown is already visible to the blur it triggers.
   const discardRef = useRef(false)
 
   useEffect(() => setKey(entry.issueKey ?? ''), [entry.issueKey])
+  useEffect(() => setDesc(entry.description), [entry.description])
   useEffect(() => setTime(formatDuration(entry.durationMs)), [entry.durationMs])
 
   const takeDiscard = (): boolean => {
@@ -62,6 +64,16 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
     discardRef.current = false
     return discarded
   }
+
+  // Assemble the whole payload from the live drafts of all three fields, never from the entry prop.
+  // updateEntry is fire-and-forget and the board reloads only after it resolves, so committing one
+  // field while another already holds an uncommitted edit must carry that pending edit too, or the
+  // stale prop would silently revert it.
+  const draftPayload = () => ({
+    description: desc.trim() || entry.description,
+    issueKey: normalizeIssueKey(key),
+    durationMs: parseDuration(time) ?? entry.durationMs
+  })
 
   const commitKey = (): void => {
     if (takeDiscard()) {
@@ -73,7 +85,20 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       setKey(issueKey ?? '')
       return
     }
-    void useTimeTrackingStore.getState().updateEntry(entry, { issueKey, durationMs: entry.durationMs })
+    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
+  }
+
+  const commitDesc = (): void => {
+    if (takeDiscard()) {
+      setDesc(entry.description)
+      return
+    }
+    const description = desc.trim()
+    if (description === '' || description === entry.description) {
+      setDesc(entry.description)
+      return
+    }
+    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   const commitTime = (): void => {
@@ -90,9 +115,7 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       setTime(formatDuration(entry.durationMs))
       return
     }
-    void useTimeTrackingStore
-      .getState()
-      .updateEntry(entry, { issueKey: entry.issueKey, durationMs })
+    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   return (
@@ -119,7 +142,14 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           </button>
         </span>
       </span>
-      <span className="ix-tt-card__title">{entry.description}</span>
+      <input
+        className="ix-tt-card__title"
+        value={desc}
+        aria-label="Description"
+        onChange={(e) => setDesc(e.target.value)}
+        onKeyDown={(e) => blurOnEnter(e, () => (discardRef.current = true))}
+        onBlur={commitDesc}
+      />
       <span className="ix-tt-card__bottom">
         <input
           className="ix-tt-card__dur"
