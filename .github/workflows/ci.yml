@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Only the build tooling runs on this Node; Electron bundles its own runtime. Pinned to the LTS
+  # line rather than tracking the developer's newer local version, which is short-lived.
+  NODE_VERSION: '24'
+
+jobs:
+  # The cheap gates, kept in their own job so a red typecheck reports in a couple of minutes
+  # instead of waiting behind an Electron build.
+  static:
+    name: typecheck, unit tests, lint
+    # Pinned rather than macos-latest: the latest alias is mid-migration to a new macOS major, and
+    # a gate that silently changes OS and architecture underneath itself is not a gate. macOS at
+    # all because this is a macOS-only app - electron-builder targets mac exclusively, the app-wide
+    # shortcuts are native macOS menu accelerators, and node-pty ships no Linux prebuild.
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run lint
+
+  e2e:
+    name: e2e
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # No native rebuild step: node-pty ships ABI-stable N-API prebuilds for darwin, which is why
+      # electron-builder.yml sets npmRebuild: false. Nothing here compiles.
+      - run: npm ci
+
+      # `npm run e2e` builds first, on purpose - the suite runs against out/, so without a build it
+      # would silently test a stale bundle. Playwright needs no browser download: the target is
+      # Electron's own binary.
+      - run: npm run e2e
+
+      # Every failure otherwise reads as a bare timeout. The trace is the only way to see what the
+      # app was actually showing.
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
