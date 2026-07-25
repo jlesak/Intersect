@@ -31,9 +31,22 @@ const CORE_OWNERSHIP = [
 const ZUSTAND_CREATE_MESSAGE =
   'Build renderer stores with createStore from @renderer/shared/store/createStore - it catches unstable selectors while developing.'
 
+// Every way of reaching an unguarded store is banned, not just `create`. `zustand/vanilla` exports
+// a `createStore` of its own, so an import completed from the wrong module would otherwise compile,
+// lint, and quietly produce a store no selector check ever runs against.
 const ZUSTAND_CREATE = [
-  { name: 'zustand', importNames: ['create'], message: ZUSTAND_CREATE_MESSAGE },
-  { name: 'zustand/react', importNames: ['create'], message: ZUSTAND_CREATE_MESSAGE }
+  {
+    name: 'zustand',
+    importNames: ['create', 'createStore', 'useStore'],
+    message: ZUSTAND_CREATE_MESSAGE
+  },
+  {
+    name: 'zustand/react',
+    importNames: ['create', 'useStore'],
+    message: ZUSTAND_CREATE_MESSAGE
+  },
+  { name: 'zustand/vanilla', message: ZUSTAND_CREATE_MESSAGE },
+  { name: 'zustand/traditional', message: ZUSTAND_CREATE_MESSAGE }
 ]
 
 // Every spec used to launch Electron itself, so one navigation change broke fifteen tests across
