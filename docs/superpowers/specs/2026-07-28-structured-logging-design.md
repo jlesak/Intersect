@@ -230,9 +230,29 @@ Applied in `record.ts` at serialization, so no call site can forget it.
   `ado_pat` and `AZURE_DEVOPS_PAT` all redact while `path`, `patch`, `pattern`, `dispatch` and
   `compatible` do not.
 - Every URL surface that can carry a credential is redacted: userinfo (`user:PAT@host`), the query
-  string, and the fragment. Path matrix parameters (`;jsessionid=`) are a known gap, kept because
-  the vocabulary recognises no session-id name, so closing it would require widening the vocabulary
-  rather than adding a surface.
+  string, and the fragment. Path matrix parameters (`;token=`) are a known gap, kept because **the
+  URL path is never scanned at all** - the vocabulary is not the obstacle, and `;token=SECRET` leaks
+  under a first-class vocabulary name.
+- One function applies every rule to every surface. Query, fragment and unparseable paths all call
+  it, and it recurses into each decoded parameter value to a bounded depth. This is deliberate: the
+  two worst defects found in this module were a rule wired into some surfaces and not others, so
+  there is now one place a rule can be added and no way to add it to only half the surfaces.
+- **A value is also redacted when its shape says credential, regardless of its name.** Two shapes
+  qualify, both verifiable by construction rather than by guesswork: a JWT (`eyJ`, which is what
+  base64 makes of the `{"` opening every JWT header, followed by base64url and two structural dots),
+  and the value following `Bearer` or `Basic` in prose, which is how this app's own ADO connection
+  test transmits its PAT.
+
+  Shapes deliberately **not** matched, because no rule separates them from innocent data here: a hex
+  digest, since `revision` is a 64-character sha256 hex written in dozens of places and the hook
+  token is `randomBytes(32).toString('hex')` - the same shape is both an innocent value and a
+  credential; a bare base32 PAT, whose length could not be verified and whose plausible ranges start
+  matching git object names; and a bare base64 signature, indistinguishable from the base64
+  attention-marker payload this app encodes on purpose as user-facing text. Over-redaction destroys
+  data silently, so an unmatched shape is preferred to a rule that cannot tell the two apart.
+- **A record carries the number of redactions it required**, present only when non-zero. A log full
+  of ADO traffic that redacted nothing is then a visible anomaly rather than being indistinguishable
+  from a clean run. Nobody checks this automatically yet; it makes a miss detectable, not detected.
 - PTY output and terminal snapshots are never logged as content.
 
 ### What redaction does not cover
@@ -241,10 +261,10 @@ Stated plainly, because the rest of this section reads as though it were exhaust
 Each limit below is asserted as a test, so the scope the code has and the scope described here cannot
 drift apart silently.
 
-- **Free text is scanned for URLs only.** A string with no `://` is passed through untouched, so a
-  credential in prose survives: `Authorization: Bearer SECRET` and `set-cookie: session=SECRET`
-  inside an error message are **not** redacted, and never have been. This is the limit an HTTP client
-  is most likely to produce.
+- **Free text is scanned for URLs, and for the two value shapes above, and for nothing else.** So
+  `Authorization: Bearer SECRET` in an error message *is* redacted - by shape, not by name - while
+  `set-cookie: session=SECRET` is **not**, because a cookie value has no distinguishing shape. A
+  credential in prose is covered only when it is a URL, a JWT, or an auth-scheme value.
 - **A deny-list cannot recognise a credential it has no name for.** A value under a name outside the
   vocabulary (`?hmac=`, or a bare `?key=`) is not redacted, and neither is one buried in an opaque
   blob whose own shape says nothing (a token inside base64 or JSON). This is a property of the
@@ -255,13 +275,21 @@ drift apart silently.
   whole word - but the class it stood for is not, and adding that one name did nothing to close it.
 - **The URL path is never scanned.** Matrix parameters leak even under a first-class vocabulary name:
   `https://h/a;token=SECRET` survives. The gap is the unscanned surface, not the vocabulary.
-- **Redaction is silent.** Nothing distinguishes a log with a missed credential from a log that had
-  nothing to redact.
+- **Nothing checks the redaction count.** A record now reports how many redactions it required, so a
+  miss is *detectable* - but only by a person reading the file. No alert, no test over real logs, and
+  no baseline for what a normal session looks like.
 
 An allow-list that redacts every parameter value and keeps every name would close the first three by
 construction. It was proposed, and deliberately not adopted: the deny-list is kept and hardened
 shape-by-shape instead, which makes the committed redaction audit the load-bearing safety artefact
-rather than a convenience. Treat it as one.
+rather than a convenience. Treat it as one - 73 shapes across 6 routes, each named with the class it
+stands for and the failure it was written against.
+
+The residual that matters most is the vocabulary, and it is unchanged by nine rounds of work: every
+mechanism for *finding* a named credential was improved, and what a credential is *called* was
+extended by exactly one word. Shape detection is the only part of this design that does not depend on
+knowing the name, which is why it closes limits the vocabulary never could - and why the two shapes
+it matches were chosen for being provable rather than for being useful.
 
 The threat model is a log file pasted into a GitHub issue, not a local attacker: the file is already
 as private as the SQLite database beside it.
