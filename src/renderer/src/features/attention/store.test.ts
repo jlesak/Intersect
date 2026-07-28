@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { oldestWaitingSession, projectStatus, useAttentionStore, workspaceStatus } from './store'
+import {
+  liveSessions,
+  oldestWaitingSession,
+  projectStatus,
+  STATUS_PRIORITY,
+  useAttentionStore,
+  workspaceStatus,
+  type AttentionEntry
+} from './store'
 
 beforeEach(() => {
   useAttentionStore.setState({ status: {} }, false)
@@ -200,6 +208,51 @@ describe('attention store', () => {
         'w1:a': { status: 'waiting', since: 1_000 }
       } as const
       expect(oldestWaitingSession(status)).toBe('w1:a')
+    })
+  })
+
+  describe('liveSessions', () => {
+    const entry = (status: AttentionEntry['status'], since: number): AttentionEntry => ({
+      status,
+      since
+    })
+
+    it('is empty when no session carries any state', () => {
+      expect(liveSessions({})).toEqual([])
+    })
+
+    it('orders by urgency first: waiting above done above working', () => {
+      const list = liveSessions({
+        'w1:working': entry('working', 1_000),
+        'w1:done': entry('done', 1_000),
+        'w1:waiting': entry('waiting', 1_000)
+      })
+      expect(list.map((s) => s.status)).toEqual(['waiting', 'done', 'working'])
+    })
+
+    it('puts the longest-standing session first within one status', () => {
+      const list = liveSessions({
+        'w1:new': entry('waiting', 3_000),
+        'w1:old': entry('waiting', 1_000),
+        'w1:mid': entry('waiting', 2_000)
+      })
+      expect(list.map((s) => s.tabId)).toEqual(['old', 'mid', 'new'])
+    })
+
+    it('carries the session id whole alongside its parsed workspace and tab', () => {
+      const list = liveSessions({ 'ws-1:tab-7': entry('waiting', 1_000) })
+      expect(list).toEqual([
+        { sessionId: 'ws-1:tab-7', workspaceId: 'ws-1', tabId: 'tab-7', status: 'waiting', since: 1_000 }
+      ])
+    })
+
+    it('skips a malformed key rather than inventing a workspace for it', () => {
+      expect(liveSessions({ 'no-colon': entry('waiting', 1_000) })).toEqual([])
+    })
+
+    it('ranks the three statuses the way the rest of the app does', () => {
+      expect(STATUS_PRIORITY.waiting).toBeGreaterThan(STATUS_PRIORITY.done)
+      expect(STATUS_PRIORITY.done).toBeGreaterThan(STATUS_PRIORITY.working)
     })
   })
 })
