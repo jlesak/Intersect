@@ -20,8 +20,14 @@ test('app launches and renders the shell', async () => {
 
   await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
 
-  // Boot lands on Claude Code (the first, default main-owning section); it renders its empty state.
-  await expect(win.locator('.ix-empty__title')).toBeVisible()
+  // Boot lands on the Dashboard - the first main-owning section - so its four zones are the very
+  // first thing the app renders, and every one of them must survive a profile with nothing set up.
+  await expect(win.locator('.ix-dash-zone__title')).toHaveText([
+    'Needs action',
+    'Running sessions',
+    'Time today',
+    'System status'
+  ])
 
   // Switching to My Work renders the stubbed E2E board's empty state.
   await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
