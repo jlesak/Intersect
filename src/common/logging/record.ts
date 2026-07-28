@@ -80,10 +80,14 @@ export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 
  * redact a large part of what the log is for - the same defect unanchored `pat` had against paths.
  * Anchored as a word it matches `sig` and `?sig=` and leaves every one of those alone.
  *
- * Adding the word is not quite the whole of the extension mechanism either, because the splitting is
- * imperfect on a plural of an acronym: `PATs` divides into `pa` and `ts`, so it is not recognised,
- * while `PATList` and `pats` both are. No name of that shape exists here, and a new one should be
- * checked against the tests that hold the vocabulary rather than assumed.
+ * A plural counts. A field holding several credentials holds credentials, so a word matches when a
+ * trailing `s` is removed as well - `pats`, `PATs`, `adoPats` and `sigs` all reach the same names. That
+ * needed the tokeniser fixed as much as the lookup: splitting an acronym before a capitalised word
+ * used to cut `PATs` into `pa` and `ts`, so two lower-case letters are now required after the capital.
+ *
+ * Which is the general point about extending this. Adding the word is necessary and not always
+ * sufficient, because the answer depends on how the tokeniser divides the names it will meet. A new
+ * word belongs in the tests that hold the vocabulary, in both directions, before it is trusted.
  */
 
 /**
@@ -98,7 +102,12 @@ const SECRET_SUBSTRINGS = [
   'secret',
   'authorization',
   'bearer',
-  'apikey'
+  'apikey',
+  // Held on the app's own evidence: it scrubs this from a spawned environment beside the others, and
+  // no identifier here uses the word for anything else. `key` was weighed with it and declined - as a
+  // word it would take `issueKey`, `sourceKey`, `projectKey` and `epicKey` with it, and a Jira issue
+  // key is this app's central domain identifier, named in hundreds of places.
+  'credential'
 ]
 
 /**
@@ -203,6 +212,18 @@ const EMBEDDED_URL = new RegExp(String.raw`\b${SCHEME}\S+`, 'gi')
  */
 const CLOSING_PUNCTUATION = new Set([...`"'<>,;.:!?)]}`])
 
+/**
+ * Where a second URL begins inside one whitespace-free run, behind a character no scheme may contain.
+ *
+ * Two URLs written back to back must each be redacted in their own right. This was once deleted on the
+ * grounds that searching parameter values had superseded it, which was wrong: a glued URL is only
+ * reached that way when it lands in a *parameter value*. Land it in the outer URL's **path** - the
+ * `${base}${path}` double-join, which is exactly the mistake a log exists to reveal - and nothing
+ * reaches it, because the path is never scanned and the authority pattern is anchored at the start of
+ * the string so it cannot fire from the middle of one.
+ */
+const NESTED_SCHEME = new RegExp(String.raw`[^a-z0-9+.-]${SCHEME}`, 'gi')
+
 const MAX_STACK_CHARS = 2000
 
 const MAX_CAUSE_DEPTH = 5
@@ -237,8 +258,10 @@ function nameWords(name: string): string[] {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     // One capital of context is all the split needs, and all it may take: a `+` here would run to
     // the end of a long run of capitals and backtrack from every start position, which costs
-    // seconds of a stalled process on a key that is nothing but capitals.
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    // seconds of a stalled process on a key that is nothing but capitals. Two lower-case letters are
+    // required after it so that the `s` of a plural acronym is not mistaken for a word of its own,
+    // which is what left `PATs` splitting into `pa` and `ts` and going unrecognised.
+    .replace(/([A-Z])([A-Z][a-z]{2,})/g, '$1 $2')
     .replace(/([a-z])([0-9])/g, '$1 $2')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -255,7 +278,34 @@ function nameWords(name: string): string[] {
 function isSecretName(name: string): boolean {
   const lower = name.toLowerCase()
   if (SECRET_SUBSTRINGS.some((part) => lower.includes(part))) return true
-  return nameWords(name).some((word) => SECRET_WORDS.has(word))
+  return nameWords(name).some(isSecretWord)
+}
+
+/**
+ * Whether one word of a name is a credential name, counting the plural.
+ *
+ * A field holding several credentials is still holding credentials, and `pats` was going unrecognised
+ * while `patToken` was caught. The plural cannot collide with anything: it is only reached when
+ * removing a trailing `s` leaves a word already in the list.
+ */
+function isSecretWord(word: string): boolean {
+  if (SECRET_WORDS.has(word)) return true
+  return word.endsWith('s') && SECRET_WORDS.has(word.slice(0, -1))
+}
+
+/**
+ * A running total of the markers redaction has written.
+ *
+ * Counted where each marker is written rather than by searching the finished line, so that text a
+ * caller happens to have written `[redacted]` into cannot inflate it. `serialize` reads the difference
+ * across one record, which is why a stray increment from an exported call elsewhere cannot mislead it.
+ */
+let markersWritten = 0
+
+/** Record that a marker is being written, and return it for use in place of the value. */
+function marker(): string {
+  markersWritten += 1
+  return REDACTED
 }
 
 /** Describe a value that refuses to be read, rather than letting its failure escape. */
@@ -347,7 +397,7 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
     const out: Record<string, unknown> = {}
     for (const [key, item] of value) {
       const name = safeText(key)
-      out[redactText(name)] = isSecretName(name) ? REDACTED : redactAny(item, seen)
+      out[redactText(name)] = isSecretName(name) ? marker() : redactAny(item, seen)
     }
     return out
   }
@@ -355,7 +405,7 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
   for (const key of ownKeys(value)) {
     // The name is redacted as well as judged. A cache keyed by request URL carries its credentials
     // in the key, where deciding whether the value is a secret does nothing to protect them.
-    out[redactText(key)] = isSecretName(key) ? REDACTED : readAndRedact(value, key, seen)
+    out[redactText(key)] = isSecretName(key) ? marker() : readAndRedact(value, key, seen)
   }
   return out
 }
@@ -390,24 +440,97 @@ function readAndRedact(owner: object, key: string, seen: WeakSet<object>): unkno
  */
 function redactShapes(value: string): string {
   return value
-    .replace(JWT, REDACTED)
-    .replace(AUTH_SCHEME_VALUE, (_match, scheme: string, gap: string) => `${scheme}${gap}${REDACTED}`)
+    .replace(JWT, () => marker())
+    .replace(AUTH_SCHEME_VALUE, (_match, scheme: string, gap: string) => `${scheme}${gap}${marker()}`)
+}
+
+/** How far back from a separator a name may reach. Bounded so the look-back cannot become a scan. */
+const MAX_NAME_CHARS = 64
+
+const NAME_CHARACTER = /[A-Za-z0-9_.-]/
+
+/** What ends an unquoted value in free text. A quoted one ends at its own closing quote. */
+const BARE_VALUE_END = new Set([...' \t\n\r\f,;&}])>'])
+
+/**
+ * An authorization scheme word, which is what a header's value begins with rather than being the
+ * credential itself. Left in place, since the shape pass has already taken the token behind it and
+ * which scheme was in use is worth reading.
+ */
+const AUTH_SCHEMES = new Set(['basic', 'bearer'])
+
+/**
+ * Redact the value of any credential named in free text, whether written as a setting or as JSON.
+ *
+ * The vocabulary used to be reachable only from inside a URL, so `pat=` in a settings line and
+ * `"pat":` in a stringified configuration both went to disk intact - and those are the shapes a log
+ * line carrying raw file text or a settings object actually takes. The name says everything here;
+ * nothing about the value needs to be guessed.
+ *
+ * Scanned by walking to each separator and reading backwards for the name, rather than by a pattern
+ * over the whole pair. A pattern without a leading delimiter is quadratic, and one with a leading
+ * delimiter consumes the text before the pair, which lets `settings: pat=x` hide the pair inside the
+ * value of `settings`. Reading back from the separator is bounded, linear, and has neither problem.
+ */
+function redactNamedValues(text: string): string {
+  let out = ''
+  let copied = 0
+  for (let at = 0; at < text.length; at += 1) {
+    const separator = text.charAt(at)
+    if (separator !== '=' && separator !== ':') continue
+
+    let nameEnd = at
+    while (nameEnd > copied && ' \t"\''.includes(text.charAt(nameEnd - 1))) nameEnd -= 1
+    let nameStart = nameEnd
+    const floor = Math.max(copied, nameEnd - MAX_NAME_CHARS)
+    while (nameStart > floor && NAME_CHARACTER.test(text.charAt(nameStart - 1))) nameStart -= 1
+    if (nameStart === nameEnd || !isSecretName(text.slice(nameStart, nameEnd))) continue
+
+    let valueStart = at + 1
+    while (valueStart < text.length && ' \t'.includes(text.charAt(valueStart))) valueStart += 1
+    const quote = text.charAt(valueStart)
+    const quoted = quote === '"' || quote === "'"
+    if (quoted) valueStart += 1
+    let valueEnd = valueStart
+    while (valueEnd < text.length) {
+      const character = text.charAt(valueEnd)
+      if (quoted ? character === quote : BARE_VALUE_END.has(character)) break
+      valueEnd += 1
+    }
+    // An unquoted value runs to whitespace, which swallows whatever closed the sentence around it.
+    // A quoted one ends at its own quote and needs no such help.
+    if (!quoted) {
+      while (valueEnd > valueStart && CLOSING_PUNCTUATION.has(text.charAt(valueEnd - 1))) valueEnd -= 1
+    }
+    if (valueEnd === valueStart) continue
+    const value = text.slice(valueStart, valueEnd)
+    // Nothing to do to a value an earlier pass already took, and counting it again would overstate
+    // what was removed.
+    if (value === REDACTED) continue
+    if (!quoted && AUTH_SCHEMES.has(value.toLowerCase())) continue
+
+    out += `${text.slice(copied, valueStart)}${marker()}`
+    copied = valueEnd
+    at = valueEnd - 1
+  }
+  return copied === 0 ? text : `${out}${text.slice(copied)}`
 }
 
 /**
  * Strip the credentials a piece of text carries, named or shaped.
  *
- * A URL in the text is redacted surface by surface; a value that is a credential by its own shape is
- * redacted wherever it sits, including in text holding no URL at all - which is how an authorization
- * header quoted in an error message is reached.
+ * Three passes, in this order for a reason. Shapes first, because an authorization header's scheme word
+ * is what identifies its value and the pass below would otherwise redact the word and leave the token
+ * behind it. Then names, which reach a credential written as a setting or as JSON and never near a URL.
+ * Then the URLs, surface by surface.
  *
- * What remains beyond it is a credential that is neither named nor shaped: `set-cookie:
- * session=SECRET` in prose is a name and a value, but not in a URL and not a shape, so it survives.
+ * What remains beyond all three is a credential that is neither named nor shaped, `set-cookie:
+ * session=SECRET` being the example: `session` is not a name this vocabulary holds.
  */
 function redactText(value: string): string {
-  const shaped = redactShapes(value)
-  if (!shaped.includes('://')) return shaped
-  return shaped.replace(EMBEDDED_URL, redactRun)
+  const named = redactNamedValues(redactShapes(value))
+  if (!named.includes('://')) return named
+  return named.replace(EMBEDDED_URL, redactRun)
 }
 
 /**
@@ -417,23 +540,54 @@ function redactText(value: string): string {
  * the sentence or bracket around it. Everything else goes to `redactUrl` in one piece: that is the
  * invariant here, that nothing leaves without having been offered for redaction.
  *
- * A second URL glued onto the first used to be split out and redacted separately. It no longer is,
- * because searching a parameter's value now covers every credential the split was protecting, and a
- * rule that has to agree with the rest of them is a rule that can disagree - that one already did,
- * by refusing a scheme separator the others had learned to accept. What is lost with it is text and
- * not secrecy: two URLs glued together are redacted as one, so the second is absorbed into the first
- * parameter value that gets redacted and is no longer legible.
+ * A second URL glued onto the first is split out and redacted in its own right, with the single
+ * character between them passed through as itself. That split cannot be replaced by searching
+ * parameter values: it is the only thing that reaches a URL glued into another one's **path**.
  *
- * Text may also be lost when a URL absorbs prose that followed it without a space. Both are the
+ * A run that turns out to hold no credential is given back exactly as it arrived. Parsing a string as
+ * a URL re-encodes it, and a run is over-collected on purpose, so free text that merely looked like a
+ * URL - a stringified object, say - would otherwise come back percent-mangled for having been examined.
+ *
+ * Text can still be lost when a URL absorbs prose that followed it without a space. That is the
  * direction to fail in: losing a fragment of a log line costs a little context, whereas letting one
  * token past costs a credential.
  */
 function redactRun(run: string): string {
   let cut = run.length
-  while (cut > 0 && CLOSING_PUNCTUATION.has(run.charAt(cut - 1))) cut -= 1
+  // A marker already written into the run ends in a bracket of its own, and trimming into it would
+  // put that bracket back after the value was redacted again, leaving `[redacted]]` behind.
+  while (
+    cut > 0 &&
+    CLOSING_PUNCTUATION.has(run.charAt(cut - 1)) &&
+    !run.endsWith(REDACTED, cut)
+  ) {
+    cut -= 1
+  }
   const urls = run.slice(0, cut)
   const trailing = run.slice(cut)
-  return `${redactUrl(urls)}${trailing}`
+  const before = markersWritten
+  const out = eachGluedUrl(urls, redactUrl)
+  return markersWritten === before ? `${urls}${trailing}` : `${out}${trailing}`
+}
+
+/**
+ * Split a run where a second URL is glued onto the first and redact each part, passing the single
+ * character between them through as itself.
+ *
+ * One rule with two callers rather than two copies of it: a run of free text needs it, and so does the
+ * path of a URL that has had another joined onto it. Writing the split twice is how the patterns that
+ * recognise a URL drifted apart and let a credential through each of them in turn.
+ */
+function eachGluedUrl(run: string, redact: (part: string) => string): string {
+  let out = ''
+  let from = 0
+  for (const nested of run.matchAll(NESTED_SCHEME)) {
+    const at = nested.index
+    if (at <= from) continue
+    out += redact(run.slice(from, at)) + run.charAt(at)
+    from = at + 1
+  }
+  return out + redact(run.slice(from))
 }
 
 /** Redact an error and its causes, since a client's message and stack routinely quote the request. */
@@ -479,8 +633,12 @@ function redactParameters(params: URLSearchParams): string | undefined {
   const rebuilt = new URLSearchParams()
   let redacted = false
   for (const [name, value] of params) {
+    if (value === REDACTED) {
+      rebuilt.append(name, value)
+      continue
+    }
     if (isSecretName(name)) {
-      rebuilt.append(name, REDACTED)
+      rebuilt.append(name, marker())
       redacted = true
       continue
     }
@@ -559,14 +717,15 @@ function redactCredentials(text: string, arrival: 'raw' | 'decodedOnce'): string
 
 function scanCredentials(text: string, depth: number): string {
   const shaped = redactShapes(text)
-  const authority = shaped.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`)
+  const authority = shaped.replace(USERINFO, (_match, scheme) => `${scheme}${marker()}:${marker()}@`)
   let redacted = authority !== text
   const scanned = authority.replace(
     PARAMETER_PAIR,
     (pair, lead: string, name: string, value: string) => {
+      if (value === REDACTED) return pair
       if (isSecretName(name)) {
         redacted = true
-        return `${lead}${name}=${REDACTED}`
+        return `${lead}${name}=${marker()}`
       }
       const inner = redactNestedValue(value, depth)
       if (inner === value) return pair
@@ -595,12 +754,13 @@ function redactNestedValue(value: string, depth: number): string {
 /**
  * Keep a URL useful for diagnosis while removing the credentials it carries, wherever they sit.
  *
- * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment. A scheme
- * carries nothing secret, and the authority, query and fragment are each handled here. **The path is
- * not scanned at all**, which is the honest statement of the gap: `https://h/a;token=SECRET` keeps its
- * token even though `token` is a first-class name in the vocabulary, because nothing ever looks at
- * the path to find it. A bare path segment could not be recognised anyway, having no name to be
- * recognised by, but a matrix parameter plainly could - it is simply not looked for.
+ * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment - and all five
+ * are covered. A scheme carries nothing secret; the authority, query and fragment each hold names to
+ * read; and the path is scanned for a URL joined onto it, for a value whose shape is a credential, and
+ * for a matrix parameter, which is named and so was reachable once anything looked there at all.
+ *
+ * What the path cannot give up is a credential written as a bare segment: `https://h/tokens/SECRET`
+ * has no name to be recognised by, and nothing distinguishes that segment from a work item id.
  *
  * A parameter's value is searched too, to a bounded depth, because a redirect target carried as a
  * parameter brings its own parameters and the credential is often one of those. What no amount of
@@ -620,13 +780,26 @@ export function redactUrl(raw: string): string {
   }
   // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
   // authority as readily as in the query. The user name goes too: it is half of the same secret.
-  if (url.username) url.username = REDACTED
-  if (url.password) url.password = REDACTED
+  if (url.username) url.username = marker()
+  if (url.password) url.password = marker()
   // The query is only written back when something in it was redacted, so examining an innocent
   // parameter does not re-serialise the query and rewrite everyone else's encoding.
   const query = redactParameters(url.searchParams)
   if (query !== undefined) url.search = query
   if (url.hash) url.hash = redactFragment(url.hash)
+  // The path and an `=`-less fragment hold no names to read, but they can still hold a value whose own
+  // shape is a credential - a password-reset link puts the token in the path. Nothing else here looks
+  // at either, so without this the shape rules would cover free text and not a parsed URL, which is
+  // the same split-coverage mistake twice over: `redactObject` sends a `URL` instance straight here.
+  // A URL joined onto the end of this one's path - the `${base}${path}` double-join - brings its own
+  // authority, and the authority pattern is anchored at the start of a string so it cannot reach into
+  // the middle of the path. Splitting there is what reaches it, and nothing else does.
+  // The one scanner is what runs over each part, so the path gets names, shapes and an authority alike
+  // without any of those rules being written a second time for it.
+  const path = eachGluedUrl(url.pathname, (part) => scanCredentials(part, 0))
+  if (path !== url.pathname) url.pathname = path
+  const hash = redactShapes(url.hash)
+  if (hash !== url.hash) url.hash = hash
   // The marker is left legible rather than percent-escaped, so a reader can see what was removed.
   // Only the marker: decoding the whole string would rewrite every other escape and would throw
   // outright on a malformed one, turning a diagnostic call into the failure being diagnosed. The
@@ -678,6 +851,7 @@ interface DegradedRecord {
    * than unusually sparse records.
    */
   data: { truncated: true; serializeFailed?: true }
+  redactions?: number
   err?: { name: string; message: string }
 }
 
@@ -818,12 +992,16 @@ function degrade(
 function degradedLine(
   identity: RecordIdentity,
   err: NormalizedError | undefined,
-  failed: boolean
+  failed: boolean,
+  redactions: number
 ): string {
   let line = ''
   for (const budget of FIELD_BUDGETS) {
     const out = degrade(identity, err, budget)
     if (failed) out.data.serializeFailed = true
+    // The count survives even the last resort. It is the anomaly signal, and a record shrinking is no
+    // reason to stop reporting what redaction took out of it.
+    if (redactions > 0) out.redactions = redactions
     line = stringify(out)
     if (bytes(line) <= MAX_RECORD_BYTES) return line
   }
@@ -856,36 +1034,18 @@ export function serialize(record: LogRecord): string {
   } catch {
     // A value the record carried could not be read or rendered. The event still gets a line: this
     // one is assembled from primitives alone, so it cannot fail the same way, and it says so.
-    return degradedLine(identity, undefined, true)
+    return degradedLine(identity, undefined, true, 0)
   }
-}
-
-/**
- * How many redaction markers a rendered line contains.
- *
- * Counted from the rendered text rather than tallied as redaction runs, because the two exported
- * entry points have fixed signatures with nowhere to thread a counter, and a counter kept beside the
- * module would be shared state that a getter calling back into here could corrupt. What it counts is
- * therefore markers written, not credentials found: a redacted authority writes two.
- */
-function countRedactions(line: string): number {
-  let count = 0
-  for (let at = line.indexOf(REDACTED); at !== -1; at = line.indexOf(REDACTED, at + REDACTED.length)) {
-    count += 1
-  }
-  return count
 }
 
 function bound(record: LogRecord, identity: RecordIdentity): string {
+  // The difference across this one record, so a marker written by an exported call elsewhere cannot
+  // be counted here and text a caller wrote `[redacted]` into cannot inflate it.
+  const before = markersWritten
   const wire = toWire(record)
+  const redactions = markersWritten - before
+  if (redactions > 0) wire.redactions = redactions
   let line = stringify(wire)
-  // Counted from the redacted record and before any shrinking, so it reports what redaction removed
-  // rather than what survived the size stages below. Costs a second render only when it found any.
-  const redactions = countRedactions(line)
-  if (redactions > 0) {
-    wire.redactions = redactions
-    line = stringify(wire)
-  }
   if (bytes(line) <= MAX_RECORD_BYTES) return line
 
   if (wire.err) {
@@ -916,5 +1076,5 @@ function bound(record: LogRecord, identity: RecordIdentity): string {
   }
 
   // Only the identifying fields are left, so one of them is itself oversized.
-  return degradedLine(identity, wire.err, false)
+  return degradedLine(identity, wire.err, false, redactions)
 }

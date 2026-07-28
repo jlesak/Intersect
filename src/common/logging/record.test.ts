@@ -136,16 +136,17 @@ describe('redactValue', () => {
     expect(out.quoted).toBe(`"https://h/a?token=${REDACTED}"`)
   })
 
-  it('redacts two glued URLs as one, losing the second as text but not as a secret', () => {
-    // The split that used to keep the second one legible was a rule that had to agree with every
-    // other rule about where a URL starts, and it once did not. Searching parameter values covers
-    // every credential it was protecting, so it is gone and this is what it cost: the second URL is
-    // absorbed into the first parameter value that gets redacted. Neither token survives.
-    const out = redactValue({ pair: 'two https://h/a?token=x;https://h/b?token=y done' }) as {
-      pair: string
-    }
-    expect(out.pair).toBe(`two https://h/a?token=${REDACTED} done`)
-    expect(out.pair).not.toContain('h/b')
+  it('splits two glued URLs so each is redacted in its own right', () => {
+    // Deleting this split was argued for once on the grounds that searching parameter values had
+    // superseded it. That was wrong, and the shape below is why the split cannot go: a URL glued into
+    // another one's path is reached by nothing else at all.
+    const out = redactValue({
+      pair: 'two https://h/a?token=x;https://h/b?token=y done',
+      inPath: 'GET https://api.example.com/v1/https://alice:pw@internal/redirect 500'
+    }) as Record<string, string>
+    expect(out.pair).toBe(`two https://h/a?token=${REDACTED};https://h/b?token=${REDACTED} done`)
+    expect(out.inPath).not.toContain('pw@')
+    expect(out.inPath).toContain('api.example.com')
   })
 
   it('loses trailing text rather than leaking, when a URL runs into it without a space', () => {
@@ -461,6 +462,14 @@ describe('the names that mean a credential', () => {
     'adoSig',
     'ado_sig',
     'sigHash',
+    'pats',
+    'PATs',
+    'adoPats',
+    'sigs',
+    'SIGs',
+    'credential',
+    'credentials',
+    'azureCredentials',
     // The longer names are recognised anywhere inside a key, including run together without any
     // separator, which is how they arrive from a third party.
     'token',
@@ -526,7 +535,15 @@ describe('the names that mean a credential', () => {
     'signalled',
     'signature',
     'design',
-    'designer'
+    'designer',
+    // Declined on evidence: a Jira issue key is this app's central identifier.
+    'key',
+    'keys',
+    'issueKey',
+    'sourceKey',
+    'projectKey',
+    'epicKey',
+    'cacheKey'
   ]
 
   for (const name of redacted) {
@@ -622,10 +639,18 @@ describe('the redaction audit', () => {
     },
     {
       covers: 'two URLs written into one whitespace-free run',
-      was: 'the second URL was swallowed into a parameter value of the first and vanished with it, or ended the run and escaped entirely',
+      was: 'the second URL was swallowed into a parameter value of the first, or ended the run and escaped - and then the split that separates them was deleted outright, on the strength of this group holding only the two query-parameter instances and none of the authority ones',
       shapes: {
         'separated by a semicolon': `two https://h/a?token=${SECRET};https://h/b?token=${SECRET} done`,
-        'the second one in a fragment': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`
+        'the second one in a fragment': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`,
+        // The instances this group was missing, and the reason the split cannot be deleted: a
+        // credential in the second URL's authority is reached by the split and by nothing else, since
+        // the path is never scanned and the authority pattern is anchored at the start of a string.
+        'joined into the path': `https://api.example.com/v1/https://alice:${SECRET}@internal/redirect`,
+        'joined into the path, in prose': `GET https://api.example.com/v1/https://alice:${SECRET}@internal/redirect 500`,
+        'semicolon, credential in the authority': `two https://h/a?ids=1;https://user:${SECRET}@h/b done`,
+        'comma, credential in the authority': `fatal: cannot access https://h/a?x=1,https://user:${SECRET}@h/b`,
+        'a double join with no separator': `https://h/a/https://user:${SECRET}@h/b`
       }
     },
     {
@@ -714,7 +739,15 @@ describe('the redaction audit', () => {
         'a token inside a JSON blob': `response body {"id_token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}"}`,
         'a token in the fragment of an implicit flow': `https://app/cb#id_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}`,
         'an authorization header in prose': `Authorization: Basic ${SECRET}aaaaaaaaa`,
-        'a bearer header in prose': `request failed with Bearer ${SECRET}aaaaaaaaa`
+        'a bearer header in prose': `request failed with Bearer ${SECRET}aaaaaaaaa`,
+        // The shape rules once ran on free text and on parameter values but never on a parsed URL's
+        // own path or an `=`-less fragment, which meant a `URL` instance in the payload - routed
+        // straight to URL redaction - kept its token.
+        'a token in the path of a parsed URL': `https://h/reset/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}`,
+        'a token in a fragment holding no parameters': `https://h/a#eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}`,
+        // Scanning the path for the double-join closed this too, which used to be a documented gap on
+        // the grounds that the path was never looked at.
+        'a matrix parameter in the path': `https://h/a;token=${SECRET}?ids=1`
       }
     },
     {
@@ -727,6 +760,17 @@ describe('the redaction audit', () => {
         // other base64. Anchored as a word, so the assignment family is untouched by it.
         'a shared access signature': `https://h/a?sv=2021-08-06&sr=b&sig=${SECRET}`,
         'a signature nested in a parameter value': `https://h/r?next=${enc(`https://blob/x?sig=${SECRET}`)}`
+      }
+    },
+    {
+      covers: 'a credential named in free text, nowhere near a URL',
+      was: 'the vocabulary was reachable only from inside a URL, so a settings line and a stringified configuration both went to disk intact - and those are the shapes a log line carrying raw file text actually takes',
+      shapes: {
+        'a settings line': `settings: pat=${SECRET} project=SPOT`,
+        'a stringified configuration': `{"orgUrl":"https://dev.azure.com/o","pat":"${SECRET}"}`,
+        'an environment dump': `AZURE_DEVOPS_PAT=${SECRET} HOME=/Users/x`,
+        'a header written as a header': `set-cookie: session=${SECRET}`,
+        'a credential named at the end of a sentence': `read pat=${SECRET}.`
       }
     },
     {
@@ -756,8 +800,9 @@ describe('the redaction audit', () => {
         data: { url: redactUrl(shape) }
       })
     }
-    // A shape written as prose is not a URL, so there is nothing for `redactUrl` to be given.
-    if (!shape.includes(' ')) taken['redactUrl alone'] = redactUrl(shape)
+    // `redactUrl` is only ever asked about something that claims to be a URL. Prose is not one, and
+    // neither is a stringified object that merely contains one - both reach disk by the routes above.
+    if (/^[a-z][a-z0-9+.-]*:+\/\/\S+$/i.test(shape)) taken['redactUrl alone'] = redactUrl(shape)
     return taken
   }
 
@@ -775,9 +820,10 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(73)
+    expect(counted).toBe(86)
     expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
     expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
+    expect(Object.keys(routes('{"pat":"x"}'))).toHaveLength(5)
   })
 })
 
@@ -845,6 +891,25 @@ describe('the shapes that mean a credential', () => {
     })
   }
 
+  it('redacts what follows an authorization scheme even when it is not a credential', () => {
+    // The kept table above varies the value and never the context, which hid this. An authorization
+    // scheme word followed by twenty unbroken token characters is redacted whatever those characters
+    // are, and four of them are rows in that table. The alternative is narrowing the value to exclude
+    // `/`, which truncates a real base64 credential at its first slash and leaks the rest - so this is
+    // the direction chosen, and it is recorded here so that widening the class fails loudly.
+    for (const value of [
+      '/Users/x/Projects/Intersect/src/common/logging/record.ts',
+      'feature/gh43-dashboard-zones-and-more',
+      '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
+    ]) {
+      expect(redactValue({ note: `Basic ${value}` }), value).toEqual({ note: `Basic ${REDACTED}` })
+    }
+    // Ordinary prose is unaffected, because it has no such run.
+    expect(redactValue({ note: 'Basic authentication failed for the project' })).toEqual({
+      note: 'Basic authentication failed for the project'
+    })
+  })
+
   it('rejects the shapes that cannot be told apart from an innocent value', () => {
     // Recorded as behaviour rather than as an aspiration. A hook token is thirty-two random bytes as
     // hex and a revision guard is sha256 hex: the same shape, one a credential and one logged in
@@ -889,6 +954,24 @@ describe('the redaction count', () => {
     expect(parsed.redactions).toBe(1)
   })
 
+  it('cannot be forged by text a caller wrote the marker into', () => {
+    // Counted where each marker is written, not by searching the finished line, so upstream text
+    // claiming to be redacted does not inflate the anomaly signal.
+    const parsed = JSON.parse(serialize({ ...base, data: { note: `already ${REDACTED} elsewhere` } }))
+    expect(parsed).not.toHaveProperty('redactions')
+    const one = JSON.parse(
+      serialize({ ...base, data: { note: `already ${REDACTED} elsewhere`, token: 'x' } })
+    )
+    expect(one.redactions).toBe(1)
+  })
+
+  it('survives a record degrading all the way to its identity', () => {
+    // The count is the anomaly signal, so a record shrinking is no reason for it to disappear.
+    const parsed = JSON.parse(serialize({ ...base, ts: 'x'.repeat(20000), data: { token: 'x' } }))
+    expect(parsed.data.truncated).toBe(true)
+    expect(parsed.redactions).toBe(1)
+  })
+
   it('is left off a line that failed to serialise, where it would mean nothing', () => {
     const hostile = {
       ...base,
@@ -925,10 +1008,11 @@ describe('the limits of a deny-list, held on purpose', () => {
     expect(redactUrl(`https://h/a?u=${beyond}`)).toContain('SECRETVALUE')
   })
 
-  it('never looks at the path, so a matrix parameter keeps its credential', () => {
-    // Disclosed rather than implied away: `token` is a first-class name in the vocabulary, and this
-    // survives only because the path is not a surface anything scans.
-    expect(redactUrl('https://h/a;token=SECRETVALUE')).toContain('SECRETVALUE')
+  it('cannot see a credential written as a bare path segment', () => {
+    // The path is scanned now, but only for things that are named or shaped. A segment that is just a
+    // value has no name to be recognised by, and nothing distinguishes it from a work item id.
+    expect(redactUrl('https://h/tokens/SECRETVALUE')).toContain('SECRETVALUE')
+    // A session id in a matrix parameter is named, but not by a name this vocabulary holds.
     expect(redactUrl('https://h/a;jsessionid=SECRETVALUE?ids=1')).toContain('SECRETVALUE')
   })
 
@@ -947,12 +1031,27 @@ describe('the limits of a deny-list, held on purpose', () => {
     expect(redactUrl(`https://h/a?state=${blob}`)).toContain(blob)
   })
 
-  it('scans free text for URLs only, so a header quoted in prose is not redacted', () => {
-    // No `://`, so the text is returned without being looked at. Header-shaped text would be a
-    // different scanner, not a variation on this one.
-    for (const line of ['Authorization: Bearer SECRETVALUE', 'set-cookie: session=SECRETVALUE']) {
-      expect(redactValue({ note: line })).toEqual({ note: line })
+  it('cannot see a credential in prose whose name it does not hold', () => {
+    // Names and shapes both reach into free text now, so what survives is only a name the vocabulary
+    // does not hold, carrying a value with no shape of its own. `session` and `x-request-signature`
+    // are two; `set-cookie` is not, because it contains `cookie`.
+    for (const line of ['session=SECRETVALUE', 'x-request-signature: SECRETVALUE']) {
+      expect(redactValue({ note: line }), line).toEqual({ note: line })
     }
+    expect(redactValue({ note: 'set-cookie: session=SECRETVALUE' })).toEqual({
+      note: `set-cookie: ${REDACTED}`
+    })
+  })
+
+  it('needs twenty characters behind an authorization scheme before it will act', () => {
+    // Disclosed rather than left to be discovered: the floor is what keeps the rule off English, and
+    // it means a short credential quoted this way survives.
+    expect(redactValue({ note: 'Authorization: Bearer short' })).toEqual({
+      note: 'Authorization: Bearer short'
+    })
+    expect(redactValue({ note: `Authorization: Bearer ${'a'.repeat(20)}` })).toEqual({
+      note: `Authorization: Bearer ${REDACTED}`
+    })
   })
 })
 
@@ -1090,8 +1189,38 @@ describe('no shape stalls the serializer', () => {
     'scheme words with values too short to match': (size) => ({
       ...base,
       msg: 'Bearer no '.repeat(size)
+    }),
+    'separators in one free-text line': (size) => ({ ...base, msg: 'a:1 '.repeat(size) }),
+    // Structure, not text. Nothing here would have moved a text shape, so a future quadratic in the
+    // walk over a record's own shape would have gone unnoticed by every row above.
+    'properties in one object': (size) => ({
+      ...base,
+      data: Object.fromEntries(Array.from({ length: size }, (_, i) => [`k${i}`, i]))
+    }),
+    'levels of nesting in one object': (size) => ({
+      ...base,
+      data: { root: Array.from({ length: size }).reduce<unknown>((inner) => ({ inner }), 1) }
+    }),
+    'entries in one map': (size) => ({
+      ...base,
+      data: { m: new Map(Array.from({ length: size }, (_, i) => [`k${i}`, i])) }
+    }),
+    'members in one set': (size) => ({
+      ...base,
+      data: { s: new Set(Array.from({ length: size }, (_, i) => i)) }
+    }),
+    'items in one array': (size) => ({
+      ...base,
+      data: { a: Array.from({ length: size }, (_, i) => `v${i}`) }
     })
   }
+
+  /**
+   * The smallest measurement the ratio may be taken from. Below it the timer's own noise dominates and
+   * the ratio permits whatever the floor divided by the real cost allows, which is how a shape costing
+   * a thirtieth of a millisecond silently tolerated eighty-fold growth.
+   */
+  const FLOOR_MS = 1
 
   const elapsed = (record: LogRecord): number => {
     const startedAt = performance.now()
@@ -1101,13 +1230,27 @@ describe('no shape stalls the serializer', () => {
 
   for (const [name, build] of Object.entries(growth)) {
     it(`grows no worse than linearly with ${name}`, () => {
-      // Warmed first, so the ratio measures the algorithm rather than the just-in-time compiler.
-      elapsed(build(8000))
-      const small = Math.max(elapsed(build(10000)), 0.5)
-      const large = elapsed(build(40000))
+      // The input is enlarged until the small measurement clears the floor on its own, rather than the
+      // ratio being loosened to accommodate a measurement too small to mean anything.
+      let size = 20000
+      let small = 0
+      while (size <= 320000) {
+        elapsed(build(size))
+        small = elapsed(build(size))
+        if (small >= FLOOR_MS) break
+        size *= 2
+      }
+      if (small < FLOOR_MS) {
+        // Still unmeasurable at the largest size, which means the work does not grow with this input
+        // at all - a stronger result than a linear ratio, and the right one for a cause chain, whose
+        // length is clamped before any of the work begins.
+        expect(elapsed(build(size)), `${name} became measurable`).toBeLessThan(FLOOR_MS)
+        return
+      }
+      const large = elapsed(build(size * 4))
       // Four times the input. Linear would be about 4, quadratic about 16; 10 leaves room for noise
-      // on a small absolute measurement while still failing on genuinely quadratic growth.
-      expect(large / small).toBeLessThan(10)
+      // while still failing on genuinely quadratic growth.
+      expect(large / small, `${name} grew ${(large / small).toFixed(1)}x`).toBeLessThan(10)
     })
   }
 })
