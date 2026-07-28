@@ -113,6 +113,49 @@ const SECRET_SUBSTRINGS = [
 const SECRET_WORDS = new Set(['pat'])
 
 /**
+ * Credentials recognised by the shape of the value rather than by any name attached to it.
+ *
+ * A name is not always there to read. A credential travels in an `Authorization` header, or inside a
+ * blob, or under a parameter whose name means nothing to this vocabulary, and in each case the value
+ * itself is the only evidence there is.
+ *
+ * Two shapes are matched, and only two, because the test a shape has to pass is severe: a false
+ * positive here destroys data silently, and this app's records are full of long opaque strings that
+ * are not credentials. Both of these are self-identifying rather than merely long.
+ *
+ * What was considered and rejected, with the reason, so nobody re-litigates it from scratch:
+ *
+ * - **A bare base32 personal access token.** Its length could not be confirmed, and an exact-length
+ *   rule that is wrong is worse than none - it reports coverage it does not have. Widened to a range
+ *   it starts matching abbreviated and full git object names, which are among the most common opaque
+ *   values here. The token's actual routes are covered anyway: by its name, by the `Basic` header
+ *   below, and by the authority of a URL.
+ * - **A hex digest.** Provably ambiguous in this app rather than merely risky: a revision guard is
+ *   `sha256` hex and a hook token is thirty-two random bytes as hex. Identical shape, one innocent
+ *   and logged in dozens of places, one a credential. No rule can separate them.
+ * - **A base64 signature**, as a shared access signature carries. Indistinguishable from any other
+ *   base64 of a thirty-two byte value, including the encoded payload of an attention marker, which is
+ *   ordinary text. A parameter named `sig` is the safe way to catch that one, as a word.
+ */
+
+/**
+ * A JSON Web Token. `eyJ` is what base64 makes of the `{"` that opens every JWT header, so this is
+ * self-identifying rather than a guess about length, and the two dots are structural.
+ */
+const JWT = /\beyJ[A-Za-z0-9_-]{4,4096}\.[A-Za-z0-9_-]{4,4096}\.[A-Za-z0-9_-]{0,4096}/g
+
+/**
+ * The value of an `Authorization` header quoted in prose, which is how a client reports the request it
+ * failed on. This app authenticates to Azure DevOps with exactly this shape, the token base64-encoded
+ * behind `Basic`.
+ *
+ * The length floor is what keeps it off English: "Basic authentication failed" has no run of twenty
+ * unbroken token characters after the scheme, and an encoded credential always does. The scheme word
+ * is kept, since which scheme failed is worth knowing and is not a secret.
+ */
+const AUTH_SCHEME_VALUE = /\b(Bearer|Basic)(\s+)([A-Za-z0-9+/=_.~-]{20,4096})/gi
+
+/**
  * The start of a URL: a scheme, then the slashes that open the authority.
  *
  * Both patterns that need to recognise this are built from this one source rather than spelling it
@@ -330,18 +373,33 @@ function readAndRedact(owner: object, key: string, seen: WeakSet<object>): unkno
 }
 
 /**
- * Strip credentials from every URL a piece of text contains. Safe on arbitrary text: anything that
- * is not a URL is returned untouched.
+ * Redact the credentials a value announces by their own shape, whatever surrounds them.
  *
- * URLs are the whole of what this reaches, and text with no `://` in it is returned without being
- * looked at. A credential quoted in prose any other way therefore survives - `Authorization: Bearer
- * SECRET` or `set-cookie: session=SECRET` inside an error message is not redacted and never has
- * been. Header-shaped text is a different scanner than this one, not a variation on it, and pretending
- * otherwise here would make the coverage read as wider than it is.
+ * This is what reaches a credential no name points at: one inside a blob, one under a parameter name
+ * this vocabulary does not know, one in a header quoted in an error message. Applied everywhere a
+ * string is examined, so the two ways of recognising a credential - by its name and by its shape -
+ * cannot end up covering different surfaces.
+ */
+function redactShapes(value: string): string {
+  return value
+    .replace(JWT, REDACTED)
+    .replace(AUTH_SCHEME_VALUE, (_match, scheme: string, gap: string) => `${scheme}${gap}${REDACTED}`)
+}
+
+/**
+ * Strip the credentials a piece of text carries, named or shaped.
+ *
+ * A URL in the text is redacted surface by surface; a value that is a credential by its own shape is
+ * redacted wherever it sits, including in text holding no URL at all - which is how an authorization
+ * header quoted in an error message is reached.
+ *
+ * What remains beyond it is a credential that is neither named nor shaped: `set-cookie:
+ * session=SECRET` in prose is a name and a value, but not in a URL and not a shape, so it survives.
  */
 function redactText(value: string): string {
-  if (!value.includes('://')) return value
-  return value.replace(EMBEDDED_URL, redactRun)
+  const shaped = redactShapes(value)
+  if (!shaped.includes('://')) return shaped
+  return shaped.replace(EMBEDDED_URL, redactRun)
 }
 
 /**
@@ -418,7 +476,7 @@ function redactParameters(params: URLSearchParams): string | undefined {
       redacted = true
       continue
     }
-    const inner = redactCredentials(value, 1)
+    const inner = redactCredentials(value, 'decodedOnce')
     if (inner !== value) redacted = true
     rebuilt.append(name, inner)
   }
@@ -481,9 +539,19 @@ function decodeOnce(value: string): string {
  *
  * The string is returned exactly as it arrived unless something was actually redacted, so examining
  * an innocent value does not rewrite its encoding.
+ *
+ * `arrival` says how much of the string's encoding has already been removed, which is what decides
+ * how many layers are left to peel. It is a choice between two named states rather than a number,
+ * because a number passed by hand at each call site is the same shape of mistake as a rule taught to
+ * one scanner and not its siblings: there is no wrong value available to pass.
  */
-function redactCredentials(text: string, depth: number): string {
-  const authority = text.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`)
+function redactCredentials(text: string, arrival: 'raw' | 'decodedOnce'): string {
+  return scanCredentials(text, arrival === 'raw' ? 0 : 1)
+}
+
+function scanCredentials(text: string, depth: number): string {
+  const shaped = redactShapes(text)
+  const authority = shaped.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`)
   let redacted = authority !== text
   const scanned = authority.replace(
     PARAMETER_PAIR,
@@ -512,7 +580,7 @@ function redactCredentials(text: string, depth: number): string {
 function redactNestedValue(value: string, depth: number): string {
   if (depth >= MAX_PARAMETER_DEPTH) return value
   const decoded = decodeOnce(value)
-  const inner = redactCredentials(decoded, depth + 1)
+  const inner = scanCredentials(decoded, depth + 1)
   return inner === decoded ? value : inner
 }
 
@@ -540,7 +608,7 @@ export function redactUrl(raw: string): string {
   try {
     url = new URL(raw)
   } catch {
-    return redactCredentials(raw, 0)
+    return redactCredentials(raw, 'raw')
   }
   // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
   // authority as readily as in the query. The user name goes too: it is half of the same secret.
@@ -574,6 +642,15 @@ export function summarizeArgs(args: unknown[]): string[] {
 interface WireRecord extends Omit<LogRecord, 'data' | 'err'> {
   data?: unknown
   err?: NormalizedError
+  /**
+   * How many markers redaction wrote into this line, present only when it wrote any.
+   *
+   * Without it a miss is indistinguishable from having nothing to redact, which is the multiplier on
+   * every gap this module has: a session full of traffic that shows no redactions at all reads as a
+   * clean run rather than as the anomaly it would be. Absent on an innocent line, so those stay
+   * byte-identical and the field means something wherever it appears.
+   */
+  redactions?: number
 }
 
 /**
@@ -775,9 +852,32 @@ export function serialize(record: LogRecord): string {
   }
 }
 
+/**
+ * How many redaction markers a rendered line contains.
+ *
+ * Counted from the rendered text rather than tallied as redaction runs, because the two exported
+ * entry points have fixed signatures with nowhere to thread a counter, and a counter kept beside the
+ * module would be shared state that a getter calling back into here could corrupt. What it counts is
+ * therefore markers written, not credentials found: a redacted authority writes two.
+ */
+function countRedactions(line: string): number {
+  let count = 0
+  for (let at = line.indexOf(REDACTED); at !== -1; at = line.indexOf(REDACTED, at + REDACTED.length)) {
+    count += 1
+  }
+  return count
+}
+
 function bound(record: LogRecord, identity: RecordIdentity): string {
   const wire = toWire(record)
   let line = stringify(wire)
+  // Counted from the redacted record and before any shrinking, so it reports what redaction removed
+  // rather than what survived the size stages below. Costs a second render only when it found any.
+  const redactions = countRedactions(line)
+  if (redactions > 0) {
+    wire.redactions = redactions
+    line = stringify(wire)
+  }
   if (bytes(line) <= MAX_RECORD_BYTES) return line
 
   if (wire.err) {

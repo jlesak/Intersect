@@ -698,6 +698,17 @@ describe('the redaction audit', () => {
       }
     },
     {
+      covers: "a credential the value's own shape betrays, with no name to read",
+      was: 'redaction worked only from names, so a token under a parameter name outside the vocabulary, inside a blob, or in an authorization header quoted in prose had nothing to be recognised by',
+      shapes: {
+        'a token under an innocent parameter name': `https://h/a?state=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}`,
+        'a token inside a JSON blob': `response body {"id_token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}"}`,
+        'a token in the fragment of an implicit flow': `https://app/cb#id_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.${SECRET}`,
+        'an authorization header in prose': `Authorization: Basic ${SECRET}aaaaaaaaa`,
+        'a bearer header in prose': `request failed with Bearer ${SECRET}aaaaaaaaa`
+      }
+    },
+    {
       covers: 'how the credential is named',
       was: 'the name was matched with the wrong sensitivity to case, or the scheme was',
       shapes: {
@@ -751,9 +762,134 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(66)
+    expect(counted).toBe(71)
     expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
     expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
+  })
+})
+
+/**
+ * Recognising a credential by the shape of its value, and - far more importantly - not recognising
+ * anything else.
+ *
+ * The kept half is the dangerous half, and it is built from this repo's own value shapes rather than
+ * from imagination. A false positive here destroys a git object name or a revision guard silently,
+ * which is the unanchored-`pat` defect moved from key names to values, and this app's records are full
+ * of long opaque strings that are not credentials.
+ */
+describe('the shapes that mean a credential', () => {
+  const JWT =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0'
+  // How this app actually sends its Azure DevOps credential: the token base64-encoded behind `Basic`.
+  const BASIC = Buffer.from(':2sq5ixpgkhfmn7ptbxwzvcdjy4oearlu6t3i').toString('base64')
+
+  it('redacts a JSON Web Token wherever it sits', () => {
+    expect(redactValue({ state: JWT })).toEqual({ state: REDACTED })
+    expect(redactValue({ note: `token was ${JWT} at the time` })).toEqual({
+      note: `token was ${REDACTED} at the time`
+    })
+    // Under a parameter name that means nothing to the vocabulary, and inside a blob.
+    expect(redactUrl(`https://h/a?state=${JWT}`)).not.toContain('eyJzdWIi')
+    expect(serialize({ ...base, msg: `body {"data":"${JWT}"}` })).not.toContain('eyJzdWIi')
+  })
+
+  it('redacts the value of an authorization scheme quoted in prose', () => {
+    // The limit an HTTP client is most likely to produce: no URL in the text, so nothing else here
+    // ever looked at it.
+    const out = redactValue({ note: `Authorization: Basic ${BASIC}` }) as { note: string }
+    expect(out.note).toBe(`Authorization: Basic ${REDACTED}`)
+    expect(redactValue({ h: `Bearer ${'a'.repeat(40)}` })).toEqual({ h: `Bearer ${REDACTED}` })
+    // The scheme word is kept: which scheme failed is worth knowing and is not a secret.
+    expect(out.note).toContain('Basic')
+  })
+
+  const kept: Record<string, string> = {
+    'a git object name': '9f2a1c4e8b7d6a5f3e2c1b0a9d8c7f6e5a4b3c2d',
+    'an abbreviated git object name': '9f2a1c4',
+    'a ten-character git object name': '9f2a1c4e8b',
+    'a revision guard, which is sha256 hex': 'a'.repeat(64),
+    'a uuid, as every id here is': '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+    'a composed session id': '3f2504e0-4f89-11d3-9a0c-0305e82c3301:2',
+    'an absolute file path': '/Users/x/Projects/Intersect/src/common/logging/record.ts',
+    'a worktree path': '/Users/x/Projects/Intersect-logging/src/core/pty/nodePtySpawn.ts',
+    'a branch name': 'feature/gh43-dashboard-zones',
+    'base64 image data': `iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB${'CAYAAAA'.repeat(40)}`,
+    'a jql query': 'project = FID AND status != Done ORDER BY created DESC',
+    'an api version': '7.1',
+    'a semantic version': '1.24.3',
+    'a dotted package identifier': 'lodash.merge-4.6.2',
+    'prose mentioning basic authentication': 'Basic authentication failed for the project',
+    'prose mentioning a bearer token': 'Bearer token missing from the request',
+    'an attention marker payload': Buffer.from('waiting for your input').toString('base64'),
+    'a terminal title': 'npm run dev - Intersect - zsh',
+    'an iso timestamp': '2026-07-28T09:14:02.417Z'
+  }
+
+  for (const [name, value] of Object.entries(kept)) {
+    it(`leaves ${name} alone`, () => {
+      expect(redactValue({ v: value })).toEqual({ v: value })
+      expect(redactValue({ note: `saw ${value} here` })).toEqual({ note: `saw ${value} here` })
+    })
+  }
+
+  it('rejects the shapes that cannot be told apart from an innocent value', () => {
+    // Recorded as behaviour rather than as an aspiration. A hook token is thirty-two random bytes as
+    // hex and a revision guard is sha256 hex: the same shape, one a credential and one logged in
+    // dozens of places. Matching it would destroy the innocent one every time.
+    const hookToken = 'b'.repeat(64)
+    expect(redactValue({ v: hookToken })).toEqual({ v: hookToken })
+    // A shared access signature is base64 of thirty-two bytes, which is also what an attention marker
+    // payload looks like. The safe route to that one is the parameter name, as a word.
+    const signature = Buffer.from('c'.repeat(32)).toString('base64')
+    expect(redactUrl(`https://h/a?sig=${signature}`)).toContain(signature)
+  })
+})
+
+/**
+ * The count of what redaction removed, which is what makes a miss visible.
+ */
+describe('the redaction count', () => {
+  it('is absent when nothing was redacted, so an innocent line is unchanged', () => {
+    const parsed = JSON.parse(serialize({ ...base, data: { status: 503 } }))
+    expect(parsed).not.toHaveProperty('redactions')
+  })
+
+  it('reports how many markers were written', () => {
+    const one = JSON.parse(serialize({ ...base, data: { token: 'x' } }))
+    expect(one.redactions).toBe(1)
+    const three = JSON.parse(
+      serialize({ ...base, data: { token: 'x', pat: 'y', note: 'https://h/a?apikey=z' } })
+    )
+    expect(three.redactions).toBe(3)
+    // A redacted authority writes two markers for one credential, which is what "markers" means.
+    expect(JSON.parse(serialize({ ...base, msg: 'https://u:p@h/a' })).redactions).toBe(2)
+  })
+
+  it('survives the record being shrunk to fit', () => {
+    const parsed = JSON.parse(
+      serialize({ ...base, data: { token: 'x', blob: 'y'.repeat(MAX_RECORD_BYTES * 2) } })
+    )
+    expect(parsed.data.truncated).toBe(true)
+    // Counted before shedding, so it still reports what redaction removed from the record as given.
+    expect(parsed.redactions).toBe(1)
+  })
+
+  it('is left off a line that failed to serialise, where it would mean nothing', () => {
+    const hostile = {
+      ...base,
+      get data(): never {
+        throw new Error('unreadable record')
+      }
+    }
+    const parsed = JSON.parse(serialize(hostile))
+    expect(parsed.data.serializeFailed).toBe(true)
+    expect(parsed).not.toHaveProperty('redactions')
+  })
+
+  it('keeps the line inside the cap even when it is what tips the balance', () => {
+    // The field is added before the size stages run, so it is measured like everything else.
+    const line = serialize({ ...base, data: { token: 'x', blob: 'y'.repeat(MAX_RECORD_BYTES) } })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
   })
 })
 
@@ -836,6 +972,17 @@ describe('no shape stalls the serializer', () => {
       msg: Array.from({ length: 20000 }, (_, i) => `https://h/${i}?token=x`).join(';')
     },
     'a key of nothing but capitals': { ...base, data: { [`${'A'.repeat(160000)}_PAT`]: 1 } },
+    // The shape rules: a run that opens like a token but never completes, and many scheme words whose
+    // value is too short to match, are the shapes that would make either one backtrack.
+    'a token prefix that never completes': { ...base, msg: `eyJ${'a'.repeat(160000)}` },
+    'a token prefix with one dot and no second': {
+      ...base,
+      msg: `eyJ${'a'.repeat(80000)}.${'b'.repeat(80000)}`
+    },
+    'forty thousand scheme words with short values': {
+      ...base,
+      msg: 'Bearer no '.repeat(40000)
+    },
     // Reading each value back by name is a scan of the whole list per parameter. A run of glued URLs
     // never showed it, because every one of those carries a single parameter.
     'one URL of forty thousand parameters': {
@@ -920,6 +1067,11 @@ describe('no shape stalls the serializer', () => {
     'characters in one encoded value': (size) => ({
       ...base,
       msg: `https://h/a?u=${'%41'.repeat(size)}`
+    }),
+    'characters after a token prefix': (size) => ({ ...base, msg: `eyJ${'a'.repeat(size)}` }),
+    'scheme words with values too short to match': (size) => ({
+      ...base,
+      msg: 'Bearer no '.repeat(size)
     })
   }
 
