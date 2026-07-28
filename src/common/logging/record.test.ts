@@ -314,10 +314,56 @@ describe('redactUrl', () => {
     }
   })
 
+  it('looks inside a parameter value for the credential it carries', () => {
+    // A `?` is legal in a query, so the parser sees one parameter whose value happens to contain
+    // another pair. Nothing above this reaches in there: the nested-scheme split needs a literal
+    // `://`, and there is none here.
+    expect(redactUrl('https://h/r?next=/x?token=S3CR3T')).not.toContain('S3CR3T')
+    // The encoded form is what a correct client sends, and encoding hides both the `://` and the
+    // `token=` from every pattern while hiding nothing from a reader of the log.
+    expect(
+      redactUrl(
+        'https://h/oauth/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapp%2Fcb%3Faccess_token%3DS3CR3T'
+      )
+    ).not.toContain('S3CR3T')
+    // A whole URL under an innocently named parameter, which a direct caller used to be handed back
+    // untouched.
+    expect(redactUrl('https://h/redirect?url=https://other/a?token=S3CR3T')).not.toContain('S3CR3T')
+    // The same, in the fragment and on the path that cannot be parsed at all.
+    expect(redactUrl('https://h/a#next=/x?token=S3CR3T')).not.toContain('S3CR3T')
+    expect(redactUrl('https://h/a#redirect_uri=https%3A%2F%2Fapp%3Ftoken%3DS3CR3T')).not.toContain(
+      'S3CR3T'
+    )
+    expect(redactUrl('https://h:99999/r?next=/x?token=S3CR3T')).not.toContain('S3CR3T')
+  })
+
+  it('reaches a parameter nested two values deep, and stops there', () => {
+    const inner = encodeURIComponent('y?token=S3CR3T')
+    expect(redactUrl(`https://h/a?u=${encodeURIComponent(`x?v=${inner}`)}`)).not.toContain('S3CR3T')
+    // Beyond the bound the value is left as it stands, deliberately: following the nesting as far as
+    // it goes would let a crafted value recurse as deep as it is long.
+    const deeper = encodeURIComponent(`x?v=${encodeURIComponent(`y?w=${inner}`)}`)
+    expect(redactUrl(`https://h/a?u=${deeper}`)).toContain('S3CR3T')
+  })
+
+  it('leaves a parameter value carrying no credential exactly as it arrived', () => {
+    // Examining a value must not rewrite it, or every innocent parameter would come back re-encoded
+    // for having been looked at.
+    for (const raw of [
+      'https://h/a?ids=1,2&api-version=7.1',
+      'https://h/a?jql=project%20%3D%20FID',
+      'https://h/a?next=/board',
+      'https://h/a?redirect_uri=https%3A%2F%2Fapp%2Fcb',
+      'https://h/a?q=%zz',
+      'https://h/a#/dashboard?filter=open'
+    ]) {
+      expect(redactUrl(raw)).toBe(raw)
+    }
+  })
+
   it('splits a nested URL whose scheme separator is mistyped', () => {
-    // Splitting the run is what redacts a nested URL, since a parameter value is never inspected on
-    // its own. Asserted through free text for that reason: it is the path that does the splitting,
-    // and the path every string takes to disk.
+    // Splitting the run is one of two ways a nested URL is reached; searching the parameter value is
+    // the other. Asserted through free text because that is the path every string takes to disk.
     const raw = 'https://h/redirect?url=https:://other/a?token=S3CR3T'
     expect(JSON.stringify(redactValue({ t: raw }))).not.toContain('S3CR3T')
     expect(serialize({ ...base, msg: raw })).not.toContain('S3CR3T')
@@ -499,7 +545,12 @@ describe('no shape leaves a secret in the output', () => {
     'an unclosed IPv6 host': `https://[::1/a?token=${SECRET}`,
     'a doubled scheme colon': `https:://h/a?token=${SECRET}`,
     'a doubled scheme colon with userinfo': `https:://user:${SECRET}@h/a`,
-    'a doubled colon on a nested scheme': `https://h/redirect?url=https:://other/a?token=${SECRET}`
+    'a doubled colon on a nested scheme': `https://h/redirect?url=https:://other/a?token=${SECRET}`,
+    'a question mark inside an earlier parameter value': `https://h/r?next=/x?token=${SECRET}`,
+    'an encoded redirect target': `https://h/oauth/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapp%2Fcb%3Faccess_token%3D${SECRET}`,
+    'an encoded redirect target in the fragment': `https://h/a#redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
+    'an encoded redirect target that cannot be parsed': `https://h:99999/r?redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
+    'a URL under an innocent parameter name': `https://h/redirect?url=https://other/a?token=${SECRET}`
   }
 
   for (const [name, shape] of Object.entries(shapes)) {
@@ -512,6 +563,35 @@ describe('no shape leaves a secret in the output', () => {
       expect(serialize({ ...base, err: normalizeError(new Error(shape)) })).not.toContain(SECRET)
     })
   }
+})
+
+/**
+ * What redaction does not reach, asserted rather than merely written down.
+ *
+ * These are limits of naming credentials instead of detecting them, not defects with a fix pending.
+ * They are pinned here so the scope the comments claim and the scope the code has cannot drift apart,
+ * and so that anyone who later makes one of them pass has to come here and say so deliberately.
+ */
+describe('the limits of a deny-list, held on purpose', () => {
+  it('cannot see a credential whose name is outside the vocabulary', () => {
+    // `sig` names nothing. Redacting it would mean redacting every value of every parameter, which
+    // costs the diagnostic value the log exists for.
+    expect(redactUrl('https://h/a?sig=SECRETVALUE')).toContain('SECRETVALUE')
+    expect(redactValue({ sig: 'SECRETVALUE' })).toEqual({ sig: 'SECRETVALUE' })
+  })
+
+  it('cannot see a credential inside a value that is not a name and a value', () => {
+    const blob = Buffer.from('{"token":"SECRETVALUE"}').toString('base64')
+    expect(redactUrl(`https://h/a?state=${blob}`)).toContain(blob)
+  })
+
+  it('scans free text for URLs only, so a header quoted in prose is not redacted', () => {
+    // No `://`, so the text is returned without being looked at. Header-shaped text would be a
+    // different scanner, not a variation on this one.
+    for (const line of ['Authorization: Bearer SECRETVALUE', 'set-cookie: session=SECRETVALUE']) {
+      expect(redactValue({ note: line })).toEqual({ note: line })
+    }
+  })
 })
 
 /**
@@ -548,6 +628,12 @@ describe('no shape stalls the serializer', () => {
       msg: Array.from({ length: 20000 }, (_, i) => `https://h/${i}?token=x`).join(';')
     },
     'a key of nothing but capitals': { ...base, data: { [`${'A'.repeat(160000)}_PAT`]: 1 } },
+    'a long encoded parameter value': { ...base, msg: `https://h/a?u=${'%41'.repeat(53000)}` },
+    'a value of many encoded pairs': { ...base, msg: `https://h/a?u=${'k%3Dv%26'.repeat(20000)}` },
+    'a deeply nested encoded value': {
+      ...base,
+      msg: `https://h/a?u=${Array.from({ length: 12 }).reduce<string>((inner) => encodeURIComponent(`x?v=${inner}`), 'token=x')}`
+    },
     'a key that is a long URL': { ...base, data: { [`https://h/${dotted}?token=x`]: 1 } },
     'a payload far over the cap': { ...base, data: { blob: 'x'.repeat(MAX_RECORD_BYTES * 8) } },
     'a wrapped error chain': { ...base, level: 'error', err: chain() },

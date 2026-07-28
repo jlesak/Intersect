@@ -62,6 +62,18 @@ export const MAX_RECORD_BYTES = 8192
 export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 }
 
 /**
+ * Redaction works from a list of names that mean a credential, which fixes what it can and cannot
+ * see. It recognises a credential that is *named* - a key, a URL parameter, a parameter nested
+ * inside another parameter's value - and it cannot recognise one that is not.
+ *
+ * So `?sig=SECRET` survives, because `sig` is not in the vocabulary; so does a token inside a base64
+ * or JSON blob, or any bare value whose name gives nothing away. That is inherent to naming
+ * credentials rather than detecting them, not a gap waiting to be closed: the alternative is
+ * redacting every value of every parameter, which would take the diagnostic value of the log with it.
+ * Adding a name to this list is how coverage grows.
+ */
+
+/**
  * The credential names long enough to be unambiguous wherever they appear, so they are recognised
  * anywhere inside a name. That is the direction that fails safe: a name run together without a
  * separator, as `clientsecret` or `authtoken` arrives from a third party, is still caught.
@@ -304,6 +316,12 @@ function readAndRedact(owner: object, key: string, seen: WeakSet<object>): unkno
 /**
  * Strip credentials from every URL a piece of text contains. Safe on arbitrary text: anything that
  * is not a URL is returned untouched.
+ *
+ * URLs are the whole of what this reaches, and text with no `://` in it is returned without being
+ * looked at. A credential quoted in prose any other way therefore survives - `Authorization: Bearer
+ * SECRET` or `set-cookie: session=SECRET` inside an error message is not redacted and never has
+ * been. Header-shaped text is a different scanner than this one, not a variation on it, and pretending
+ * otherwise here would make the coverage read as wider than it is.
  */
 function redactText(value: string): string {
   if (!value.includes('://')) return value
@@ -373,23 +391,89 @@ function redactFragment(hash: string): string {
     if (isSecretName(key)) {
       params.set(key, REDACTED)
       redacted = true
+      continue
+    }
+    const value = params.get(key) ?? ''
+    const inner = redactInsideValue(value, 1)
+    if (inner !== value) {
+      params.set(key, inner)
+      redacted = true
     }
   }
   return redacted ? `#${prefix}${params.toString()}` : hash
 }
 
 /**
- * A `name=value` pair in a string that could not be parsed, taken only where a delimiter introduces
- * the name.
+ * A `name=value` pair, taken where a delimiter or the start of the string introduces the name.
  *
  * The delimiter is what keeps the scan linear. Without it every position in a long run of name
  * characters is a fresh start that scans to the end looking for an `=` and backtracks, which costs
  * seconds on a run of a few hundred thousand characters.
  */
-const UNPARSED_PARAMETER = /([?&#])([A-Za-z0-9_.-]+)=([^&#]*)/g
+const PARAMETER_PAIR = /(^|[?&#])([A-Za-z0-9_.-]+)=([^&#]*)/g
 
 /** Credentials in the authority of a string that could not be parsed. Anchored, so it scans once. */
 const UNPARSED_USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
+
+/**
+ * How far to look for parameters nested inside a parameter's value.
+ *
+ * A redirect target carried as a parameter holds its own parameters, and one of those may be the
+ * credential - one level deep covers every shape seen in practice, and two covers a redirect chain
+ * that carries another. The bound is the point: following the nesting as far as it goes would let a
+ * crafted value recurse as deep as it is long, and a diagnostic call must not be the thing that
+ * exhausts the stack.
+ */
+const MAX_PARAMETER_DEPTH = 2
+
+/**
+ * Decode one layer of percent-encoding, leaving the value alone if it does not decode cleanly.
+ *
+ * A correct client percent-encodes a URL it passes as a parameter, which hides both the `://` and
+ * the `token=` from every pattern here while hiding nothing from a reader of the log. So the value is
+ * decoded before it is searched. A stray `%` makes decoding throw, and a value that cannot be decoded
+ * is simply not the shape being looked for.
+ */
+function decodeOnce(value: string): string {
+  if (!value.includes('%')) return value
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * Redact the credentials named inside one parameter's value.
+ *
+ * A parameter's value can carry parameters of its own - a `redirect_uri` or a `next` holding a whole
+ * URL - and the credential is then named one level further in than anything the query itself
+ * exposes. Neither the query parser nor the nested-scheme split reaches it: the parser sees a single
+ * parameter whose value happens to contain a `?`, and the split needs a literal `://` that
+ * percent-encoding has hidden.
+ *
+ * The value is returned exactly as it arrived unless something was actually redacted, so an innocent
+ * value keeps its own encoding rather than being rewritten by having been examined.
+ */
+function redactInsideValue(value: string, depth: number): string {
+  if (depth > MAX_PARAMETER_DEPTH) return value
+  const decoded = decodeOnce(value)
+  let redacted = false
+  const scanned = decoded.replace(
+    PARAMETER_PAIR,
+    (pair, lead: string, name: string, inner: string) => {
+      if (isSecretName(name)) {
+        redacted = true
+        return `${lead}${name}=${REDACTED}`
+      }
+      const deeper = redactInsideValue(inner, depth + 1)
+      if (deeper === inner) return pair
+      redacted = true
+      return `${lead}${name}=${deeper}`
+    }
+  )
+  return redacted ? scanned : value
+}
 
 /**
  * Redact a string that announces itself as a URL but does not parse as one.
@@ -402,9 +486,11 @@ const UNPARSED_USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
 function redactUnparsedUrl(raw: string): string {
   return raw
     .replace(UNPARSED_USERINFO, `$1${REDACTED}:${REDACTED}@`)
-    .replace(UNPARSED_PARAMETER, (pair, lead: string, name: string) =>
-      isSecretName(name) ? `${lead}${name}=${REDACTED}` : pair
-    )
+    .replace(PARAMETER_PAIR, (pair, lead: string, name: string, value: string) => {
+      if (isSecretName(name)) return `${lead}${name}=${REDACTED}`
+      const inner = redactInsideValue(value, 1)
+      return inner === value ? pair : `${lead}${name}=${inner}`
+    })
 }
 
 /**
@@ -416,13 +502,10 @@ function redactUnparsedUrl(raw: string): string {
  * name to be recognised by, and the one named form a path allows, a `;key=value` matrix parameter,
  * is used in practice only for servlet session ids, whose names this vocabulary does not describe.
  *
- * What this does not do is look inside a parameter's value. A credential named there is redacted; a
- * whole URL carried as the value of an innocently named parameter is not, so `?url=https://h?token=x`
- * comes back out of this function with the token intact. That is safe, but not because of anything
- * here: every string reaches disk through `serialize`, which redacts free text on the way, and free
- * text is where a URL nested inside another is separated out and each part redacted in its own right.
- * So this function's own output is not the last word on any string, and the guarantee belongs to
- * `serialize` rather than to this function alone.
+ * A parameter's value is searched too, to a bounded depth, because a redirect target carried as a
+ * parameter brings its own parameters and the credential is often one of those. What no amount of
+ * searching reaches is a credential with no name to give it away: `?sig=SECRET` and a token inside a
+ * base64 blob both survive, for the reason set out where the vocabulary is defined.
  *
  * A string that fails to parse is still scanned, not trusted. A malformed URL carries exactly the
  * same credentials as a well-formed one - an out-of-range port arriving from bad configuration is
@@ -440,7 +523,15 @@ export function redactUrl(raw: string): string {
   if (url.username) url.username = REDACTED
   if (url.password) url.password = REDACTED
   for (const key of [...url.searchParams.keys()]) {
-    if (isSecretName(key)) url.searchParams.set(key, REDACTED)
+    if (isSecretName(key)) {
+      url.searchParams.set(key, REDACTED)
+      continue
+    }
+    // The value is only written back when it changed, so examining an innocent parameter does not
+    // re-serialise the query and rewrite everyone else's encoding.
+    const value = url.searchParams.get(key) ?? ''
+    const inner = redactInsideValue(value, 1)
+    if (inner !== value) url.searchParams.set(key, inner)
   }
   if (url.hash) url.hash = redactFragment(url.hash)
   // The marker is left legible rather than percent-escaped, so a reader can see what was removed.
