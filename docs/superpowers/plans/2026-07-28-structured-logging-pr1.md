@@ -10,6 +10,10 @@
 
 ## Global Constraints
 
+- **Work only inside `/Users/janlesak/Projects/Intersect-logging`.** This is a git worktree on
+  `feature/structured-logging`. Another Claude session is concurrently using the main checkout at
+  `/Users/janlesak/Projects/Intersect` on a different branch, and `npm run e2e` builds into a shared
+  `out/`. Never `cd` to the main checkout, never switch branches, never `git pull` there.
 - Spec: `docs/superpowers/specs/2026-07-28-structured-logging-design.md`. Read it before Task 1.
 - Log file: `<userData>/logs/intersect-YYYY-MM-DD.jsonl`, one JSON object per line. Retention 7 days.
 - `MAX_RECORD_BYTES = 8192`. Records exceeding it are shrunk deterministically, never dropped.
@@ -2656,7 +2660,8 @@ If `renderer` never appears, the entry is not calling `initRendererLogging()` or
 - [ ] **Step 4: Run the full suite**
 
 Run: `npm run lint && npm run typecheck && npm test && npm run e2e`
-Expected: all green. Baseline for comparison: 1991 unit tests, 66 e2e passed with 2 skipped.
+Expected: all green. Baseline measured on this branch before any of this work: **1926 unit tests
+across 172 files; 65 e2e passed with 1 skipped**. Both counts must go up, never down.
 
 - [ ] **Step 5: Commit**
 
