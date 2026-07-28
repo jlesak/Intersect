@@ -68,16 +68,32 @@ const SECRET_KEY = /pat|token|cookie|password|secret|authorization|bearer|apikey
  * sentences far more often than on their own: an HTTP client quotes the failing request in its
  * error message, so the URL arrives surrounded by prose.
  *
+ * The run extends to the next whitespace and stops at nothing else, because ending it early is what
+ * lets a credential escape: whatever falls outside the run is emitted verbatim, so excluding a comma
+ * would hand over the token that followed a comma-separated batch of work item ids. Whitespace is
+ * the only character a URL cannot legally contain, which makes it the only safe terminator. Over-
+ * collecting is the safe direction, and what is over-collected is given back in `redactRun`.
+ *
  * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
  * opens a fresh start position after every one of them. Left unbounded, each start position rescans
  * the whole run and a long dotted string costs quadratic time - seconds of a stalled process on
- * text that merely looks like a scheme. A comma and a semicolon end the match because they separate
- * one URL from the next far more often than they appear inside one.
+ * text that merely looks like a scheme.
  */
-const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s"'<>,;]+/gi
+const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:\/\/\S+/gi
 
-/** Punctuation that closes the sentence or bracket around a URL rather than belonging to it. */
-const TRAILING_PUNCTUATION = /[.:!?)\]}]+$/
+/**
+ * Punctuation that closes the sentence, quotation or bracket around a URL rather than belonging to
+ * it. Trimming is safe where excluding is not: what is trimmed is punctuation and nothing else, and
+ * everything before it is still offered for redaction.
+ */
+const TRAILING_PUNCTUATION = /["'<>,;.:!?)\]}]+$/
+
+/**
+ * Where a second URL begins inside one whitespace-free run, behind a character no scheme may
+ * contain. Two URLs written back to back must each be redacted in their own right, rather than the
+ * second being swallowed into a parameter value of the first and vanishing with it.
+ */
+const NESTED_SCHEME = /[^a-z0-9+.-][a-z][a-z0-9+.-]{0,31}:\/\//gi
 
 const MAX_STACK_CHARS = 2000
 
@@ -214,13 +230,34 @@ function readAndRedact(owner: object, key: string, seen: WeakSet<object>): unkno
  */
 function redactText(value: string): string {
   if (!value.includes('://')) return value
-  return value.replace(EMBEDDED_URL, (match) => {
-    // Whatever trails the URL is put back rather than swallowed into the redacted parameter, so
-    // redacting a secret never costs the surrounding text that was never secret.
-    const trailing = TRAILING_PUNCTUATION.exec(match)?.[0] ?? ''
-    const url = trailing ? match.slice(0, -trailing.length) : match
-    return `${redactUrl(url)}${trailing}`
-  })
+  return value.replace(EMBEDDED_URL, redactRun)
+}
+
+/**
+ * Redact every URL inside one whitespace-free run of text.
+ *
+ * The run is deliberately over-collected, so it is handed back in pieces: the closing punctuation is
+ * put back untouched, a second URL glued onto the first is separated out and redacted in its own
+ * right, and the single character that separates them is passed through as itself. Every remaining
+ * piece begins with a scheme and goes through `redactUrl`.
+ *
+ * That is the invariant this function exists to hold: nothing leaves here without first having been
+ * offered for redaction. Text may be lost when a URL absorbs prose that followed it without a space,
+ * and that is the direction to fail in - losing a fragment of a log line costs a little context,
+ * whereas letting one token past costs a credential.
+ */
+function redactRun(run: string): string {
+  const trailing = TRAILING_PUNCTUATION.exec(run)?.[0] ?? ''
+  const urls = trailing ? run.slice(0, -trailing.length) : run
+  let out = ''
+  let from = 0
+  for (const nested of urls.matchAll(NESTED_SCHEME)) {
+    const at = nested.index
+    if (at <= from) continue
+    out += redactUrl(urls.slice(from, at)) + urls.charAt(at)
+    from = at + 1
+  }
+  return `${out}${redactUrl(urls.slice(from))}${trailing}`
 }
 
 /** Redact an error and its causes, since a client's message and stack routinely quote the request. */
@@ -232,7 +269,9 @@ function redactError(err: NormalizedError): NormalizedError {
 }
 
 /**
- * Keep a URL useful for diagnosis while removing credentials carried in the query string.
+ * Keep a URL useful for diagnosis while removing the credentials it carries, whether those sit in
+ * the query string or in the authority.
+ *
  * A string that does not parse as a URL is returned as-is: it is not a credential carrier.
  */
 export function redactUrl(raw: string): string {
@@ -242,6 +281,10 @@ export function redactUrl(raw: string): string {
   } catch {
     return raw
   }
+  // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
+  // authority as readily as in the query. The user name goes too: it is half of the same secret.
+  if (url.username) url.username = REDACTED
+  if (url.password) url.password = REDACTED
   for (const key of [...url.searchParams.keys()]) {
     if (SECRET_KEY.test(key)) url.searchParams.set(key, REDACTED)
   }

@@ -116,18 +116,31 @@ describe('redactValue', () => {
   it('keeps the text that follows a redacted URL', () => {
     const out = redactValue({
       pair: 'two https://h/a?token=x;https://h/b?token=y done',
-      assigned: 'a=https://h?token=x,b=2 end',
       sentence: 'Request https://h/a?api-version=7.1&token=abc, status 401',
       bracketed: '(see https://h/a?token=x)',
-      final: 'Failed at https://h/a?token=x.'
+      final: 'Failed at https://h/a?token=x.',
+      quoted: '"https://h/a?token=x"'
     }) as Record<string, string>
     expect(out.pair).toBe(`two https://h/a?token=${REDACTED};https://h/b?token=${REDACTED} done`)
-    expect(out.assigned).toBe(`a=https://h/?token=${REDACTED},b=2 end`)
-    expect(out.sentence).toBe(
-      `Request https://h/a?api-version=7.1&token=${REDACTED}, status 401`
-    )
+    expect(out.sentence).toBe(`Request https://h/a?api-version=7.1&token=${REDACTED}, status 401`)
     expect(out.bracketed).toBe(`(see https://h/a?token=${REDACTED})`)
     expect(out.final).toBe(`Failed at https://h/a?token=${REDACTED}.`)
+    expect(out.quoted).toBe(`"https://h/a?token=${REDACTED}"`)
+  })
+
+  it('loses trailing text rather than leaking, when a URL runs into it without a space', () => {
+    // The run has no whitespace to end it, so `,b=2` is absorbed into the token value and goes with
+    // it. Losing that is the price of never cutting the run short, and it is the right way round.
+    expect(redactValue({ text: 'a=https://h?token=x,b=2 end' })).toEqual({
+      text: `a=https://h/?token=${REDACTED} end`
+    })
+  })
+
+  it('redacts a credential carried in the authority rather than the query', () => {
+    expect(redactUrl('https://user:PAT123@h.example/a')).toBe(
+      `https://${REDACTED}:${REDACTED}@h.example/a`
+    )
+    expect(redactUrl('https://:PAT123@h.example/a')).toBe(`https://:${REDACTED}@h.example/a`)
   })
 
   it('scans text that merely looks like a scheme in linear time', () => {
@@ -212,6 +225,47 @@ describe('redactUrl', () => {
       'https://h.example/a?jql=project%20%3D%20FID'
     )
   })
+})
+
+/**
+ * The one invariant this module cannot be allowed to break, whatever shape the text arrives in. Each
+ * entry has been a real bypass or a plausible one: the separators here are the documented batch-read
+ * forms of Azure DevOps and Jira, and every character ever excluded from the URL run in order to
+ * preserve surrounding text became a point where the credential after it escaped.
+ */
+describe('no shape leaves a secret in the output', () => {
+  const SECRET = 'SECRETVALUE'
+  const shapes: Record<string, string> = {
+    'comma-separated ids before the token': `GET https://dev.azure.com/o/_apis/wit/workitems?ids=297,299,300&api-version=7.1&access_token=${SECRET} failed`,
+    'comma-separated fields before the token': `https://jira.example/rest/api/2/search?fields=summary,status&token=${SECRET}`,
+    'comma in the path': `https://h/a,b?token=${SECRET}`,
+    'semicolon in an earlier parameter': `https://h/a?x=1;2&token=${SECRET}`,
+    'both separators before the token': `https://h/a?ids=1;2,3&pat=${SECRET}&more=1`,
+    'two URLs run together': `two https://h/a?token=${SECRET};https://h/b?token=${SECRET} done`,
+    'a URL nested in a parameter': `https://h/redirect?url=https://other/a?token=${SECRET}`,
+    'a comma inside the secret value': `https://h/a?token=${SECRET},x`,
+    'double quotes in an earlier parameter': `https://h/a?q="x"&token=${SECRET}`,
+    'single quotes in an earlier parameter': `https://h/a?q='y'&pat=${SECRET}`,
+    'angle brackets around the URL': `<https://h/a?token=${SECRET}>`,
+    'quoted URL': `"https://h/a?token=${SECRET}"`,
+    bracketed: `(see https://h/a?token=${SECRET})`,
+    'sentence-final': `Failed at https://h/a?token=${SECRET}.`,
+    'preceded by a comma': `prefix,https://h/a?token=${SECRET}`,
+    'credential in the authority': `https://user:${SECRET}@h/a`,
+    'credential as the password alone': `https://:${SECRET}@h/a`,
+    'uppercased parameter name': `https://h/a?ids=1,2&ACCESS_TOKEN=${SECRET}`,
+    'uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`
+  }
+
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(`redacts it: ${name}`, () => {
+      // Every route a string can take to disk: a payload value, the message, and an error's message
+      // and stack, since a client quotes the failing request in all of them.
+      expect(JSON.stringify(redactValue({ text: shape }))).not.toContain(SECRET)
+      expect(serialize({ ...base, msg: shape })).not.toContain(SECRET)
+      expect(serialize({ ...base, err: normalizeError(new Error(shape)) })).not.toContain(SECRET)
+    })
+  }
 })
 
 describe('summarizeArgs', () => {
