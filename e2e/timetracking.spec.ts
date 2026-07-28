@@ -359,11 +359,18 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
   await expect(first.win.locator('.ix-timer__elapsed')).toBeVisible()
   await first.app.close()
 
-  // The timer is durable state, not renderer state: it is still running after a full restart, and
-  // the restart alone puts the span comfortably above the one-second misclick floor.
+  // The timer is durable state, not renderer state: it is still running after a full restart.
   const second = await launch(profileDir)
   await openTimeTracking(second.win)
   await expect(second.win.locator('.ix-timer__action')).toHaveText('Stop')
+
+  // A start-then-stop under a second is treated as a misclick and discarded, and a relaunch takes
+  // well under that, so the span has to be given time to cross the floor deliberately. Waiting on
+  // the ticking figure to reach two seconds is the wait itself: it measures elapsed time from the
+  // durable start, so past this point the stop below is guaranteed to reach the logging path.
+  await expect(second.win.locator('.ix-timer__elapsed')).toHaveText(
+    /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d(:\d\d)?)$/
+  )
 
   await second.win.locator('.ix-timer__action').click()
   await expect(second.win.locator('.ix-timer__action')).toHaveText('Start')
