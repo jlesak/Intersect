@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PullRequest, TimeEntry, TodoTask } from '@common/domain'
-import { actionPrs, deadlineTodos, isWeekend, loggedToday } from './zones'
+import { actionPrs, deadlineTodos, isWeekend, timeToday } from './zones'
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 1,
@@ -125,26 +125,51 @@ describe('deadlineTodos', () => {
   })
 })
 
-describe('loggedToday', () => {
+describe('timeToday', () => {
   test('sums only what was logged today', () => {
     const entries = [
       entry('2026-07-29', 30 * 60_000),
       entry('2026-07-29', 15 * 60_000),
       entry('2026-07-28', 60 * 60_000)
     ]
-    expect(loggedToday(entries, WEEK_START, WEDNESDAY)).toBe(45 * 60_000)
+    expect(timeToday(entries, WEEK_START, 'ready', WEDNESDAY)).toEqual({
+      kind: 'logged',
+      loggedMs: 45 * 60_000
+    })
   })
 
-  test('a day with nothing logged is zero, which is a real answer', () => {
-    expect(loggedToday([entry('2026-07-28', 60 * 60_000)], WEEK_START, WEDNESDAY)).toBe(0)
-    expect(loggedToday([], WEEK_START, WEDNESDAY)).toBe(0)
+  test('a day with nothing logged on it is a real zero, not a gap', () => {
+    expect(timeToday([entry('2026-07-28', 60 * 60_000)], WEEK_START, 'ready', WEDNESDAY)).toEqual({
+      kind: 'logged',
+      loggedMs: 0
+    })
+    expect(timeToday([], WEEK_START, 'ready', WEDNESDAY)).toEqual({ kind: 'logged', loggedMs: 0 })
+  })
+
+  test('a week that failed to load has no figure, rather than a zero', () => {
+    // A failed read leaves the store on this week with no entries, which is byte-for-byte what a
+    // real day with nothing logged looks like. Only the load state tells the two apart.
+    expect(timeToday([], WEEK_START, 'error', WEDNESDAY)).toEqual({ kind: 'failed' })
+  })
+
+  test('a week still being read has no figure yet', () => {
+    expect(timeToday([], WEEK_START, 'idle', WEDNESDAY)).toEqual({ kind: 'loading' })
+    expect(timeToday([], WEEK_START, 'loading', WEDNESDAY)).toEqual({ kind: 'loading' })
   })
 
   test('a loaded week other than this one has no answer at all, rather than zero', () => {
     // The store holds exactly one week. Reporting 0 for "you navigated to March" would be a wrong
     // number where the honest answer is that this week's figure is simply not loaded.
-    expect(loggedToday([], '2026-03-02', WEDNESDAY)).toBeNull()
-    expect(loggedToday([entry('2026-07-29', 60_000)], '2026-03-02', WEDNESDAY)).toBeNull()
+    expect(timeToday([], '2026-03-02', 'ready', WEDNESDAY)).toEqual({ kind: 'otherWeek' })
+    expect(timeToday([entry('2026-07-29', 60_000)], '2026-03-02', 'ready', WEDNESDAY)).toEqual({
+      kind: 'otherWeek'
+    })
+  })
+
+  test('a weekend has no figure whatever the worklog did', () => {
+    const saturday = new Date(2026, 7, 1, 10, 0, 0).getTime()
+    expect(timeToday([], '2026-07-27', 'ready', saturday)).toEqual({ kind: 'weekend' })
+    expect(timeToday([], '2026-07-27', 'error', saturday)).toEqual({ kind: 'weekend' })
   })
 })
 

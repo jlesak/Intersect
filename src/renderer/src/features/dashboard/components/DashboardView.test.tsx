@@ -272,7 +272,51 @@ describe('DashboardView', () => {
 
     expect(document.querySelector('.ix-dash-time__total')).toBeNull()
     expect(text('.ix-dash-time__note')).toContain('another week')
-    expect(text('.ix-dash-time__week')).toBe('Show this week')
+    expect(text('.ix-dash-note__action')).toBe('Show this week')
+  })
+
+  test('a day with nothing logged on it yet still reads as a real 0m', async () => {
+    seedPopulated()
+    useTimeTrackingStore.setState({ status: 'ready', entries: [entry(YESTERDAY, 60 * 60_000)] })
+    await mountClean()
+    expect(text('.ix-dash-time__total')).toBe('0m')
+  })
+
+  test('a worklog that failed to load says so, and can be retried', async () => {
+    seedPopulated()
+    // What a failed getWeek leaves behind: this week's Monday, no entries - identical to a real day
+    // with nothing logged on it, which is exactly why the figure must not be printed.
+    useTimeTrackingStore.setState({ status: 'error', error: 'the bridge is gone', entries: [] })
+    const loadWeek = vi.spyOn(useTimeTrackingStore.getState(), 'loadWeek').mockResolvedValue()
+    try {
+      await mountClean()
+
+      expect(document.querySelector('.ix-dash-time__total')).toBeNull()
+      expect(text('.ix-dash-time__note')).toContain('could not be loaded')
+      // Arriving on a failed week is itself a retry - hydrate is spent after its first attempt, so
+      // nothing else would ever read it again this session.
+      expect(loadWeek).toHaveBeenCalledWith(weekStartOf(NOW))
+
+      loadWeek.mockClear()
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('.ix-dash-note__action')?.click()
+      })
+      expect(text('.ix-dash-note__action')).toBe('Try again')
+      expect(loadWeek).toHaveBeenCalledWith(weekStartOf(NOW))
+    } finally {
+      loadWeek.mockRestore()
+    }
+  })
+
+  test('a worklog that has not been read yet shows no figure at all', async () => {
+    seedPopulated()
+    useTimeTrackingStore.setState({ status: 'loading', entries: [] })
+    await mountClean()
+
+    expect(document.querySelector('.ix-dash-time__total')).toBeNull()
+    expect(text('.ix-dash-time__note')).toContain('Reading')
+    // Nothing to press: the read the user would ask for is already running.
+    expect(document.querySelector('.ix-dash-note__action')).toBeNull()
   })
 
   test('a weekend says the board does not track it rather than showing 0m', async () => {

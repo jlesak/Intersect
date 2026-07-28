@@ -15,6 +15,9 @@ import { isDueToday, isOverdue } from '@renderer/features/todo'
  * the caller's ticking clock rather than a value frozen at first render.
  */
 
+/** How far a store has got with loading what a zone reads. */
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
+
 /** A pull request that needs my action, with the reason it does. */
 export interface ActionPr {
   pr: PullRequest
@@ -57,16 +60,42 @@ export function deadlineTodos(open: TodoTask[], today: string): DeadlineTodo[] {
 }
 
 /**
- * How much time is logged against today, or null when the loaded week is not the one `now` falls in.
+ * What zone 3 can honestly say about today's worklog.
  *
- * The time-tracking store holds exactly one week at a time. Answering 0 for a week the user
- * navigated away to would be a wrong figure where the truthful answer is that today's is not loaded,
- * and a worklog surface that reports wrong numbers is worse than one that admits a gap.
+ * `logged` is the only variant carrying a figure, and every other variant exists because a figure
+ * would be a lie there. `0m` is a claim - a day with nothing on it yet - and the reader cannot tell
+ * that claim apart from a week that never arrived, so a worklog that does not know says so instead.
  */
-export function loggedToday(entries: TimeEntry[], weekStart: string, now: number): number | null {
-  if (weekStart !== weekStartOf(now)) return null
+export type TimeToday =
+  | { kind: 'weekend' }
+  | { kind: 'otherWeek' }
+  | { kind: 'failed' }
+  | { kind: 'loading' }
+  | { kind: 'logged'; loggedMs: number }
+
+/**
+ * How much time is logged against today, or the reason there is no figure to give.
+ *
+ * The weekend is stated first because it holds whatever the worklog did: the board excludes
+ * Saturday and Sunday by design, so no figure is the right answer either way. Then the week that is
+ * loaded has to be the one `now` falls in - the store holds exactly one - and the read has to have
+ * finished. Only a week that arrived can be summed, and only then is `0m` a real answer.
+ */
+export function timeToday(
+  entries: TimeEntry[],
+  weekStart: string,
+  status: LoadStatus,
+  now: number
+): TimeToday {
+  if (isWeekend(now)) return { kind: 'weekend' }
+  if (weekStart !== weekStartOf(now)) return { kind: 'otherWeek' }
+  if (status === 'error') return { kind: 'failed' }
+  if (status !== 'ready') return { kind: 'loading' }
   const today = dayKeyOf(now)
-  return entries.reduce((sum, e) => (e.day === today ? sum + e.durationMs : sum), 0)
+  return {
+    kind: 'logged',
+    loggedMs: entries.reduce((sum, e) => (e.day === today ? sum + e.durationMs : sum), 0)
+  }
 }
 
 /**

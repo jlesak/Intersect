@@ -9,7 +9,7 @@ import { useTodoStore } from '@renderer/features/todo'
 import { useUsageStore } from '@renderer/features/usage'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
 import { useNow } from '@renderer/shared/ui/useNow'
-import { actionPrs, deadlineTodos, isWeekend, loggedToday } from '../zones'
+import { actionPrs, deadlineTodos, timeToday } from '../zones'
 import { ZoneNeedsAction } from './ZoneNeedsAction'
 import { ZoneSessions } from './ZoneSessions'
 import { ZoneSystemStatus } from './ZoneSystemStatus'
@@ -44,22 +44,27 @@ export function DashboardView() {
   const workspacesById = useWorkspacesStore((s) => s.byId)
   const entries = useTimeTrackingStore((s) => s.entries)
   const weekStart = useTimeTrackingStore((s) => s.weekStart)
+  const timeStatus = useTimeTrackingStore((s) => s.status)
   const usage = useUsageStore((s) => s.usage)
   const jiraFetchedAt = useMyWorkStore((s) => s.fetchedAt)
 
   // The PR inbox, the task list, the Jira board and the usage snapshot are all hydrated at boot; the
-  // worklog is not, and this is the first surface the user lands on. Guarded on idle so returning
-  // here does not re-fetch a week that is already loaded.
+  // worklog is not, and this is the first surface the user lands on. A week already loaded is left
+  // alone; a week whose read failed is read again, because hydrate is spent after its first attempt
+  // and the zone would otherwise carry that failure for the rest of the session.
   useEffect(() => {
-    if (useTimeTrackingStore.getState().status === 'idle') {
-      void useTimeTrackingStore.getState().hydrate()
-    }
+    const store = useTimeTrackingStore.getState()
+    if (store.status === 'idle') void store.hydrate()
+    else if (store.status === 'error') void store.loadWeek(store.weekStart)
   }, [])
 
   const prRows = useMemo(() => actionPrs(prs), [prs])
   const deadlines = useMemo(() => deadlineTodos(openTasks, today), [openTasks, today])
   const sessions = useMemo(() => liveSessions(attention), [attention])
-  const logged = useMemo(() => loggedToday(entries, weekStart, now), [entries, weekStart, now])
+  const time = useMemo(
+    () => timeToday(entries, weekStart, timeStatus, now),
+    [entries, weekStart, timeStatus, now]
+  )
 
   return (
     <div className="ix-main">
@@ -73,7 +78,7 @@ export function DashboardView() {
           <ZoneNeedsAction prs={prRows} deadlines={deadlines} today={today} now={now} />
           <div className="ix-dash__stack">
             <ZoneSessions sessions={sessions} workspacesById={workspacesById} now={now} />
-            <ZoneTimeToday loggedMs={logged} weekend={isWeekend(now)} />
+            <ZoneTimeToday state={time} />
             <ZoneSystemStatus
               usage={usage}
               jiraFetchedAt={jiraFetchedAt}
