@@ -73,6 +73,7 @@ beforeEach(() => {
       syncing: false,
       prsByKey: {},
       order: [],
+      syncedAt: null,
       selectedKey: null,
       changes: [],
       changesError: null,
@@ -104,6 +105,29 @@ describe('prInboxStore', () => {
     const s = usePrInboxStore.getState()
     expect(s.status).toBe('ready')
     expect(selectPrList(s).map((p) => p.prId)).toEqual([1, 2])
+  })
+
+  test('hydrate reads how fresh the cached board is', async () => {
+    mocked.list.mockResolvedValue([])
+    mocked.getSyncedAt.mockResolvedValue(1_700_000_000_000)
+    await usePrInboxStore.getState().hydrate()
+    expect(usePrInboxStore.getState().syncedAt).toBe(1_700_000_000_000)
+  })
+
+  test('a sync refreshes the freshness stamp', async () => {
+    mocked.sync.mockResolvedValue([pr('repo', 7)])
+    mocked.getSyncedAt.mockResolvedValue(42)
+    await usePrInboxStore.getState().sync()
+    expect(usePrInboxStore.getState().syncedAt).toBe(42)
+  })
+
+  test('an unreadable freshness stamp leaves the previous value and the board intact', async () => {
+    usePrInboxStore.setState({ syncedAt: 7 })
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    mocked.getSyncedAt.mockRejectedValue(new Error('channel gone'))
+    await usePrInboxStore.getState().hydrate()
+    expect(usePrInboxStore.getState().status).toBe('ready')
+    expect(usePrInboxStore.getState().syncedAt).toBe(7)
   })
 
   test('hydrate sets error status when the IPC call fails', async () => {

@@ -17,6 +17,12 @@ function moveId(ids: string[], id: string, insertionIndex: number): string[] {
 }
 
 /**
+ * How long an arriving task stays marked. Long enough to find the row after the section switch,
+ * short enough that the mark cannot be mistaken for a persistent selection.
+ */
+const FOCUS_MARK_MS = 2500
+
+/**
  * The TODO section's main region. Open tasks use persisted manual ordering; pointer and keyboard
  * interactions both submit the complete order through the optimistic store.
  */
@@ -26,6 +32,7 @@ export function TodoView() {
   const status = useTodoStore((s) => s.status)
   const error = useTodoStore((s) => s.error)
   const showDone = useTodoStore((s) => s.showDone)
+  const pendingFocusId = useTodoStore((s) => s.pendingFocusId)
 
   const [text, setText] = useState('')
   const [dueDay, setDueDay] = useState('')
@@ -34,11 +41,28 @@ export function TodoView() {
   const [dragId, setDragId] = useState<string | null>(null)
   const [armedId, setArmedId] = useState<string | null>(null)
   const [reorderStatus, setReorderStatus] = useState('')
+  const [markedId, setMarkedId] = useState<string | null>(null)
   const dropIndexRef = useRef<number | null>(null)
+  const rowsRef = useRef(new Map<string, HTMLDivElement>())
 
   useEffect(() => {
     void useTodoStore.getState().load()
   }, [])
+
+  // Land the arrival another surface asked for: bring the row into view and mark it. The request is
+  // spent the moment it is honoured, so returning here later does not replay it.
+  useEffect(() => {
+    if (pendingFocusId === null) return
+    useTodoStore.getState().clearFocus()
+    setMarkedId(pendingFocusId)
+    rowsRef.current.get(pendingFocusId)?.scrollIntoView({ block: 'center' })
+  }, [pendingFocusId])
+
+  useEffect(() => {
+    if (markedId === null) return
+    const timer = setTimeout(() => setMarkedId(null), FOCUS_MARK_MS)
+    return () => clearTimeout(timer)
+  }, [markedId])
 
   useEffect(() => {
     if (armedId === null) return
@@ -179,6 +203,11 @@ export function TodoView() {
                 task={task}
                 done={false}
                 editing={editingId === task.id}
+                focused={markedId === task.id}
+                rowRef={(el) => {
+                  if (el) rowsRef.current.set(task.id, el)
+                  else rowsRef.current.delete(task.id)
+                }}
                 onToggle={() => void useTodoStore.getState().toggleDone(task.id, true)}
                 onDelete={() => void useTodoStore.getState().remove(task.id)}
                 onStartEdit={() => setEditingId(task.id)}

@@ -1,4 +1,4 @@
-import type { SessionStatus } from '@common/ipc'
+import { parseSessionId, type SessionStatus } from '@common/ipc'
 import { createStore } from '@renderer/shared/store/createStore'
 
 /** A session's current attention state and the moment it entered it. */
@@ -83,7 +83,35 @@ export const useAttentionStore = createStore<AttentionState>()((set) => ({
 }))
 
 /** Priority when a workspace has multiple sessions in different states: the most urgent wins. */
-const STATUS_PRIORITY: Record<SessionStatus, number> = { waiting: 3, done: 2, working: 1 }
+export const STATUS_PRIORITY: Record<SessionStatus, number> = { waiting: 3, done: 2, working: 1 }
+
+/** One session that currently carries attention state, with its key already taken apart. */
+export interface LiveSession {
+  sessionId: string
+  workspaceId: string
+  tabId: string
+  status: SessionStatus
+  since: number
+}
+
+/**
+ * Every session currently carrying attention state, most urgent first and within one status the one
+ * that has been in it longest - so the list reads top-down as the order to deal with them in.
+ *
+ * A pure function over the slice rather than a store selector: it builds a fresh array on every
+ * call, so the call site memoizes it against `status`.
+ */
+export function liveSessions(status: Record<string, AttentionEntry>): LiveSession[] {
+  const sessions: LiveSession[] = []
+  for (const [sessionId, entry] of Object.entries(status)) {
+    const parsed = parseSessionId(sessionId)
+    if (!parsed) continue
+    sessions.push({ sessionId, ...parsed, status: entry.status, since: entry.since })
+  }
+  return sessions.sort(
+    (a, b) => STATUS_PRIORITY[b.status] - STATUS_PRIORITY[a.status] || a.since - b.since
+  )
+}
 
 /** The most urgent status among a workspace's sessions, or undefined if all are neutral. */
 export function workspaceStatus(

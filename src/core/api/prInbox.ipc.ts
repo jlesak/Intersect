@@ -149,6 +149,10 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return listDecorated()
     },
 
+    async getSyncedAt() {
+      return d.prCache.getSyncedAt()
+    },
+
     async getChanges(repositoryId, prId) {
       const pr = mustGetPr(repositoryId, prId)
       return d.localDiff.getChanges(pr, d.workspaceFolders())
@@ -295,6 +299,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
   return {
     [Channel.prInboxSync]: h.sync,
     [Channel.prInboxList]: h.list,
+    [Channel.prInboxGetSyncedAt]: h.getSyncedAt,
     [Channel.prInboxGetChanges]: h.getChanges,
     [Channel.prInboxGetFileDiff]: h.getFileDiff,
     [Channel.prInboxGetThreads]: h.getThreads,

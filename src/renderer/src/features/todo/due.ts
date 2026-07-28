@@ -13,6 +13,14 @@ export function isOverdue(dueDay: string, today: string): boolean {
 }
 
 /**
+ * Whether a due day falls on today. The sibling of `isOverdue`, not a replacement for it: today is
+ * due but not yet late, and the deadline view needs both answers to keep the two groups disjoint.
+ */
+export function isDueToday(dueDay: string, today: string): boolean {
+  return dueDay === today
+}
+
+/**
  * The row label for a due day, relative to today: "today", "tomorrow", "yesterday", else the
  * short weekday plus `dd.mm` (e.g. "Fri 03.07").
  */

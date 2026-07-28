@@ -23,6 +23,12 @@ interface PrInboxState {
   syncing: boolean
   prsByKey: Record<string, PullRequest>
   order: string[]
+  /**
+   * When the cached board was last refreshed from Azure DevOps, or null when it never has been.
+   * Read from the cache rather than stamped locally, so freshness survives a restart instead of
+   * reading as unknown at exactly the moment the board is most likely to be stale.
+   */
+  syncedAt: number | null
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
@@ -155,6 +161,19 @@ export function selectFilteredThreads(state: PrInboxState): PrThread[] {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
+/**
+ * Refresh the board's freshness stamp. A failure to read it leaves the previous value in place and
+ * says nothing: the board itself is fine, and a slice of supporting metadata must never be able to
+ * turn a working inbox into an error state.
+ */
+async function readSyncedAt(set: (partial: Partial<PrInboxState>) => void): Promise<void> {
+  try {
+    set({ syncedAt: await api.getSyncedAt() })
+  } catch {
+    // Deliberately silent - see above.
+  }
+}
+
 const indexPrs = (prs: PullRequest[]): { prsByKey: Record<string, PullRequest>; order: string[] } => {
   const prsByKey: Record<string, PullRequest> = {}
   const order: string[] = []
@@ -172,6 +191,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   syncing: false,
   prsByKey: {},
   order: [],
+  syncedAt: null,
   selectedKey: null,
   view: 'board',
   activeTab: 'files',
@@ -199,6 +219,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     } catch (e) {
       set({ status: 'error', error: message(e) })
     }
+    await readSyncedAt(set)
   },
 
   async sync(opts) {
@@ -206,6 +227,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     try {
       const prs = await api.sync()
       set({ status: 'ready', ...indexPrs(prs) })
+      await readSyncedAt(set)
     } catch (e) {
       if (opts?.quiet) console.warn('Background PR sync failed', e)
       else reportError('Could not sync pull requests', e)
