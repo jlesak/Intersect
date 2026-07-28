@@ -343,3 +343,45 @@ test('manual entries, auto-card edits and deletions persist across a relaunch', 
   await expect(second.win.locator('.ix-tt__total')).toHaveText('4h 12m total')
   await second.app.close()
 })
+
+test('the work timer keeps running across a relaunch and logs an entry on stop', async () => {
+  // One profile, two launches, no session fixture: the only card the board can end up with is the
+  // one the timer wrote. The harness gives each launch its own empty projects dir by default.
+  const profileDir = userDataDir()
+
+  const first = await launch(profileDir)
+  await openTimeTracking(first.win)
+
+  // Nothing has been started, so the control offers exactly one action.
+  await expect(first.win.locator('.ix-timer__action')).toHaveText('Start')
+  await first.win.locator('.ix-timer__action').click()
+  await expect(first.win.locator('.ix-timer__action')).toHaveText('Stop')
+  await expect(first.win.locator('.ix-timer__elapsed')).toBeVisible()
+  await first.app.close()
+
+  // The timer is durable state, not renderer state: it is still running after a full restart.
+  const second = await launch(profileDir)
+  await openTimeTracking(second.win)
+  await expect(second.win.locator('.ix-timer__action')).toHaveText('Stop')
+
+  // A start-then-stop under a second is treated as a misclick and discarded, and a relaunch takes
+  // well under that, so the span has to be given time to cross the floor deliberately. Waiting on
+  // the ticking figure to reach two seconds is the wait itself: it measures elapsed time from the
+  // durable start, so past this point the stop below is guaranteed to reach the logging path.
+  await expect(second.win.locator('.ix-timer__elapsed')).toHaveText(
+    /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d(:\d\d)?)$/
+  )
+
+  await second.win.locator('.ix-timer__action').click()
+  await expect(second.win.locator('.ix-timer__action')).toHaveText('Start')
+
+  // Stopping logged the span as an ordinary card on today's column, editable like any other. It
+  // was started without a description, so it carries the neutral fallback label. The board only
+  // has weekday columns, so a weekend run has nowhere to show it.
+  if (RUNS_ON_WEEKDAY) {
+    const today = dayColumn(second.win, dayKey(new Date()))
+    await expect(today.locator('.ix-tt-card')).toHaveCount(1)
+    await expect(today.locator('.ix-tt-card__title')).toHaveValue('Timed work')
+  }
+  await second.app.close()
+})

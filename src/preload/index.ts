@@ -152,7 +152,13 @@ const api: IpcApi = {
     addManual: (input) => ipcRenderer.invoke(Channel.timeTrackingAddManual, input),
     updateEntry: (source, id, update) =>
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, source, id, update),
-    deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id)
+    deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id),
+    getTimer: () => ipcRenderer.invoke(Channel.timeTrackingGetTimer),
+    startTimer: (description, issueKey) =>
+      ipcRenderer.invoke(Channel.timeTrackingStartTimer, description, issueKey),
+    updateTimer: (description, issueKey) =>
+      ipcRenderer.invoke(Channel.timeTrackingUpdateTimer, description, issueKey),
+    stopTimer: () => ipcRenderer.invoke(Channel.timeTrackingStopTimer)
   },
   agentRuntime: {
     getWeek: (weekStart) => ipcRenderer.invoke(Channel.agentRuntimeGetWeek, weekStart),

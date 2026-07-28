@@ -2,9 +2,11 @@ import { describe, expect, test } from 'vitest'
 import type { TimeEntry } from '@common/domain'
 import {
   formatDayDate,
+  formatElapsed,
   formatTotal,
   formatWeekRange,
   groupByDay,
+  loggedEntryNotice,
   normalizeIssueKey,
   parseDuration,
   totalMs
@@ -86,6 +88,55 @@ describe('groupByDay and totals', () => {
     expect(formatTotal(0)).toBe('0m')
     expect(formatTotal(105 * 60_000)).toBe('1h 45m')
     expect(formatTotal(45 * 60_000)).toBe('45m')
+  })
+})
+
+describe('formatElapsed', () => {
+  test.each([
+    [0, '0:00'],
+    [1_000, '0:01'],
+    [59_000, '0:59'],
+    [60_000, '1:00'],
+    [24 * 60_000 + 18_000, '24:18'],
+    [59 * 60_000 + 59_000, '59:59']
+  ])('renders %ims under an hour as %s', (ms, expected) => {
+    expect(formatElapsed(ms)).toBe(expected)
+  })
+
+  test.each([
+    [60 * 60_000, '1:00:00'],
+    [62 * 60_000 + 33_000, '1:02:33'],
+    [10 * 60 * 60_000 + 5 * 60_000 + 9_000, '10:05:09']
+  ])('adds the hours field for %ims as %s', (ms, expected) => {
+    expect(formatElapsed(ms)).toBe(expected)
+  })
+
+  test('each of the first sixty seconds shows a different figure', () => {
+    // The regression this guards: a whole-minute format leaves a just-started timer looking frozen.
+    const readings = new Set([...Array(60).keys()].map((s) => formatElapsed(s * 1000)))
+    expect(readings.size).toBe(60)
+  })
+
+  test('a clock that has slipped backwards floors at zero rather than showing a negative span', () => {
+    expect(formatElapsed(-5_000)).toBe('0:00')
+  })
+})
+
+describe('loggedEntryNotice', () => {
+  test('says nothing about a weekday entry - the board already shows it', () => {
+    // Monday through Friday of the same week.
+    for (const day of ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31']) {
+      expect(loggedEntryNotice(entry({ day }))).toBeNull()
+    }
+  })
+
+  test('names the weekend day, its date and what was logged there', () => {
+    expect(loggedEntryNotice(entry({ day: '2026-08-01', durationMs: 45 * 60_000 }))).toBe(
+      '45m logged to Saturday 01.08. The weekday board does not show weekend days.'
+    )
+    expect(loggedEntryNotice(entry({ day: '2026-08-02', durationMs: 90 * 60_000 }))).toBe(
+      '1h 30m logged to Sunday 02.08. The weekday board does not show weekend days.'
+    )
   })
 })
 

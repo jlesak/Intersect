@@ -1,11 +1,16 @@
 import type {
   NewManualTimeEntry,
+  RunningTimer,
   TimeEntry,
   TimeEntrySource,
   TimeEntryUpdate
 } from '@common/domain'
 import { dayKeyOf, weekdayKeys } from '@common/week'
-import type { ManualTimeEntryRepo, TimeOverrideRepo } from '../db/timeTrackingRepo'
+import type {
+  ManualTimeEntryRepo,
+  RunningTimerRepo,
+  TimeOverrideRepo
+} from '../db/timeTrackingRepo'
 import type { SessionIndex } from '../sessions/sessionIndex'
 import { issueKeyFromBranch } from './issueKey'
 import { autoDescription } from './worklogDescription'
@@ -15,6 +20,14 @@ export interface TimeTrackingDeps {
   sessions: SessionIndex
   manual: ManualTimeEntryRepo
   overrides: TimeOverrideRepo
+  timer: RunningTimerRepo
+  /** Injected so timer tests can advance the clock instead of sleeping. */
+  now: () => number
+  /**
+   * Run several writes as one all-or-nothing unit. Stopping the timer both clears the running row
+   * and logs the span, and a half-applied stop would destroy time the user actually worked.
+   */
+  atomically: <T>(fn: () => T) => T
 }
 
 /**
@@ -30,6 +43,17 @@ export interface TimeTrackingService {
   addManual(input: NewManualTimeEntry): TimeEntry
   updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
   deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+  /** The timer currently running, or null. */
+  getRunningTimer(): RunningTimer | null
+  /** Begin timing now. Refuses when one is already running. */
+  startTimer(description: string, issueKey: string | null): RunningTimer
+  /** Re-attribute a running timer without disturbing what it has measured. */
+  updateTimer(description: string, issueKey: string | null): RunningTimer
+  /**
+   * Stop timing and log the elapsed span as a manual entry on the day it was stopped. Returns
+   * null when nothing was running, or when the span was too short to be real work.
+   */
+  stopTimer(): TimeEntry | null
 }
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/
@@ -42,6 +66,19 @@ function assertDuration(durationMs: number): void {
   if (!Number.isInteger(durationMs) || durationMs <= 0) {
     throw new Error('The logged time must be a positive duration')
   }
+}
+
+/**
+ * Below this, a start followed immediately by a stop is a misclick rather than work. Logging it
+ * would put a zero-length row on the board for the user to hunt down and delete.
+ */
+const MIN_TIMED_MS = 1_000
+
+/** A row is never logged unlabelled: the issue key stands in, and failing that a neutral label. */
+function timedDescription(description: string, issueKey: string | null): string {
+  const trimmed = description.trim()
+  if (trimmed) return trimmed
+  return issueKey ?? 'Timed work'
 }
 
 export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService {
@@ -140,6 +177,40 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
         issueKey: issueKeyFromBranch(session.gitBranch),
         durationMs: session.activeDurationMs,
         deleted: true
+      })
+    },
+
+    getRunningTimer() {
+      return deps.timer.get()
+    },
+
+    startTimer(description, issueKey) {
+      return deps.timer.start(deps.now(), description, issueKey)
+    },
+
+    updateTimer(description, issueKey) {
+      return deps.timer.update(description, issueKey)
+    },
+
+    stopTimer() {
+      const running = deps.timer.get()
+      if (!running) return null
+      // One reading of the clock for both the span and the day, so they can never disagree.
+      const stoppedAt = deps.now()
+      const durationMs = stoppedAt - running.startedAt
+      // Clearing the running row and logging what it measured is one indivisible act: if the entry
+      // cannot be written the timer must keep running, never be silently thrown away.
+      return deps.atomically(() => {
+        deps.timer.clear()
+        if (durationMs < MIN_TIMED_MS) return null
+        // Attributed to the day it was stopped, so a span crossing midnight lands on one day rather
+        // than being split across two - the same whole-session rule the auto entries follow.
+        return deps.manual.create({
+          day: dayKeyOf(stoppedAt),
+          description: timedDescription(running.description, running.issueKey),
+          issueKey: running.issueKey,
+          durationMs
+        })
       })
     }
   }

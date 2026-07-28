@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { TimeEntry } from '@common/domain'
+import type { RunningTimer, TimeEntry } from '@common/domain'
 import { addDays, weekStartOf } from '@common/week'
 
+const toastMocks = vi.hoisted(() => ({ push: vi.fn(), reportError: vi.fn() }))
 vi.mock('./ipc')
-vi.mock('@renderer/shared/ui/toast')
+vi.mock('@renderer/shared/ui/toast', () => ({
+  reportError: toastMocks.reportError,
+  useToastStore: { getState: () => ({ push: toastMocks.push }) }
+}))
 import * as api from './ipc'
 import { useTimeTrackingStore } from './store'
 
@@ -21,13 +25,20 @@ const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   ...over
 })
 
+const TIMER: RunningTimer = {
+  startedAt: 1_700_000_000_000,
+  description: 'Refactor validators',
+  issueKey: 'FID2507-611'
+}
+
 const reset = (): void => {
   useTimeTrackingStore.setState(
     {
       status: 'idle',
       error: null,
       weekStart: CURRENT_WEEK,
-      entries: []
+      entries: [],
+      timer: null
     },
     false
   )
@@ -36,6 +47,8 @@ const reset = (): void => {
 beforeEach(() => {
   reset()
   vi.clearAllMocks()
+  // Every load path reads the timer, so the quiet default is "nothing running".
+  mocked.getTimer.mockResolvedValue(null)
 })
 
 describe('hydrate', () => {
@@ -179,5 +192,88 @@ describe('mutations reload the shown week', () => {
       .updateEntry(e, { description: 'Entry s1', issueKey: null, durationMs: 1 })
     expect(useTimeTrackingStore.getState().entries.map((x) => x.id)).toEqual(['s1'])
     expect(useTimeTrackingStore.getState().status).toBe('ready')
+  })
+})
+
+describe('the work timer', () => {
+  beforeEach(() => {
+    mocked.getWeek.mockResolvedValue([])
+  })
+
+  test('hydrate loads whatever timer the core already has running', async () => {
+    mocked.getTimer.mockResolvedValue(TIMER)
+    await useTimeTrackingStore.getState().hydrate()
+    expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
+  })
+
+  test('refresh re-reads the timer, so a stale one does not linger', async () => {
+    useTimeTrackingStore.setState({ status: 'ready', timer: TIMER })
+    mocked.refreshWeek.mockResolvedValue([])
+    await useTimeTrackingStore.getState().refresh()
+    expect(useTimeTrackingStore.getState().timer).toBeNull()
+  })
+
+  test('start puts the returned timer in state', async () => {
+    mocked.startTimer.mockResolvedValue(TIMER)
+    await useTimeTrackingStore.getState().startTimer('Refactor validators', 'FID2507-611')
+    expect(mocked.startTimer).toHaveBeenCalledWith('Refactor validators', 'FID2507-611')
+    expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
+  })
+
+  test('stop clears the timer and re-reads the week so the new entry appears', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.stopTimer.mockResolvedValue(entry('t1', { source: 'manual' }))
+    await useTimeTrackingStore.getState().stopTimer()
+    expect(useTimeTrackingStore.getState().timer).toBeNull()
+    expect(mocked.getWeek).toHaveBeenCalledWith(CURRENT_WEEK)
+    expect(useTimeTrackingStore.getState().entries).toEqual([])
+  })
+
+  test('a stop that lands on a weekend tells the user where the time went', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    // Saturday 2026-08-01: the entry exists on its true day, on no column of the board.
+    mocked.stopTimer.mockResolvedValue(
+      entry('t1', { source: 'manual', day: '2026-08-01', durationMs: 45 * 60_000 })
+    )
+    await useTimeTrackingStore.getState().stopTimer()
+    expect(toastMocks.push).toHaveBeenCalledWith(
+      '45m logged to Saturday 01.08. The weekday board does not show weekend days.'
+    )
+    expect(toastMocks.reportError).not.toHaveBeenCalled()
+  })
+
+  test('a stop on a weekday says nothing - the card speaks for itself', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.stopTimer.mockResolvedValue(entry('t1', { source: 'manual', day: '2026-07-31' }))
+    await useTimeTrackingStore.getState().stopTimer()
+    expect(toastMocks.push).not.toHaveBeenCalled()
+  })
+
+  test('a discarded misclick says nothing - there is no entry to explain', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.stopTimer.mockResolvedValue(null)
+    await useTimeTrackingStore.getState().stopTimer()
+    expect(toastMocks.push).not.toHaveBeenCalled()
+  })
+
+  test('a failed start leaves nothing running rather than a phantom timer', async () => {
+    mocked.startTimer.mockRejectedValue(new Error('A timer is already running'))
+    await useTimeTrackingStore.getState().startTimer('Second', null)
+    expect(useTimeTrackingStore.getState().timer).toBeNull()
+  })
+
+  test('a failed stop re-reads the timer, so the control keeps offering Stop', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.stopTimer.mockRejectedValue(new Error('db gone'))
+    mocked.getTimer.mockResolvedValue(TIMER)
+    await useTimeTrackingStore.getState().stopTimer()
+    expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
+  })
+
+  test('update replaces the attribution in state', async () => {
+    useTimeTrackingStore.setState({ timer: { ...TIMER, description: '', issueKey: null } })
+    mocked.updateTimer.mockResolvedValue(TIMER)
+    await useTimeTrackingStore.getState().updateTimer('Refactor validators', 'FID2507-611')
+    expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
   })
 })

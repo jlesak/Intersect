@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { TimeEntry } from '@common/domain'
+import type { RunningTimer, TimeEntry } from '@common/domain'
 import { Channel } from '@common/ipc'
 import type { TimeTrackingService } from '../timeTracking/timeTracking'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracking.ipc'
@@ -14,6 +14,12 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   ...over
 })
 
+const TIMER: RunningTimer = {
+  startedAt: 1_700_000_000_000,
+  description: 'Refactor validators',
+  issueKey: 'FID2507-611'
+}
+
 function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingService {
   return {
     getWeek: vi.fn(async () => [entry()]),
@@ -21,6 +27,10 @@ function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingServi
     addManual: vi.fn(() => entry({ id: 'm1', source: 'manual' })),
     updateEntry: vi.fn(async () => entry({ durationMs: 1 })),
     deleteEntry: vi.fn(async () => {}),
+    getRunningTimer: vi.fn(() => TIMER),
+    startTimer: vi.fn(() => TIMER),
+    updateTimer: vi.fn(() => TIMER),
+    stopTimer: vi.fn(() => entry({ id: 't1', source: 'manual', durationMs: 25 * 60_000 })),
     ...over
   }
 }
@@ -84,10 +94,45 @@ describe('timeTracking handlers', () => {
     const h = createTimeTrackingHandlers({ service })
     await expect(h.getWeek('2026-07-06')).rejects.toThrow(/boom/)
   })
+
+  test('getTimer returns what the service holds', async () => {
+    const h = createTimeTrackingHandlers({ service: makeService() })
+    await expect(h.getTimer()).resolves.toEqual(TIMER)
+  })
+
+  test('startTimer forwards the description and issue key', async () => {
+    const service = makeService()
+    const h = createTimeTrackingHandlers({ service })
+    await expect(h.startTimer('Refactor validators', 'FID2507-611')).resolves.toEqual(TIMER)
+    expect(service.startTimer).toHaveBeenCalledWith('Refactor validators', 'FID2507-611')
+  })
+
+  test('updateTimer forwards both fields, including a cleared issue key', async () => {
+    const service = makeService()
+    const h = createTimeTrackingHandlers({ service })
+    await h.updateTimer('Renamed', null)
+    expect(service.updateTimer).toHaveBeenCalledWith('Renamed', null)
+  })
+
+  test('stopTimer returns the logged entry', async () => {
+    const h = createTimeTrackingHandlers({ service: makeService() })
+    expect((await h.stopTimer())?.id).toBe('t1')
+  })
+
+  test('a refused start crosses the boundary as a message-only Error', async () => {
+    const h = createTimeTrackingHandlers({
+      service: makeService({
+        startTimer: vi.fn(() => {
+          throw new Error('A timer is already running')
+        })
+      })
+    })
+    await expect(h.startTimer('x', null)).rejects.toThrow(/A timer is already running/)
+  })
 })
 
 describe('timeTrackingWireRoutes', () => {
-  test('binds the five request/response channels to the handlers', async () => {
+  test('binds every request/response channel to the handlers', async () => {
     const h = createTimeTrackingHandlers({ service: makeService() })
     const routes = timeTrackingWireRoutes(h)
     const call = (channel: string, ...args: unknown[]): unknown =>
@@ -99,7 +144,11 @@ describe('timeTrackingWireRoutes', () => {
         Channel.timeTrackingRefreshWeek,
         Channel.timeTrackingAddManual,
         Channel.timeTrackingUpdateEntry,
-        Channel.timeTrackingDeleteEntry
+        Channel.timeTrackingDeleteEntry,
+        Channel.timeTrackingGetTimer,
+        Channel.timeTrackingStartTimer,
+        Channel.timeTrackingUpdateTimer,
+        Channel.timeTrackingStopTimer
       ].sort()
     )
 
@@ -112,5 +161,12 @@ describe('timeTrackingWireRoutes', () => {
       durationMs: 1
     })) as TimeEntry
     expect(updated.durationMs).toBe(1)
+
+    const started = (await call(
+      Channel.timeTrackingStartTimer,
+      'Refactor validators',
+      'FID2507-611'
+    )) as RunningTimer
+    expect(started).toEqual(TIMER)
   })
 })

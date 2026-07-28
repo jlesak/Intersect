@@ -76,7 +76,11 @@ import { createClaudeConfigReader } from './agentTooling/claudeConfigReader'
 import { createConfigWriter } from './agentTooling/configWriter'
 import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
-import { createManualTimeEntryRepo, createTimeOverrideRepo } from './db/timeTrackingRepo'
+import {
+  createManualTimeEntryRepo,
+  createRunningTimerRepo,
+  createTimeOverrideRepo
+} from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
 import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
@@ -526,7 +530,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     service: createTimeTracking({
       sessions: sessionIndex,
       manual: createManualTimeEntryRepo(db, repoDeps),
-      overrides: createTimeOverrideRepo(db, repoDeps)
+      overrides: createTimeOverrideRepo(db, repoDeps),
+      timer: createRunningTimerRepo(db, repoDeps),
+      now: () => Date.now(),
+      atomically: (fn) => tx(db, fn)
     })
   })
 

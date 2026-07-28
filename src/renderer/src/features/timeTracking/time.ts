@@ -55,10 +55,41 @@ export function formatTotal(ms: number): string {
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
+/**
+ * The elapsed span of a running timer, e.g. `0:24`, `24:18`, `1:02:33`. A timer that is still
+ * counting has to visibly count: the logged-entry formats round to whole minutes, which would
+ * leave a freshly started timer reading the same thing for a minute at a time and looking stuck.
+ * Hours appear only once there are any, so the common case stays short.
+ */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor(seconds / 60) % 60
+  const rest = seconds % 60
+  return hours > 0
+    ? `${hours}:${pad(minutes)}:${pad(rest)}`
+    : `${minutes}:${pad(rest)}`
+}
+
 /** A day column's date label, `dd.mm`. */
 export function formatDayDate(dayKey: string): string {
   const d = dateOfDayKey(dayKey)
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`
+}
+
+const WEEKEND_NAMES: Record<number, string> = { 0: 'Sunday', 6: 'Saturday' }
+
+/**
+ * What to tell the user about an entry that was just logged, or null when there is nothing worth
+ * saying. The board is Monday to Friday, so a span stopped on a Saturday or Sunday is written with
+ * its true day and then has nowhere to appear; silently swallowing that would leave the user
+ * believing their time was lost. The day is never moved to fake a weekday - a worklog that invents
+ * dates is worse than one with a gap.
+ */
+export function loggedEntryNotice(entry: TimeEntry): string | null {
+  const dayName = WEEKEND_NAMES[dateOfDayKey(entry.day).getDay()]
+  if (!dayName) return null
+  return `${formatTotal(entry.durationMs)} logged to ${dayName} ${formatDayDate(entry.day)}. The weekday board does not show weekend days.`
 }
 
 /**

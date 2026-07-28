@@ -1,5 +1,6 @@
 import type {
   NewManualTimeEntry,
+  RunningTimer,
   TimeEntry,
   TimeEntrySource,
   TimeEntryUpdate
@@ -20,3 +21,9 @@ export const updateEntry = (
 ): Promise<TimeEntry> => ipc().timeTracking.updateEntry(source, id, update)
 export const deleteEntry = (source: TimeEntrySource, id: string): Promise<void> =>
   ipc().timeTracking.deleteEntry(source, id)
+export const getTimer = (): Promise<RunningTimer | null> => ipc().timeTracking.getTimer()
+export const startTimer = (description: string, issueKey: string | null): Promise<RunningTimer> =>
+  ipc().timeTracking.startTimer(description, issueKey)
+export const updateTimer = (description: string, issueKey: string | null): Promise<RunningTimer> =>
+  ipc().timeTracking.updateTimer(description, issueKey)
+export const stopTimer = (): Promise<TimeEntry | null> => ipc().timeTracking.stopTimer()

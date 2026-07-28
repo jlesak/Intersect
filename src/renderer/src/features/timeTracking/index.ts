@@ -9,3 +9,4 @@ export {
   totalMs
 } from './time'
 export { registerTimeTrackingFeature } from './register'
+export { TimerControl } from './components/TimerControl'

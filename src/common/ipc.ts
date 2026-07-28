@@ -41,6 +41,7 @@ import type {
   PullRequest,
   ReviewSettings,
   ReviewSession,
+  RunningTimer,
   SessionSettings,
   SessionSummary,
   SessionTranscript,
@@ -261,6 +262,14 @@ export interface IpcApi {
     updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
     deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+    /** The work timer currently running, or null. Read once at boot; there is no push channel. */
+    getTimer(): Promise<RunningTimer | null>
+    /** Begin timing now. Rejects when a timer is already running. */
+    startTimer(description: string, issueKey: string | null): Promise<RunningTimer>
+    /** Re-attribute a running timer without disturbing what it has measured. */
+    updateTimer(description: string, issueKey: string | null): Promise<RunningTimer>
+    /** Stop timing and log the span. Resolves null when nothing ran, or the span was too short. */
+    stopTimer(): Promise<TimeEntry | null>
   }
   agentRuntime: {
     /**
@@ -573,6 +582,10 @@ export const Channel = {
   timeTrackingAddManual: 'timeTracking:addManual',
   timeTrackingUpdateEntry: 'timeTracking:updateEntry',
   timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
+  timeTrackingGetTimer: 'timeTracking:getTimer',
+  timeTrackingStartTimer: 'timeTracking:startTimer',
+  timeTrackingUpdateTimer: 'timeTracking:updateTimer',
+  timeTrackingStopTimer: 'timeTracking:stopTimer',
   // agentRuntime (request/response)
   agentRuntimeGetWeek: 'agentRuntime:getWeek',
   agentRuntimeGetForProject: 'agentRuntime:getForProject',
