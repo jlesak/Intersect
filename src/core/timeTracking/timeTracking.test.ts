@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { SessionSummary } from '@common/domain'
 import {
   createManualTimeEntryRepo,
+  createRunningTimerRepo,
   createTimeOverrideRepo,
   type ManualTimeEntryRepo,
+  type RunningTimerRepo,
   type TimeOverrideRepo
 } from '../db/timeTrackingRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
@@ -44,16 +46,31 @@ function makeIndex(sessions: SessionSummary[]): SessionIndex {
 describe('timeTracking service', () => {
   let manual: ManualTimeEntryRepo
   let overrides: TimeOverrideRepo
+  let timer: RunningTimerRepo
+  /** The service's clock, advanced by hand so timer spans are exact instead of wall-clock flaky. */
+  let clock: number
 
   beforeEach(() => {
     const db = makeTestDb()
     const deps = makeTestDeps()
     manual = createManualTimeEntryRepo(db, deps)
     overrides = createTimeOverrideRepo(db, deps)
+    timer = createRunningTimerRepo(db, deps)
+    clock = at(28, 10)
   })
 
+  const advance = (ms: number): void => {
+    clock += ms
+  }
+
   const make = (sessions: SessionSummary[]): TimeTrackingService =>
-    createTimeTracking({ sessions: makeIndex(sessions), manual, overrides })
+    createTimeTracking({
+      sessions: makeIndex(sessions),
+      manual,
+      overrides,
+      timer,
+      now: () => clock
+    })
 
   test('buckets sessions into local days of the shown week and derives issue keys', async () => {
     const svc = make([
@@ -227,7 +244,13 @@ describe('timeTracking service', () => {
 
   test('refreshWeek forces a session re-scan', async () => {
     const index = makeIndex([])
-    const svc = createTimeTracking({ sessions: index, manual, overrides })
+    const svc = createTimeTracking({
+      sessions: index,
+      manual,
+      overrides,
+      timer,
+      now: () => clock
+    })
     await svc.refreshWeek(WEEK)
     expect(index.refresh).toHaveBeenCalledOnce()
   })
@@ -333,5 +356,104 @@ describe('timeTracking service', () => {
     await expect(
       svc.updateEntry('auto', 's1', { description: '', issueKey: null, durationMs: 1 })
     ).rejects.toThrow(/description/)
+  })
+
+  // The clock starts at 2026-07-28 10:00 (see the shared beforeEach), so every span below is
+  // stated relative to that and every expected day key follows from it.
+  describe('the work timer', () => {
+    test('nothing is running before the first start', () => {
+      expect(make([]).getRunningTimer()).toBeNull()
+    })
+
+    test('start records the clock and the given attribution', () => {
+      const svc = make([])
+      const started = svc.startTimer('Refactor validators', 'FID2507-611')
+      expect(started).toEqual({
+        startedAt: at(28, 10),
+        description: 'Refactor validators',
+        issueKey: 'FID2507-611'
+      })
+      expect(svc.getRunningTimer()).toEqual(started)
+    })
+
+    test('start is refused while one already runs', () => {
+      const svc = make([])
+      svc.startTimer('First', null)
+      expect(() => svc.startTimer('Second', null)).toThrow(/already running/)
+      expect(svc.getRunningTimer()?.description).toBe('First')
+    })
+
+    test('stop writes one entry for the elapsed span and leaves nothing running', () => {
+      const svc = make([])
+      svc.startTimer('Refactor validators', 'FID2507-611')
+      advance(25 * 60_000)
+      const entry = svc.stopTimer()
+
+      expect(entry).toEqual({
+        id: 'id-1',
+        source: 'manual',
+        day: '2026-07-28',
+        description: 'Refactor validators',
+        issueKey: 'FID2507-611',
+        durationMs: 25 * 60_000
+      })
+      expect(manual.listByDays(['2026-07-28'])).toEqual([entry])
+      expect(svc.getRunningTimer()).toBeNull()
+    })
+
+    test('a blank description falls back to the issue key rather than logging an unlabelled row', () => {
+      const svc = make([])
+      svc.startTimer('', 'FID2507-611')
+      advance(10 * 60_000)
+      expect(svc.stopTimer()?.description).toBe('FID2507-611')
+    })
+
+    test('a blank description with no issue key falls back to a neutral label', () => {
+      const svc = make([])
+      svc.startTimer('   ', null)
+      advance(10 * 60_000)
+      expect(svc.stopTimer()?.description).toBe('Timed work')
+    })
+
+    test('a sub-second timer is a misclick: nothing is written and nothing keeps running', () => {
+      const svc = make([])
+      svc.startTimer('Oops', null)
+      advance(400)
+      expect(svc.stopTimer()).toBeNull()
+      expect(manual.listByDays(['2026-07-28'])).toEqual([])
+      expect(svc.getRunningTimer()).toBeNull()
+    })
+
+    test('stopping when nothing runs is a no-op, not an error', () => {
+      const svc = make([])
+      expect(svc.stopTimer()).toBeNull()
+      expect(manual.listByDays(['2026-07-28'])).toEqual([])
+    })
+
+    test('a timer running across midnight lands whole on the day it was stopped', () => {
+      const svc = make([])
+      svc.startTimer('Late night', null)
+      // Started 2026-07-28 10:00, stopped 2026-07-29 03:00.
+      advance(17 * 60 * 60_000)
+      const entry = svc.stopTimer()
+      expect(entry?.day).toBe('2026-07-29')
+      expect(entry?.durationMs).toBe(17 * 60 * 60_000)
+    })
+
+    test('update replaces the attribution of a running timer without moving what it measured', () => {
+      const svc = make([])
+      svc.startTimer('', null)
+      const updated = svc.updateTimer('Refactor validators', 'FID2507-611')
+      expect(updated).toEqual({
+        startedAt: at(28, 10),
+        description: 'Refactor validators',
+        issueKey: 'FID2507-611'
+      })
+      expect(svc.getRunningTimer()).toEqual(updated)
+    })
+
+    test('update with nothing running is refused', () => {
+      expect(() => make([]).updateTimer('Anything', null)).toThrow(/No timer is running/)
+    })
   })
 })

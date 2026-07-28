@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { TimeEntry } from '@common/domain'
+import type { RunningTimer, TimeEntry } from '@common/domain'
 import { Channel } from '@common/ipc'
 import type { TimeTrackingService } from '../timeTracking/timeTracking'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracking.ipc'
@@ -14,6 +14,12 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   ...over
 })
 
+const TIMER: RunningTimer = {
+  startedAt: 1_700_000_000_000,
+  description: 'Refactor validators',
+  issueKey: 'FID2507-611'
+}
+
 function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingService {
   return {
     getWeek: vi.fn(async () => [entry()]),
@@ -21,6 +27,10 @@ function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingServi
     addManual: vi.fn(() => entry({ id: 'm1', source: 'manual' })),
     updateEntry: vi.fn(async () => entry({ durationMs: 1 })),
     deleteEntry: vi.fn(async () => {}),
+    getRunningTimer: vi.fn(() => TIMER),
+    startTimer: vi.fn(() => TIMER),
+    updateTimer: vi.fn(() => TIMER),
+    stopTimer: vi.fn(() => entry({ id: 't1', source: 'manual', durationMs: 25 * 60_000 })),
     ...over
   }
 }
