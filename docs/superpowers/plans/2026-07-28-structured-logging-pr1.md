@@ -32,6 +32,7 @@
 | --- | --- |
 | `src/common/logging/record.ts` | Types, level ordering, `normalizeError`, `redactValue`, `redactUrl`, `summarizeArgs`, `serialize`. Pure, no I/O |
 | `src/common/logging/logger.ts` | `createLogger`, `child(scope)`, level filtering, rate guard. All I/O injected |
+| `src/common/logging/testSink.ts` | `fakeSink()` and `readRecords()`, the in-memory sink every logging test asserts against. Colocated with the logger rather than in a top-level test directory, which would need a tsconfig change; imported only by tests |
 | `src/common/logging/channel.ts` | `RENDERER_LOG_CHANNEL`, `UNLOGGED_CHANNELS`. No Node imports, safe for the renderer bundle |
 | `src/common/logging/fileSink.node.ts` | `O_APPEND` sink, daily filename, retention prune. Node-only |
 | `src/common/logging/httpLogging.ts` | `withHttpLogging` decorator |
@@ -416,25 +417,48 @@ git commit -m "feat(logging): the log record, redaction and serialisation"
 - Create: `src/common/logging/logger.ts`
 - Test: `src/common/logging/logger.test.ts`
 
+**Files (additional):**
+- Create: `src/common/logging/testSink.ts`
+
 **Interfaces:**
 - Consumes: everything Task 1 produces.
 - Produces: `LogSink` (`{ write(line: string): void }`), `LogFields` (`{ data?: Record<string, unknown>; err?: unknown }`), `Logger` (`{ error, warn, info, debug (msg: string, fields?: LogFields) => void; child(scope: LogScope): Logger }`), `LoggerOptions`, `createLogger(opts: LoggerOptions): Logger`, `parseLevel(raw: string | undefined, fallback: LogLevel): LogLevel`, `DEFAULT_MAX_RECORDS_PER_SECOND`.
+- Also produces, from `testSink.ts`: `fakeSink(): LogSink & { lines: string[] }` and `readRecords(sink: { lines: string[] }): Array<Record<string, unknown>>`. **Every later task's tests import these two rather than redeclaring them.** Tasks 5, 6, 7, 8 and 10 depend on this.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Create the shared test sink**
+
+Every logging test asserts against the same in-memory sink. It is created here, first, so that this
+task's own tests and five later tasks all import it instead of redeclaring it.
 
 ```ts
-// src/common/logging/logger.test.ts
-import { describe, expect, it, vi } from 'vitest'
-import { createLogger, parseLevel, type LogSink } from './logger'
+// src/common/logging/testSink.ts
+import type { LogSink } from './logger'
 
-function fakeSink(): LogSink & { lines: string[] } {
+/**
+ * In-memory sink for tests: collects the serialised lines a logger produced so a test can assert on
+ * them without touching the filesystem.
+ */
+export function fakeSink(): LogSink & { lines: string[] } {
   const lines: string[] = []
   return { lines, write: (line) => void lines.push(line) }
 }
 
-function parsed(sink: { lines: string[] }): Array<Record<string, unknown>> {
+/** Parse a fake sink's captured lines back into records, in the order they were written. */
+export function readRecords(sink: { lines: string[] }): Array<Record<string, unknown>> {
   return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
 }
+```
+
+This file imports only a type from `./logger`, so it compiles before `logger.ts` has any runtime
+exports.
+
+- [ ] **Step 2: Write the failing tests**
+
+```ts
+// src/common/logging/logger.test.ts
+import { describe, expect, it, vi } from 'vitest'
+import { createLogger, parseLevel } from './logger'
+import { fakeSink, readRecords } from './testSink'
 
 describe('createLogger', () => {
   it('writes a record carrying process identity and scope', () => {
@@ -448,7 +472,7 @@ describe('createLogger', () => {
       now: () => new Date('2026-07-28T09:00:00.000Z')
     })
     log.info('board fetched', { data: { issues: 12 } })
-    expect(parsed(sink)[0]).toMatchObject({
+    expect(readRecords(sink)[0]).toMatchObject({
       ts: '2026-07-28T09:00:00.000Z',
       level: 'info',
       proc: 'core',
@@ -464,21 +488,21 @@ describe('createLogger', () => {
     const log = createLogger({ sink, level: 'info', proc: 'main' })
     log.debug('noise')
     log.warn('kept')
-    expect(parsed(sink).map((r) => r.level)).toEqual(['warn'])
+    expect(readRecords(sink).map((r) => r.level)).toEqual(['warn'])
   })
 
   it('normalises a thrown value passed as err', () => {
     const sink = fakeSink()
     const log = createLogger({ sink, level: 'debug', proc: 'main' })
     log.error('failed', { err: new Error('boom') })
-    expect(parsed(sink)[0].err).toMatchObject({ name: 'Error', message: 'boom' })
+    expect(readRecords(sink)[0].err).toMatchObject({ name: 'Error', message: 'boom' })
   })
 
   it('child inherits configuration and overrides only the scope', () => {
     const sink = fakeSink()
     const log = createLogger({ sink, level: 'debug', proc: 'core', scope: 'lifecycle' })
     log.child('rpc').debug('served')
-    expect(parsed(sink)[0]).toMatchObject({ scope: 'rpc', proc: 'core' })
+    expect(readRecords(sink)[0]).toMatchObject({ scope: 'rpc', proc: 'core' })
   })
 
   it('never lets a failing sink reach the caller', () => {
@@ -533,7 +557,7 @@ describe('createLogger', () => {
 
     ms = 1500
     log.info('next window')
-    const summary = parsed(sink).find((r) => r.scope === 'log')
+    const summary = readRecords(sink).find((r) => r.scope === 'log')
     expect(summary).toMatchObject({ level: 'warn', data: { dropped: 2 } })
   })
 
@@ -564,12 +588,12 @@ describe('parseLevel', () => {
 })
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `npx vitest run src/common/logging/logger.test.ts`
-Expected: FAIL - cannot resolve `./logger`.
+Expected: FAIL - cannot resolve `./logger`. `./testSink` resolves already, from Step 1.
 
-- [ ] **Step 3: Implement `logger.ts`**
+- [ ] **Step 4: Implement `logger.ts`**
 
 ```ts
 import {
@@ -710,16 +734,16 @@ export function createLogger(opts: LoggerOptions): Logger {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run src/common/logging/logger.test.ts`
 Expected: PASS, all cases.
 
-- [ ] **Step 5: Verify the gates and commit**
+- [ ] **Step 6: Verify the gates and commit**
 
 ```bash
 npm run lint && npm run typecheck && npm test
-git add src/common/logging/logger.ts src/common/logging/logger.test.ts
+git add src/common/logging/logger.ts src/common/logging/logger.test.ts src/common/logging/testSink.ts
 git commit -m "feat(logging): logger factory with level floor and rate guard"
 ```
 
@@ -1093,7 +1117,7 @@ Instrumenting the class rather than wrapping it means one change covers both end
 ```ts
 // src/common/portRpc.logging.test.ts
 import { describe, expect, it, vi } from 'vitest'
-import { createLogger, type LogSink } from './logging/logger'
+import { createLogger } from './logging/logger'
 import { UNLOGGED_CHANNELS } from './logging/channel'
 import { PortRpc, type RpcPort } from './portRpc'
 
@@ -1109,14 +1133,7 @@ function portPair(): [RpcPort, RpcPort] {
   return [make(0), make(1)]
 }
 
-function fakeSink(): LogSink & { lines: string[] } {
-  const lines: string[] = []
-  return { lines, write: (line) => void lines.push(line) }
-}
-
-function records(sink: { lines: string[] }): Array<Record<string, unknown>> {
-  return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
-}
+import { fakeSink, readRecords } from './logging/testSink'
 
 describe('PortRpc logging', () => {
   it('logs a served request at debug with its channel and duration', async () => {
@@ -1128,7 +1145,7 @@ describe('PortRpc logging', () => {
     })
     server.onRequest(async () => 'ok')
     await caller.invoke('workspaces:getState', [])
-    const served = records(sink).find((r) => r.msg === 'rpc served')
+    const served = readRecords(sink).find((r) => r.msg === 'rpc served')
     expect(served).toMatchObject({ level: 'debug', scope: 'rpc' })
     expect((served?.data as { channel: string }).channel).toBe('workspaces:getState')
     expect((served?.data as { durationMs: number }).durationMs).toBeGreaterThanOrEqual(0)
@@ -1145,7 +1162,7 @@ describe('PortRpc logging', () => {
       throw new Error('handler blew up')
     })
     await expect(caller.invoke('todo:list', [])).rejects.toThrow('handler blew up')
-    const failed = records(sink).find((r) => r.msg === 'rpc failed')
+    const failed = readRecords(sink).find((r) => r.msg === 'rpc failed')
     expect(failed).toMatchObject({ level: 'error' })
     expect((failed?.err as { message: string }).message).toBe('handler blew up')
     expect((failed?.err as { stack?: string }).stack).toBeDefined()
@@ -1160,7 +1177,7 @@ describe('PortRpc logging', () => {
     })
     server.onRequest(async () => null)
     await caller.invoke('todo:add', ['buy milk', null])
-    const served = records(sink).find((r) => r.msg === 'rpc served')
+    const served = readRecords(sink).find((r) => r.msg === 'rpc served')
     expect((served?.data as { args: string[] }).args).toEqual(['string(8)', 'null'])
     expect(sink.lines.join()).not.toContain('buy milk')
   })
@@ -1191,7 +1208,7 @@ describe('PortRpc logging', () => {
       throw new Error('notify failed')
     })
     caller.notify('terminal:kill', ['s1'])
-    await vi.waitFor(() => expect(records(sink).some((r) => r.level === 'error')).toBe(true))
+    await vi.waitFor(() => expect(readRecords(sink).some((r) => r.level === 'error')).toBe(true))
   })
 
   it('works exactly as before with no logger supplied', async () => {
@@ -1338,14 +1355,7 @@ import { describe, expect, it } from 'vitest'
 import { withHttpLogging } from './httpLogging'
 import { createLogger, type LogSink } from './logger'
 
-function fakeSink(): LogSink & { lines: string[] } {
-  const lines: string[] = []
-  return { lines, write: (line) => void lines.push(line) }
-}
-
-function records(sink: { lines: string[] }): Array<Record<string, unknown>> {
-  return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
-}
+import { fakeSink, readRecords } from './testSink'
 
 function logger(sink: LogSink) {
   return createLogger({ sink, level: 'debug', proc: 'core', scope: 'http' })
@@ -1356,7 +1366,7 @@ describe('withHttpLogging', () => {
     const sink = fakeSink()
     const wrapped = withHttpLogging(async () => new Response('{}', { status: 200 }), logger(sink))
     await wrapped('https://jira.example.com/rest/api/2/search')
-    expect(records(sink)[0]).toMatchObject({
+    expect(readRecords(sink)[0]).toMatchObject({
       level: 'debug',
       scope: 'http',
       msg: 'http request',
@@ -1368,7 +1378,7 @@ describe('withHttpLogging', () => {
     const sink = fakeSink()
     const wrapped = withHttpLogging(async () => new Response('nope', { status: 503 }), logger(sink))
     await wrapped('https://h.example/a')
-    expect(records(sink)[0]).toMatchObject({ level: 'error', data: { status: 503 } })
+    expect(readRecords(sink)[0]).toMatchObject({ level: 'error', data: { status: 503 } })
   })
 
   it('logs a transport failure and rethrows it', async () => {
@@ -1377,14 +1387,14 @@ describe('withHttpLogging', () => {
       throw new Error('ECONNREFUSED')
     }, logger(sink))
     await expect(wrapped('https://h.example/a')).rejects.toThrow('ECONNREFUSED')
-    expect(records(sink)[0]).toMatchObject({ level: 'error', msg: 'http request failed' })
+    expect(readRecords(sink)[0]).toMatchObject({ level: 'error', msg: 'http request failed' })
   })
 
   it('reports the method from the request init', async () => {
     const sink = fakeSink()
     const wrapped = withHttpLogging(async () => new Response('{}'), logger(sink))
     await wrapped('https://h.example/a', { method: 'POST' })
-    expect((records(sink)[0].data as { method: string }).method).toBe('POST')
+    expect((readRecords(sink)[0].data as { method: string }).method).toBe('POST')
   })
 
   it('never puts a credential from the query string in the log', async () => {
@@ -1476,23 +1486,15 @@ git commit -m "feat(logging): fetch decorator recording outbound HTTP"
 ```ts
 // src/core/logging/index.test.ts
 import { describe, expect, it, vi } from 'vitest'
-import type { LogSink } from '@common/logging/logger'
 import { createCoreLogger, installCoreGlobalHandlers } from './index'
 
-function fakeSink(): LogSink & { lines: string[] } {
-  const lines: string[] = []
-  return { lines, write: (line) => void lines.push(line) }
-}
-
-function records(sink: { lines: string[] }): Array<Record<string, unknown>> {
-  return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
-}
+import { fakeSink, readRecords } from '@common/logging/testSink'
 
 describe('createCoreLogger', () => {
   it('stamps every record as the core process', () => {
     const sink = fakeSink()
     createCoreLogger({ userDataDir: '/tmp/x', env: {}, sink }).info('up')
-    expect(records(sink)[0]).toMatchObject({ proc: 'core' })
+    expect(readRecords(sink)[0]).toMatchObject({ proc: 'core' })
   })
 
   it('honours INTERSECT_LOG_LEVEL', () => {
@@ -1504,7 +1506,7 @@ describe('createCoreLogger', () => {
     })
     log.warn('suppressed')
     log.error('kept')
-    expect(records(sink).map((r) => r.level)).toEqual(['error'])
+    expect(readRecords(sink).map((r) => r.level)).toEqual(['error'])
   })
 
   it('defaults to info when packaged and debug otherwise', () => {
@@ -1526,7 +1528,7 @@ describe('installCoreGlobalHandlers', () => {
     const before = process.listenerCount('uncaughtException')
     installCoreGlobalHandlers(log, onFatal)
     process.emit('uncaughtException', new Error('kaboom'))
-    const rec = records(sink).find((r) => r.msg === 'uncaught exception')
+    const rec = readRecords(sink).find((r) => r.msg === 'uncaught exception')
     expect(rec).toMatchObject({ level: 'error' })
     expect((rec?.err as { message: string }).message).toBe('kaboom')
     expect(onFatal).toHaveBeenCalledTimes(1)
@@ -1539,7 +1541,7 @@ describe('installCoreGlobalHandlers', () => {
     const onFatal = vi.fn()
     installCoreGlobalHandlers(createCoreLogger({ userDataDir: '/tmp/x', env: {}, sink }), onFatal)
     process.emit('unhandledRejection', new Error('dangling'), Promise.resolve())
-    expect(records(sink).some((r) => r.msg === 'unhandled rejection')).toBe(true)
+    expect(readRecords(sink).some((r) => r.msg === 'unhandled rejection')).toBe(true)
     expect(onFatal).not.toHaveBeenCalled()
     process.removeAllListeners('unhandledRejection')
   })
@@ -1685,17 +1687,9 @@ The receiver validates records instead of trusting them: the renderer is the lea
 // src/main/logging/index.test.ts
 import { describe, expect, it, vi } from 'vitest'
 import { RENDERER_LOG_CHANNEL } from '@common/logging/channel'
-import type { LogSink } from '@common/logging/logger'
 import { createMainLogger, registerRendererLogReceiver } from './index'
 
-function fakeSink(): LogSink & { lines: string[] } {
-  const lines: string[] = []
-  return { lines, write: (line) => void lines.push(line) }
-}
-
-function records(sink: { lines: string[] }): Array<Record<string, unknown>> {
-  return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
-}
+import { fakeSink, readRecords } from '@common/logging/testSink'
 
 /** Captures the single handler the receiver registers so tests can drive it. */
 function fakeIpcMain(): {
@@ -1713,7 +1707,7 @@ describe('createMainLogger', () => {
   it('stamps every record as the main process', () => {
     const sink = fakeSink()
     createMainLogger({ userDataDir: '/tmp/x', env: {}, sink }).info('window opened')
-    expect(records(sink)[0]).toMatchObject({ proc: 'main' })
+    expect(readRecords(sink)[0]).toMatchObject({ proc: 'main' })
   })
 })
 
@@ -1734,7 +1728,7 @@ describe('registerRendererLogReceiver', () => {
       scope: 'renderer',
       msg: 'boundary caught a render failure'
     })
-    expect(records(sink)[0]).toMatchObject({
+    expect(readRecords(sink)[0]).toMatchObject({
       proc: 'renderer',
       level: 'error',
       msg: 'boundary caught a render failure'
@@ -1769,7 +1763,7 @@ describe('registerRendererLogReceiver', () => {
       scope: 'renderer',
       msg: 'spoofed'
     })
-    expect(records(sink)[0].proc).toBe('renderer')
+    expect(readRecords(sink)[0].proc).toBe('renderer')
   })
 
   it('ignores a non-object payload without throwing', () => {
@@ -2293,16 +2287,8 @@ Azure DevOps is reached over an MCP stdio child, not HTTP, so `callTool` is the 
 ```ts
 // src/core/prInbox/adoClient.logging.test.ts
 import { describe, expect, it } from 'vitest'
-import { createLogger, type LogSink } from '@common/logging/logger'
-
-function fakeSink(): LogSink & { lines: string[] } {
-  const lines: string[] = []
-  return { lines, write: (line) => void lines.push(line) }
-}
-
-function records(sink: { lines: string[] }): Array<Record<string, unknown>> {
-  return sink.lines.map((line) => JSON.parse(line) as Record<string, unknown>)
-}
+import { createLogger } from '@common/logging/logger'
+import { fakeSink, readRecords } from '@common/logging/testSink'
 
 /**
  * `createAdoClient` spawns a real stdio child, so these tests drive the logging decorator through
@@ -2318,7 +2304,7 @@ describe('withMcpLogging', () => {
       createLogger({ sink, level: 'debug', proc: 'core', scope: 'mcp' })
     )
     await call('repo_list_pull_requests', { project: 'p', top: 100 })
-    expect(records(sink)[0]).toMatchObject({
+    expect(readRecords(sink)[0]).toMatchObject({
       level: 'debug',
       scope: 'mcp',
       msg: 'mcp tool call',
@@ -2332,7 +2318,7 @@ describe('withMcpLogging', () => {
       throw new Error('server died')
     }, createLogger({ sink, level: 'debug', proc: 'core', scope: 'mcp' }))
     await expect(call('repo_list_pull_requests', {})).rejects.toThrow('server died')
-    expect(records(sink)[0]).toMatchObject({ level: 'error', msg: 'mcp tool call failed' })
+    expect(readRecords(sink)[0]).toMatchObject({ level: 'error', msg: 'mcp tool call failed' })
   })
 
   it('summarises arguments rather than logging their values', async () => {
@@ -2737,6 +2723,14 @@ receiver (Task 8), renderer logger with `window.onerror`, `unhandledrejection` a
 never-throw (Tasks 1, 2), `no-console` (Task 11), CDP access (Task 12), all three test tiers
 (every task, plus Task 13). The 25 existing `console.*` sites are replaced across Tasks 5, 7, 8, 9
 and 10, verified by the grep in Task 14. The 118 swallows are explicitly PR 2.
+
+**Pre-flight amendment (2026-07-28, user ruling):** the first draft wrote an identical
+`fakeSink()`/`records()` pair into six test files, because each task must be independently
+implementable. That collides with the review rubric's ban on verbatim duplication of a logic block.
+Resolved in favour of extraction: Task 2 Step 1 creates `src/common/logging/testSink.ts` and Tasks 5,
+6, 7, 8 and 10 import `fakeSink` and `readRecords` from it. Task 13's strict "zero error records on a
+clean boot" assertion was also raised and deliberately kept as-is - every external integration is
+stubbed under `INTERSECT_E2E`, so a genuine error record there means a genuine defect.
 
 **Deviation from the spec, deliberate:** the spec lists `src/main/logging/index.ts` as owning the
 receiver and says main "appends renderer records". The plan has it validate them first. A renderer
