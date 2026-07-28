@@ -269,8 +269,40 @@ function redactError(err: NormalizedError): NormalizedError {
 }
 
 /**
- * Keep a URL useful for diagnosis while removing the credentials it carries, whether those sit in
- * the query string or in the authority.
+ * Redact a fragment that carries parameters, and leave an opaque one alone.
+ *
+ * A fragment is where an OAuth implicit flow delivers its access token, and it survives every copy
+ * of a URL out of a browser, so it carries credentials as readily as the query does. It is also
+ * where a single-page application keeps its route, which is not a parameter list and must not be
+ * rewritten: the fragment is only re-serialised when a secret was actually found in it, and a
+ * fragment holding no `=` at all is left exactly as it arrived.
+ */
+function redactFragment(hash: string): string {
+  const body = hash.slice(1)
+  if (!body.includes('=')) return hash
+  // A hash route may carry its own query string, as in `#/board?token=x`; the part before the `?`
+  // is a path and stays verbatim.
+  const query = body.indexOf('?')
+  const prefix = query === -1 ? '' : body.slice(0, query + 1)
+  const params = new URLSearchParams(query === -1 ? body : body.slice(query + 1))
+  let redacted = false
+  for (const key of [...params.keys()]) {
+    if (SECRET_KEY.test(key)) {
+      params.set(key, REDACTED)
+      redacted = true
+    }
+  }
+  return redacted ? `#${prefix}${params.toString()}` : hash
+}
+
+/**
+ * Keep a URL useful for diagnosis while removing the credentials it carries, wherever they sit.
+ *
+ * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment. A scheme
+ * carries nothing secret, and the authority, query and fragment are each handled here. The path is
+ * the gap, in two forms that both lie beyond the reach of matching on a name: a bare segment has no
+ * name to be recognised by, and the one named form a path allows, a `;key=value` matrix parameter,
+ * is used in practice only for servlet session ids, whose names this vocabulary does not describe.
  *
  * A string that does not parse as a URL is returned as-is: it is not a credential carrier.
  */
@@ -288,6 +320,7 @@ export function redactUrl(raw: string): string {
   for (const key of [...url.searchParams.keys()]) {
     if (SECRET_KEY.test(key)) url.searchParams.set(key, REDACTED)
   }
+  if (url.hash) url.hash = redactFragment(url.hash)
   // Only the marker itself is un-escaped, so the result stays a URL a reader can paste back.
   // Decoding the whole string instead would rewrite every other escape and would throw outright
   // on a malformed one, turning a diagnostic call into the failure being diagnosed.

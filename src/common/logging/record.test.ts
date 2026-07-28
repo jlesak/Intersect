@@ -225,6 +225,28 @@ describe('redactUrl', () => {
       'https://h.example/a?jql=project%20%3D%20FID'
     )
   })
+
+  it('redacts a credential delivered in the fragment', () => {
+    expect(redactUrl('https://h.example/a#access_token=abc123&expires_in=3600')).toBe(
+      `https://h.example/a#access_token=${REDACTED}&expires_in=3600`
+    )
+    expect(redactUrl('https://h.example/a#/board?token=abc123')).toBe(
+      `https://h.example/a#/board?token=${REDACTED}`
+    )
+  })
+
+  it('leaves a fragment carrying no credential exactly as it arrived', () => {
+    // A single-page application keeps its route here, so rewriting an innocent fragment would
+    // corrupt the one part of the URL that says which view the user was looking at.
+    for (const raw of [
+      'https://h.example/a#section-3',
+      'https://h.example/a#L42',
+      'https://h.example/a#a=1&b=2',
+      'https://h.example/a#/dashboard?filter=open'
+    ]) {
+      expect(redactUrl(raw)).toBe(raw)
+    }
+  })
 })
 
 /**
@@ -254,7 +276,14 @@ describe('no shape leaves a secret in the output', () => {
     'credential in the authority': `https://user:${SECRET}@h/a`,
     'credential as the password alone': `https://:${SECRET}@h/a`,
     'uppercased parameter name': `https://h/a?ids=1,2&ACCESS_TOKEN=${SECRET}`,
-    'uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`
+    'uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`,
+    'credential in the fragment': `https://h/a#token=${SECRET}`,
+    'an implicit-flow fragment': `https://h/a#access_token=${SECRET}&expires_in=3600`,
+    'a fragment behind a query': `https://h/a?ids=1,2#token=${SECRET}`,
+    'a fragment on a hash route': `https://h/a#/board?token=${SECRET}`,
+    'a comma inside a fragment secret': `https://h/a#token=${SECRET},x`,
+    'a sentence-final URL with a fragment': `Opened https://h/a#pat=${SECRET}.`,
+    'a fragment on one of two glued URLs': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`
   }
 
   for (const [name, shape] of Object.entries(shapes)) {
