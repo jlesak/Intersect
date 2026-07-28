@@ -112,10 +112,14 @@ function seedPopulated(): void {
   useUsageStore.setState({ usage: USAGE })
 }
 
-/** Every store back to the state a fresh, unconfigured profile boots into. */
+/**
+ * Every store back to the state a fresh profile boots into, once boot hydration has finished: the
+ * PR cache and the task list were both read and both came back empty. `ready` is the point of the
+ * seed - an empty list from a read that succeeded is the only empty the zones may call all-clear.
+ */
 function seedEmpty(): void {
-  usePrInboxStore.setState({ status: 'idle', prsByKey: {}, order: [], syncedAt: null })
-  useTodoStore.setState({ status: 'idle', open: [], done: [] })
+  usePrInboxStore.setState({ status: 'ready', prsByKey: {}, order: [], syncedAt: null })
+  useTodoStore.setState({ status: 'ready', open: [], done: [] })
   useAttentionStore.setState({ status: {} })
   useWorkspacesStore.setState({ byId: {}, order: [] })
   useTimeTrackingStore.setState({ status: 'idle', weekStart: weekStartOf(NOW), entries: [] })
@@ -211,6 +215,59 @@ describe('DashboardView', () => {
       'No pull request is waiting on you.',
       'Nothing is due today.'
     ])
+  })
+
+  test('a pull request read that failed says so instead of reading as all clear', async () => {
+    usePrInboxStore.setState({ status: 'error', error: 'the cache is gone' })
+    const hydrate = vi.spyOn(usePrInboxStore.getState(), 'hydrate').mockResolvedValue()
+    try {
+      await mountClean()
+
+      expect(texts('.ix-dash-group__empty .ix-dash-note__text')).toEqual([
+        'The pull request cache could not be read.',
+        'Nothing is due today.'
+      ])
+      expect(text('.ix-dash-group__empty .ix-dash-note__action')).toBe('Try again')
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('.ix-dash-group__empty .ix-dash-note__action')?.click()
+      })
+      expect(hydrate).toHaveBeenCalledTimes(1)
+    } finally {
+      hydrate.mockRestore()
+    }
+  })
+
+  test('a task read that failed says so instead of reading as all clear', async () => {
+    useTodoStore.setState({ status: 'error', error: 'the task list is gone' })
+    const load = vi.spyOn(useTodoStore.getState(), 'load').mockResolvedValue()
+    try {
+      await mountClean()
+
+      expect(texts('.ix-dash-group__empty .ix-dash-note__text')).toEqual([
+        'No pull request is waiting on you.',
+        'The task list could not be read.'
+      ])
+      expect(text('.ix-dash-group__empty .ix-dash-note__action')).toBe('Try again')
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('.ix-dash-group__empty .ix-dash-note__action')?.click()
+      })
+      expect(load).toHaveBeenCalledTimes(1)
+    } finally {
+      load.mockRestore()
+    }
+  })
+
+  test('a subgroup whose source is still being read makes no claim yet', async () => {
+    usePrInboxStore.setState({ status: 'loading' })
+    useTodoStore.setState({ status: 'idle' })
+    await mountClean()
+
+    expect(texts('.ix-dash-group__empty')).toEqual([
+      'Reading the pull request cache…',
+      'Reading the task list…'
+    ])
+    // A read already in flight is not something the user can usefully ask for again.
+    expect(document.querySelectorAll('.ix-dash-group__empty .ix-dash-note__action')).toHaveLength(0)
   })
 
   test('clicking a PR row records where to go, and never navigates by itself', async () => {

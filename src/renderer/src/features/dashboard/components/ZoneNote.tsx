@@ -25,7 +25,7 @@ export function ZoneNote({
 }) {
   return (
     <div className={`ix-dash-note ${className}`}>
-      <span>{note}</span>
+      <span className="ix-dash-note__text">{note}</span>
       {action && (
         <button
           type="button"

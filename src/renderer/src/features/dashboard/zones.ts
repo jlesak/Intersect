@@ -18,6 +18,21 @@ import { isDueToday, isOverdue } from '@renderer/features/todo'
 /** How far a store has got with loading what a zone reads. */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 
+/**
+ * Why a zone has nothing to list.
+ *
+ * The three are never collapsed into one line of prose. "Nothing is waiting on you" and "we could
+ * not find out what is waiting on you" are opposite answers, and a surface whose whole purpose is to
+ * say what needs the user may only give the reassuring one when it is true.
+ */
+export type EmptyState = 'clear' | 'loading' | 'failed'
+
+/** What an empty list means, given how the read that produced it went. */
+export function emptyState(status: LoadStatus): EmptyState {
+  if (status === 'error') return 'failed'
+  return status === 'ready' ? 'clear' : 'loading'
+}
+
 /** A pull request that needs my action, with the reason it does. */
 export interface ActionPr {
   pr: PullRequest

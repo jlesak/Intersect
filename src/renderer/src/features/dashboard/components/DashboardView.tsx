@@ -9,7 +9,7 @@ import { useTodoStore } from '@renderer/features/todo'
 import { useUsageStore } from '@renderer/features/usage'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
 import { useNow } from '@renderer/shared/ui/useNow'
-import { actionPrs, deadlineTodos, timeToday } from '../zones'
+import { actionPrs, deadlineTodos, emptyState, timeToday } from '../zones'
 import { ZoneNeedsAction } from './ZoneNeedsAction'
 import { ZoneSessions } from './ZoneSessions'
 import { ZoneSystemStatus } from './ZoneSystemStatus'
@@ -38,8 +38,10 @@ export function DashboardView() {
   const today = dayKeyOf(now)
 
   const prs = usePrInboxStore(useShallow(selectPrList))
+  const prStatus = usePrInboxStore((s) => s.status)
   const prSyncedAt = usePrInboxStore((s) => s.syncedAt)
   const openTasks = useTodoStore((s) => s.open)
+  const todoStatus = useTodoStore((s) => s.status)
   const attention = useAttentionStore((s) => s.status)
   const workspacesById = useWorkspacesStore((s) => s.byId)
   const entries = useTimeTrackingStore((s) => s.entries)
@@ -75,7 +77,14 @@ export function DashboardView() {
         </div>
 
         <div className="ix-dash__grid">
-          <ZoneNeedsAction prs={prRows} deadlines={deadlines} today={today} now={now} />
+          <ZoneNeedsAction
+            prs={prRows}
+            prState={emptyState(prStatus)}
+            deadlines={deadlines}
+            deadlineState={emptyState(todoStatus)}
+            today={today}
+            now={now}
+          />
           <div className="ix-dash__stack">
             <ZoneSessions sessions={sessions} workspacesById={workspacesById} now={now} />
             <ZoneTimeToday state={time} />

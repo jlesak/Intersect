@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PullRequest, TimeEntry, TodoTask } from '@common/domain'
-import { actionPrs, deadlineTodos, isWeekend, timeToday } from './zones'
+import { actionPrs, deadlineTodos, emptyState, isWeekend, timeToday } from './zones'
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 1,
@@ -122,6 +122,23 @@ describe('deadlineTodos', () => {
   test('due today is due, and not yet late', () => {
     const [row] = deadlineTodos([task('a', { dueDay: TODAY })], TODAY)
     expect(row.overdue).toBe(false)
+  })
+})
+
+describe('emptyState', () => {
+  test('an empty list from a read that succeeded is the only all-clear', () => {
+    expect(emptyState('ready')).toBe('clear')
+  })
+
+  test('an empty list from a read that failed is not an all-clear', () => {
+    // The list is empty either way, so nothing but the load state can tell "nothing needs you"
+    // apart from "we never found out".
+    expect(emptyState('error')).toBe('failed')
+  })
+
+  test('an empty list before the read has finished claims nothing', () => {
+    expect(emptyState('idle')).toBe('loading')
+    expect(emptyState('loading')).toBe('loading')
   })
 })
 
