@@ -5,6 +5,7 @@ import { useTimeTrackingStore } from '../store'
 import { useAgentRuntimeStore } from '../agentRuntimeStore'
 import { formatTotal, formatWeekRange, groupByDay, totalMs } from '../time'
 import { DayColumn } from './DayColumn'
+import { TimerControl } from './TimerControl'
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 
@@ -63,6 +64,7 @@ export function TimeTrackingView() {
               <IconChevronRight width={13} height={13} />
             </button>
           </div>
+          <TimerControl />
           <span className="ix-tt__total">{formatTotal(totalMs(entries))} total</span>
         </div>
 

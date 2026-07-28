@@ -3936,3 +3936,26 @@
   gap: 8px;
   flex: none;
 }
+
+/* ---------------- time tracking: the work timer ---------------- */
+.ix-timer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ix-timer__elapsed {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--accent);
+  /* Tabular figures keep the span from jittering as its digits change each second. */
+  font-variant-numeric: tabular-nums;
+}
+.ix-timer__what {
+  font-size: 12px;
+  color: var(--text-faint);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
