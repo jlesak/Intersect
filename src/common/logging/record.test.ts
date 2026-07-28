@@ -456,6 +456,11 @@ describe('the names that mean a credential', () => {
     'AZURE_DEVOPS_PAT',
     'patToken',
     'pat2',
+    'sig',
+    'SIG',
+    'adoSig',
+    'ado_sig',
+    'sigHash',
     // The longer names are recognised anywhere inside a key, including run together without any
     // separator, which is how they arrive from a third party.
     'token',
@@ -517,7 +522,11 @@ describe('the names that mean a credential', () => {
     'assignments',
     'assignable',
     'signal',
-    'design'
+    'signals',
+    'signalled',
+    'signature',
+    'design',
+    'designer'
   ]
 
   for (const name of redacted) {
@@ -713,7 +722,11 @@ describe('the redaction audit', () => {
       was: 'the name was matched with the wrong sensitivity to case, or the scheme was',
       shapes: {
         'an uppercased parameter name': `https://h/a?ids=1,2&ACCESS_TOKEN=${SECRET}`,
-        'an uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`
+        'an uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`,
+        // A shared access signature, reached by its name because its value cannot be told from any
+        // other base64. Anchored as a word, so the assignment family is untouched by it.
+        'a shared access signature': `https://h/a?sv=2021-08-06&sr=b&sig=${SECRET}`,
+        'a signature nested in a parameter value': `https://h/r?next=${enc(`https://blob/x?sig=${SECRET}`)}`
       }
     },
     {
@@ -762,7 +775,7 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(71)
+    expect(counted).toBe(73)
     expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
     expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
   })
@@ -839,9 +852,11 @@ describe('the shapes that mean a credential', () => {
     const hookToken = 'b'.repeat(64)
     expect(redactValue({ v: hookToken })).toEqual({ v: hookToken })
     // A shared access signature is base64 of thirty-two bytes, which is also what an attention marker
-    // payload looks like. The safe route to that one is the parameter name, as a word.
+    // payload looks like, so the value is not matched on its shape. That one is reached by its name
+    // instead - under a name nothing recognises, the same bytes survive.
     const signature = Buffer.from('c'.repeat(32)).toString('base64')
-    expect(redactUrl(`https://h/a?sig=${signature}`)).toContain(signature)
+    expect(redactUrl(`https://h/a?blob=${signature}`)).toContain(signature)
+    expect(redactUrl(`https://h/a?sig=${signature}`)).not.toContain(signature)
   })
 })
 
@@ -918,10 +933,13 @@ describe('the limits of a deny-list, held on purpose', () => {
   })
 
   it('cannot see a credential whose name is outside the vocabulary', () => {
-    // `sig` names nothing. Redacting it would mean redacting every value of every parameter, which
-    // costs the diagnostic value the log exists for.
-    expect(redactUrl('https://h/a?sig=SECRETVALUE')).toContain('SECRETVALUE')
-    expect(redactValue({ sig: 'SECRETVALUE' })).toEqual({ sig: 'SECRETVALUE' })
+    // The vocabulary holds what there is evidence for. `hmac` and a bare `key` are credential names it
+    // does not hold, and recognising every name that might be one means redacting every value of every
+    // parameter, which costs the diagnostic value the log exists for. Adding a name needs evidence
+    // that this app meets it, not the observation that it could exist.
+    expect(redactUrl('https://h/a?hmac=SECRETVALUE')).toContain('SECRETVALUE')
+    expect(redactValue({ hmac: 'SECRETVALUE' })).toEqual({ hmac: 'SECRETVALUE' })
+    expect(redactUrl('https://h/a?key=SECRETVALUE')).toContain('SECRETVALUE')
   })
 
   it('cannot see a credential inside a value that is not a name and a value', () => {

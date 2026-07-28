@@ -208,15 +208,17 @@ and those lines never reach the file.
 Applied in `record.ts` at serialization, so no call site can forget it.
 
 - A key naming a credential serializes as `"[redacted]"`, at any depth. The vocabulary is
-  `pat`, `token`, `cookie`, `password`, `secret`, `authorization`, `bearer`, `apikey`.
+  `pat` and `sig` as whole words, and `token`, `cookie`, `password`, `secret`, `authorization`,
+  `bearer`, `apikey` as substrings.
 - **Short alternatives match only as a whole word**, where words are split on separators (`_`, `-`,
   `.`) and camelCase transitions. Long unambiguous alternatives may match as substrings.
 
   Whole-word means whole-word: run-together forms like `adopat`, `azurepat` and `mypat` do **not**
   redact. A suffix rule to catch them was considered and declined, because it widens the definition
   this boundary exists to narrow. Do not close that gap by adding words to the substring set -
-  `sig`, for instance, would redact `assign`, `assigned`, `assignee`, `signal` and `design`, which
-  is the same defect as unanchored `pat`.
+  `sig` is in the vocabulary as a **word** for exactly this reason: as a substring it would redact
+  `assign`, `assigned`, `assignee`, `assignToPane`, `signal` and `design`, which is the same defect
+  as unanchored `pat`. Both short names are held in the word set and neither may move.
 
   This is not cosmetic. Intersect is a workspace and terminal manager, so paths are its primary
   domain object, and the credential field is itself literally named `pat`
@@ -244,8 +246,13 @@ drift apart silently.
   inside an error message are **not** redacted, and never have been. This is the limit an HTTP client
   is most likely to produce.
 - **A deny-list cannot recognise a credential it has no name for.** A value under a name outside the
-  vocabulary (`?sig=`, an Azure SAS signature) or one buried in an opaque blob (a token inside base64
-  or JSON) is not redacted. This is a property of the approach, not a defect awaiting a fix.
+  vocabulary (`?hmac=`, or a bare `?key=`) is not redacted, and neither is one buried in an opaque
+  blob whose own shape says nothing (a token inside base64 or JSON). This is a property of the
+  approach, not a defect awaiting a fix: adding a name requires evidence that this app meets it, not
+  the observation that the name could exist.
+
+  The specific Azure SAS case named here previously is now covered - `sig` is in the vocabulary as a
+  whole word - but the class it stood for is not, and adding that one name did nothing to close it.
 - **The URL path is never scanned.** Matrix parameters leak even under a first-class vocabulary name:
   `https://h/a;token=SECRET` survives. The gap is the unscanned surface, not the vocabulary.
 - **Redaction is silent.** Nothing distinguishes a log with a missed credential from a log that had

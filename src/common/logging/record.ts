@@ -66,14 +66,14 @@ export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 
  * see. It recognises a credential that is *named* - a key, a URL parameter, a parameter nested
  * inside another parameter's value - and it cannot recognise one that is not.
  *
- * So `?sig=SECRET` survives, because `sig` is not in the vocabulary; so does a token inside a base64
- * or JSON blob, or any bare value whose name gives nothing away. That is inherent to naming
- * credentials rather than detecting them, not a gap waiting to be closed: the alternative is
+ * So `?hmac=SECRET` survives, and `?key=SECRET` with it, because neither name is held here; so does a
+ * token inside a base64 or JSON blob whose own shape gives nothing away either. That is inherent to
+ * naming credentials rather than detecting them, not a gap waiting to be closed: the alternative is
  * redacting every value of every parameter, which would take the diagnostic value of the log with it.
  *
  * Adding a name is how coverage grows, and **a name of three or four letters belongs in
- * `SECRET_WORDS`, never in `SECRET_SUBSTRINGS`.** `sig` is the example to learn from, since an Azure
- * storage signature is the most likely name to be wanted next: as a substring it matches sixteen
+ * `SECRET_WORDS`, never in `SECRET_SUBSTRINGS`.** `sig` is the example to learn from, because it was
+ * added and this is what the quick way would have cost: as a substring it matches sixteen
  * identifiers in this app and two hundred uses of them, `assignee`, `assign`, `assignToPane`,
  * `assigned`, `assignProject`, `assignments` and `signal` among them. Work item assignees and
  * workspace-to-project assignment are core domain concepts here, so a substring `sig` would silently
@@ -104,13 +104,20 @@ const SECRET_SUBSTRINGS = [
 /**
  * The credential names too short to be recognised that way, matched as whole words instead.
  *
- * `pat` is the whole of this list and cannot leave it: the Azure DevOps credential field is itself
- * named `pat`. But as a substring it also matches every path-shaped identifier this app has -
- * `filePath`, `repoPath`, `worktreePath` and fifteen others - along with `patch` and `pattern`.
- * Paths are the primary domain object of a workspace and terminal manager, so redacting them would
- * leave the log misleading about the values it records most often.
+ * Neither can leave this list and neither can move to the other one.
+ *
+ * `pat` is the Azure DevOps credential field's own name, so it cannot be dropped; as a substring it
+ * matches every path-shaped identifier this app has - `filePath`, `repoPath`, `worktreePath` and
+ * fifteen others - along with `patch` and `pattern`. Paths are the primary domain object of a
+ * workspace and terminal manager.
+ *
+ * `sig` is what a shared access signature is called, and as a substring it takes the whole assignment
+ * family with it - `assign`, `assigned`, `assignee`, `assignToPane`, `signal`, `design` - which are
+ * work item and workspace concepts this app records constantly.
+ *
+ * Both would silently redact a large part of what the log exists to say. That is why they are words.
  */
-const SECRET_WORDS = new Set(['pat'])
+const SECRET_WORDS = new Set(['pat', 'sig'])
 
 /**
  * Credentials recognised by the shape of the value rather than by any name attached to it.
@@ -135,7 +142,8 @@ const SECRET_WORDS = new Set(['pat'])
  *   and logged in dozens of places, one a credential. No rule can separate them.
  * - **A base64 signature**, as a shared access signature carries. Indistinguishable from any other
  *   base64 of a thirty-two byte value, including the encoded payload of an attention marker, which is
- *   ordinary text. A parameter named `sig` is the safe way to catch that one, as a word.
+ *   ordinary text. That one is caught by its name instead: `sig` is in the vocabulary as a word, which
+ *   reaches the parameter without making a rule about the value.
  */
 
 /**
@@ -596,8 +604,8 @@ function redactNestedValue(value: string, depth: number): string {
  *
  * A parameter's value is searched too, to a bounded depth, because a redirect target carried as a
  * parameter brings its own parameters and the credential is often one of those. What no amount of
- * searching reaches is a credential with no name to give it away: `?sig=SECRET` and a token inside a
- * base64 blob both survive, for the reason set out where the vocabulary is defined.
+ * searching reaches is a credential that is neither named nor shaped: `?hmac=SECRET` survives, for the
+ * reason set out where the vocabulary is defined.
  *
  * A string that fails to parse is still scanned, not trusted. A malformed URL carries exactly the
  * same credentials as a well-formed one - an out-of-range port arriving from bad configuration is
