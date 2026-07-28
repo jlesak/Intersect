@@ -91,6 +91,16 @@ describe('redactUrl', () => {
   it('returns a non-URL unchanged', () => {
     expect(redactUrl('not a url')).toBe('not a url')
   })
+
+  it('survives a malformed escape instead of throwing', () => {
+    expect(redactUrl('https://h.example/a%zz?token=secret')).not.toContain('secret')
+  })
+
+  it('leaves the escapes of innocent parameters intact', () => {
+    expect(redactUrl('https://h.example/a?jql=project%20%3D%20FID')).toBe(
+      'https://h.example/a?jql=project%20%3D%20FID'
+    )
+  })
 })
 
 describe('summarizeArgs', () => {
@@ -127,6 +137,18 @@ describe('serialize', () => {
     const parsed = JSON.parse(line)
     expect(parsed.msg).toBe('board fetched')
     expect(parsed.data.truncated).toBe(true)
+  })
+
+  it('bounds a record without Node globals, as the sandboxed renderer must', () => {
+    const nodeGlobals = globalThis as unknown as { Buffer?: unknown }
+    const restore = nodeGlobals.Buffer
+    nodeGlobals.Buffer = undefined
+    try {
+      const line = serialize({ ...base, data: { blob: 'x'.repeat(MAX_RECORD_BYTES * 2) } })
+      expect(JSON.parse(line).data.truncated).toBe(true)
+    } finally {
+      nodeGlobals.Buffer = restore
+    }
   })
 
   it('keeps the message and error when the stack alone is enormous', () => {

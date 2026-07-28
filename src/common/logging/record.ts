@@ -115,7 +115,10 @@ export function redactUrl(raw: string): string {
   for (const key of [...url.searchParams.keys()]) {
     if (SECRET_KEY.test(key)) url.searchParams.set(key, REDACTED)
   }
-  return decodeURIComponent(url.toString())
+  // Only the marker itself is un-escaped, so the result stays a URL a reader can paste back.
+  // Decoding the whole string instead would rewrite every other escape and would throw outright
+  // on a malformed one, turning a diagnostic call into the failure being diagnosed.
+  return url.toString().replaceAll(encodeURIComponent(REDACTED), REDACTED)
 }
 
 /**
@@ -150,8 +153,14 @@ function toWire(record: LogRecord): WireRecord {
   return wire
 }
 
+const UTF8 = new TextEncoder()
+
+/**
+ * The UTF-8 length of a line, measured with a platform global rather than Node's `Buffer`, because
+ * the sandboxed renderer serialises its own records and has no Node globals to reach for.
+ */
 function bytes(line: string): number {
-  return Buffer.byteLength(line, 'utf8')
+  return UTF8.encode(line).length
 }
 
 /**
