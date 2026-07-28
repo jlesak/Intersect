@@ -492,24 +492,34 @@ function redactNamedValues(text: string): string {
     const quoted = quote === '"' || quote === "'"
     if (quoted) valueStart += 1
     let valueEnd = valueStart
+    // A marker an earlier pass wrote ends in `]`, which is also what ends a bare value, so collection
+    // would stop inside the marker and read it as a value one character short of its own bracket.
+    // Stepping over any it begins with keeps it whole, which is what lets the value be compared
+    // against the marker exactly - and exactness is what matters, because a marker with a credential
+    // written after it is a value in its own right and still has to be taken.
+    while (text.startsWith(REDACTED, valueEnd)) valueEnd += REDACTED.length
     while (valueEnd < text.length) {
       const character = text.charAt(valueEnd)
       if (quoted ? character === quote : BARE_VALUE_END.has(character)) break
       valueEnd += 1
     }
     // An unquoted value runs to whitespace, which swallows whatever closed the sentence around it.
-    // A quoted one ends at its own quote and needs no such help.
+    // A quoted one ends at its own quote and needs no such help. Trimming stops at a marker rather
+    // than cutting into it, for the same reason collection steps over one.
     if (!quoted) {
-      while (valueEnd > valueStart && CLOSING_PUNCTUATION.has(text.charAt(valueEnd - 1))) valueEnd -= 1
+      while (
+        valueEnd > valueStart &&
+        CLOSING_PUNCTUATION.has(text.charAt(valueEnd - 1)) &&
+        !text.endsWith(REDACTED, valueEnd)
+      ) {
+        valueEnd -= 1
+      }
     }
     if (valueEnd === valueStart) continue
     const value = text.slice(valueStart, valueEnd)
     // Nothing to do to a value an earlier pass already took, and counting it again would overstate
-    // what was removed. Tested for at the value's start rather than against the whole of it: a bare
-    // value ends at `]`, which is the marker's own last character, so what was collected is the
-    // marker short of its bracket - unequal to the marker, and redacting it again would leave that
-    // bracket sitting after the new one.
-    if (text.startsWith(REDACTED, valueStart)) continue
+    // what was removed.
+    if (value === REDACTED) continue
     if (!quoted && AUTH_SCHEMES.has(value.toLowerCase())) continue
 
     out += `${text.slice(copied, valueStart)}${marker()}`

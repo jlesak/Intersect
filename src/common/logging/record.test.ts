@@ -999,6 +999,48 @@ describe('the redaction count', () => {
 })
 
 /**
+ * A marker written into the text redaction is about to read.
+ *
+ * Recognising one is what keeps redaction stable across the two passes it makes on the way to disk.
+ * The danger is recognising it too loosely: a value that merely begins with the marker is a value, and
+ * skipping it on the strength of its first ten characters hands a caller a way to hide a credential
+ * behind text it chose. Both directions are asserted here because the first fix for the one broke the
+ * other.
+ */
+describe('a marker already present in the text', () => {
+  const SECRET = 'REALSECRETVALUE123456789'
+
+  it('is left alone when it is the whole value', () => {
+    expect(redactValue(`pat=${REDACTED}`)).toBe(`pat=${REDACTED}`)
+    expect(redactValue(`pat="${REDACTED}"`)).toBe(`pat="${REDACTED}"`)
+    expect(redactValue(`read pat=${REDACTED}.`)).toBe(`read pat=${REDACTED}.`)
+    expect(redactValue(`{"pat":"${REDACTED}"}`)).toBe(`{"pat":"${REDACTED}"}`)
+  })
+
+  it('does not shield a credential written behind it', () => {
+    for (const shape of [
+      `pat=${REDACTED}${SECRET}`,
+      `pat="${REDACTED}${SECRET}"`,
+      `{"pat":"${REDACTED}${SECRET}"}`,
+      `pat=${REDACTED}${REDACTED}${SECRET}`,
+      `https://h/p?token=${REDACTED}${SECRET}`
+    ]) {
+      expect(redactValue(shape), `shielded by a marker in ${shape}`).not.toContain(SECRET)
+      expect(serialize({ ...base, msg: shape }), `shielded by a marker in ${shape}`).not.toContain(
+        SECRET
+      )
+    }
+  })
+
+  it('leaves a payload that has already been through redaction unchanged', () => {
+    // A key naming a credential is marked whether or not it already held the marker, so what has to
+    // hold here is that the value does not accumulate: this is the shape a re-logged payload takes.
+    const once = redactValue({ pat: 'abcdefghijklmnopqrstuvwxyz012345', note: `at ${REDACTED}` })
+    expect(redactValue(once)).toEqual(once)
+  })
+})
+
+/**
  * What redaction does not reach, asserted rather than merely written down.
  *
  * These are limits of naming credentials instead of detecting them, not defects with a fix pending.
