@@ -209,9 +209,14 @@ Applied in `record.ts` at serialization, so no call site can forget it.
 
 - A key naming a credential serializes as `"[redacted]"`, at any depth. The vocabulary is
   `pat`, `token`, `cookie`, `password`, `secret`, `authorization`, `bearer`, `apikey`.
-- **Short alternatives match only at a word boundary**, meaning the start or end of the key, a
-  separator (`_`, `-`, `.`), or a camelCase transition. Long unambiguous alternatives may match as
-  substrings.
+- **Short alternatives match only as a whole word**, where words are split on separators (`_`, `-`,
+  `.`) and camelCase transitions. Long unambiguous alternatives may match as substrings.
+
+  Whole-word means whole-word: run-together forms like `adopat`, `azurepat` and `mypat` do **not**
+  redact. A suffix rule to catch them was considered and declined, because it widens the definition
+  this boundary exists to narrow. Do not close that gap by adding words to the substring set -
+  `sig`, for instance, would redact `assign`, `assigned`, `assignee`, `signal` and `design`, which
+  is the same defect as unanchored `pat`.
 
   This is not cosmetic. Intersect is a workspace and terminal manager, so paths are its primary
   domain object, and the credential field is itself literally named `pat`
@@ -227,6 +232,29 @@ Applied in `record.ts` at serialization, so no call site can forget it.
   the vocabulary recognises no session-id name, so closing it would require widening the vocabulary
   rather than adding a surface.
 - PTY output and terminal snapshots are never logged as content.
+
+### What redaction does not cover
+
+Stated plainly, because the rest of this section reads as though it were exhaustive and it is not.
+Each limit below is asserted as a test, so the scope the code has and the scope described here cannot
+drift apart silently.
+
+- **Free text is scanned for URLs only.** A string with no `://` is passed through untouched, so a
+  credential in prose survives: `Authorization: Bearer SECRET` and `set-cookie: session=SECRET`
+  inside an error message are **not** redacted, and never have been. This is the limit an HTTP client
+  is most likely to produce.
+- **A deny-list cannot recognise a credential it has no name for.** A value under a name outside the
+  vocabulary (`?sig=`, an Azure SAS signature) or one buried in an opaque blob (a token inside base64
+  or JSON) is not redacted. This is a property of the approach, not a defect awaiting a fix.
+- **The URL path is never scanned.** Matrix parameters leak even under a first-class vocabulary name:
+  `https://h/a;token=SECRET` survives. The gap is the unscanned surface, not the vocabulary.
+- **Redaction is silent.** Nothing distinguishes a log with a missed credential from a log that had
+  nothing to redact.
+
+An allow-list that redacts every parameter value and keeps every name would close the first three by
+construction. It was proposed, and deliberately not adopted: the deny-list is kept and hardened
+shape-by-shape instead, which makes the committed redaction audit the load-bearing safety artefact
+rather than a convenience. Treat it as one.
 
 The threat model is a log file pasted into a GitHub issue, not a local attacker: the file is already
 as private as the SQLite database beside it.
