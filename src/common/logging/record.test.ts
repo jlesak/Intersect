@@ -654,6 +654,19 @@ describe('the redaction audit', () => {
       }
     },
     {
+      covers: 'a scheme with no word boundary in front of it',
+      was: 'the pattern that finds a URL in free text required a word boundary before the scheme, and an underscore, a digit and a run of letters longer than a scheme each remove it - so the URL was never recognised and the whole line went out verbatim',
+      shapes: {
+        'an underscore before the scheme': `req_https://user:${SECRET}@h/a`,
+        'a digit before the scheme': `2https://user:${SECRET}@h/a`,
+        'a digit before the scheme, in prose': `retry 2https://user:${SECRET}@h/a failed`,
+        'a name and a digit before the scheme': `req2https://user:${SECRET}@h/a`,
+        'a windows path before the scheme': `C:\\x_https://u:${SECRET}@h/a`,
+        'a run of letters too long to be a scheme': `${'a'.repeat(40)}https://user:${SECRET}@h/a`,
+        'an identifier before the scheme, in prose': `logging orgUrl_https://user:${SECRET}@h/a now`
+      }
+    },
+    {
       covers: 'a credential in the authority rather than the query',
       was: 'only the query was searched, so basic auth against Azure DevOps put the token somewhere nothing looked',
       shapes: {
@@ -827,7 +840,7 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(86)
+    expect(counted).toBe(93)
     expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
     expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
     expect(Object.keys(routes('{"pat":"x"}'))).toHaveLength(5)
@@ -1172,6 +1185,15 @@ describe('no shape stalls the serializer', () => {
     'a dotted run after a URL': { ...base, msg: `https://h/a?token=x ${dotted}` },
     'a dotted run glued to a URL': { ...base, msg: `${dotted}https://h/a?token=x` },
     'a colon run before a URL': { ...base, msg: `${'a:'.repeat(80000)} https://h/a?token=x` },
+    // A URL is recognised without anything in front of its scheme, so every character of a long run
+    // of scheme-shaped text is a start position rather than only the ones after a separator. The
+    // length bound on the scheme is what keeps the work per position constant.
+    'a letter run glued to a URL': { ...base, msg: `${'a'.repeat(160000)}https://h/a?token=x` },
+    'a scheme-shaped run glued to a URL': {
+      ...base,
+      msg: `${'a+b-c.'.repeat(26000)}https://h/a?token=x`
+    },
+    'a letter run with no URL in it at all': { ...base, msg: 'a'.repeat(160000) },
     'a period run ending in a character': { ...base, msg: `https://h/a${'.'.repeat(160000)}x` },
     'a comma run ending in a character': { ...base, msg: `https://h/a${','.repeat(160000)}x` },
     'a quote run ending in a character': { ...base, msg: `https://h/a${'"'.repeat(160000)}x` },
@@ -1264,6 +1286,13 @@ describe('no shape stalls the serializer', () => {
     'characters that look like a scheme': (size) => ({
       ...base,
       msg: `${'a.'.repeat(size / 2)} https://h/a?token=x`
+    }),
+    // Every position in a run of scheme characters is a start position now that nothing is required in
+    // front of a scheme. Nothing above would have moved if the bound on the scheme's length were
+    // lifted with the boundary, which is the shape of the last quadratic this module had.
+    'characters of a letter run glued to a URL': (size) => ({
+      ...base,
+      msg: `${'a'.repeat(size)}https://h/a?token=x`
     }),
     'links in one cause chain': (size) => ({
       ...base,

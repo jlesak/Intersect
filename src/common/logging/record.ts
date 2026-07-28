@@ -180,11 +180,13 @@ const AUTH_SCHEME_VALUE = /\b(Bearer|Basic)(\s+)([A-Za-z0-9+/=_.~-]{20,4096})/gi
  * `https:://` left the others refusing it, and a credential escaped through each of them for as long
  * as they disagreed.
  *
- * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
- * opens a fresh start position after every one of them. Left unbounded, each start position rescans
- * the whole run, and a long dotted string costs quadratic time - seconds of a stalled process on
- * text that merely looks like a scheme. More than one colon is admitted because a mistyped
- * `https:://` still carries a credential, and refusing to recognise it means never redacting it.
+ * The scheme is length-bounded, and the bound is what keeps the scan linear rather than a statement
+ * about what a scheme may look like. Nothing is required in front of a scheme, so every character of
+ * the text is a position one might start at; bounded, each of those positions costs a fixed look at
+ * the next thirty-odd characters, and unbounded each one rescans the whole run - which on a long
+ * dotted string is seconds of a stalled process on text that merely looks like a scheme. More than
+ * one colon is admitted because a mistyped `https:://` still carries a credential, and refusing to
+ * recognise it means never redacting it.
  */
 const SCHEME = String.raw`[a-z][a-z0-9+.-]{0,31}:+//`
 
@@ -198,8 +200,18 @@ const SCHEME = String.raw`[a-z][a-z0-9+.-]{0,31}:+//`
  * would hand over the token that followed a comma-separated batch of work item ids. Whitespace is
  * the only character a URL cannot legally contain, which makes it the only safe terminator. Over-
  * collecting is the safe direction, and what is over-collected is given back in `redactRun`.
+ *
+ * Nothing is required in front of the scheme, and requiring anything is what hid a whole class of
+ * URLs. A word boundary was required, which has to fall immediately before the scheme's first letter:
+ * an `_` or a digit touching the scheme leaves no boundary anywhere inside the run, so `req_https://`
+ * and `2https://` were not URLs to this pattern and the line went out verbatim. Nor can the condition
+ * be relaxed to "no character a scheme may contain", since a digit is one. Left unconditional, the
+ * leftmost match wins, which is the right answer in both directions: `x2https://` is recognised whole
+ * as the scheme it could legitimately be, and `2https://` from the `h`, since no scheme can start at
+ * a digit. What that costs is a few characters of prose absorbed into the run, which redaction hands
+ * back untouched.
  */
-const EMBEDDED_URL = new RegExp(String.raw`\b${SCHEME}\S+`, 'gi')
+const EMBEDDED_URL = new RegExp(String.raw`${SCHEME}\S+`, 'gi')
 
 /**
  * The characters that close a sentence, quotation or bracket around a URL rather than belonging to
