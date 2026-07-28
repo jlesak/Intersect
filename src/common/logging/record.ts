@@ -61,7 +61,31 @@ export const MAX_RECORD_BYTES = 8192
 /** Lower is more severe; a floor admits every level with an order at or below its own. */
 export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 }
 
-const SECRET_KEY = /pat|token|cookie|password|secret|authorization|bearer|apikey/i
+/**
+ * The credential names long enough to be unambiguous wherever they appear, so they are recognised
+ * anywhere inside a name. That is the direction that fails safe: a name run together without a
+ * separator, as `clientsecret` or `authtoken` arrives from a third party, is still caught.
+ */
+const SECRET_SUBSTRINGS = [
+  'token',
+  'cookie',
+  'password',
+  'secret',
+  'authorization',
+  'bearer',
+  'apikey'
+]
+
+/**
+ * The credential names too short to be recognised that way, matched as whole words instead.
+ *
+ * `pat` is the whole of this list and cannot leave it: the Azure DevOps credential field is itself
+ * named `pat`. But as a substring it also matches every path-shaped identifier this app has -
+ * `filePath`, `repoPath`, `worktreePath` and fifteen others - along with `patch` and `pattern`.
+ * Paths are the primary domain object of a workspace and terminal manager, so redacting them would
+ * leave the log misleading about the values it records most often.
+ */
+const SECRET_WORDS = new Set(['pat'])
 
 /**
  * A scheme-qualified URL wherever it appears in free text. Credentials reach the log inside
@@ -112,6 +136,39 @@ const UNREADABLE = '[unreadable]'
 
 export function isLevelEnabled(level: LogLevel, floor: LogLevel): boolean {
   return LEVEL_ORDER[level] <= LEVEL_ORDER[floor]
+}
+
+/**
+ * Split an identifier into its lower-cased words, so a short credential name can be recognised as a
+ * word instead of as a substring. Separators, camel case, and the join between letters and digits
+ * all divide a name; a run of capitals stays one word, except where a capitalised word starts inside
+ * it, which is how `AZURE_DEVOPS_PAT` and `patToken` both come apart correctly.
+ *
+ * Splitting rather than matching is deliberate. Anchoring in a pattern would have to see the case
+ * transition in `savedPat` while still accepting `PAT` and `Pat`, and a case-insensitive pattern
+ * cannot see the transition it needs to anchor on.
+ */
+function nameWords(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z])([0-9])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word !== '')
+}
+
+/**
+ * Whether a name says that its value is a credential.
+ *
+ * One vocabulary serves both the keys of a logged object and the parameter names of a URL, so the
+ * two cannot drift apart and a credential cannot be redacted on one surface while surviving on the
+ * other.
+ */
+function isSecretName(name: string): boolean {
+  const lower = name.toLowerCase()
+  if (SECRET_SUBSTRINGS.some((part) => lower.includes(part))) return true
+  return nameWords(name).some((word) => SECRET_WORDS.has(word))
 }
 
 /** Describe a value that refuses to be read, rather than letting its failure escape. */
@@ -193,13 +250,13 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
     const out: Record<string, unknown> = {}
     for (const [key, item] of value) {
       const name = safeText(key)
-      out[name] = SECRET_KEY.test(name) ? REDACTED : redactAny(item, seen)
+      out[name] = isSecretName(name) ? REDACTED : redactAny(item, seen)
     }
     return out
   }
   const out: Record<string, unknown> = {}
   for (const key of ownKeys(value)) {
-    out[key] = SECRET_KEY.test(key) ? REDACTED : readAndRedact(value, key, seen)
+    out[key] = isSecretName(key) ? REDACTED : readAndRedact(value, key, seen)
   }
   return out
 }
@@ -287,7 +344,7 @@ function redactFragment(hash: string): string {
   const params = new URLSearchParams(query === -1 ? body : body.slice(query + 1))
   let redacted = false
   for (const key of [...params.keys()]) {
-    if (SECRET_KEY.test(key)) {
+    if (isSecretName(key)) {
       params.set(key, REDACTED)
       redacted = true
     }
@@ -318,7 +375,7 @@ export function redactUrl(raw: string): string {
   if (url.username) url.username = REDACTED
   if (url.password) url.password = REDACTED
   for (const key of [...url.searchParams.keys()]) {
-    if (SECRET_KEY.test(key)) url.searchParams.set(key, REDACTED)
+    if (isSecretName(key)) url.searchParams.set(key, REDACTED)
   }
   if (url.hash) url.hash = redactFragment(url.hash)
   // Only the marker itself is un-escaped, so the result stays a URL a reader can paste back.

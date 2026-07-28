@@ -250,6 +250,95 @@ describe('redactUrl', () => {
 })
 
 /**
+ * The redaction vocabulary, pinned in both directions.
+ *
+ * Both halves matter, for opposite reasons. A name that should redact and does not is a leak. A name
+ * that should not redact and does is silent destruction of the values the log exists to record - and
+ * because paths are the primary domain object of a workspace and terminal manager, that half is not
+ * cosmetic either.
+ */
+describe('the names that mean a credential', () => {
+  const redacted = [
+    'pat',
+    'PAT',
+    'Pat',
+    'savedPat',
+    'adoPat',
+    'ado_pat',
+    'ado-pat',
+    'ado.pat',
+    'AZURE_DEVOPS_PAT',
+    'patToken',
+    'pat2',
+    // The longer names are recognised anywhere inside a key, including run together without any
+    // separator, which is how they arrive from a third party.
+    'token',
+    'access_token',
+    'ACCESS_TOKEN',
+    'authtoken',
+    'sessionCookie',
+    'clientSecret',
+    'clientsecret',
+    'userPassword',
+    'Authorization',
+    'bearerToken',
+    'apiKey',
+    'inputTokens',
+    'tokenCount'
+  ]
+
+  const kept = [
+    'path',
+    'Path',
+    'filePath',
+    'folderPath',
+    'repoPath',
+    'targetPath',
+    'worktreePath',
+    'vttPath',
+    'backupPath',
+    'originalPath',
+    'resolvePath',
+    'revealPath',
+    'patch',
+    'patches',
+    'patchSet',
+    'pattern',
+    'dispatch',
+    'dispatcher',
+    'dispatchEvent',
+    'compatible',
+    'compatibility',
+    'participants',
+    'status',
+    'update',
+    'pid',
+    'api-version',
+    'jql',
+    'fields',
+    'ids'
+  ]
+
+  for (const name of redacted) {
+    it(`redacts ${name}`, () => {
+      expect(redactValue({ [name]: 'CREDENTIAL' })).toEqual({ [name]: REDACTED })
+    })
+  }
+
+  for (const name of kept) {
+    it(`keeps ${name}`, () => {
+      expect(redactValue({ [name]: 'ordinary' })).toEqual({ [name]: 'ordinary' })
+    })
+  }
+
+  it('applies one vocabulary to URL parameter names as well as object keys', () => {
+    expect(redactUrl('https://h/a?pat=x&path=/tmp/y')).toBe(
+      `https://h/a?pat=${REDACTED}&path=%2Ftmp%2Fy`
+    )
+  })
+})
+
+/**
  * The one invariant this module cannot be allowed to break, whatever shape the text arrives in. Each
  * entry has been a real bypass or a plausible one: the separators here are the documented batch-read
  * forms of Azure DevOps and Jira, and every character ever excluded from the URL run in order to
