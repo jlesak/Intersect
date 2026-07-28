@@ -13,6 +13,7 @@ import { ipc } from '@renderer/shared/ipc/client'
 // Thin, mockable seam between the PR-inbox store and the preload bridge.
 export const sync = (): Promise<PullRequest[]> => ipc().prInbox.sync()
 export const list = (): Promise<PullRequest[]> => ipc().prInbox.list()
+export const getSyncedAt = (): Promise<number | null> => ipc().prInbox.getSyncedAt()
 export const getChanges = (repositoryId: string, prId: number): Promise<PrChangeFile[]> =>
   ipc().prInbox.getChanges(repositoryId, prId)
 export const getFileDiff = (repositoryId: string, prId: number, filePath: string): Promise<FileDiff> =>

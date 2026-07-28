@@ -14,7 +14,14 @@ import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { AdoService, SyncResult } from '../prInbox/adoService'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
-import { applyMyVote, buildReviewContext, createPrInboxHandlers, type PrInboxHandlers } from './prInbox.ipc'
+import { Channel } from '@common/ipc'
+import {
+  applyMyVote,
+  buildReviewContext,
+  createPrInboxHandlers,
+  prInboxWireRoutes,
+  type PrInboxHandlers
+} from './prInbox.ipc'
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 100,
@@ -150,6 +157,21 @@ describe('prInbox handlers', () => {
     const result = await h.sync()
     expect(result.map((p) => p.prId)).toEqual([100])
     expect(prCache.list()).toHaveLength(1)
+  })
+
+  test('getSyncedAt answers nothing before the first sync and the sync time afterwards', async () => {
+    const { h } = handlers()
+    expect(await h.getSyncedAt()).toBeNull()
+    await h.sync()
+    expect(await h.getSyncedAt()).toBe(prCache.getSyncedAt())
+    expect(await h.getSyncedAt()).not.toBeNull()
+  })
+
+  test('the wire routes expose getSyncedAt on its own channel', async () => {
+    const { h } = handlers()
+    const routes = prInboxWireRoutes(h)
+    await h.sync()
+    expect(await routes[Channel.prInboxGetSyncedAt]()).toBe(prCache.getSyncedAt())
   })
 
   test('the first sync of a voted PR seeds the watermark without flagging it (bootstrap)', async () => {

@@ -199,6 +199,8 @@ export interface IpcApi {
     sync(): Promise<PullRequest[]>
     /** The cached PRs from the last sync (no network). */
     list(): Promise<PullRequest[]>
+    /** When the cache was last replaced by a sync, or null when none has ever completed. */
+    getSyncedAt(): Promise<number | null>
     getChanges(repositoryId: string, prId: number): Promise<PrChangeFile[]>
     getFileDiff(repositoryId: string, prId: number, filePath: string): Promise<FileDiff>
     getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
@@ -550,6 +552,7 @@ export const Channel = {
   // prInbox (request/response)
   prInboxSync: 'prInbox:sync',
   prInboxList: 'prInbox:list',
+  prInboxGetSyncedAt: 'prInbox:getSyncedAt',
   prInboxGetChanges: 'prInbox:getChanges',
   prInboxGetFileDiff: 'prInbox:getFileDiff',
   prInboxGetThreads: 'prInbox:getThreads',

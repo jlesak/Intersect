@@ -146,4 +146,30 @@ describe('prCacheRepo', () => {
   test('CHECK rejects an invalid role', () => {
     expect(() => repo.replaceAll([pr({ role: 'owner' as unknown as 'author' })])).toThrow()
   })
+
+  test('an empty cache has never been synced', () => {
+    expect(repo.getSyncedAt()).toBeNull()
+  })
+
+  test('getSyncedAt reports the moment the cache was filled, and moves with each sync', () => {
+    // The injected clock advances by one on every read, so the two syncs are distinguishable.
+    repo.replaceAll([pr()])
+    const first = repo.getSyncedAt()
+    expect(first).toBe(1001)
+
+    repo.replaceAll([pr()])
+    expect(repo.getSyncedAt()).toBe(1002)
+  })
+
+  test('a sync that found no PRs at all still reports when it ran', () => {
+    // An empty inbox is an ordinary state, and "no PRs" must not read as "never synced".
+    repo.replaceAll([])
+    expect(repo.getSyncedAt()).toBe(1001)
+  })
+
+  test('a cache filled before the freshness stamp existed falls back to its rows', () => {
+    repo.replaceAll([pr()])
+    db.prepare(`DELETE FROM app_state WHERE key = 'pr_cache_synced_at'`).run()
+    expect(repo.getSyncedAt()).toBe(1001)
+  })
 })

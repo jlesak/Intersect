@@ -54,10 +54,22 @@ function toPr(row: PrRow): PullRequest {
   }
 }
 
+/**
+ * The `app_state` key carrying when the whole cache was last replaced. Kept beside the cache rather
+ * than derived from them, because a sync that legitimately found no pull requests still happened -
+ * and an empty inbox reading as "never synced" is a freshness indicator lying about itself.
+ */
+const SYNCED_AT_KEY = 'pr_cache_synced_at'
+
 export interface PrCacheRepo {
   /** Replace the whole cache with a fresh sync result, in one transaction, stamped with synced_at. */
   replaceAll(prs: PullRequest[]): void
   list(): PullRequest[]
+  /**
+   * When the cache was last replaced by a sync, or null when no sync has ever completed. Answers
+   * how stale the pull-request board is, which only the cache itself can know across restarts.
+   */
+  getSyncedAt(): number | null
   get(repositoryId: string, prId: number): PullRequest | undefined
   /**
    * Record a vote just cast from Intersect on the cached row, without waiting for a full sync:
@@ -110,6 +122,10 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             syncedAt
           )
         }
+        db.prepare(
+          `INSERT INTO app_state (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        ).run(SYNCED_AT_KEY, String(syncedAt))
       })
     },
 
@@ -118,6 +134,20 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
         .prepare('SELECT * FROM pr_cache ORDER BY created_at DESC')
         .all() as unknown as PrRow[]
       return rows.map(toPr)
+    },
+
+    getSyncedAt() {
+      const stamped = db.prepare('SELECT value FROM app_state WHERE key = ?').get(SYNCED_AT_KEY) as
+        | { value: string | null }
+        | undefined
+      const value = stamped?.value === null || stamped?.value === undefined ? null : Number(stamped.value)
+      if (value !== null && Number.isFinite(value)) return value
+      // A cache filled before the stamp existed still carries the sync time on its rows. MAX over an
+      // empty table yields a row whose value is NULL, so a row is no proof of a timestamp.
+      const row = db.prepare('SELECT MAX(synced_at) AS t FROM pr_cache').get() as
+        | { t: number | null }
+        | undefined
+      return row?.t ?? null
     },
 
     get(repositoryId, prId) {

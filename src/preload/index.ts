@@ -103,6 +103,7 @@ const api: IpcApi = {
   prInbox: {
     sync: () => ipcRenderer.invoke(Channel.prInboxSync),
     list: () => ipcRenderer.invoke(Channel.prInboxList),
+    getSyncedAt: () => ipcRenderer.invoke(Channel.prInboxGetSyncedAt),
     getChanges: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxGetChanges, repositoryId, prId),
     getFileDiff: (repositoryId, prId, filePath) =>
       ipcRenderer.invoke(Channel.prInboxGetFileDiff, repositoryId, prId, filePath),
