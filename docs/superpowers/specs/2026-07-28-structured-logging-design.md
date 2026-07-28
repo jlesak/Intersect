@@ -13,6 +13,20 @@ The target is a single durable, greppable, field-oriented log that captures what
 what the core did about it, every outbound request, and every error - including the ones no
 `try/catch` anticipated.
 
+## Delivery
+
+Two pull requests. The infrastructure is a self-contained vertical that is worth reviewing on its
+own; the error-swallow conversion is mechanical breadth across nearly every slice and would otherwise
+bury it.
+
+| PR | Contents | Reviewable question |
+| --- | --- | --- |
+| **1. Infrastructure** | The logger, the two sinks, global handlers, the instrumented seams (RPC, HTTP, MCP, spawns), redaction, the rate guard, `no-console`, the replacement of the existing 25 `console.*` sites, and the full test suite | Is the logging architecture right? |
+| **2. Error-swallow conversion** | The 118 discarded errors, each given a log line at a level matched to intent | Is each swallow classified correctly? |
+
+PR 1 lands first and is independently useful: it produces a populated log file on its own. PR 2
+depends on it only for the logger import.
+
 ## Current state
 
 | Gap | Evidence |
@@ -140,7 +154,7 @@ before core and outlives it, so it is the only process that can own this without
 | `src/preload/index.ts` | Add the `log` namespace over `ipcRenderer.send` |
 | `src/common/ipc.ts` | Add `Channel.logWrite` and the `IpcApi.log` surface |
 | `eslint.config.js` | `no-console` for `src/**`, exempting the two sanctioned fallback modules; restrict `fileSink.node.ts` from renderer and preload |
-| 118 catch sites | Each gets a log line - see below |
+| 118 catch sites | Each gets a log line - PR 2, see below |
 
 `fileSink.node.ts` lives under `common` but must never enter the renderer bundle. The existing
 config already encodes exactly this kind of confinement for `node-pty` and for `electron` in core, so
@@ -203,7 +217,7 @@ as private as the SQLite database beside it.
   wedging the app or being silently hidden.
 - Every logging call site is synchronous and non-throwing from the caller's perspective.
 
-## The 118 discarded errors
+## The 118 discarded errors (PR 2)
 
 All of them get a log line, distributed as:
 
