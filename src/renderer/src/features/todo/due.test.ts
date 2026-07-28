@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formatDueDay, isOverdue } from './due'
+import { formatDueDay, isDueToday, isOverdue } from './due'
 
 const TODAY = '2026-07-06'
 
@@ -16,6 +16,27 @@ describe('isOverdue', () => {
   test('a future due day is not overdue', () => {
     expect(isOverdue('2026-07-07', TODAY)).toBe(false)
     expect(isOverdue('2027-01-01', TODAY)).toBe(false)
+  })
+})
+
+describe('isDueToday', () => {
+  test('only an exact match is due today', () => {
+    expect(isDueToday(TODAY, TODAY)).toBe(true)
+    expect(isDueToday('2026-07-05', TODAY)).toBe(false)
+    expect(isDueToday('2026-07-07', TODAY)).toBe(false)
+  })
+
+  test('the two predicates agree about today: due, and not yet late', () => {
+    // Pinned together so neither can be redefined into disagreeing with the other, which would
+    // either double-count today's tasks or drop them from both groups.
+    expect(isDueToday(TODAY, TODAY)).toBe(true)
+    expect(isOverdue(TODAY, TODAY)).toBe(false)
+  })
+
+  test('a day is never both overdue and due today', () => {
+    for (const day of ['2026-07-04', '2026-07-05', TODAY, '2026-07-07', '2026-08-01']) {
+      expect(isOverdue(day, TODAY) && isDueToday(day, TODAY)).toBe(false)
+    }
   })
 })
 

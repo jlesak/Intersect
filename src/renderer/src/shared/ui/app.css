@@ -2556,6 +2556,11 @@
 .ix-todo-item--dragging {
   opacity: 0.45;
 }
+/* The row the user was sent here to look at: found, not selected, so the mark expires on its own. */
+.ix-todo-item--focused {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .ix-todo-item__drag,
 .ix-todo-item__drag-spacer {
   flex: none;

@@ -21,7 +21,7 @@ const task = (id: string, over: Partial<TodoTask> = {}): TodoTask => ({
 
 const reset = (): void => {
   useTodoStore.setState(
-    { status: 'idle', error: null, open: [], done: [], showDone: false },
+    { status: 'idle', error: null, open: [], done: [], showDone: false, pendingFocusId: null },
     false
   )
 }
@@ -29,6 +29,31 @@ const reset = (): void => {
 beforeEach(() => {
   reset()
   vi.clearAllMocks()
+})
+
+describe('focusTask', () => {
+  test('records which task the list should reveal', () => {
+    useTodoStore.getState().focusTask('a')
+    expect(useTodoStore.getState().pendingFocusId).toBe('a')
+  })
+
+  test('the list clears the request once it has acted on it', () => {
+    useTodoStore.getState().focusTask('a')
+    useTodoStore.getState().clearFocus()
+    expect(useTodoStore.getState().pendingFocusId).toBeNull()
+  })
+
+  test('the same task can be focused again after the first request was consumed', () => {
+    const seen: (string | null)[] = []
+    const off = useTodoStore.subscribe((s, prev) => {
+      if (s.pendingFocusId !== prev.pendingFocusId) seen.push(s.pendingFocusId)
+    })
+    useTodoStore.getState().focusTask('a')
+    useTodoStore.getState().clearFocus()
+    useTodoStore.getState().focusTask('a')
+    off()
+    expect(seen).toEqual(['a', null, 'a'])
+  })
 })
 
 describe('load', () => {

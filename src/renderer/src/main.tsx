@@ -16,10 +16,12 @@ import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
 import { wireShortcuts } from './app/shortcutWiring'
+import { wireTodoFocus } from './app/todoFocusWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
+import { useTodoStore } from './features/todo'
 import { useUsageStore } from './features/usage'
 import { useWorkspacesStore } from './features/workspaces'
 
@@ -52,12 +54,17 @@ useMyWorkStore.getState().subscribe()
 // Load the last captured Claude usage snapshot and keep listening for fresh ones pushed from main.
 void useUsageStore.getState().hydrate()
 useUsageStore.getState().subscribe()
+// Load the task list at boot: the rail's open-task count and the Dashboard's deadlines both read it
+// without the user ever having opened the TODO section.
+void useTodoStore.getState().load()
 // Mirror main's session-attention alerts into the pulse UI and report the viewed session back.
 wireAttention()
 // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice, app-layer).
 wireSessionResume()
 // Bridge My Work's PR-radar clicks to the PR Inbox section (cross-slice, app-layer).
 wireMyWorkPrNav()
+// Send the user to the TODO section when any surface asks to focus a task (cross-slice, app-layer).
+wireTodoFocus()
 // Follow the tabs slice's workspace with its work-item refs and execute card launches.
 wireWorkItemLaunch()
 // Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).

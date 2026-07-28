@@ -14,6 +14,11 @@ interface TodoState {
   done: TodoTask[]
   /** Whether the Done drawer is expanded. Renderer-only; every app start begins collapsed. */
   showDone: boolean
+  /**
+   * The task another surface asked to be taken to, until the list has revealed it. Left standing
+   * across the section switch, because it is the only record of which row to reveal.
+   */
+  pendingFocusId: string | null
   load(): Promise<void>
   toggleShowDone(): void
   add(text: string, dueDay: string | null): Promise<void>
@@ -23,6 +28,10 @@ interface TodoState {
   remove(id: string): Promise<void>
   /** Apply the new order immediately, then persist it; failures resync from main. */
   reorder(orderedIds: string[]): Promise<void>
+  /** Ask for a task to be brought into view and marked, from anywhere in the app. */
+  focusTask(id: string): void
+  /** The list has revealed the requested task; the request is spent. */
+  clearFocus(): void
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -56,6 +65,15 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     open: [],
     done: [],
     showDone: false,
+    pendingFocusId: null,
+
+    focusTask(id) {
+      set({ pendingFocusId: id })
+    },
+
+    clearFocus() {
+      set({ pendingFocusId: null })
+    },
 
     async load() {
       reorderRevision += 1
