@@ -11,6 +11,7 @@ import { registerFeatures } from './app/registerFeatures'
 import { registerShellCommands } from './app/shellCommands'
 import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
+import { wireDashboardNav } from './app/dashboardNavWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
@@ -65,6 +66,8 @@ wireSessionResume()
 wireMyWorkPrNav()
 // Send the user to the TODO section when any surface asks to focus a task (cross-slice, app-layer).
 wireTodoFocus()
+// Turn the Dashboard's rows into the PR detail and terminal they point at (cross-slice, app-layer).
+wireDashboardNav()
 // Follow the tabs slice's workspace with its work-item refs and execute card launches.
 wireWorkItemLaunch()
 // Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).

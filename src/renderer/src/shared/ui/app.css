@@ -3964,3 +3964,294 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ===== Dashboard: the four mission-control zones ===== */
+
+/* .ix-main is a flex column with min-height 0, so the scrolling child has to claim the space. */
+.ix-dash {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ix-dash__topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ix-dash__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ix-dash__subtitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Needs action is the only zone that grows without bound, so it gets the wider column. The minmax
+   floors stop a long PR title from widening a track past the viewport. */
+.ix-dash__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.ix-dash__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .ix-dash__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ix-dash-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.ix-dash-zone__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.ix-dash-zone__title {
+  flex: none;
+}
+.ix-dash-zone__count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--panel-3);
+  padding: 1px 7px;
+  border-radius: 8px;
+}
+.ix-dash-zone__meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+}
+
+/* --- zone 1: needs action --- */
+.ix-dash-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ix-dash-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+}
+.ix-dash-group__label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ix-dash-group__count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ix-dash-group__empty {
+  padding: 4px 2px 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.ix-dash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ix-dash-row:hover {
+  background: var(--panel-2);
+}
+.ix-dash-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.ix-dash-row__title {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-row__sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-row__age,
+.ix-dash-row__due {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ix-dash-row__due--overdue {
+  color: var(--danger);
+}
+
+/* --- zone 2: running sessions --- */
+.ix-dash-sessions__empty {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ix-dash-session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 2px;
+}
+.ix-dash-session__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.ix-dash-session__dot--waiting {
+  background: var(--status-waiting);
+}
+.ix-dash-session__dot--working {
+  background: var(--status-working);
+}
+.ix-dash-session__dot--done {
+  background: var(--status-done);
+}
+.ix-dash-session__name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-session__state {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ix-dash-session__go {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* --- zone 3: time today --- */
+.ix-dash-time__logged {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ix-dash-time__total {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ix-dash-time__label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ix-dash-time__note {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ix-dash-time__wrongweek {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ix-dash-time__week {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* --- zone 4: system status --- */
+.ix-dash-usage__empty {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ix-dash-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ix-dash-meter__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-dash-meter__pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.ix-dash-meter__track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.ix-dash-meter__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--dur) var(--ease);
+}
+.ix-dash-meter__reset {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ix-dash-sync {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-dash-sync__value {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
