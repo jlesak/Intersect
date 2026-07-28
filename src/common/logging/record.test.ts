@@ -73,7 +73,7 @@ describe('normalizeError', () => {
         throw new Error('no')
       }
     }
-    expect(() => normalizeError(hostile)).not.toThrow()
+    expect(normalizeError(hostile)).toEqual({ name: 'object', message: '[unprintable object]' })
   })
 
   it('takes no recursion state from its caller', () => {
@@ -111,6 +111,36 @@ describe('redactValue', () => {
     expect(redactValue({ href: 'https://h.example/a?access_token=abc123' })).toEqual({
       href: `https://h.example/a?access_token=${REDACTED}`
     })
+  })
+
+  it('keeps the text that follows a redacted URL', () => {
+    const out = redactValue({
+      pair: 'two https://h/a?token=x;https://h/b?token=y done',
+      assigned: 'a=https://h?token=x,b=2 end',
+      sentence: 'Request https://h/a?api-version=7.1&token=abc, status 401',
+      bracketed: '(see https://h/a?token=x)',
+      final: 'Failed at https://h/a?token=x.'
+    }) as Record<string, string>
+    expect(out.pair).toBe(`two https://h/a?token=${REDACTED};https://h/b?token=${REDACTED} done`)
+    expect(out.assigned).toBe(`a=https://h/?token=${REDACTED},b=2 end`)
+    expect(out.sentence).toBe(
+      `Request https://h/a?api-version=7.1&token=${REDACTED}, status 401`
+    )
+    expect(out.bracketed).toBe(`(see https://h/a?token=${REDACTED})`)
+    expect(out.final).toBe(`Failed at https://h/a?token=${REDACTED}.`)
+  })
+
+  it('scans text that merely looks like a scheme in linear time', () => {
+    // An unbounded scheme length makes the scan quadratic: `.` is not a word character, so a word
+    // boundary opens a fresh start position after every one, and each rescans the whole run. The
+    // dotted run is separated from the real URL here on purpose - run them together and the
+    // unbounded pattern swallows the whole run in one greedy match and looks fast.
+    const blob = `${'a.'.repeat(128000)} https://h/a?token=x`
+    const startedAt = Date.now()
+    const out = redactValue({ blob }) as { blob: string }
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    expect(out.blob).toContain(REDACTED)
+    expect(out.blob).not.toContain('token=x')
   })
 
   it('keeps the content of the built-in types a caller is likely to log', () => {
@@ -172,7 +202,9 @@ describe('redactUrl', () => {
   })
 
   it('survives a malformed escape instead of throwing', () => {
-    expect(redactUrl('https://h.example/a%zz?token=secret')).not.toContain('secret')
+    expect(redactUrl('https://h.example/a%zz?token=secret')).toBe(
+      `https://h.example/a%zz?token=${REDACTED}`
+    )
   })
 
   it('leaves the escapes of innocent parameters intact', () => {
@@ -278,6 +310,15 @@ describe('serialize', () => {
     expect(parsed.msg).toBe('board fetched')
     expect(parsed.ts).toBe(base.ts)
     expect(parsed.data.truncated).toBe(true)
+    // Distinguishable from a record merely shed for size, or a defect here reads as sparse logging.
+    expect(parsed.data.serializeFailed).toBe(true)
+  })
+
+  it('marks only a failure, never a record shed for its size', () => {
+    const line = serialize({ ...base, ts: 'x'.repeat(20000) })
+    const parsed = JSON.parse(line)
+    expect(parsed.data.truncated).toBe(true)
+    expect(parsed.data.serializeFailed).toBeUndefined()
   })
 
   it('redacts a credential quoted in an error message and its stack', () => {
@@ -318,6 +359,16 @@ describe('serialize', () => {
     const line = serialize({ ...base, ts: 'é'.repeat(20000) })
     expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
     expect(JSON.parse(line).msg).toBe('board fetched')
+  })
+
+  it('bounds the failure line too, not only the one shed for size', () => {
+    const huge = String.fromCharCode(1).repeat(20000)
+    const err: NormalizedError = { name: 'Error', message: 'looping' }
+    err.cause = err
+    const hostile = { ts: huge, level: huge, proc: huge, pid: 4821, scope: huge, msg: huge, err }
+    const line = serialize(hostile as unknown as LogRecord)
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    expect(JSON.parse(line).data.serializeFailed).toBe(true)
   })
 
   it('bounds a bare field of control characters, which escaping expands sixfold', () => {

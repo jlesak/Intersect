@@ -67,8 +67,17 @@ const SECRET_KEY = /pat|token|cookie|password|secret|authorization|bearer|apikey
  * A scheme-qualified URL wherever it appears in free text. Credentials reach the log inside
  * sentences far more often than on their own: an HTTP client quotes the failing request in its
  * error message, so the URL arrives surrounded by prose.
+ *
+ * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
+ * opens a fresh start position after every one of them. Left unbounded, each start position rescans
+ * the whole run and a long dotted string costs quadratic time - seconds of a stalled process on
+ * text that merely looks like a scheme. A comma and a semicolon end the match because they separate
+ * one URL from the next far more often than they appear inside one.
  */
-const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi
+const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s"'<>,;]+/gi
+
+/** Punctuation that closes the sentence or bracket around a URL rather than belonging to it. */
+const TRAILING_PUNCTUATION = /[.:!?)\]}]+$/
 
 const MAX_STACK_CHARS = 2000
 
@@ -205,7 +214,13 @@ function readAndRedact(owner: object, key: string, seen: WeakSet<object>): unkno
  */
 function redactText(value: string): string {
   if (!value.includes('://')) return value
-  return value.replace(EMBEDDED_URL, (match) => redactUrl(match))
+  return value.replace(EMBEDDED_URL, (match) => {
+    // Whatever trails the URL is put back rather than swallowed into the redacted parameter, so
+    // redacting a secret never costs the surrounding text that was never secret.
+    const trailing = TRAILING_PUNCTUATION.exec(match)?.[0] ?? ''
+    const url = trailing ? match.slice(0, -trailing.length) : match
+    return `${redactUrl(url)}${trailing}`
+  })
 }
 
 /** Redact an error and its causes, since a client's message and stack routinely quote the request. */
@@ -265,7 +280,12 @@ interface DegradedRecord {
   pid: number
   scope: string
   msg: string
-  data: { truncated: true }
+  /**
+   * `serializeFailed` marks the difference between a record deliberately shed for size and one that
+   * defeated serialisation outright. Without it a defect in this module would look like nothing more
+   * than unusually sparse records.
+   */
+  data: { truncated: true; serializeFailed?: true }
   err?: { name: string; message: string }
 }
 
@@ -370,6 +390,25 @@ function degrade(
 }
 
 /**
+ * The identifying fields alone, against the widest text allowance that keeps the line inside the
+ * cap. `failed` distinguishes a record that defeated serialisation from one merely shed for size.
+ */
+function degradedLine(
+  record: LogRecord,
+  err: NormalizedError | undefined,
+  failed: boolean
+): string {
+  let line = ''
+  for (const budget of FIELD_BUDGETS) {
+    const out = degrade(record, err, budget)
+    if (failed) out.data.serializeFailed = true
+    line = stringify(out)
+    if (bytes(line) <= MAX_RECORD_BYTES) return line
+  }
+  return line
+}
+
+/**
  * Render one record as a single JSON line, redacted and size-bounded.
  *
  * An oversized record is shrunk in stages rather than dropped, shedding what costs least to lose
@@ -383,8 +422,8 @@ export function serialize(record: LogRecord): string {
     return bound(record)
   } catch {
     // A value the record carried could not be read or rendered. The event still gets a line: this
-    // one is assembled from primitives alone, so it cannot fail the same way.
-    return stringify(degrade(record, undefined, FIELD_BUDGETS[0]))
+    // one is assembled from primitives alone, so it cannot fail the same way, and it says so.
+    return degradedLine(record, undefined, true)
   }
 }
 
@@ -421,9 +460,5 @@ function bound(record: LogRecord): string {
   }
 
   // Only the identifying fields are left, so one of them is itself oversized.
-  for (const budget of FIELD_BUDGETS) {
-    line = stringify(degrade(record, wire.err, budget))
-    if (bytes(line) <= MAX_RECORD_BYTES) return line
-  }
-  return line
+  return degradedLine(record, wire.err, false)
 }
