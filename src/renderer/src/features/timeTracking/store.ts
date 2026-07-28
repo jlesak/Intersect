@@ -1,4 +1,9 @@
-import type { NewManualTimeEntry, TimeEntry, TimeEntryUpdate } from '@common/domain'
+import type {
+  NewManualTimeEntry,
+  RunningTimer,
+  TimeEntry,
+  TimeEntryUpdate
+} from '@common/domain'
 import { addDays, weekStartOf } from '@common/week'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
@@ -13,6 +18,8 @@ interface TimeTrackingState {
   weekStart: string
   /** The shown week's merged entries, in main's day-then-time order. */
   entries: TimeEntry[]
+  /** The work timer currently running, or null. Elapsed time is derived from it, never stored. */
+  timer: RunningTimer | null
   /** First-open load of the current week (no-op unless idle). */
   hydrate(): Promise<void>
   loadWeek(weekStart: string): Promise<void>
@@ -24,6 +31,10 @@ interface TimeTrackingState {
   addManual(input: NewManualTimeEntry): Promise<void>
   updateEntry(entry: TimeEntry, update: TimeEntryUpdate): Promise<void>
   removeEntry(entry: TimeEntry): Promise<void>
+  startTimer(description: string, issueKey: string | null): Promise<void>
+  updateTimer(description: string, issueKey: string | null): Promise<void>
+  /** Stop and log the span, then re-read the week so the new entry is on the board. */
+  stopTimer(): Promise<void>
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -42,6 +53,15 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     }
   }
 
+  /** Read the running timer from the core. A failure leaves the last known value alone. */
+  async function loadTimer(): Promise<void> {
+    try {
+      set({ timer: await api.getTimer() })
+    } catch {
+      // The board is still usable without the timer; a toast here would fire on every reload.
+    }
+  }
+
   /** Run a mutation, then re-read the week so the board always shows main's truth. */
   async function mutate(op: () => Promise<unknown>, failure: string): Promise<void> {
     try {
@@ -57,11 +77,13 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     error: null,
     weekStart: weekStartOf(Date.now()),
     entries: [],
+    timer: null,
 
     async hydrate() {
       if (get().status !== 'idle') return
       set({ status: 'loading', error: null })
       await reload()
+      await loadTimer()
     },
 
     async loadWeek(weekStart) {
@@ -93,6 +115,7 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
         set({ status: get().entries.length > 0 ? 'ready' : 'error', error: message(e) })
         reportError('Could not refresh time tracking', e)
       }
+      await loadTimer()
     },
 
     async addManual(input) {
@@ -105,6 +128,35 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
 
     async removeEntry(entry) {
       await mutate(() => api.deleteEntry(entry.source, entry.id), 'Could not delete the entry')
+    },
+
+    async startTimer(description, issueKey) {
+      try {
+        set({ timer: await api.startTimer(description, issueKey) })
+      } catch (e) {
+        reportError('Could not start the timer', e)
+      }
+    },
+
+    async updateTimer(description, issueKey) {
+      try {
+        set({ timer: await api.updateTimer(description, issueKey) })
+      } catch (e) {
+        reportError('Could not change what the timer is tracking', e)
+      }
+    },
+
+    async stopTimer() {
+      try {
+        await api.stopTimer()
+        set({ timer: null })
+      } catch (e) {
+        reportError('Could not stop the timer', e)
+        // The core is the authority on whether it is still running, so ask rather than guess.
+        await loadTimer()
+        return
+      }
+      await reload()
     }
   }
 })
