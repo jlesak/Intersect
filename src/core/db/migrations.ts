@@ -547,6 +547,24 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE time_entry_override ADD COLUMN description TEXT;`)
     }
+  },
+  {
+    // The work timer. At most one runs at a time, so the row is pinned to id 1 by a CHECK rather
+    // than by convention - a second concurrent start then fails at the database instead of
+    // silently producing two timers nothing would reconcile. Elapsed time is not a column: it is
+    // derived from started_at, so a timer left running across a quit reports the real span.
+    version: 22,
+    up(db) {
+      db.exec(`
+        CREATE TABLE running_timer (
+          id          INTEGER PRIMARY KEY CHECK (id = 1),
+          started_at  INTEGER NOT NULL,
+          description TEXT    NOT NULL DEFAULT '',
+          issue_key   TEXT,
+          created_at  INTEGER NOT NULL
+        );
+      `)
+    }
   }
 ]
 

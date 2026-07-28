@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { NewManualTimeEntry, TimeEntry, TimeEntryUpdate } from '@common/domain'
+import type { NewManualTimeEntry, RunningTimer, TimeEntry, TimeEntryUpdate } from '@common/domain'
 import type { RepoDeps } from './deps'
 
 interface ManualRow {
@@ -166,6 +166,69 @@ export function createTimeOverrideRepo(db: DatabaseSync, deps: RepoDeps): TimeOv
       ).filter((row) => !present.has(row.session_id))
       const remove = db.prepare('DELETE FROM time_entry_override WHERE session_id = ?')
       for (const row of stale) remove.run(row.session_id)
+    }
+  }
+}
+
+interface RunningTimerRow {
+  started_at: number
+  description: string
+  issue_key: string | null
+}
+
+function toRunningTimer(row: RunningTimerRow): RunningTimer {
+  return {
+    startedAt: row.started_at,
+    description: row.description,
+    issueKey: row.issue_key
+  }
+}
+
+/**
+ * The single running work timer. Every method addresses the same pinned row, so there is no id to
+ * pass and no ambiguity about which timer is meant.
+ */
+export interface RunningTimerRepo {
+  get(): RunningTimer | null
+  /** Begin timing. Refuses when one is already running rather than replacing it silently. */
+  start(startedAt: number, description: string, issueKey: string | null): RunningTimer
+  /** Overwrite both editable fields. `startedAt` is never editable - it is what was measured. */
+  update(description: string, issueKey: string | null): RunningTimer
+  /** Stop timing. Idempotent: clearing when nothing runs is not an error. */
+  clear(): void
+}
+
+export function createRunningTimerRepo(db: DatabaseSync, deps: RepoDeps): RunningTimerRepo {
+  const get = (): RunningTimer | null => {
+    const row = db.prepare('SELECT * FROM running_timer WHERE id = 1').get() as
+      | RunningTimerRow
+      | undefined
+    return row ? toRunningTimer(row) : null
+  }
+
+  return {
+    get,
+
+    start(startedAt, description, issueKey) {
+      if (get()) throw new Error('A timer is already running')
+      db.prepare(
+        `INSERT INTO running_timer (id, started_at, description, issue_key, created_at)
+         VALUES (1,?,?,?,?)`
+      ).run(startedAt, description, issueKey, deps.now())
+      return get()!
+    },
+
+    update(description, issueKey) {
+      if (!get()) throw new Error('No timer is running')
+      db.prepare('UPDATE running_timer SET description = ?, issue_key = ? WHERE id = 1').run(
+        description,
+        issueKey
+      )
+      return get()!
+    },
+
+    clear() {
+      db.prepare('DELETE FROM running_timer WHERE id = 1').run()
     }
   }
 }

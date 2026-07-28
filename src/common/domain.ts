@@ -649,6 +649,18 @@ export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueK
 /** The three fields editable in place on any card, auto or manual. */
 export type TimeEntryUpdate = Pick<TimeEntry, 'description' | 'issueKey' | 'durationMs'>
 
+/**
+ * The work timer currently running, if any. Elapsed time is deliberately not stored - it is
+ * derived from `startedAt` wherever it is shown, so a timer left running across a quit reports
+ * the real span rather than a figure frozen at shutdown.
+ */
+export interface RunningTimer {
+  /** Epoch ms the timer was started. */
+  startedAt: number
+  description: string
+  issueKey: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Agent runtime evidence - see docs/2026-07-07-intersect-final-form-design.md section 9.4
 // ---------------------------------------------------------------------------

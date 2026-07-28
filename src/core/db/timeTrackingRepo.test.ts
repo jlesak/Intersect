@@ -3,8 +3,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { NewManualTimeEntry } from '@common/domain'
 import {
   createManualTimeEntryRepo,
+  createRunningTimerRepo,
   createTimeOverrideRepo,
   type ManualTimeEntryRepo,
+  type RunningTimerRepo,
   type TimeOverrideRepo
 } from './timeTrackingRepo'
 import { makeTestDb, makeTestDeps } from './testkit'
@@ -160,5 +162,63 @@ describe('timeOverrideRepo', () => {
     repo.upsert('sess-2', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
     repo.pruneAbsent(['sess-1'])
     expect(repo.listAll().map((o) => o.sessionId)).toEqual(['sess-1'])
+  })
+})
+
+describe('runningTimerRepo', () => {
+  let db: DatabaseSync
+  let repo: RunningTimerRepo
+
+  beforeEach(() => {
+    db = makeTestDb()
+    repo = createRunningTimerRepo(db, makeTestDeps())
+  })
+
+  test('no timer is running on a fresh database', () => {
+    expect(repo.get()).toBeNull()
+  })
+
+  test('start stores the timer and get reads it back', () => {
+    const started = repo.start(1_700_000_000_000, 'Refactor validators', 'FID2507-611')
+    expect(started).toEqual({
+      startedAt: 1_700_000_000_000,
+      description: 'Refactor validators',
+      issueKey: 'FID2507-611'
+    })
+    expect(repo.get()).toEqual(started)
+  })
+
+  test('a timer with no description or issue key round-trips as empty and null', () => {
+    const started = repo.start(1_700_000_000_000, '', null)
+    expect(started.description).toBe('')
+    expect(started.issueKey).toBeNull()
+  })
+
+  test('starting while one already runs is refused, leaving the first untouched', () => {
+    repo.start(1_700_000_000_000, 'First', null)
+    expect(() => repo.start(1_700_000_009_999, 'Second', null)).toThrow('A timer is already running')
+    expect(repo.get()?.description).toBe('First')
+  })
+
+  test('update replaces both editable fields without moving startedAt', () => {
+    repo.start(1_700_000_000_000, 'Rough note', null)
+    const updated = repo.update('Refactor validators', 'FID2507-611')
+    expect(updated).toEqual({
+      startedAt: 1_700_000_000_000,
+      description: 'Refactor validators',
+      issueKey: 'FID2507-611'
+    })
+  })
+
+  test('update with no timer running is refused', () => {
+    expect(() => repo.update('Anything', null)).toThrow('No timer is running')
+  })
+
+  test('clear removes the timer and is safe to call twice', () => {
+    repo.start(1_700_000_000_000, 'Refactor validators', null)
+    repo.clear()
+    expect(repo.get()).toBeNull()
+    repo.clear()
+    expect(repo.get()).toBeNull()
   })
 })
