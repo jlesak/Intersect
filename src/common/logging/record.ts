@@ -88,6 +88,22 @@ const SECRET_SUBSTRINGS = [
 const SECRET_WORDS = new Set(['pat'])
 
 /**
+ * The start of a URL: a scheme, then the slashes that open the authority.
+ *
+ * Three patterns need to recognise this and they are built from this one source rather than written
+ * out three times. Spelling it out repeatedly is what let them drift: widening one to accept a
+ * mistyped `https:://` left the other two refusing it, and a credential escaped through each of the
+ * two for as long as they disagreed.
+ *
+ * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
+ * opens a fresh start position after every one of them. Left unbounded, each start position rescans
+ * the whole run, and a long dotted string costs quadratic time - seconds of a stalled process on
+ * text that merely looks like a scheme. More than one colon is admitted because a mistyped
+ * `https:://` still carries a credential, and refusing to recognise it means never redacting it.
+ */
+const SCHEME = String.raw`[a-z][a-z0-9+.-]{0,31}:+//`
+
+/**
  * A scheme-qualified URL wherever it appears in free text. Credentials reach the log inside
  * sentences far more often than on their own: an HTTP client quotes the failing request in its
  * error message, so the URL arrives surrounded by prose.
@@ -97,30 +113,26 @@ const SECRET_WORDS = new Set(['pat'])
  * would hand over the token that followed a comma-separated batch of work item ids. Whitespace is
  * the only character a URL cannot legally contain, which makes it the only safe terminator. Over-
  * collecting is the safe direction, and what is over-collected is given back in `redactRun`.
- *
- * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
- * opens a fresh start position after every one of them. Left unbounded, each start position rescans
- * the whole run and a long dotted string costs quadratic time - seconds of a stalled process on
- * text that merely looks like a scheme.
- *
- * More than one colon is admitted before the slashes, because a mistyped `https:://` is still a URL
- * carrying a credential, and refusing to recognise it would mean never offering it for redaction.
  */
-const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:+\/\/\S+/gi
+const EMBEDDED_URL = new RegExp(String.raw`\b${SCHEME}\S+`, 'gi')
 
 /**
- * Punctuation that closes the sentence, quotation or bracket around a URL rather than belonging to
- * it. Trimming is safe where excluding is not: what is trimmed is punctuation and nothing else, and
- * everything before it is still offered for redaction.
+ * The characters that close a sentence, quotation or bracket around a URL rather than belonging to
+ * it. Trimming them is safe where excluding them from the run is not: what is trimmed is punctuation
+ * and nothing else, and everything in front of it is still offered for redaction.
+ *
+ * A set walked backwards from the end, rather than an end-anchored pattern: that pattern was not
+ * anchored at its start as well, so a long punctuation run that stopped short of the end was
+ * rescanned from every position in it.
  */
-const TRAILING_PUNCTUATION = /["'<>,;.:!?)\]}]+$/
+const CLOSING_PUNCTUATION = new Set([...`"'<>,;.:!?)]}`])
 
 /**
  * Where a second URL begins inside one whitespace-free run, behind a character no scheme may
  * contain. Two URLs written back to back must each be redacted in their own right, rather than the
  * second being swallowed into a parameter value of the first and vanishing with it.
  */
-const NESTED_SCHEME = /[^a-z0-9+.-][a-z][a-z0-9+.-]{0,31}:\/\//gi
+const NESTED_SCHEME = new RegExp(String.raw`[^a-z0-9+.-]${SCHEME}`, 'gi')
 
 const MAX_STACK_CHARS = 2000
 
@@ -256,13 +268,15 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
     const out: Record<string, unknown> = {}
     for (const [key, item] of value) {
       const name = safeText(key)
-      out[name] = isSecretName(name) ? REDACTED : redactAny(item, seen)
+      out[redactText(name)] = isSecretName(name) ? REDACTED : redactAny(item, seen)
     }
     return out
   }
   const out: Record<string, unknown> = {}
   for (const key of ownKeys(value)) {
-    out[key] = isSecretName(key) ? REDACTED : readAndRedact(value, key, seen)
+    // The name is redacted as well as judged. A cache keyed by request URL carries its credentials
+    // in the key, where deciding whether the value is a secret does nothing to protect them.
+    out[redactText(key)] = isSecretName(key) ? REDACTED : readAndRedact(value, key, seen)
   }
   return out
 }
@@ -310,8 +324,10 @@ function redactText(value: string): string {
  * whereas letting one token past costs a credential.
  */
 function redactRun(run: string): string {
-  const trailing = TRAILING_PUNCTUATION.exec(run)?.[0] ?? ''
-  const urls = trailing ? run.slice(0, -trailing.length) : run
+  let cut = run.length
+  while (cut > 0 && CLOSING_PUNCTUATION.has(run.charAt(cut - 1))) cut -= 1
+  const urls = run.slice(0, cut)
+  const trailing = run.slice(cut)
   let out = ''
   let from = 0
   for (const nested of urls.matchAll(NESTED_SCHEME)) {
@@ -373,7 +389,7 @@ function redactFragment(hash: string): string {
 const UNPARSED_PARAMETER = /([?&#])([A-Za-z0-9_.-]+)=([^&#]*)/g
 
 /** Credentials in the authority of a string that could not be parsed. Anchored, so it scans once. */
-const UNPARSED_USERINFO = /^([a-z][a-z0-9+.-]{0,31}:\/\/)[^/?#@]*@/i
+const UNPARSED_USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
 
 /**
  * Redact a string that announces itself as a URL but does not parse as one.
@@ -399,6 +415,14 @@ function redactUnparsedUrl(raw: string): string {
  * the gap, in two forms that both lie beyond the reach of matching on a name: a bare segment has no
  * name to be recognised by, and the one named form a path allows, a `;key=value` matrix parameter,
  * is used in practice only for servlet session ids, whose names this vocabulary does not describe.
+ *
+ * What this does not do is look inside a parameter's value. A credential named there is redacted; a
+ * whole URL carried as the value of an innocently named parameter is not, so `?url=https://h?token=x`
+ * comes back out of this function with the token intact. That is safe, but not because of anything
+ * here: every string reaches disk through `serialize`, which redacts free text on the way, and free
+ * text is where a URL nested inside another is separated out and each part redacted in its own right.
+ * So this function's own output is not the last word on any string, and the guarantee belongs to
+ * `serialize` rather than to this function alone.
  *
  * A string that fails to parse is still scanned, not trusted. A malformed URL carries exactly the
  * same credentials as a well-formed one - an out-of-range port arriving from bad configuration is

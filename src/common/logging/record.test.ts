@@ -102,6 +102,16 @@ describe('redactValue', () => {
     expect(redactValue(cyclic)).toEqual({ name: 'x', self: '[circular]' })
   })
 
+  it('redacts a credential carried in a key, not only in a value', () => {
+    // A cache keyed by request URL puts the credential in the key, where judging the value protects
+    // nothing.
+    expect(redactValue({ 'https://h/a?token=S3CR3T': 1 })).toEqual({
+      [`https://h/a?token=${REDACTED}`]: REDACTED
+    })
+    const keyed = new Map([['https://h/a?pat=S3CR3T', 1]])
+    expect(JSON.stringify(redactValue({ keyed }))).not.toContain('S3CR3T')
+  })
+
   it('reports a shared reference in full rather than calling it a cycle', () => {
     const shared = { id: 1 }
     expect(redactValue({ a: shared, b: shared })).toEqual({ a: { id: 1 }, b: { id: 1 } })
@@ -290,6 +300,30 @@ describe('redactUrl', () => {
     expect(out.note).not.toContain('S3CR3T')
   })
 
+  it('recognises a mistyped scheme separator in the authority it cannot parse', () => {
+    // Three patterns recognise the start of a URL. Widening one and leaving the others left the
+    // credential escaping through whichever of them still refused the extra colon.
+    for (const raw of [
+      'https:://user:S3CR3T@h/a',
+      'https::://user:S3CR3T@h/a',
+      'https:://:S3CR3T@h/a'
+    ]) {
+      expect(redactUrl(raw)).not.toContain('S3CR3T')
+      expect(JSON.stringify(redactValue({ t: `Request to ${raw} failed` }))).not.toContain('S3CR3T')
+      expect(serialize({ ...base, msg: `Request to ${raw} failed` })).not.toContain('S3CR3T')
+    }
+  })
+
+  it('splits a nested URL whose scheme separator is mistyped', () => {
+    // Splitting the run is what redacts a nested URL, since a parameter value is never inspected on
+    // its own. Asserted through free text for that reason: it is the path that does the splitting,
+    // and the path every string takes to disk.
+    const raw = 'https://h/redirect?url=https:://other/a?token=S3CR3T'
+    expect(JSON.stringify(redactValue({ t: raw }))).not.toContain('S3CR3T')
+    expect(serialize({ ...base, msg: raw })).not.toContain('S3CR3T')
+    expect(serialize({ ...base, err: normalizeError(new Error(raw)) })).not.toContain('S3CR3T')
+  })
+
   it('redacts the fragment and the authority of an unparseable URL too', () => {
     expect(redactUrl('https://h:99999/a#token=S3CR3T')).toBe(
       `https://h:99999/a#token=${REDACTED}`
@@ -458,16 +492,80 @@ describe('no shape leaves a secret in the output', () => {
     'a fragment on a hash route': `https://h/a#/board?token=${SECRET}`,
     'a comma inside a fragment secret': `https://h/a#token=${SECRET},x`,
     'a sentence-final URL with a fragment': `Opened https://h/a#pat=${SECRET}.`,
-    'a fragment on one of two glued URLs': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`
+    'a fragment on one of two glued URLs': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`,
+    'a question mark inside a fragment parameter': `https://h/a#access_token=${SECRET}&redirect=/a?b=1`,
+    'a question mark before the first equals': `https://h/a#token=${SECRET}?x=1`,
+    'an out-of-range port': `https://h:99999/a?token=${SECRET}`,
+    'an unclosed IPv6 host': `https://[::1/a?token=${SECRET}`,
+    'a doubled scheme colon': `https:://h/a?token=${SECRET}`,
+    'a doubled scheme colon with userinfo': `https:://user:${SECRET}@h/a`,
+    'a doubled colon on a nested scheme': `https://h/redirect?url=https:://other/a?token=${SECRET}`
   }
 
   for (const [name, shape] of Object.entries(shapes)) {
     it(`redacts it: ${name}`, () => {
-      // Every route a string can take to disk: a payload value, the message, and an error's message
-      // and stack, since a client quotes the failing request in all of them.
+      // Every route a string can take to disk: a payload value, a key, the message, and an error's
+      // message and stack, since a client quotes the failing request in all of them.
       expect(JSON.stringify(redactValue({ text: shape }))).not.toContain(SECRET)
+      expect(JSON.stringify(redactValue({ [shape]: 1 }))).not.toContain(SECRET)
       expect(serialize({ ...base, msg: shape })).not.toContain(SECRET)
       expect(serialize({ ...base, err: normalizeError(new Error(shape)) })).not.toContain(SECRET)
+    })
+  }
+})
+
+/**
+ * One time budget on the public entry point, rather than a guard on each pattern that might stall.
+ *
+ * Seven expressions in this module have had quadratic backtracking. Three of them carried their own
+ * timing guard, and the seventh was found in the one that did not - and two of the seven arrived as
+ * fixes for earlier ones. A budget measured through `serialize` cannot be outflanked that way: a new
+ * pattern added later is inside it the moment a shape is added here, and no shape needs to know which
+ * expression it is aimed at.
+ */
+describe('no shape stalls the serializer', () => {
+  const dotted = 'a.'.repeat(128000)
+  const chain = (): NormalizedError => {
+    const frames = '    at frame\n'.repeat(115)
+    let err: NormalizedError = { name: 'Error', message: 'root', stack: `Error: root\n${frames}` }
+    for (let i = 0; i < 5; i++) {
+      err = { name: 'Error', message: `wrap${i}`, stack: `Error: wrap${i}\n${frames}`, cause: err }
+    }
+    return err
+  }
+
+  const shapes: Record<string, LogRecord> = {
+    'a dotted run before a URL': { ...base, msg: `${dotted} https://h/a?token=x` },
+    'a dotted run after a URL': { ...base, msg: `https://h/a?token=x ${dotted}` },
+    'a dotted run glued to a URL': { ...base, msg: `${dotted}https://h/a?token=x` },
+    'a colon run before a URL': { ...base, msg: `${'a:'.repeat(80000)} https://h/a?token=x` },
+    'a period run ending in a character': { ...base, msg: `https://h/a${'.'.repeat(160000)}x` },
+    'a comma run ending in a character': { ...base, msg: `https://h/a${','.repeat(160000)}x` },
+    'a quote run ending in a character': { ...base, msg: `https://h/a${'"'.repeat(160000)}x` },
+    'a name run with no equals': { ...base, msg: `https://h:99999/${'a'.repeat(160000)}?token=x` },
+    'many URLs glued into one run': {
+      ...base,
+      msg: Array.from({ length: 20000 }, (_, i) => `https://h/${i}?token=x`).join(';')
+    },
+    'a key of nothing but capitals': { ...base, data: { [`${'A'.repeat(160000)}_PAT`]: 1 } },
+    'a key that is a long URL': { ...base, data: { [`https://h/${dotted}?token=x`]: 1 } },
+    'a payload far over the cap': { ...base, data: { blob: 'x'.repeat(MAX_RECORD_BYTES * 8) } },
+    'a wrapped error chain': { ...base, level: 'error', err: chain() },
+    'every field oversized at once': {
+      ...base,
+      ts: 'é'.repeat(20000),
+      msg: dotted,
+      data: { blob: 'x'.repeat(MAX_RECORD_BYTES * 4) },
+      err: chain()
+    }
+  }
+
+  for (const [name, record] of Object.entries(shapes)) {
+    it(`stays inside the budget: ${name}`, () => {
+      const startedAt = Date.now()
+      const line = serialize(record)
+      expect(Date.now() - startedAt).toBeLessThan(500)
+      expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
     })
   }
 })
