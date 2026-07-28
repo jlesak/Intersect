@@ -242,10 +242,77 @@ describe('redactUrl', () => {
       'https://h.example/a#section-3',
       'https://h.example/a#L42',
       'https://h.example/a#a=1&b=2',
-      'https://h.example/a#/dashboard?filter=open'
+      'https://h.example/a#/dashboard?filter=open',
+      'https://h.example/a#/route?a=1&b=2',
+      'https://h.example/a#L42-L50',
+      'https://h.example/a#a.b.c',
+      'https://h.example/a#/a/b/c'
     ]) {
       expect(redactUrl(raw)).toBe(raw)
     }
+  })
+
+  it('examines the whole fragment, not only what follows a question mark', () => {
+    // A `?` inside a parameter value is not a route separator. Treating it as one left every
+    // parameter ahead of it unexamined, which is where the credential sits.
+    for (const raw of [
+      'https://h/a#access_token=SEC&redirect=/a?b=1',
+      'https://h/a#access_token=SEC&state=a?b',
+      'https://h/a#a=1&token=SEC&u=/x?y=1',
+      'https://h/a#token=SEC?x=1',
+      'https://h/a#token=SEC1?token=SEC2'
+    ]) {
+      expect(redactUrl(raw)).not.toContain('SEC')
+    }
+  })
+
+  it('scans a string that does not parse as a URL rather than trusting it', () => {
+    // A malformed URL carries the same credentials as a well-formed one, and an out-of-range port
+    // is all it takes: these five all make `new URL` throw.
+    for (const raw of [
+      'https://h:99999/a?token=S3CR3T',
+      'https://h:port/a?token=S3CR3T',
+      'https://[::1/a?token=S3CR3T',
+      'https://h%/a?token=S3CR3T',
+      'https:://h/a?token=S3CR3T'
+    ]) {
+      expect(() => new URL(raw)).toThrow()
+      expect(redactUrl(raw)).not.toContain('S3CR3T')
+    }
+  })
+
+  it('recognises a mistyped scheme separator in free text, so it reaches redaction', () => {
+    // `https:://` never matched the URL scanner, so a malformed URL quoted in an error message was
+    // never offered to redaction at all - which is where a client puts the request it failed on.
+    const out = redactValue({ note: 'Request to https:://h/a?token=S3CR3T failed' }) as {
+      note: string
+    }
+    expect(out.note).not.toContain('S3CR3T')
+  })
+
+  it('redacts the fragment and the authority of an unparseable URL too', () => {
+    expect(redactUrl('https://h:99999/a#token=S3CR3T')).toBe(
+      `https://h:99999/a#token=${REDACTED}`
+    )
+    expect(redactUrl('https://user:S3CR3T@h:99999/a')).toBe(
+      `https://${REDACTED}:${REDACTED}@h:99999/a`
+    )
+  })
+
+  it('leaves an unparseable URL that carries no credential alone', () => {
+    expect(redactUrl('https://h:99999/a?ids=1,2&api-version=7.1')).toBe(
+      'https://h:99999/a?ids=1,2&api-version=7.1'
+    )
+  })
+
+  it('scans an unparseable URL in linear time', () => {
+    // Without a delimiter in front of the name, every position in this run is a start position that
+    // scans to the end looking for an `=` and backtracks from it.
+    const raw = `https://h:99999/${'a'.repeat(160000)}?token=S3CR3T`
+    const startedAt = Date.now()
+    const out = redactUrl(raw)
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    expect(out).not.toContain('S3CR3T')
   })
 })
 
@@ -335,6 +402,25 @@ describe('the names that mean a credential', () => {
     expect(redactUrl('https://h/a?pat=x&path=/tmp/y')).toBe(
       `https://h/a?pat=${REDACTED}&path=%2Ftmp%2Fy`
     )
+  })
+
+  it('splits an acronym before a capitalised word', () => {
+    // The rule that divides `PATPath` needs one capital of context and must not take more, so these
+    // pin the shapes that would change if it were ever widened back to a run.
+    expect(redactValue({ PATPath: 'CREDENTIAL' })).toEqual({ PATPath: REDACTED })
+    for (const name of ['HTTPServer', 'XMLHttpRequest', 'IOError', 'ABCDef']) {
+      expect(redactValue({ [name]: 'ordinary' })).toEqual({ [name]: 'ordinary' })
+    }
+  })
+
+  it('reads a key of nothing but capitals in linear time', () => {
+    // A run of capitals with no capital-then-lowercase in it: matching the run rather than one
+    // character makes every start position rescan to the end and backtrack.
+    const key = `${'A'.repeat(160000)}_PAT`
+    const startedAt = Date.now()
+    const out = redactValue({ [key]: 'CREDENTIAL' }) as Record<string, unknown>
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    expect(out[key]).toBe(REDACTED)
   })
 })
 

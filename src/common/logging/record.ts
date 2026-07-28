@@ -102,8 +102,11 @@ const SECRET_WORDS = new Set(['pat'])
  * opens a fresh start position after every one of them. Left unbounded, each start position rescans
  * the whole run and a long dotted string costs quadratic time - seconds of a stalled process on
  * text that merely looks like a scheme.
+ *
+ * More than one colon is admitted before the slashes, because a mistyped `https:://` is still a URL
+ * carrying a credential, and refusing to recognise it would mean never offering it for redaction.
  */
-const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:\/\/\S+/gi
+const EMBEDDED_URL = /\b[a-z][a-z0-9+.-]{0,31}:+\/\/\S+/gi
 
 /**
  * Punctuation that closes the sentence, quotation or bracket around a URL rather than belonging to
@@ -151,7 +154,10 @@ export function isLevelEnabled(level: LogLevel, floor: LogLevel): boolean {
 function nameWords(name: string): string[] {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    // One capital of context is all the split needs, and all it may take: a `+` here would run to
+    // the end of a long run of capitals and backtrack from every start position, which costs
+    // seconds of a stalled process on a key that is nothing but capitals.
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
     .replace(/([a-z])([0-9])/g, '$1 $2')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -336,12 +342,16 @@ function redactError(err: NormalizedError): NormalizedError {
  */
 function redactFragment(hash: string): string {
   const body = hash.slice(1)
-  if (!body.includes('=')) return hash
-  // A hash route may carry its own query string, as in `#/board?token=x`; the part before the `?`
-  // is a path and stays verbatim.
+  const equals = body.indexOf('=')
+  if (equals === -1) return hash
+  // A hash route may carry its own query string, as in `#/board?token=x`, and the path in front of
+  // the `?` stays verbatim. Only a `?` ahead of the first `=` marks such a route: further along it
+  // belongs to a parameter's value, as an implicit flow's `redirect` or `state` carries one, and
+  // treating that as the separator would leave every parameter before it unexamined.
   const query = body.indexOf('?')
-  const prefix = query === -1 ? '' : body.slice(0, query + 1)
-  const params = new URLSearchParams(query === -1 ? body : body.slice(query + 1))
+  const route = query !== -1 && query < equals
+  const prefix = route ? body.slice(0, query + 1) : ''
+  const params = new URLSearchParams(route ? body.slice(query + 1) : body)
   let redacted = false
   for (const key of [...params.keys()]) {
     if (isSecretName(key)) {
@@ -353,6 +363,35 @@ function redactFragment(hash: string): string {
 }
 
 /**
+ * A `name=value` pair in a string that could not be parsed, taken only where a delimiter introduces
+ * the name.
+ *
+ * The delimiter is what keeps the scan linear. Without it every position in a long run of name
+ * characters is a fresh start that scans to the end looking for an `=` and backtracks, which costs
+ * seconds on a run of a few hundred thousand characters.
+ */
+const UNPARSED_PARAMETER = /([?&#])([A-Za-z0-9_.-]+)=([^&#]*)/g
+
+/** Credentials in the authority of a string that could not be parsed. Anchored, so it scans once. */
+const UNPARSED_USERINFO = /^([a-z][a-z0-9+.-]{0,31}:\/\/)[^/?#@]*@/i
+
+/**
+ * Redact a string that announces itself as a URL but does not parse as one.
+ *
+ * Everything is left as it stands except the values of parameters whose names say they are
+ * credentials, and the authority when it carries userinfo. A malformed URL is not a safer URL, and
+ * the shapes that fail to parse - an out-of-range port, an unclosed IPv6 host, a stray percent -
+ * arrive from configuration mistakes rather than from anything exotic.
+ */
+function redactUnparsedUrl(raw: string): string {
+  return raw
+    .replace(UNPARSED_USERINFO, `$1${REDACTED}:${REDACTED}@`)
+    .replace(UNPARSED_PARAMETER, (pair, lead: string, name: string) =>
+      isSecretName(name) ? `${lead}${name}=${REDACTED}` : pair
+    )
+}
+
+/**
  * Keep a URL useful for diagnosis while removing the credentials it carries, wherever they sit.
  *
  * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment. A scheme
@@ -361,14 +400,16 @@ function redactFragment(hash: string): string {
  * name to be recognised by, and the one named form a path allows, a `;key=value` matrix parameter,
  * is used in practice only for servlet session ids, whose names this vocabulary does not describe.
  *
- * A string that does not parse as a URL is returned as-is: it is not a credential carrier.
+ * A string that fails to parse is still scanned, not trusted. A malformed URL carries exactly the
+ * same credentials as a well-formed one - an out-of-range port arriving from bad configuration is
+ * enough to make the parse fail - so handing it back untouched would leak on the strength of a typo.
  */
 export function redactUrl(raw: string): string {
   let url: URL
   try {
     url = new URL(raw)
   } catch {
-    return raw
+    return redactUnparsedUrl(raw)
   }
   // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
   // authority as readily as in the query. The user name goes too: it is half of the same secret.
@@ -378,9 +419,10 @@ export function redactUrl(raw: string): string {
     if (isSecretName(key)) url.searchParams.set(key, REDACTED)
   }
   if (url.hash) url.hash = redactFragment(url.hash)
-  // Only the marker itself is un-escaped, so the result stays a URL a reader can paste back.
-  // Decoding the whole string instead would rewrite every other escape and would throw outright
-  // on a malformed one, turning a diagnostic call into the failure being diagnosed.
+  // The marker is left legible rather than percent-escaped, so a reader can see what was removed.
+  // Only the marker: decoding the whole string would rewrite every other escape and would throw
+  // outright on a malformed one, turning a diagnostic call into the failure being diagnosed. The
+  // result reads as a URL but need not parse as one again - a redacted authority does not.
   return url.toString().replaceAll(encodeURIComponent(REDACTED), REDACTED)
 }
 
