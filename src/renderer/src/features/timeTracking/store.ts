@@ -6,8 +6,9 @@ import type {
 } from '@common/domain'
 import { addDays, weekStartOf } from '@common/week'
 import { createStore } from '@renderer/shared/store/createStore'
-import { reportError } from '@renderer/shared/ui/toast'
+import { reportError, useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
+import { loggedEntryNotice } from './time'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -147,8 +148,9 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     },
 
     async stopTimer() {
+      let logged: TimeEntry | null
       try {
-        await api.stopTimer()
+        logged = await api.stopTimer()
         set({ timer: null })
       } catch (e) {
         reportError('Could not stop the timer', e)
@@ -156,6 +158,10 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
         await loadTimer()
         return
       }
+      // A span the board cannot show is still a span that was recorded, and the user has to be
+      // told where it went rather than left staring at an unchanged board.
+      const notice = logged && loggedEntryNotice(logged)
+      if (notice) useToastStore.getState().push(notice)
       await reload()
     }
   }

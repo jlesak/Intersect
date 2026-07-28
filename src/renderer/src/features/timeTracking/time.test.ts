@@ -5,6 +5,7 @@ import {
   formatTotal,
   formatWeekRange,
   groupByDay,
+  loggedEntryNotice,
   normalizeIssueKey,
   parseDuration,
   totalMs
@@ -86,6 +87,24 @@ describe('groupByDay and totals', () => {
     expect(formatTotal(0)).toBe('0m')
     expect(formatTotal(105 * 60_000)).toBe('1h 45m')
     expect(formatTotal(45 * 60_000)).toBe('45m')
+  })
+})
+
+describe('loggedEntryNotice', () => {
+  test('says nothing about a weekday entry - the board already shows it', () => {
+    // Monday through Friday of the same week.
+    for (const day of ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31']) {
+      expect(loggedEntryNotice(entry({ day }))).toBeNull()
+    }
+  })
+
+  test('names the weekend day, its date and what was logged there', () => {
+    expect(loggedEntryNotice(entry({ day: '2026-08-01', durationMs: 45 * 60_000 }))).toBe(
+      '45m logged to Saturday 01.08. The weekday board does not show weekend days.'
+    )
+    expect(loggedEntryNotice(entry({ day: '2026-08-02', durationMs: 90 * 60_000 }))).toBe(
+      '1h 30m logged to Sunday 02.08. The weekday board does not show weekend days.'
+    )
   })
 })
 

@@ -410,6 +410,28 @@ describe('timeTracking service', () => {
       expect(svc.getRunningTimer()).toBeNull()
     })
 
+    test('a stopped timer reaches the board of the week it was logged to', async () => {
+      const svc = make([])
+      svc.startTimer('Refactor validators', 'FID2507-611')
+      advance(25 * 60_000)
+      const entry = svc.stopTimer()
+
+      // 2026-07-27 is the Monday of the week the clock sits in. Writing the row is only half the
+      // job - a card the board never reads is a span the user has lost.
+      expect(await svc.getWeek('2026-07-27')).toEqual([entry])
+    })
+
+    test('a weekend stop keeps the day it really happened on', () => {
+      clock = new Date(2026, 7, 1, 10).getTime()
+      const svc = make([])
+      svc.startTimer('Weekend release', null)
+      advance(45 * 60_000)
+
+      // Saturday 2026-08-01. The board shows weekdays only, but moving the entry to a weekday
+      // would be inventing a date on a timesheet - the renderer tells the user instead.
+      expect(svc.stopTimer()?.day).toBe('2026-08-01')
+    })
+
     test('a failed write leaves the timer running rather than destroying the span', () => {
       const svc = make([], {
         ...manual,

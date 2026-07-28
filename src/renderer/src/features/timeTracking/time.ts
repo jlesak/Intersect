@@ -61,6 +61,21 @@ export function formatDayDate(dayKey: string): string {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`
 }
 
+const WEEKEND_NAMES: Record<number, string> = { 0: 'Sunday', 6: 'Saturday' }
+
+/**
+ * What to tell the user about an entry that was just logged, or null when there is nothing worth
+ * saying. The board is Monday to Friday, so a span stopped on a Saturday or Sunday is written with
+ * its true day and then has nowhere to appear; silently swallowing that would leave the user
+ * believing their time was lost. The day is never moved to fake a weekday - a worklog that invents
+ * dates is worse than one with a gap.
+ */
+export function loggedEntryNotice(entry: TimeEntry): string | null {
+  const dayName = WEEKEND_NAMES[dateOfDayKey(entry.day).getDay()]
+  if (!dayName) return null
+  return `${formatTotal(entry.durationMs)} logged to ${dayName} ${formatDayDate(entry.day)}. The weekday board does not show weekend days.`
+}
+
 /**
  * A day's supporting agent-runtime label, e.g. `2 agents · 1h 34m runtime`. This is context that
  * sits under the worklog column header, deliberately phrased as agent runtime (not worked time)
