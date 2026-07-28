@@ -1,4 +1,4 @@
-import type { PullRequest, TimeEntry, TodoTask } from '@common/domain'
+import type { AdoFallback, AdoSettings, PullRequest, TimeEntry, TodoTask } from '@common/domain'
 import { boardColumn, boardReason } from '@common/prBoard'
 import { dayKeyOf, weekStartOf } from '@common/week'
 import { isDueToday, isOverdue } from '@renderer/features/todo'
@@ -19,18 +19,52 @@ import { isDueToday, isOverdue } from '@renderer/features/todo'
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 /**
+ * Whether a source has a connection at all. `unknown` is its own answer rather than a pessimistic
+ * `missing`: the settings that decide this are read at boot like everything else, and claiming a
+ * source is not set up while that read is still in flight would be the same wrong guess in the
+ * other direction.
+ */
+export type SourceSetup = 'configured' | 'missing' | 'unknown'
+
+/**
+ * Whether Azure DevOps has enough of a connection for anything to load, mirroring what the core
+ * requires to spawn its client: an organisation URL and a token. Each may come from what the user
+ * saved in the app or from the `~/.claude.json` / environment fallback, and a blank saved field
+ * defers to that fallback rather than overriding it.
+ */
+export function adoSetup(
+  status: LoadStatus,
+  ado: AdoSettings,
+  fallback: AdoFallback
+): SourceSetup {
+  if (status !== 'ready') return 'unknown'
+  const orgUrl = ado.orgUrl.trim() || fallback.orgUrl.trim()
+  const hasPat = ado.pat.trim() !== '' || fallback.hasPat
+  return orgUrl !== '' && hasPat ? 'configured' : 'missing'
+}
+
+/**
  * Why a zone has nothing to list.
  *
- * The three are never collapsed into one line of prose. "Nothing is waiting on you" and "we could
- * not find out what is waiting on you" are opposite answers, and a surface whose whole purpose is to
- * say what needs the user may only give the reassuring one when it is true.
+ * The four are never collapsed into one line of prose. "Nothing is waiting on you", "we could not
+ * find out what is waiting on you" and "you never connected the thing that would know" are three
+ * different answers, and a surface whose whole purpose is to say what needs the user may only give
+ * the reassuring one when it is true.
  */
-export type EmptyState = 'clear' | 'loading' | 'failed'
+export type EmptyState = 'clear' | 'loading' | 'failed' | 'unconfigured'
 
-/** What an empty list means, given how the read that produced it went. */
-export function emptyState(status: LoadStatus): EmptyState {
+/**
+ * What an empty list means, given how the read that produced it went and whether the source it read
+ * from was ever connected.
+ *
+ * A missing connection outranks the read, because a read of an empty local cache succeeds perfectly
+ * well when there is nothing behind it to fill the cache - that success is exactly what makes an
+ * unconfigured source look like an all-clear.
+ */
+export function emptyState(status: LoadStatus, setup: SourceSetup = 'configured'): EmptyState {
+  if (setup === 'missing') return 'unconfigured'
   if (status === 'error') return 'failed'
-  return status === 'ready' ? 'clear' : 'loading'
+  return status === 'ready' && setup === 'configured' ? 'clear' : 'loading'
 }
 
 /** A pull request that needs my action, with the reason it does. */

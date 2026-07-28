@@ -15,15 +15,24 @@ interface DashboardNavState {
   pendingPrOpen: { repositoryId: string; prId: number } | null
   /** The session id to reveal, until the app layer has revealed it. */
   pendingSessionGo: string | null
+  /**
+   * Set while the user has asked to be taken to Settings, which is where a zone sends them when the
+   * source it reads was never set up - a line that names the gap is only useful next to the way to
+   * close it.
+   */
+  pendingSettings: boolean
   openPr(repositoryId: string, prId: number): void
   clearPrOpen(): void
   goToSession(sessionId: string): void
   clearSessionGo(): void
+  openSettings(): void
+  clearSettings(): void
 }
 
 export const useDashboardNavStore = createStore<DashboardNavState>()((set) => ({
   pendingPrOpen: null,
   pendingSessionGo: null,
+  pendingSettings: false,
 
   openPr(repositoryId, prId) {
     set({ pendingPrOpen: { repositoryId, prId } })
@@ -39,5 +48,13 @@ export const useDashboardNavStore = createStore<DashboardNavState>()((set) => ({
 
   clearSessionGo() {
     set({ pendingSessionGo: null })
+  },
+
+  openSettings() {
+    set({ pendingSettings: true })
+  },
+
+  clearSettings() {
+    set({ pendingSettings: false })
   }
 }))

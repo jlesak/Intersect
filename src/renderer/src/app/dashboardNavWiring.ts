@@ -1,5 +1,6 @@
 import { useDashboardNavStore } from '@renderer/features/dashboard'
 import { PR_INBOX_SECTION_ID, usePrInboxStore } from '@renderer/features/prInbox'
+import { SETTINGS_SECTION_ID } from '@renderer/features/settings'
 import { navigateToSession } from './attentionWiring'
 import { useShellStore } from './shellStore'
 
@@ -26,6 +27,11 @@ export function wireDashboardNav(): () => void {
     if (sessionId && sessionId !== prev.pendingSessionGo) {
       useDashboardNavStore.getState().clearSessionGo()
       void navigateToSession(sessionId)
+    }
+
+    if (state.pendingSettings && !prev.pendingSettings) {
+      useDashboardNavStore.getState().clearSettings()
+      useShellStore.getState().setActiveSection(SETTINGS_SECTION_ID)
     }
   })
 }

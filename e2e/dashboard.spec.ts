@@ -26,12 +26,18 @@ test('a fresh profile lands on the Dashboard with all four zones in their empty 
   // An empty zone shrinks to a one-line state; it never disappears and never moves.
   await expect(win.locator('.ix-dash-zone')).toHaveCount(4)
   await expect(win.locator('.ix-dash-group__label')).toHaveText(['Pull requests', 'Deadlines'])
-  await expect(win.locator('.ix-dash-group__empty')).toHaveText([
-    'No pull request is waiting on you.',
+  // Whether Azure DevOps counts as connected depends on the credentials of the machine running the
+  // suite (`~/.claude.json` or `AZURE_DEVOPS_*`), so the PR line has two legitimate readings here.
+  // Both are asserted because the one thing it must never do is stay silent about which is true.
+  await expect(win.locator('.ix-dash-group__empty .ix-dash-note__text').first()).toHaveText(
+    /No pull request is waiting on you\.|Azure DevOps is not connected/
+  )
+  await expect(win.locator('.ix-dash-group__empty .ix-dash-note__text').nth(1)).toHaveText(
     'Nothing is due today.'
-  ])
+  )
   await expect(win.locator('.ix-dash-sessions__empty')).toBeVisible()
-  await expect(win.locator('.ix-dash-sync__value')).toHaveText(['never', 'never'])
+  await expect(win.locator('.ix-dash-sync__value').first()).toHaveText('never')
+  await expect(win.locator('.ix-dash-sync__value').nth(1)).toHaveText(/never|not set up/)
   await expect(win.locator('.ix-dash-row')).toHaveCount(0)
 
   // No zone threw: the region boundary never replaced the main area.

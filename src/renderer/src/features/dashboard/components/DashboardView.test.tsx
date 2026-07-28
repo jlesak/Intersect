@@ -1,6 +1,14 @@
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { ClaudeUsage, PullRequest, TimeEntry, TodoTask, Workspace } from '@common/domain'
+import type {
+  AdoFallback,
+  AdoSettings,
+  ClaudeUsage,
+  PullRequest,
+  TimeEntry,
+  TodoTask,
+  Workspace
+} from '@common/domain'
 import { weekStartOf } from '@common/week'
 
 // The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. No zone
@@ -9,6 +17,7 @@ vi.mock('monaco-editor', () => ({ editor: {} }))
 
 import { useAttentionStore } from '@renderer/features/attention'
 import { usePrInboxStore } from '@renderer/features/prInbox'
+import { useSettingsStore } from '@renderer/features/settings'
 import { useTimeTrackingStore } from '@renderer/features/timeTracking'
 import { useTodoStore } from '@renderer/features/todo'
 import { useUsageStore } from '@renderer/features/usage'
@@ -83,6 +92,21 @@ const USAGE: ClaudeUsage = {
 
 const prKey = (p: PullRequest): string => `${p.repositoryId}:${p.prId}`
 
+const ADO_CONNECTED: AdoSettings = {
+  orgUrl: 'https://dev.azure.com/acme',
+  project: 'SPOT',
+  repository: 'spot-backend',
+  pat: 'token'
+}
+
+const ADO_BLANK: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
+const NO_FALLBACK: AdoFallback = { orgUrl: '', project: '', hasPat: false }
+
+/** Settings as they land once the boot read finishes, with an Azure DevOps connection or without. */
+function seedSettings(ado: AdoSettings, adoFallback: AdoFallback = NO_FALLBACK): void {
+  useSettingsStore.setState({ status: 'ready', ado, adoFallback })
+}
+
 /** Everything the four zones read, in a state where each of them has something to show. */
 function seedPopulated(): void {
   const prs = [pr(), pr({ prId: 2, title: 'Rework the importer', createdAt: NOW - 7_200_000 })]
@@ -110,12 +134,14 @@ function seedPopulated(): void {
     entries: [entry(TODAY, 45 * 60_000), entry(YESTERDAY, 60 * 60_000)]
   })
   useUsageStore.setState({ usage: USAGE })
+  seedSettings(ADO_CONNECTED)
 }
 
 /**
- * Every store back to the state a fresh profile boots into, once boot hydration has finished: the
- * PR cache and the task list were both read and both came back empty. `ready` is the point of the
- * seed - an empty list from a read that succeeded is the only empty the zones may call all-clear.
+ * Every store in the state a connected profile with nothing on its plate boots into, once boot
+ * hydration has finished: the PR cache and the task list were both read and both came back empty.
+ * `ready` and a connection are the point of the seed - an empty list is only an all-clear when the
+ * read that produced it succeeded against a source that exists.
  */
 function seedEmpty(): void {
   usePrInboxStore.setState({ status: 'ready', prsByKey: {}, order: [], syncedAt: null })
@@ -124,6 +150,7 @@ function seedEmpty(): void {
   useWorkspacesStore.setState({ byId: {}, order: [] })
   useTimeTrackingStore.setState({ status: 'idle', weekStart: weekStartOf(NOW), entries: [] })
   useUsageStore.setState({ usage: null })
+  seedSettings(ADO_CONNECTED)
 }
 
 const texts = (selector: string): string[] =>
@@ -156,7 +183,11 @@ describe('DashboardView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
-    useDashboardNavStore.setState({ pendingPrOpen: null, pendingSessionGo: null })
+    useDashboardNavStore.setState({
+      pendingPrOpen: null,
+      pendingSessionGo: null,
+      pendingSettings: false
+    })
     seedEmpty()
   })
 
@@ -166,7 +197,7 @@ describe('DashboardView', () => {
     useTimeTrackingStore.setState({ timer: null })
   })
 
-  test('a fresh profile with nothing configured mounts clean and still shows all four zones', async () => {
+  test('an empty dashboard mounts clean and still shows all four zones', async () => {
     await mountClean()
 
     expect(texts('.ix-dash-zone__title')).toEqual([
@@ -255,6 +286,55 @@ describe('DashboardView', () => {
     } finally {
       load.mockRestore()
     }
+  })
+
+  test('a profile with no Azure DevOps connection says so and points at Settings', async () => {
+    seedSettings(ADO_BLANK)
+    await mountClean()
+
+    expect(texts('.ix-dash-group__empty .ix-dash-note__text')).toEqual([
+      'Azure DevOps is not connected, so no pull request can reach you.',
+      'Nothing is due today.'
+    ])
+    // Zone 4 answers from the same signal, so setup-needed never reads as merely never-synced.
+    expect(texts('.ix-dash-sync__value')).toEqual(['never', 'not set up'])
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('.ix-dash-group__empty .ix-dash-note__action')?.click()
+    })
+    expect(useDashboardNavStore.getState().pendingSettings).toBe(true)
+  })
+
+  test('the zone 4 setup line is itself the way to Settings', async () => {
+    seedSettings(ADO_BLANK)
+    await mountClean()
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('.ix-dash-sync__setup')?.click()
+    })
+    expect(useDashboardNavStore.getState().pendingSettings).toBe(true)
+  })
+
+  test('a connection inherited from the environment counts as set up', async () => {
+    // A blank saved field defers to the ~/.claude.json / env fallback rather than overriding it, so
+    // a user who never filled the form in must not be told to.
+    seedSettings(ADO_BLANK, { orgUrl: 'https://dev.azure.com/acme', project: 'SPOT', hasPat: true })
+    await mountClean()
+
+    expect(texts('.ix-dash-group__empty .ix-dash-note__text')[0]).toBe(
+      'No pull request is waiting on you.'
+    )
+    expect(texts('.ix-dash-sync__value')).toEqual(['never', 'never'])
+  })
+
+  test('settings that have not been read yet claim neither connected nor missing', async () => {
+    useSettingsStore.setState({ status: 'loading', ado: ADO_BLANK, adoFallback: NO_FALLBACK })
+    await mountClean()
+
+    expect(texts('.ix-dash-group__empty .ix-dash-note__text')[0]).toBe(
+      'Reading the pull request cache…'
+    )
+    expect(document.querySelector('.ix-dash-sync__setup')).toBeNull()
   })
 
   test('a subgroup whose source is still being read makes no claim yet', async () => {

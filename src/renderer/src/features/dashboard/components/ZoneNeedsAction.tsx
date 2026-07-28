@@ -9,22 +9,35 @@ import { ZoneNote, type NoteAction } from './ZoneNote'
 const PR_NOTE: Record<EmptyState, string> = {
   clear: 'No pull request is waiting on you.',
   loading: 'Reading the pull request cache…',
-  failed: 'The pull request cache could not be read.'
-}
-
-/** The same three answers for the deadlines subgroup. */
-const DEADLINE_NOTE: Record<EmptyState, string> = {
-  clear: 'Nothing is due today.',
-  loading: 'Reading the task list…',
-  failed: 'The task list could not be read.'
+  failed: 'The pull request cache could not be read.',
+  unconfigured: 'Azure DevOps is not connected, so no pull request can reach you.'
 }
 
 /**
- * The way out of a failed read: ask for it again. The other two states have nothing to press - one
- * is the good news, and the other is a read already in flight.
+ * The same answers for the deadlines subgroup. Tasks are stored locally and have nothing to connect,
+ * so the unconfigured line can never come up here.
  */
-function retry(state: EmptyState, run: () => void): NoteAction | undefined {
-  return state === 'failed' ? { label: 'Try again', onClick: run } : undefined
+const DEADLINE_NOTE: Record<EmptyState, string> = {
+  clear: 'Nothing is due today.',
+  loading: 'Reading the task list…',
+  failed: 'The task list could not be read.',
+  unconfigured: 'Nothing is due today.'
+}
+
+/**
+ * The way out of the state, where there is one: ask for a failed read again, or go and set up a
+ * source that was never connected. All-clear has nothing to offer, and neither does a read already
+ * in flight.
+ */
+function noteAction(state: EmptyState, retry: () => void): NoteAction | undefined {
+  if (state === 'failed') return { label: 'Try again', onClick: retry }
+  if (state === 'unconfigured') {
+    return {
+      label: 'Open Settings',
+      onClick: () => useDashboardNavStore.getState().openSettings()
+    }
+  }
+  return undefined
 }
 
 /**
@@ -34,9 +47,10 @@ function retry(state: EmptyState, run: () => void): NoteAction | undefined {
  * comparable quantities, so a single sort would have to invent an exchange rate between them and
  * would reshuffle unpredictably as either source changed.
  *
- * Each subgroup carries its own source's load state, because an empty list on its own says nothing
- * about whether the source was read. Reporting all-clear for a read that failed would be the exact
- * inverse of what this zone is for, and it would be the last thing the user ever heard about it.
+ * Each subgroup carries its own source's state, because an empty list on its own says nothing about
+ * whether the source was read or was ever connected. Reporting all-clear for a read that failed, or
+ * for a source that was never set up, would be the exact inverse of what this zone is for - and it
+ * would be the last thing the user ever heard about either.
  */
 export function ZoneNeedsAction({
   prs,
@@ -69,7 +83,7 @@ export function ZoneNeedsAction({
           <ZoneNote
             className="ix-dash-group__empty"
             note={PR_NOTE[prState]}
-            action={retry(prState, () => void usePrInboxStore.getState().hydrate())}
+            action={noteAction(prState, () => void usePrInboxStore.getState().hydrate())}
           />
         ) : (
           prs.map(({ pr, reason }) => (
@@ -102,7 +116,7 @@ export function ZoneNeedsAction({
           <ZoneNote
             className="ix-dash-group__empty"
             note={DEADLINE_NOTE[deadlineState]}
-            action={retry(deadlineState, () => void useTodoStore.getState().load())}
+            action={noteAction(deadlineState, () => void useTodoStore.getState().load())}
           />
         ) : (
           deadlines.map(({ task, overdue }) => (

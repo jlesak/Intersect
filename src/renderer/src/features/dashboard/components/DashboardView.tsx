@@ -4,12 +4,13 @@ import { dayKeyOf } from '@common/week'
 import { liveSessions, useAttentionStore } from '@renderer/features/attention'
 import { useMyWorkStore } from '@renderer/features/myWork'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
+import { useSettingsStore } from '@renderer/features/settings'
 import { useTimeTrackingStore } from '@renderer/features/timeTracking'
 import { useTodoStore } from '@renderer/features/todo'
 import { useUsageStore } from '@renderer/features/usage'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
 import { useNow } from '@renderer/shared/ui/useNow'
-import { actionPrs, deadlineTodos, emptyState, timeToday } from '../zones'
+import { actionPrs, adoSetup, deadlineTodos, emptyState, timeToday } from '../zones'
 import { ZoneNeedsAction } from './ZoneNeedsAction'
 import { ZoneSessions } from './ZoneSessions'
 import { ZoneSystemStatus } from './ZoneSystemStatus'
@@ -49,6 +50,9 @@ export function DashboardView() {
   const timeStatus = useTimeTrackingStore((s) => s.status)
   const usage = useUsageStore((s) => s.usage)
   const jiraFetchedAt = useMyWorkStore((s) => s.fetchedAt)
+  const settingsStatus = useSettingsStore((s) => s.status)
+  const ado = useSettingsStore((s) => s.ado)
+  const adoFallback = useSettingsStore((s) => s.adoFallback)
 
   // The PR inbox, the task list, the Jira board and the usage snapshot are all hydrated at boot; the
   // worklog is not, and this is the first surface the user lands on. A week already loaded is left
@@ -67,6 +71,9 @@ export function DashboardView() {
     () => timeToday(entries, weekStart, timeStatus, now),
     [entries, weekStart, timeStatus, now]
   )
+  // Both surfaces reading Azure DevOps - the zone 1 subgroup and the zone 4 freshness row - answer
+  // from the same signal, so a fresh profile cannot read as set up in one place and not the other.
+  const prSetup = adoSetup(settingsStatus, ado, adoFallback)
 
   return (
     <div className="ix-main">
@@ -79,7 +86,7 @@ export function DashboardView() {
         <div className="ix-dash__grid">
           <ZoneNeedsAction
             prs={prRows}
-            prState={emptyState(prStatus)}
+            prState={emptyState(prStatus, prSetup)}
             deadlines={deadlines}
             deadlineState={emptyState(todoStatus)}
             today={today}
@@ -92,6 +99,7 @@ export function DashboardView() {
               usage={usage}
               jiraFetchedAt={jiraFetchedAt}
               prSyncedAt={prSyncedAt}
+              prSetup={prSetup}
               now={now}
             />
           </div>

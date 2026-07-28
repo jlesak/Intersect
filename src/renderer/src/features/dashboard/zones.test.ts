@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import type { PullRequest, TimeEntry, TodoTask } from '@common/domain'
-import { actionPrs, deadlineTodos, emptyState, isWeekend, timeToday } from './zones'
+import type { AdoFallback, AdoSettings, PullRequest, TimeEntry, TodoTask } from '@common/domain'
+import { actionPrs, adoSetup, deadlineTodos, emptyState, isWeekend, timeToday } from './zones'
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 1,
@@ -125,9 +125,55 @@ describe('deadlineTodos', () => {
   })
 })
 
+describe('adoSetup', () => {
+  const blank: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
+  const noFallback: AdoFallback = { orgUrl: '', project: '', hasPat: false }
+
+  test('an org URL and a token, from wherever they come, are a connection', () => {
+    expect(adoSetup('ready', { ...blank, orgUrl: 'https://ado', pat: 't' }, noFallback)).toBe(
+      'configured'
+    )
+    // A blank saved field defers to the fallback rather than overriding it.
+    expect(
+      adoSetup('ready', blank, { orgUrl: 'https://ado', project: 'SPOT', hasPat: true })
+    ).toBe('configured')
+    expect(adoSetup('ready', { ...blank, pat: 't' }, { orgUrl: 'https://ado', project: '', hasPat: false })).toBe(
+      'configured'
+    )
+  })
+
+  test('either half missing is no connection', () => {
+    expect(adoSetup('ready', blank, noFallback)).toBe('missing')
+    expect(adoSetup('ready', { ...blank, orgUrl: 'https://ado' }, noFallback)).toBe('missing')
+    expect(adoSetup('ready', { ...blank, pat: 't' }, noFallback)).toBe('missing')
+    // Whitespace is not a value; the core trims before deciding the same thing.
+    expect(adoSetup('ready', { ...blank, orgUrl: '  ', pat: '  ' }, noFallback)).toBe('missing')
+  })
+
+  test('settings that have not arrived yet answer neither way', () => {
+    // The blank initial state is indistinguishable from a genuinely blank form, so claiming "not
+    // connected" before the read lands would be the same wrong guess in the other direction.
+    expect(adoSetup('idle', blank, noFallback)).toBe('unknown')
+    expect(adoSetup('loading', blank, noFallback)).toBe('unknown')
+    expect(adoSetup('error', blank, noFallback)).toBe('unknown')
+  })
+})
+
 describe('emptyState', () => {
   test('an empty list from a read that succeeded is the only all-clear', () => {
     expect(emptyState('ready')).toBe('clear')
+    expect(emptyState('ready', 'configured')).toBe('clear')
+  })
+
+  test('a source that was never connected is not an all-clear either', () => {
+    // Reading an empty local cache succeeds perfectly well when nothing is behind it to fill the
+    // cache, which is exactly what makes an unconnected source look like good news.
+    expect(emptyState('ready', 'missing')).toBe('unconfigured')
+    expect(emptyState('error', 'missing')).toBe('unconfigured')
+  })
+
+  test('an unknown connection claims nothing, however the read went', () => {
+    expect(emptyState('ready', 'unknown')).toBe('loading')
   })
 
   test('an empty list from a read that failed is not an all-clear', () => {
