@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   isLevelEnabled,
@@ -8,7 +9,10 @@ import {
   REDACTED,
   serialize,
   summarizeArgs,
+  type LogLevel,
+  type LogProc,
   type LogRecord,
+  type LogScope,
   type NormalizedError
 } from './record'
 
@@ -751,7 +755,16 @@ describe('the redaction audit', () => {
         'behind a doubled scheme colon': `https:://user:${SECRET}@h/a`,
         'behind a tripled scheme colon': `https::://user:${SECRET}@h/a`,
         'a password alone behind a doubled colon': `https:://:${SECRET}@h/a`,
-        'quoted in prose behind a doubled colon': `Request to https:://user:${SECRET}@h/a failed`
+        'quoted in prose behind a doubled colon': `Request to https:://user:${SECRET}@h/a failed`,
+        // The same class as the doubled colon: a separator written in some form other than `://`
+        // still opens an authority. A regular expression's source escapes every slash it holds, and
+        // so do the serialisers that write `https:\/\/`, so this is how a URL arrives from both.
+        'behind an escaped slash pair': `https:\\/\\/user:${SECRET}@h/a`,
+        'behind one escaped slash': `https:/\\/user:${SECRET}@h/a`,
+        'escaped inside a serialised payload': `{"url":"https:\\/\\/user:${SECRET}@h/a"}`,
+        'escaped in the source of a regular expression': String(
+          new RegExp(`https://user:${SECRET}@h/a`)
+        )
       }
     },
     {
@@ -933,7 +946,7 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(101)
+    expect(counted).toBe(105)
     expect(Object.keys(routes(`https://h/a?token=${SECRET}`))).toHaveLength(7)
     expect(Object.keys(routes(`a https://h/a?token=${SECRET} b`))).toHaveLength(5)
     expect(Object.keys(routes(`{"pat":"${SECRET}"}`))).toHaveLength(5)
@@ -1186,6 +1199,202 @@ describe('a marker already present in the text', () => {
     // hold here is that the value does not accumulate: this is the shape a re-logged payload takes.
     const once = redactValue({ pat: 'abcdefghijklmnopqrstuvwxyz012345', note: `at ${REDACTED}` })
     expect(redactValue(once)).toEqual(once)
+  })
+})
+
+/**
+ * Every string that can reach the serialized line, and the proof that each one passed through
+ * redaction on the way.
+ *
+ * This is the block that exists because of how this module has failed. Six leaks in one round were
+ * one defect wearing six faces: a rule wired into one surface and missing from its sibling, so a
+ * string reached the wire without being redacted. `err.name` beside a redacted `err.message`; four
+ * identity fields copied verbatim while the degraded path redacted all five; a `RegExp` source; a
+ * `URL` instance routed to a weaker scanner than the string form of the same text.
+ *
+ * So the surfaces are enumerated rather than sampled. A row here is a carrier - a place a caller's
+ * text is copied from into the line - and the two guards below assert the enumeration is complete:
+ * one ties the table to the branches the value walk actually has, the other ties it to the fields a
+ * record actually carries. Adding either without adding a row is what has to fail.
+ *
+ * Carriers that cannot hold text at all are asserted separately, each with the reason.
+ */
+describe('every string that reaches the wire', () => {
+  const SECRET = 'REALSECRETVALUE123456789'
+  const poison = `https://u:${SECRET}@h/a`
+  const redactedPoison = `https://${REDACTED}:${REDACTED}@h/a`
+
+  /** One value per branch of the value walk that can carry a caller's text. */
+  const carriers: Record<string, () => unknown> = {
+    'a string': () => poison,
+    'an item of an array': () => [poison],
+    'a member of a Set': () => new Set([poison]),
+    'a key of a Map': () => new Map([[poison, 1]]),
+    'a value in a Map': () => new Map([['note', poison]]),
+    'a key of an object': () => ({ [poison]: 1 }),
+    'a value in an object': () => ({ note: poison }),
+    'a value behind a getter': () => ({
+      get note(): string {
+        return poison
+      }
+    }),
+    'a field of a class instance': () =>
+      new (class Request {
+        note = poison
+      })(),
+    'a URL instance': () => new URL(poison),
+    // The routing defect in its own right: a `URL` instance is the same text as a string and must not
+    // reach a weaker scanner for being wrapped.
+    'a URL instance carrying a nested URL in its path': () => new URL(`https://h/${poison}`),
+    'a URL instance carrying a nested URL in its fragment': () => new URL(`https://h/a#${poison}`),
+    'a URL instance carrying a nested URL on a hash route': () =>
+      new URL(`https://h/a#/board/${poison}`),
+    'the source of a RegExp': () => new RegExp(poison),
+    // The tag and the byte length are both read off the value and interpolated into the description
+    // that stands in for the bytes, so a caller's text arrives from either of them.
+    'the description of a typed array': () =>
+      Object.defineProperties(new Uint8Array(4), {
+        [Symbol.toStringTag]: { get: () => poison },
+        byteLength: { get: () => poison }
+      }),
+    'the name of an Error': () => Object.assign(new Error('x'), { name: poison }),
+    'the message of an Error': () => new Error(poison),
+    'the stack of an Error': () => Object.assign(new Error('x'), { stack: `Error: ${poison}` }),
+    'the name of a cause in an error chain': () =>
+      new Error('outer', { cause: Object.assign(new Error('inner'), { name: poison }) }),
+    // Enumerated character by character, so the value never appears on the line as itself. Recorded
+    // as the reason this row passes, rather than left looking like coverage it does not have.
+    'a boxed string': () => new String(poison)
+  }
+
+  for (const [carrier, build] of Object.entries(carriers)) {
+    it(`redacts a credential arriving as ${carrier}`, () => {
+      expect(serialize({ ...base, data: { v: build() } })).not.toContain(SECRET)
+      // Redaction reaches the same value twice by design, so a carrier must also be stable.
+      const once = redactValue(build())
+      expect(redactValue(once)).toEqual(once)
+    })
+  }
+
+  it('has nothing to redact in the carriers that cannot hold text', () => {
+    // A function is described by nothing but the word, a promise likewise, a Date renders as digits
+    // and dashes, a cycle and an unreadable property are constants, and a symbol has no JSON form at
+    // all. Listed so that a reader can tell an absent risk from an unexamined one.
+    expect(redactValue({ v: () => poison })).toEqual({ v: '[function]' })
+    expect(redactValue({ v: Promise.resolve(poison) })).toEqual({ v: '[promise]' })
+    expect(redactValue({ v: new Date(0) })).toEqual({ v: '1970-01-01T00:00:00.000Z' })
+    expect(JSON.stringify(redactValue({ v: Symbol(poison) }))).toBe('{}')
+    expect(JSON.stringify(redactValue({ [Symbol(poison)]: 1 }))).toBe('{}')
+    const cyclic: Record<string, unknown> = { note: poison }
+    cyclic.self = cyclic
+    expect(redactValue(cyclic)).toEqual({ note: redactedPoison, self: '[circular]' })
+  })
+
+  /**
+   * The completeness guard for the value walk.
+   *
+   * The table above is a list somebody maintains, which is exactly the weakness the redaction audit
+   * has: a group holding a convenient subset of its class cannot be told from one holding all of it.
+   * So the branches are read out of the module instead of being trusted to memory, and adding one
+   * fails here until it is named in the table above with a row that proves its text is redacted.
+   */
+  it('covers every branch of the value walk', () => {
+    const source = readFileSync(new URL('./record.ts', import.meta.url), 'utf8')
+    // `redactAny` and `redactObject` between them are the whole walk; `ownKeys` is the first thing
+    // after it. Any helper added inside that span is read as part of the walk on purpose.
+    const walk = source.slice(
+      source.indexOf('function redactAny'),
+      source.indexOf('function ownKeys')
+    )
+    const branches = [
+      ...walk.matchAll(/typeof value [!=]== '(\w+)'|value instanceof (\w+)|(\w+\.is\w+)\(value\)/g)
+    ].map((match) => match[1] ?? match[2] ?? match[3])
+    expect(
+      branches,
+      'a branch was added to or removed from the value walk: add it to the carrier table above and prove where its text is redacted'
+    ).toEqual([
+      'string',
+      'function',
+      'object',
+      'Array.isArray',
+      'Date',
+      'Error',
+      'URL',
+      'RegExp',
+      'Promise',
+      'ArrayBuffer.isView',
+      'ArrayBuffer',
+      'Set',
+      'Map'
+    ])
+  })
+
+  /**
+   * The completeness guard for the record's own fields.
+   *
+   * `Required<LogRecord>` is what keeps this in step: adding a field to the record fails to compile
+   * here until the field is named, given a credential, and shown not to survive. The key comparison
+   * closes the other direction, so a field that stops reaching the line is a visible change too.
+   *
+   * Every field is poisoned at once, including the ones the types call a level, a scope and a number.
+   * Nothing validates a record that arrived over IPC from the renderer, so what the type promises is
+   * not what the field holds.
+   */
+  const poisoned = (): Required<LogRecord> => ({
+    ts: poison,
+    level: poison as LogLevel,
+    proc: poison as LogProc,
+    pid: poison as unknown as number,
+    scope: poison as LogScope,
+    msg: poison,
+    data: { note: poison },
+    err: {
+      name: poison,
+      message: poison,
+      stack: poison,
+      cause: { name: poison, message: poison, stack: poison }
+    }
+  })
+
+  it('redacts every field a record carries, whatever its type says', () => {
+    const line = serialize(poisoned())
+    expect(line).not.toContain(SECRET)
+    expect(Object.keys(JSON.parse(line))).toEqual([
+      'ts',
+      'level',
+      'proc',
+      'pid',
+      'scope',
+      'msg',
+      'data',
+      'err',
+      'redactions'
+    ])
+    // A process id is a number on the wire whatever arrived in the field, which is what the fallback
+    // line has always done. The happy path agreeing with it is the point of this row.
+    expect(JSON.parse(line).pid).toBe(0)
+  })
+
+  it('redacts every field of the line a record degrades to', () => {
+    // One oversized field, so the record is shed all the way to its identity and the fallback
+    // builder is what writes the line.
+    const record = poisoned()
+    record.ts = `${poison} ${'x'.repeat(MAX_RECORD_BYTES * 4)}`
+    const line = serialize(record)
+    expect(JSON.parse(line).data.truncated).toBe(true)
+    expect(line).not.toContain(SECRET)
+  })
+
+  it('redacts every field of the line a record that cannot be rendered falls back to', () => {
+    const record = {
+      ...poisoned(),
+      get data(): never {
+        throw new Error('unreadable record')
+      }
+    }
+    const line = serialize(record)
+    expect(JSON.parse(line).data.serializeFailed).toBe(true)
+    expect(line).not.toContain(SECRET)
   })
 })
 

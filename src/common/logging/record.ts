@@ -190,7 +190,7 @@ const AUTH_SCHEME_VALUE = /\b(Bearer|Basic)(\s+)([A-Za-z0-9+/=_.~-]{20,4096})/gi
  */
 const SCHEME_CHARACTERS = String.raw`[a-z0-9+.-]`
 
-const SCHEME = String.raw`[a-z]${SCHEME_CHARACTERS}{0,31}:+//`
+const SCHEME = String.raw`[a-z]${SCHEME_CHARACTERS}{0,31}:+(?:\\?/){2}`
 
 /**
  * One character a scheme is allowed to contain, which by its absence is what separates one URL in a
@@ -386,7 +386,13 @@ function redactAny(value: unknown, seen: WeakSet<object>): unknown {
   if (seen.has(value)) return CIRCULAR
   seen.add(value)
   try {
-    return redactObject(value, seen)
+    const described = redactObject(value, seen)
+    // Every branch below that describes its value with a string takes that string from the caller: a
+    // URL's text, a regular expression's source, the tag a typed array reports for itself, the way a
+    // date renders. Redacting here, once, is what covers a branch nobody remembered to redact inside -
+    // which is how a regular expression's source reached disk with a password in it - and covers a
+    // branch added later before anyone thinks to.
+    return typeof described === 'string' ? redactText(described) : described
   } finally {
     // Released on the way back out, so the same object referenced twice in one tree is reported
     // in full both times instead of being mistaken for a cycle.
@@ -406,12 +412,15 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString()
   }
-  if (value instanceof Error) return redactError(normalizeError(value))
+  // Normalised and then walked like any other object, rather than copied field by field. Copying is
+  // what left the name beside a redacted message with a credential still in it.
+  if (value instanceof Error) return redactAny(normalizeError(value), seen)
   // A URL is the likeliest of these to be logged by a module about logging URLs, and it holds
   // everything internally, so enumerating its properties would have emitted `{}` in place of the
-  // request being diagnosed - and in place of the credential it might carry. Its text takes the same
-  // route as the same text written as a string: a caller must not lose coverage for having wrapped it.
-  if (value instanceof URL) return redactText(value.href)
+  // request being diagnosed - and in place of the credential it might carry. Its text is handed back
+  // as text and takes the route every other string takes: a caller must not lose coverage for having
+  // wrapped it in an object.
+  if (value instanceof URL) return value.href
   if (value instanceof RegExp) return value.toString()
   if (value instanceof Promise) return '[promise]'
   // Binary is described rather than transcribed: enumerating a typed array yields one property per
@@ -568,7 +577,11 @@ function redactNamedValues(text: string): string {
  */
 function redactText(value: string): string {
   const named = redactNamedValues(redactShapes(value))
-  if (!named.includes('://')) return named
+  // Two plain substring checks rather than the scheme pattern itself, which would backtrack over a
+  // long run of colons. Either pair of slashes that opens an authority has to be admitted, escaped or
+  // not: a regular expression's source escapes every slash it holds, as do the serialisers that write
+  // `https:\/\/`, and a URL with an escaped separator carries exactly the same credential.
+  if (!named.includes('//') && !named.includes('\\/')) return named
   return named.replace(EMBEDDED_URL, redactRun)
 }
 
@@ -655,14 +668,6 @@ function eachGluedUrl(run: string, redact: (part: string) => string): string {
     from = at
   }
   return out + onlyIfRedacted(run.slice(from), redact)
-}
-
-/** Redact an error and its causes, since a client's message and stack routinely quote the request. */
-function redactError(err: NormalizedError): NormalizedError {
-  const out: NormalizedError = { name: err.name, message: redactText(err.message) }
-  if (err.stack) out.stack = redactText(err.stack)
-  if (err.cause) out.cause = redactError(err.cause)
-  return out
 }
 
 /**
@@ -939,21 +944,40 @@ interface DegradedRecord {
   err?: { name: string; message: string }
 }
 
+/**
+ * A process id is a number on the wire whatever the field actually held, which is what the fallback
+ * line has always done. Nothing validates a record that arrived from the renderer over IPC, so the
+ * type is a promise from a producer rather than a fact about the value.
+ */
+function processId(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/**
+ * Assemble the line's fields, then redact the whole of it in one pass.
+ *
+ * Every string a record carries is reached because the walk reaches every string, not because this
+ * function names the fields worth redacting. Naming them is what left `err.name` beside a redacted
+ * `err.message`, and left `ts`, `level`, `proc` and `scope` copied out verbatim while the fallback
+ * line redacted all five - `ts` being a free string that nothing validates, since main re-serialises
+ * records that arrive from the renderer over IPC. A field added to the record later is covered before
+ * anybody thinks about it.
+ */
 function toWire(record: LogRecord): WireRecord {
-  const wire: WireRecord = {
+  const wire: Record<string, unknown> = {
     ts: record.ts,
     level: record.level,
     proc: record.proc,
-    pid: record.pid,
+    pid: processId(record.pid),
     scope: record.scope,
-    msg: redactText(record.msg)
+    msg: record.msg
   }
-  if (record.data !== undefined) wire.data = redactValue(record.data)
+  if (record.data !== undefined) wire.data = record.data
   // The chain is clamped before anything walks it. `normalizeError` never builds one deeper than
   // this, so a deeper one was handed over already assembled - by a producer this process does not
   // control - and every later pass over it, redaction included, would cost its full length.
-  if (record.err !== undefined) wire.err = redactError(withCauseLimit(record.err, MAX_CAUSE_DEPTH))
-  return wire
+  if (record.err !== undefined) wire.err = withCauseLimit(record.err, MAX_CAUSE_DEPTH)
+  return redactValue(wire) as WireRecord
 }
 
 const UTF8 = new TextEncoder()
