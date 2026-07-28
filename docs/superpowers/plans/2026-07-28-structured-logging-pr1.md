@@ -18,10 +18,15 @@
 - Log file: `<userData>/logs/intersect-YYYY-MM-DD.jsonl`, one JSON object per line. Retention 7 days.
 - `MAX_RECORD_BYTES = 8192`. Records exceeding it are shrunk deterministically, never dropped.
 - Level floor from `INTERSECT_LOG_LEVEL`; default `debug` in development, `info` when packaged.
-- Redaction vocabulary: `pat`, `token`, `cookie`, `password`, `secret`, `authorization`, `bearer`,
-  `apikey`. Short alternatives must match only at a word boundary (string start or end, a `_`/`-`/`.`
-  separator, or a camelCase transition). An earlier draft of this plan pinned a bare-substring regex
-  verbatim; that was wrong and is superseded - see the Redaction section of the spec for why.
+- Redaction vocabulary: `pat` and `sig` as whole words; `token`, `cookie`, `password`, `secret`,
+  `authorization`, `bearer`, `apikey`, `credential` as substrings. Short alternatives must match only
+  at a word boundary (string start or end, a `_`/`-`/`.` separator, or a camelCase transition). An
+  earlier draft of this plan pinned a bare-substring regex verbatim; that was wrong and is superseded
+  - see the Redaction section of the spec, which governs, both for why and for what redaction does
+  not cover.
+- Redaction must be stable under reapplication. The same text is redacted more than once on its way
+  to disk by design, so a rule that rewrites a marker an earlier pass wrote corrupts a line it had
+  already made safe.
 - PTY output is never logged as content anywhere - byte counts only.
 - Logging must never throw into a caller and never change control flow.
 - No new runtime dependencies.

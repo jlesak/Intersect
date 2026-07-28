@@ -814,6 +814,13 @@ describe('the redaction audit', () => {
         for (const [route, output] of Object.entries(routes(shape))) {
           expect(output, `leaked through ${route}`).not.toContain(SECRET)
         }
+        // Redaction reaches the same text twice by design: an HTTP logger redacts a URL itself and
+        // `serialize` redacts the payload that result lands in. So a rule that treats a marker
+        // already written as a value worth taking corrupts a line it had already made safe, and
+        // corrupts it further on every pass. Stability is the property; the audit above measures
+        // only whether the secret survived, which is why it read as green through this.
+        const once = redactValue(shape) as string
+        expect(redactValue(once), 'redacting an already-redacted shape changed it again').toBe(once)
       })
     }
   }

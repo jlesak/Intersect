@@ -209,7 +209,8 @@ Applied in `record.ts` at serialization, so no call site can forget it.
 
 - A key naming a credential serializes as `"[redacted]"`, at any depth. The vocabulary is
   `pat` and `sig` as whole words, and `token`, `cookie`, `password`, `secret`, `authorization`,
-  `bearer`, `apikey` as substrings.
+  `bearer`, `apikey`, `credential` as substrings. A plural counts: a field holding several
+  credentials holds credentials, so a trailing `s` is removed before the lookup.
 - **Short alternatives match only as a whole word**, where words are split on separators (`_`, `-`,
   `.`) and camelCase transitions. Long unambiguous alternatives may match as substrings.
 
@@ -229,14 +230,30 @@ Applied in `record.ts` at serialization, so no call site can forget it.
   misleading about the values the app handles most. Anchored, `pat`, `PAT`, `savedPat`,
   `ado_pat` and `AZURE_DEVOPS_PAT` all redact while `path`, `patch`, `pattern`, `dispatch` and
   `compatible` do not.
-- Every URL surface that can carry a credential is redacted: userinfo (`user:PAT@host`), the query
-  string, and the fragment. Path matrix parameters (`;token=`) are a known gap, kept because **the
-  URL path is never scanned at all** - the vocabulary is not the obstacle, and `;token=SECRET` leaks
-  under a first-class vocabulary name.
-- One function applies every rule to every surface. Query, fragment and unparseable paths all call
-  it, and it recurses into each decoded parameter value to a bounded depth. This is deliberate: the
-  two worst defects found in this module were a rule wired into some surfaces and not others, so
-  there is now one place a rule can be added and no way to add it to only half the surfaces.
+- Every URL surface that can carry a credential is redacted: userinfo (`user:PAT@host`), the path,
+  the query string, and the fragment. Path matrix parameters (`;token=`) were a documented gap for as
+  long as nothing looked at the path; scanning it closed them, since `;token=` is a named pair like
+  any other.
+- Every rule is reachable from every surface, and each is applied by one implementation rather than
+  copied per surface. Query, fragment, path and unparseable text all reach the same scanner, which
+  recurses into each decoded parameter value to a bounded depth.
+
+  **This is a property to keep, not one the structure guarantees.** An earlier version of this
+  section claimed there was "no way to add a rule to only half the surfaces"; that was wrong twice
+  over. There are several entry points - `redactValue` for payloads, `redactUrl` for a caller holding
+  a URL, and the free-text scanner behind both - and a rule added to one does not appear in the
+  others. The shape detector was added to free text and not to `redactUrl`'s parseable branch, and
+  the guard that stops a rule from rewriting a marker an earlier pass wrote was present in the
+  URL-run splitter and absent from its sibling that scans named pairs. Both are the same defect the
+  sentence claimed had been designed out. Adding a rule means checking every entry point by hand.
+- **Redaction is applied more than once to the same text, so every rule must be stable under
+  reapplication.** An HTTP logger redacts a URL itself and `serialize` redacts the payload that
+  result lands in; the second pass is deliberate, because it is what makes the safety of the log
+  depend on serialization rather than on the caller. A rule that treats an already-written
+  `[redacted]` as a value worth taking therefore corrupts a line it had already made safe, and
+  corrupts it further on each pass. The audit asserts stability shape by shape: it measured only
+  whether the secret survived, and read as fully green while 51 of its 86 shapes were growing a
+  bracket per pass.
 - **A value is also redacted when its shape says credential, regardless of its name.** Two shapes
   qualify, both verifiable by construction rather than by guesswork: a JWT (`eyJ`, which is what
   base64 makes of the `{"` opening every JWT header, followed by base64url and two structural dots),
@@ -261,10 +278,16 @@ Stated plainly, because the rest of this section reads as though it were exhaust
 Each limit below is asserted as a test, so the scope the code has and the scope described here cannot
 drift apart silently.
 
-- **Free text is scanned for URLs, and for the two value shapes above, and for nothing else.** So
-  `Authorization: Bearer SECRET` in an error message *is* redacted - by shape, not by name - while
-  `set-cookie: session=SECRET` is **not**, because a cookie value has no distinguishing shape. A
-  credential in prose is covered only when it is a URL, a JWT, or an auth-scheme value.
+- **Free text is scanned for URLs, for the two value shapes above, and for the vocabulary's names
+  written as a pair** (`pat=SECRET`, `"pat": "SECRET"`) - and for nothing else. So
+  `Authorization: Bearer SECRET` in an error message is redacted by shape, `pat=SECRET` in a settings
+  line by name, and `x-request-signature: SECRET` **not at all**, because that name is outside the
+  vocabulary and the value has no distinguishing shape.
+
+  The example this bullet used to give, `set-cookie: session=SECRET`, is now redacted - `set-cookie`
+  contains `cookie` - which is worth stating plainly: the limit was recorded as permanent and a test
+  asserted the leak, so widening the scan quietly falsified both. A limit written down is not a limit
+  that stays true.
 - **A deny-list cannot recognise a credential it has no name for.** A value under a name outside the
   vocabulary (`?hmac=`, or a bare `?key=`) is not redacted, and neither is one buried in an opaque
   blob whose own shape says nothing (a token inside base64 or JSON). This is a property of the
@@ -273,21 +296,32 @@ drift apart silently.
 
   The specific Azure SAS case named here previously is now covered - `sig` is in the vocabulary as a
   whole word - but the class it stood for is not, and adding that one name did nothing to close it.
-- **The URL path is never scanned.** Matrix parameters leak even under a first-class vocabulary name:
-  `https://h/a;token=SECRET` survives. The gap is the unscanned surface, not the vocabulary.
+- **Over-redaction is real where a shape is matched in prose.** The value after `Basic` is taken
+  whatever it is, so `Basic /Users/me/project/out/main.js` loses the path. Excluding `/` from the
+  value was considered and declined: standard base64 contains `/` in roughly two of three tokens, so
+  excluding it truncates the match below the length floor and the credential itself leaks. Losing a
+  path is the better failure, and the audit asserts the loss so that widening the rule fails loudly.
 - **Nothing checks the redaction count.** A record now reports how many redactions it required, so a
   miss is *detectable* - but only by a person reading the file. No alert, no test over real logs, and
   no baseline for what a normal session looks like.
 
-An allow-list that redacts every parameter value and keeps every name would close the first three by
+An allow-list that redacts every parameter value and keeps every name would close the first two by
 construction. It was proposed, and deliberately not adopted: the deny-list is kept and hardened
 shape-by-shape instead, which makes the committed redaction audit the load-bearing safety artefact
-rather than a convenience. Treat it as one - 73 shapes across 6 routes, each named with the class it
+rather than a convenience. Treat it as one - 86 shapes across 6 routes, each named with the class it
 stands for and the failure it was written against.
 
-The residual that matters most is the vocabulary, and it is unchanged by nine rounds of work: every
-mechanism for *finding* a named credential was improved, and what a credential is *called* was
-extended by exactly one word. Shape detection is the only part of this design that does not depend on
+Its known weakness is that it enumerates **shapes** while the protections are about **classes**, and
+a group holding every instance of its class cannot be told from one holding a convenient subset. That
+gap has misled the work three times, and the third was the worst: a group covering URLs glued
+together held only instances with the credential in a query parameter, so deleting the code that
+catches the userinfo form of the same class turned one test red and read as safe. It reopened a
+plaintext password leak. When a mechanism looks unused, the audit is not evidence that it is.
+
+The residual that matters most is the vocabulary, and it is nearly unchanged by ten rounds of work:
+every mechanism for *finding* a named credential was improved, and what a credential is *called* was
+extended by two words, `sig` and `credential`, each on this app's own evidence. `key` was weighed on
+the same standard and declined, because a Jira issue key is the central domain identifier here. Shape detection is the only part of this design that does not depend on
 knowing the name, which is why it closes limits the vocabulary never could - and why the two shapes
 it matches were chosen for being provable rather than for being useful.
 

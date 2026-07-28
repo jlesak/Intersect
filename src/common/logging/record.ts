@@ -505,8 +505,11 @@ function redactNamedValues(text: string): string {
     if (valueEnd === valueStart) continue
     const value = text.slice(valueStart, valueEnd)
     // Nothing to do to a value an earlier pass already took, and counting it again would overstate
-    // what was removed.
-    if (value === REDACTED) continue
+    // what was removed. Tested for at the value's start rather than against the whole of it: a bare
+    // value ends at `]`, which is the marker's own last character, so what was collected is the
+    // marker short of its bracket - unequal to the marker, and redacting it again would leave that
+    // bracket sitting after the new one.
+    if (text.startsWith(REDACTED, valueStart)) continue
     if (!quoted && AUTH_SCHEMES.has(value.toLowerCase())) continue
 
     out += `${text.slice(copied, valueStart)}${marker()}`
