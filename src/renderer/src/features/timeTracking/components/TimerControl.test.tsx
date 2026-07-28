@@ -113,4 +113,47 @@ describe('TimerControl', () => {
     await clickAction()
     expect(mocked.stopTimer).toHaveBeenCalled()
   })
+
+  test('a double-clicked Start begins one timer, not two', async () => {
+    let resolve!: (t: RunningTimer) => void
+    mocked.startTimer.mockReturnValue(new Promise<RunningTimer>((r) => (resolve = r)))
+    await act(async () => {
+      render(<TimerControl />)
+    })
+
+    // Both clicks of a double-click land before React can re-render, which is exactly the gesture
+    // that used to raise "Could not start the timer" for a perfectly ordinary bit of impatience.
+    await act(async () => {
+      const button = document.querySelector<HTMLButtonElement>('.ix-timer__action')
+      button?.click()
+      button?.click()
+    })
+    expect(mocked.startTimer).toHaveBeenCalledOnce()
+    expect(document.querySelector<HTMLButtonElement>('.ix-timer__action')?.disabled).toBe(true)
+
+    await act(async () => {
+      resolve(TIMER)
+    })
+    expect(document.querySelector<HTMLButtonElement>('.ix-timer__action')?.disabled).toBe(false)
+  })
+
+  test('a double-clicked Stop stops once, so the logged span is not thrown away', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    let resolve!: () => void
+    mocked.stopTimer.mockReturnValue(new Promise<null>((r) => (resolve = () => r(null))))
+    await act(async () => {
+      render(<TimerControl />)
+    })
+
+    await act(async () => {
+      const button = document.querySelector<HTMLButtonElement>('.ix-timer__action')
+      button?.click()
+      button?.click()
+    })
+    expect(mocked.stopTimer).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolve()
+    })
+  })
 })
