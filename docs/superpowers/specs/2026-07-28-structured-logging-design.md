@@ -152,7 +152,7 @@ before core and outlives it, so it is the only process that can own this without
 | `src/core/bootstrap.ts` | Wrap the injected `fetch` at line 590; pass loggers into services; replace existing `console.*` |
 | `src/core/index.ts`, `src/main/index.ts` | Install global handlers; replace existing `console.*` |
 | `src/preload/index.ts` | Add the `log` namespace over `ipcRenderer.send` |
-| `src/common/ipc.ts` | Add `Channel.logWrite` and the `IpcApi.log` surface |
+| `src/common/ipc.ts` | Add the `IpcApi.log` surface. Deliberately **not** a `Channel` member - see below |
 | `eslint.config.js` | `no-console` for `src/**`, exempting the two sanctioned fallback modules; restrict `fileSink.node.ts` from renderer and preload |
 | 118 catch sites | Each gets a log line - PR 2, see below |
 
@@ -160,10 +160,19 @@ before core and outlives it, so it is the only process that can own this without
 config already encodes exactly this kind of confinement for `node-pty` and for `electron` in core, so
 it gets a `no-restricted-imports` entry in the same style rather than a new mechanism.
 
-The renderer log channel is registered directly in `src/main/logging/index.ts`, not in
-`ipc/bridge.ts`. The bridge is mechanically driven by the channel classification in `coreBridge.ts`
-and every channel there terminates in the core; this one terminates in main. Adding it to the
-taxonomy would mean inventing a fourth category for a single channel.
+### The log channel must stay out of the `Channel` enum
+
+`CORE_INVOKE_CHANNELS` is *derived*: every `Channel` member that is not fire-and-forget, not a
+broadcast, and not Electron-only. Its own comment states the intent - "a new slice channel is
+core-routed by default". So adding `Channel.logWrite` would silently register
+`ipcMain.handle('log:write', ...)` forwarding every renderer log record into the core, which is both
+the wrong destination and a round-trip where a fire-and-forget send is wanted.
+
+Instead `RENDERER_LOG_CHANNEL = 'log:write'` is a plain exported constant in
+`src/common/logging/channel.ts`, registered with `ipcMain.on` in `src/main/logging/index.ts`. This
+follows the existing precedent: `NATIVE_NOTIFICATION_PUSH`, `CORE_SHUTDOWN_CHANNEL` and
+`WINDOW_FOCUS_CHANGED` are all plain constants outside the enum for the same reason. The typed
+`IpcApi.log` surface is still added to `ipc.ts` so the renderer keeps one door.
 
 ## Instrumented seams
 
