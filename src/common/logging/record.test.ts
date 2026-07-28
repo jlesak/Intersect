@@ -8,7 +8,8 @@ import {
   REDACTED,
   serialize,
   summarizeArgs,
-  type LogRecord
+  type LogRecord,
+  type NormalizedError
 } from './record'
 
 const base: LogRecord = {
@@ -18,6 +19,16 @@ const base: LogRecord = {
   pid: 4821,
   scope: 'jira',
   msg: 'board fetched'
+}
+
+/** Measured without Node's `Buffer`, so the assertions hold in the tests that take it away. */
+const utf8Bytes = (line: string): number => new TextEncoder().encode(line).length
+
+/** Every message in a cause chain, outermost first. */
+function messages(err: NormalizedError): string[] {
+  const out: string[] = []
+  for (let node: NormalizedError | undefined = err; node; node = node.cause) out.push(node.message)
+  return out
 }
 
 describe('isLevelEnabled', () => {
@@ -46,11 +57,27 @@ describe('normalizeError', () => {
     const err = new Error('loop') as Error & { cause?: unknown }
     err.cause = err
     expect(() => normalizeError(err)).not.toThrow()
+    const out = normalizeError(err)
+    expect(out.message).toBe('loop')
+    expect(out.cause).toBeUndefined()
   })
 
   it('describes non-errors without throwing', () => {
     expect(normalizeError('plain string').message).toBe('plain string')
     expect(normalizeError(null).message).toBe('null')
+  })
+
+  it('describes an error that refuses to be read', () => {
+    const hostile = {
+      get toString(): never {
+        throw new Error('no')
+      }
+    }
+    expect(() => normalizeError(hostile)).not.toThrow()
+  })
+
+  it('takes no recursion state from its caller', () => {
+    expect(normalizeError.length).toBe(1)
   })
 })
 
@@ -72,6 +99,58 @@ describe('redactValue', () => {
     const cyclic: Record<string, unknown> = { name: 'x' }
     cyclic.self = cyclic
     expect(() => redactValue(cyclic)).not.toThrow()
+    expect(redactValue(cyclic)).toEqual({ name: 'x', self: '[circular]' })
+  })
+
+  it('reports a shared reference in full rather than calling it a cycle', () => {
+    const shared = { id: 1 }
+    expect(redactValue({ a: shared, b: shared })).toEqual({ a: { id: 1 }, b: { id: 1 } })
+  })
+
+  it('redacts a credential carried in a URL among the values', () => {
+    expect(redactValue({ href: 'https://h.example/a?access_token=abc123' })).toEqual({
+      href: `https://h.example/a?access_token=${REDACTED}`
+    })
+  })
+
+  it('keeps the content of the built-in types a caller is likely to log', () => {
+    const out = redactValue({
+      since: new Date(0),
+      failure: new Error('disk full'),
+      headers: new Map([
+        ['token', 'abc'],
+        ['accept', 'json']
+      ]),
+      tags: new Set(['a', 'b'])
+    }) as {
+      since: string
+      failure: { name: string; message: string }
+      headers: { token: string; accept: string }
+      tags: string[]
+    }
+    expect(out.since).toBe('1970-01-01T00:00:00.000Z')
+    expect(out.failure.message).toBe('disk full')
+    expect(out.headers.token).toBe(REDACTED)
+    expect(out.headers.accept).toBe('json')
+    expect(out.tags).toEqual(['a', 'b'])
+  })
+
+  it('describes an invalid Date instead of throwing on it', () => {
+    expect(redactValue({ at: new Date(Number.NaN) })).toEqual({ at: 'Invalid Date' })
+  })
+
+  it('loses one property, not the object, when a getter throws', () => {
+    const hostile = {
+      keep: 'kept',
+      get boom(): never {
+        throw new Error('getter')
+      }
+    }
+    expect(redactValue(hostile)).toEqual({ keep: 'kept', boom: '[unreadable]' })
+  })
+
+  it('takes no recursion state from its caller', () => {
+    expect(redactValue.length).toBe(1)
   })
 })
 
@@ -145,6 +224,7 @@ describe('serialize', () => {
     nodeGlobals.Buffer = undefined
     try {
       const line = serialize({ ...base, data: { blob: 'x'.repeat(MAX_RECORD_BYTES * 2) } })
+      expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
       expect(JSON.parse(line).data.truncated).toBe(true)
     } finally {
       nodeGlobals.Buffer = restore
@@ -157,5 +237,92 @@ describe('serialize', () => {
     const parsed = JSON.parse(serialize({ ...base, level: 'error', err: normalizeError(err) }))
     expect(parsed.err.message).toBe('boom')
     expect(parsed.err.stack.length).toBeLessThan(3000)
+  })
+
+  it('escapes the line breaks in every field, so one record stays one line', () => {
+    const err = normalizeError(new Error('first line\nsecond line'))
+    const line = serialize({ ...base, msg: 'a\nb', data: { note: 'c\r\nd' }, err })
+    expect(line).not.toContain('\n')
+    expect(line).not.toContain('\r')
+    const parsed = JSON.parse(line)
+    expect(parsed.msg).toBe('a\nb')
+    expect(parsed.data.note).toBe('c\r\nd')
+    expect(parsed.err.stack).toContain('second line')
+  })
+
+  it('renders a bigint rather than failing the record over it', () => {
+    const parsed = JSON.parse(serialize({ ...base, data: { attempt: 1n } }))
+    expect(parsed.data.attempt).toBe('1n')
+    expect(parsed.msg).toBe('board fetched')
+  })
+
+  it('keeps the record when one of its values cannot be read', () => {
+    const data = {
+      status: 503,
+      get boom(): never {
+        throw new Error('getter')
+      }
+    }
+    const parsed = JSON.parse(serialize({ ...base, data }))
+    expect(parsed.msg).toBe('board fetched')
+    expect(parsed.data.status).toBe(503)
+    expect(parsed.data.boom).toBe('[unreadable]')
+  })
+
+  it('still emits an identifying line when the record cannot be rendered at all', () => {
+    const err: NormalizedError = { name: 'Error', message: 'looping' }
+    err.cause = err
+    const line = serialize({ ...base, level: 'error', err })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    const parsed = JSON.parse(line)
+    expect(parsed.msg).toBe('board fetched')
+    expect(parsed.ts).toBe(base.ts)
+    expect(parsed.data.truncated).toBe(true)
+  })
+
+  it('redacts a credential quoted in an error message and its stack', () => {
+    const err = normalizeError(new Error('401 for https://h.example/a?pat=abc123'))
+    const line = serialize({ ...base, level: 'error', err })
+    expect(line).not.toContain('abc123')
+    expect(JSON.parse(line).err.message).toContain(REDACTED)
+  })
+
+  it('redacts a credential interpolated into the message', () => {
+    const line = serialize({ ...base, msg: 'fetch failed for https://h.example/a?token=abc123' })
+    expect(line).not.toContain('abc123')
+  })
+
+  it('keeps every message when a chain of wrapped errors is oversized', () => {
+    const frames = '    at frame\n'.repeat(115)
+    let err: NormalizedError = { name: 'Error', message: 'root', stack: `Error: root\n${frames}` }
+    for (let i = 0; i < 5; i++) {
+      err = { name: 'Error', message: `wrap${i}`, stack: `Error: wrap${i}\n${frames}`, cause: err }
+    }
+    const line = serialize({ ...base, level: 'error', err })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    const parsed = JSON.parse(line)
+    // A wrapped error must not log less than the bare error would have: the reported failure keeps
+    // its own frames, and no message in the chain is lost, least of all the root cause's.
+    expect(parsed.err.stack).toContain('at frame')
+    expect(messages(parsed.err)).toEqual(['wrap4', 'wrap3', 'wrap2', 'wrap1', 'wrap0', 'root'])
+  })
+
+  it('bounds a record made oversized by a bare field, and keeps it parseable', () => {
+    const line = serialize({ ...base, ts: 'x'.repeat(20000) })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    expect(() => JSON.parse(line)).not.toThrow()
+    expect(JSON.parse(line).msg).toBe('board fetched')
+  })
+
+  it('bounds a bare field by its bytes, not its characters', () => {
+    const line = serialize({ ...base, ts: 'é'.repeat(20000) })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    expect(JSON.parse(line).msg).toBe('board fetched')
+  })
+
+  it('bounds a bare field of control characters, which escaping expands sixfold', () => {
+    const line = serialize({ ...base, ts: '\u0001'.repeat(20000) })
+    expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    expect(JSON.parse(line).msg).toBe('board fetched')
   })
 })
