@@ -672,7 +672,21 @@ function redactParameters(params: URLSearchParams): string | undefined {
 const PARAMETER_PAIR = /(^|[?&#;])([A-Za-z0-9_.-]+)=([^&#;]*)/g
 
 /** Credentials in the authority of a string. Anchored, so it scans once. */
-const USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
+const USERINFO = new RegExp(String.raw`^(${SCHEME})([^/?#@]*)@`, 'i')
+
+/**
+ * The authority a previous pass leaves behind, which carries no credential any more.
+ *
+ * Redaction runs over the same text more than once on purpose, so the second pass meets the first
+ * one's work. Taking it again costs nothing textually and everything to the count: the count is what
+ * says how many credentials a line actually carried, and a line reporting removals nobody made is
+ * indistinguishable from one reporting real ones - which is the whole value of the signal.
+ *
+ * Compared exactly, never as a prefix. An authority that merely begins with a marker is an authority
+ * with a credential written behind it, and reading the two as the same thing is how a caller would be
+ * handed a way to hide one.
+ */
+const REDACTED_USERINFO = `${REDACTED}:${REDACTED}`
 
 /**
  * How far to look for parameters nested inside a parameter's value.
@@ -730,7 +744,9 @@ function redactCredentials(text: string, arrival: 'raw' | 'decodedOnce'): string
 
 function scanCredentials(text: string, depth: number): string {
   const shaped = redactShapes(text)
-  const authority = shaped.replace(USERINFO, (_match, scheme) => `${scheme}${marker()}:${marker()}@`)
+  const authority = shaped.replace(USERINFO, (match: string, scheme: string, userinfo: string) =>
+    userinfo === REDACTED_USERINFO ? match : `${scheme}${marker()}:${marker()}@`
+  )
   let redacted = authority !== text
   const scanned = authority.replace(
     PARAMETER_PAIR,
@@ -792,9 +808,13 @@ export function redactUrl(raw: string): string {
     return redactCredentials(raw, 'raw')
   }
   // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
-  // authority as readily as in the query. The user name goes too: it is half of the same secret.
-  if (url.username) url.username = marker()
-  if (url.password) url.password = marker()
+  // authority as readily as in the query. The user name goes too: it is half of the same secret. An
+  // authority a previous pass already reduced to markers is left as it is, since the parser percent-
+  // escapes the brackets of a marker and a re-read of a safe URL must not report a removal.
+  if (`${decodeOnce(url.username)}:${decodeOnce(url.password)}` !== REDACTED_USERINFO) {
+    if (url.username) url.username = marker()
+    if (url.password) url.password = marker()
+  }
   // The query is only written back when something in it was redacted, so examining an innocent
   // parameter does not re-serialise the query and rewrite everyone else's encoding.
   const query = redactParameters(url.searchParams)

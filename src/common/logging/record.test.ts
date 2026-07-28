@@ -970,6 +970,10 @@ describe('the redaction count', () => {
       serialize({ ...base, data: { note: `already ${REDACTED} elsewhere`, token: 'x' } })
     )
     expect(one.redactions).toBe(1)
+    // The shape the deliberate second pass actually meets: an HTTP logger redacts the URL it failed
+    // on and hands the result to the payload, where redaction reads it again.
+    const twice = JSON.parse(serialize({ ...base, data: { url: `https://${REDACTED}:${REDACTED}@h/a` } }))
+    expect(twice).not.toHaveProperty('redactions')
   })
 
   it('survives a record degrading all the way to its identity', () => {
@@ -989,6 +993,45 @@ describe('the redaction count', () => {
     const parsed = JSON.parse(serialize(hostile))
     expect(parsed.data.serializeFailed).toBe(true)
     expect(parsed).not.toHaveProperty('redactions')
+  })
+
+  /**
+   * The count reports what redaction removed, so a pass that removed nothing must not raise it.
+   *
+   * These are the guards nothing measured. The audit measures text, and every one of these shapes
+   * comes out of redaction textually identical whether the guard is there or not - so the count is
+   * the only place the omission is visible, and the count is the load-bearing anomaly signal. The
+   * shape that forges it is the shape the deliberate second pass produces, which makes a session
+   * reporting steady phantom redactions indistinguishable from one redacting real credentials.
+   */
+  it('does not count an authority a previous pass already redacted', () => {
+    const already = `https://${REDACTED}:${REDACTED}@h/a`
+    expect(JSON.parse(serialize({ ...base, msg: already }))).not.toHaveProperty('redactions')
+    // Unparseable, so the authority is reached by the scanner rather than by the platform parser.
+    // Both entry points have to hold, which is the whole failure mode of this module.
+    expect(
+      JSON.parse(serialize({ ...base, msg: `https://${REDACTED}:${REDACTED}@h:99999/a` }))
+    ).not.toHaveProperty('redactions')
+    // A marker in place of the user with a real credential behind it is a credential, not a marker.
+    const half = JSON.parse(serialize({ ...base, msg: `https://${REDACTED}:SECRETVALUE@h/a` }))
+    expect(half.redactions).toBe(2)
+    expect(half.msg).not.toContain('SECRETVALUE')
+  })
+
+  it('does not count a named value a previous pass already took', () => {
+    // Free text with no URL in it, so the named-value scan is the only pass that sees the pair.
+    expect(
+      JSON.parse(serialize({ ...base, msg: `settings: pat=${REDACTED} project=SPOT` }))
+    ).not.toHaveProperty('redactions')
+  })
+
+  it('does not count a parameter a previous pass already took', () => {
+    // Nested one value deep and percent-encoded, which is the only route that reaches the parameter
+    // scan without the named-value scan having seen the pair first.
+    const nested = encodeURIComponent(`https://app?token=${REDACTED}`)
+    expect(
+      JSON.parse(serialize({ ...base, msg: `https://h/r?next=${nested}` }))
+    ).not.toHaveProperty('redactions')
   })
 
   it('keeps the line inside the cap even when it is what tips the balance', () => {
