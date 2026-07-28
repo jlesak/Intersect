@@ -337,13 +337,9 @@ describe('redactUrl', () => {
     expect(redactUrl('https://h:99999/r?next=/x?token=S3CR3T')).not.toContain('S3CR3T')
   })
 
-  it('reaches a parameter nested two values deep, and stops there', () => {
+  it('reaches a parameter nested two values deep', () => {
     const inner = encodeURIComponent('y?token=S3CR3T')
     expect(redactUrl(`https://h/a?u=${encodeURIComponent(`x?v=${inner}`)}`)).not.toContain('S3CR3T')
-    // Beyond the bound the value is left as it stands, deliberately: following the nesting as far as
-    // it goes would let a crafted value recurse as deep as it is long.
-    const deeper = encodeURIComponent(`x?v=${encodeURIComponent(`y?w=${inner}`)}`)
-    expect(redactUrl(`https://h/a?u=${deeper}`)).toContain('S3CR3T')
   })
 
   it('leaves a parameter value carrying no credential exactly as it arrived', () => {
@@ -463,7 +459,22 @@ describe('the names that mean a credential', () => {
     'api-version',
     'jql',
     'fields',
-    'ids'
+    'ids',
+    // The assignment family. An Azure storage signature is the credential name most likely to be
+    // wanted next, and `sig` as a substring takes all of these with it - work item assignees and
+    // workspace-to-project assignment being core domain concepts here. These are listed so that
+    // adding `sig` the quick way fails loudly and points at the anchored way instead.
+    'assign',
+    'assigned',
+    'assignee',
+    'assignedAt',
+    'assignProject',
+    'assignToPane',
+    'assignEntries',
+    'assignments',
+    'assignable',
+    'signal',
+    'design'
   ]
 
   for (const name of redacted) {
@@ -505,64 +516,187 @@ describe('the names that mean a credential', () => {
 })
 
 /**
- * The one invariant this module cannot be allowed to break, whatever shape the text arrives in. Each
- * entry has been a real bypass or a plausible one: the separators here are the documented batch-read
- * forms of Azure DevOps and Jira, and every character ever excluded from the URL run in order to
- * preserve surrounding text became a point where the credential after it escaped.
+ * The redaction audit: every shape that has ever carried a credential past this module, and every
+ * route a string can take to disk.
+ *
+ * This table is the only thing that knows what "covered" means, so it is maintained deliberately
+ * rather than grown by accident. Twice the shapes it listed turned out to be a subset of the class
+ * they were meant to represent - the nested URL was listed only in its unencoded form, and a
+ * credential inside a parameter value was not listed at all - and both times the table was green
+ * while the class leaked. A green audit proves the listed shapes are clean and nothing more, so a
+ * shape belongs here the moment its class is understood, not once a defect is found.
+ *
+ * Each group states the class it stands for and the failure the group was written against, so a
+ * reader can tell what a shape is guarding rather than guessing from its text. Accepted limits are
+ * not here: they live in their own block below, asserted as limits, so nothing in this table is
+ * ambiguous about whether it is supposed to pass.
  */
-describe('no shape leaves a secret in the output', () => {
+describe('the redaction audit', () => {
   const SECRET = 'SECRETVALUE'
-  const shapes: Record<string, string> = {
-    'comma-separated ids before the token': `GET https://dev.azure.com/o/_apis/wit/workitems?ids=297,299,300&api-version=7.1&access_token=${SECRET} failed`,
-    'comma-separated fields before the token': `https://jira.example/rest/api/2/search?fields=summary,status&token=${SECRET}`,
-    'comma in the path': `https://h/a,b?token=${SECRET}`,
-    'semicolon in an earlier parameter': `https://h/a?x=1;2&token=${SECRET}`,
-    'both separators before the token': `https://h/a?ids=1;2,3&pat=${SECRET}&more=1`,
-    'two URLs run together': `two https://h/a?token=${SECRET};https://h/b?token=${SECRET} done`,
-    'a URL nested in a parameter': `https://h/redirect?url=https://other/a?token=${SECRET}`,
-    'a comma inside the secret value': `https://h/a?token=${SECRET},x`,
-    'double quotes in an earlier parameter': `https://h/a?q="x"&token=${SECRET}`,
-    'single quotes in an earlier parameter': `https://h/a?q='y'&pat=${SECRET}`,
-    'angle brackets around the URL': `<https://h/a?token=${SECRET}>`,
-    'quoted URL': `"https://h/a?token=${SECRET}"`,
-    bracketed: `(see https://h/a?token=${SECRET})`,
-    'sentence-final': `Failed at https://h/a?token=${SECRET}.`,
-    'preceded by a comma': `prefix,https://h/a?token=${SECRET}`,
-    'credential in the authority': `https://user:${SECRET}@h/a`,
-    'credential as the password alone': `https://:${SECRET}@h/a`,
-    'uppercased parameter name': `https://h/a?ids=1,2&ACCESS_TOKEN=${SECRET}`,
-    'uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`,
-    'credential in the fragment': `https://h/a#token=${SECRET}`,
-    'an implicit-flow fragment': `https://h/a#access_token=${SECRET}&expires_in=3600`,
-    'a fragment behind a query': `https://h/a?ids=1,2#token=${SECRET}`,
-    'a fragment on a hash route': `https://h/a#/board?token=${SECRET}`,
-    'a comma inside a fragment secret': `https://h/a#token=${SECRET},x`,
-    'a sentence-final URL with a fragment': `Opened https://h/a#pat=${SECRET}.`,
-    'a fragment on one of two glued URLs': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`,
-    'a question mark inside a fragment parameter': `https://h/a#access_token=${SECRET}&redirect=/a?b=1`,
-    'a question mark before the first equals': `https://h/a#token=${SECRET}?x=1`,
-    'an out-of-range port': `https://h:99999/a?token=${SECRET}`,
-    'an unclosed IPv6 host': `https://[::1/a?token=${SECRET}`,
-    'a doubled scheme colon': `https:://h/a?token=${SECRET}`,
-    'a doubled scheme colon with userinfo': `https:://user:${SECRET}@h/a`,
-    'a doubled colon on a nested scheme': `https://h/redirect?url=https:://other/a?token=${SECRET}`,
-    'a question mark inside an earlier parameter value': `https://h/r?next=/x?token=${SECRET}`,
-    'an encoded redirect target': `https://h/oauth/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapp%2Fcb%3Faccess_token%3D${SECRET}`,
-    'an encoded redirect target in the fragment': `https://h/a#redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
-    'an encoded redirect target that cannot be parsed': `https://h:99999/r?redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
-    'a URL under an innocent parameter name': `https://h/redirect?url=https://other/a?token=${SECRET}`
+  const enc = encodeURIComponent
+
+  interface AuditGroup {
+    /** The class of input, and the defect the group exists to keep closed. */
+    covers: string
+    was: string
+    shapes: Record<string, string>
   }
 
-  for (const [name, shape] of Object.entries(shapes)) {
-    it(`redacts it: ${name}`, () => {
-      // Every route a string can take to disk: a payload value, a key, the message, and an error's
-      // message and stack, since a client quotes the failing request in all of them.
-      expect(JSON.stringify(redactValue({ text: shape }))).not.toContain(SECRET)
-      expect(JSON.stringify(redactValue({ [shape]: 1 }))).not.toContain(SECRET)
-      expect(serialize({ ...base, msg: shape })).not.toContain(SECRET)
-      expect(serialize({ ...base, err: normalizeError(new Error(shape)) })).not.toContain(SECRET)
-    })
+  const audit: AuditGroup[] = [
+    {
+      covers: 'a separator inside the query, ahead of the credential',
+      was: 'the URL run was cut at the separator, so everything past it - the credential included - was emitted without ever being examined',
+      shapes: {
+        'comma-separated ids': `GET https://dev.azure.com/o/_apis/wit/workitems?ids=297,299,300&api-version=7.1&access_token=${SECRET} failed`,
+        'comma-separated fields': `https://jira.example/rest/api/2/search?fields=summary,status&token=${SECRET}`,
+        'a comma in the path': `https://h/a,b?token=${SECRET}`,
+        'a semicolon in an earlier parameter': `https://h/a?x=1;2&token=${SECRET}`,
+        'both separators at once': `https://h/a?ids=1;2,3&pat=${SECRET}&more=1`,
+        'double quotes in an earlier parameter': `https://h/a?q="x"&token=${SECRET}`,
+        'single quotes in an earlier parameter': `https://h/a?q='y'&pat=${SECRET}`
+      }
+    },
+    {
+      covers: 'punctuation and quotation around a URL in prose',
+      was: 'trimming what closes a sentence was done by ending the run early, which cut the credential off the end of it instead',
+      shapes: {
+        'angle brackets around it': `<https://h/a?token=${SECRET}>`,
+        'quoted': `"https://h/a?token=${SECRET}"`,
+        'bracketed': `(see https://h/a?token=${SECRET})`,
+        'sentence-final': `Failed at https://h/a?token=${SECRET}.`,
+        'preceded by a comma': `prefix,https://h/a?token=${SECRET}`,
+        'a comma inside the secret value': `https://h/a?token=${SECRET},x`
+      }
+    },
+    {
+      covers: 'two URLs written into one whitespace-free run',
+      was: 'the second URL was swallowed into a parameter value of the first and vanished with it, or ended the run and escaped entirely',
+      shapes: {
+        'separated by a semicolon': `two https://h/a?token=${SECRET};https://h/b?token=${SECRET} done`,
+        'the second one in a fragment': `https://h/a#token=${SECRET};https://h/b?pat=${SECRET}`
+      }
+    },
+    {
+      covers: 'a credential in the authority rather than the query',
+      was: 'only the query was searched, so basic auth against Azure DevOps put the token somewhere nothing looked',
+      shapes: {
+        'a user and a password': `https://user:${SECRET}@h/a`,
+        'a password alone': `https://:${SECRET}@h/a`,
+        'alongside an unparseable port': `https://user:${SECRET}@h:99999/a`,
+        'behind a doubled scheme colon': `https:://user:${SECRET}@h/a`,
+        'behind a tripled scheme colon': `https::://user:${SECRET}@h/a`,
+        'a password alone behind a doubled colon': `https:://:${SECRET}@h/a`,
+        'quoted in prose behind a doubled colon': `Request to https:://user:${SECRET}@h/a failed`
+      }
+    },
+    {
+      covers: 'a credential in the fragment',
+      was: 'the fragment was not searched at all, and then was searched only past the first question mark, leaving everything ahead of it unexamined',
+      shapes: {
+        'on its own': `https://h/a#token=${SECRET}`,
+        'an implicit-flow response': `https://h/a#access_token=${SECRET}&expires_in=3600`,
+        'behind a query': `https://h/a?ids=1,2#token=${SECRET}`,
+        'on a hash route': `https://h/a#/board?token=${SECRET}`,
+        'with a comma in the value': `https://h/a#token=${SECRET},x`,
+        'at the end of a sentence': `Opened https://h/a#pat=${SECRET}.`,
+        'ahead of a question mark in a later value': `https://h/a#access_token=${SECRET}&redirect=/a?b=1`,
+        'ahead of a bare question mark': `https://h/a#access_token=${SECRET}&state=a?b`,
+        'between two innocent parameters': `https://h/a#a=1&token=${SECRET}&u=/x?y=1`,
+        'ahead of a question mark of its own': `https://h/a#token=${SECRET}?x=1`,
+        'twice, either side of a question mark': `https://h/a#token=${SECRET}?token=${SECRET}`,
+        'on a hash route with a later question mark': `https://h/a#/board?a=1&token=${SECRET}&r=/x?y=1`,
+        'on a URL that cannot be parsed': `https://h:99999/a#token=${SECRET}`,
+        'on a URL that cannot be parsed, past a question mark': `https://h:99999/a#access_token=${SECRET}&redirect=/a?b=1`
+      }
+    },
+    {
+      covers: 'a URL too malformed for the parser to accept',
+      was: 'a string that failed to parse was handed back verbatim, on the belief that it could not be carrying a credential',
+      shapes: {
+        'an out-of-range port': `https://h:99999/a?token=${SECRET}`,
+        'a non-numeric port': `https://h:port/a?token=${SECRET}`,
+        'an unclosed IPv6 host': `https://[::1/a?token=${SECRET}`,
+        'a stray percent': `https://h%/a?token=${SECRET}`,
+        'a doubled scheme colon': `https:://h/a?token=${SECRET}`,
+        'with an innocent parameter beside it': `https://h:99999/a?ids=1,2&pat=${SECRET}`,
+        'quoted in prose': `Request to https://h:99999/a?token=${SECRET} failed with 400`
+      }
+    },
+    {
+      covers: 'a credential named inside a parameter value',
+      was: 'a redirect target carries its own parameters, and neither the parser nor the nested-scheme split reached them - percent-encoding hid the scheme, and a question mark is legal in a query',
+      shapes: {
+        'a question mark in an earlier value': `https://h/r?next=/x?token=${SECRET}`,
+        'an encoded redirect target': `https://h/oauth/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapp%2Fcb%3Faccess_token%3D${SECRET}`,
+        'a URL under an innocent name': `https://h/redirect?url=https://other/a?token=${SECRET}`,
+        'a URL under an innocent name, doubled colon': `https://h/redirect?url=https:://other/a?token=${SECRET}`,
+        'in the fragment': `https://h/a#next=/x?token=${SECRET}`,
+        'encoded, in the fragment': `https://h/a#redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
+        'on a URL that cannot be parsed': `https://h:99999/r?next=/x?token=${SECRET}`,
+        'encoded, on a URL that cannot be parsed': `https://h:99999/r?redirect_uri=https%3A%2F%2Fapp%3Ftoken%3D${SECRET}`,
+        'two values deep': `https://h/a?u=${enc(`x?v=${enc(`y?token=${SECRET}`)}`)}`,
+        'encoded, quoted in prose': `GET https://h/oauth?redirect_uri=${enc(`https://app/cb?access_token=${SECRET}`)} 302`,
+        'encoded, between innocent parameters': `https://h/r?a=1&next=%2Fx%3Ftoken%3D${SECRET}&b=2`
+      }
+    },
+    {
+      covers: 'how the credential is named',
+      was: 'the name was matched with the wrong sensitivity to case, or the scheme was',
+      shapes: {
+        'an uppercased parameter name': `https://h/a?ids=1,2&ACCESS_TOKEN=${SECRET}`,
+        'an uppercased scheme': `HTTPS://h/a?ids=1,2&token=${SECRET}`
+      }
+    },
+    {
+      covers: 'a URL used as a key rather than a value',
+      was: 'a key was judged for whether its value was a credential and then written out as it stood, so a cache keyed by request URL logged its tokens as key names',
+      shapes: {
+        'a cache key quoted in prose': `cache miss for https://h/a?token=${SECRET}`
+      }
+    }
+  ]
+
+  /**
+   * Every route a string can travel to reach the file. The first four are how a caller's own strings
+   * arrive; the fifth is what an HTTP logger does, redacting a URL itself and putting the result in
+   * the payload; the sixth is `redactUrl` judged alone, which is not a route to disk but is exported
+   * and so must not be a trap.
+   */
+  function routes(shape: string): Record<string, string> {
+    const err = { name: 'Error', message: shape, stack: `Error: ${shape}\n    at frame` }
+    const taken: Record<string, string> = {
+      'a payload value': JSON.stringify(redactValue({ text: shape })),
+      'a payload key': JSON.stringify(redactValue({ [shape]: 1 })),
+      'the message': serialize({ ...base, msg: shape }),
+      'an error message and stack': serialize({ ...base, err }),
+      'a payload value already passed through redactUrl': serialize({
+        ...base,
+        data: { url: redactUrl(shape) }
+      })
+    }
+    // A shape written as prose is not a URL, so there is nothing for `redactUrl` to be given.
+    if (!shape.includes(' ')) taken['redactUrl alone'] = redactUrl(shape)
+    return taken
   }
+
+  let counted = 0
+  for (const group of audit) {
+    for (const [name, shape] of Object.entries(group.shapes)) {
+      counted += 1
+      it(`${group.covers}: ${name}`, () => {
+        for (const [route, output] of Object.entries(routes(shape))) {
+          expect(output, `leaked through ${route}`).not.toContain(SECRET)
+        }
+      })
+    }
+  }
+
+  it('covers every shape and route the audit claims', () => {
+    // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
+    expect(counted).toBe(57)
+    expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
+    expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
+  })
 })
 
 /**
@@ -573,6 +707,15 @@ describe('no shape leaves a secret in the output', () => {
  * and so that anyone who later makes one of them pass has to come here and say so deliberately.
  */
 describe('the limits of a deny-list, held on purpose', () => {
+  it('stops looking into parameter values at the bound', () => {
+    // Two levels of nesting reach every shape seen in practice. Following the nesting as far as it
+    // went would let a crafted value recurse as deep as it is long, so the bound is the point rather
+    // than a shortfall - and the value beyond it is left exactly as it stands.
+    const inner = encodeURIComponent('y?token=SECRETVALUE')
+    const beyond = encodeURIComponent(`x?v=${encodeURIComponent(`y?w=${inner}`)}`)
+    expect(redactUrl(`https://h/a?u=${beyond}`)).toContain('SECRETVALUE')
+  })
+
   it('cannot see a credential whose name is outside the vocabulary', () => {
     // `sig` names nothing. Redacting it would mean redacting every value of every parameter, which
     // costs the diagnostic value the log exists for.

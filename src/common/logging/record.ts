@@ -70,7 +70,15 @@ export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 
  * or JSON blob, or any bare value whose name gives nothing away. That is inherent to naming
  * credentials rather than detecting them, not a gap waiting to be closed: the alternative is
  * redacting every value of every parameter, which would take the diagnostic value of the log with it.
- * Adding a name to this list is how coverage grows.
+ *
+ * Adding a name is how coverage grows, and **a name of three or four letters belongs in
+ * `SECRET_WORDS`, never in `SECRET_SUBSTRINGS`.** `sig` is the example to learn from, since an Azure
+ * storage signature is the most likely name to be wanted next: as a substring it matches sixteen
+ * identifiers in this app and two hundred uses of them, `assignee`, `assign`, `assignToPane`,
+ * `assigned`, `assignProject`, `assignments` and `signal` among them. Work item assignees and
+ * workspace-to-project assignment are core domain concepts here, so a substring `sig` would silently
+ * redact a large part of what the log is for - the same defect unanchored `pat` had against paths.
+ * Anchored as a word it matches `sig` and `?sig=` and leaves every one of those alone.
  */
 
 /**
