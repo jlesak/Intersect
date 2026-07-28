@@ -489,8 +489,11 @@ const BARE_VALUE_END = new Set([...' \t\n\r\f,;&}])>'])
 
 /**
  * An authorization scheme word, which is what a header's value begins with rather than being the
- * credential itself. Left in place, since the shape pass has already taken the token behind it and
- * which scheme was in use is worth reading.
+ * credential itself. Left in place, because taking it would take the wrong half of the pair: the value
+ * a name scan collects after `authorization:` is the scheme word, so redacting it hides which scheme
+ * was in use - which is worth reading and is not a secret - and leaves the token behind it standing.
+ * The shape pass is what takes that token, and only once it is twenty characters long, so a short one
+ * quoted this way does survive.
  */
 const AUTH_SCHEMES = new Set(['basic', 'bearer'])
 

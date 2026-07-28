@@ -233,19 +233,47 @@ Applied in `record.ts` at serialization, so no call site can forget it.
 - Every URL surface that can carry a credential is redacted: userinfo (`user:PAT@host`), the path,
   the query string, and the fragment. Path matrix parameters (`;token=`) were a documented gap for as
   long as nothing looked at the path; scanning it closed them, since `;token=` is a named pair like
-  any other.
+  any other. The path and the fragment reach that scanner through one loop over one list of surfaces,
+  rather than a call each: written out separately they drifted, and the fragment spent a round holding
+  an authority - a whole second URL with a password in it - that nothing looked at.
+
+  What opens an authority is read generously, because a separator that is not literally `://` carries
+  exactly the same credential: a mistyped `https:://`, and an escaped `https:\/\/`, which is the form a
+  regular expression's source and a slash-escaping serialiser both produce. Nothing at all is required
+  in *front* of the scheme, and requiring a word boundary there hid `req_https://user:PAT@h/a` and
+  `2https://user:PAT@h/a` for as long as it stood.
+- **A string is redacted because the walk reaches every string, not because a field was named.** This
+  is the one structural guarantee in this section, and it is what the rest of it leans on:
+  - `serialize` assembles the wire object and then redacts *it*, whole. It does not redact a list of
+    fields. `err.name` beside a redacted `err.message`, and `ts`, `level`, `proc` and `scope` copied
+    out verbatim while the fallback line redacted all five, were the four leaks that list produced.
+    A field added to the record later is covered before anybody thinks about it.
+  - Inside the walk, a branch that describes its value with a string hands the string back and one
+    choke point redacts it. A `URL`, a `RegExp`'s source, a typed array's tag, a `Date` - each is text
+    taken from the caller, and each used to be redacted, or not, by its own branch. A branch added
+    later is covered the same way.
+  - A `URL` instance is handed on as text, so it takes the route the same text written as a string
+    takes. It used to go straight to `redactUrl`, which is a narrower scan.
+  - A string offered as one URL is divided at every scheme before any of it is parsed, so a URL joined
+    into another is reached whatever surface it landed on and whether or not the outer one parses.
 - Every rule is reachable from every surface, and each is applied by one implementation rather than
   copied per surface. Query, fragment, path and unparseable text all reach the same scanner, which
   recurses into each decoded parameter value to a bounded depth.
 
-  **This is a property to keep, not one the structure guarantees.** An earlier version of this
-  section claimed there was "no way to add a rule to only half the surfaces"; that was wrong twice
-  over. There are several entry points - `redactValue` for payloads, `redactUrl` for a caller holding
-  a URL, and the free-text scanner behind both - and a rule added to one does not appear in the
-  others. The shape detector was added to free text and not to `redactUrl`'s parseable branch, and
-  the guard that stops a rule from rewriting a marker an earlier pass wrote was present in the
-  URL-run splitter and absent from its sibling that scans named pairs. Both are the same defect the
-  sentence claimed had been designed out. Adding a rule means checking every entry point by hand.
+  **For strings inside a record this now follows from the structure above. For `redactUrl` called
+  directly it remains a property to keep.** An earlier version of this section claimed there was "no
+  way to add a rule to only half the surfaces"; that was wrong four times over, and every one was the
+  same defect: the shape detector added to free text and not to `redactUrl`'s parseable branch; the
+  marker guard present in the URL-run splitter and absent from its sibling that scans named pairs; the
+  fragment given the shape rules while the path was given the scanner; the four identity fields left
+  out of a list of fields to redact.
+
+  What is left of the gap is one seam, named here rather than left to be found: the vocabulary's
+  **named-pair scan** (`pat=SECRET`, `"pat": "SECRET"` written anywhere in a string) belongs to the
+  free-text route and not to `redactUrl`. So `redactUrl('https://h/pat=SECRET/x')` keeps the value,
+  while the same text logged as a string or as a `URL` does not. Every route to disk goes through
+  `serialize`, which applies the free-text route to every string it writes, so this is a trap for a
+  caller who uses `redactUrl` for something other than logging - not a hole in the file.
 - **Redaction is applied more than once to the same text, so every rule must be stable under
   reapplication.** An HTTP logger redacts a URL itself and `serialize` redacts the payload that
   result lands in; the second pass is deliberate, because it is what makes the safety of the log
@@ -254,6 +282,13 @@ Applied in `record.ts` at serialization, so no call site can forget it.
   corrupts it further on each pass. The audit asserts stability shape by shape: it measured only
   whether the secret survived, and read as fully green while 51 of its 86 shapes were growing a
   bracket per pass.
+
+  The second pass must also not *count*. An authority reduced to `[redacted]:[redacted]` carries no
+  credential, and rewriting it again reported two removals for a line from which nothing was removed -
+  which is the count reporting phantoms on every re-logged URL, and the count is the anomaly signal.
+  The marker is compared exactly wherever this is guarded, never as a prefix: a value that merely
+  begins with a marker is a value, and reading the two as the same thing is how `pat=[redacted]SECRET`
+  once got through.
 - **A value is also redacted when its shape says credential, regardless of its name.** Two shapes
   qualify, both verifiable by construction rather than by guesswork: a JWT (`eyJ`, which is what
   base64 makes of the `{"` opening every JWT header, followed by base64url and two structural dots),
@@ -275,8 +310,15 @@ Applied in `record.ts` at serialization, so no call site can forget it.
 ### What redaction does not cover
 
 Stated plainly, because the rest of this section reads as though it were exhaustive and it is not.
-Each limit below is asserted as a test, so the scope the code has and the scope described here cannot
-drift apart silently.
+Each limit below is asserted as a test, so a limit that stops being true fails loudly instead of
+quietly.
+
+That is all those tests give, and the sentence here used to promise more: that "the scope the code has
+and the scope described here cannot drift apart silently". They cannot make that promise. A test can
+only hold a limit somebody wrote down, and the two worst leaks this module has had were limits nobody
+had written down at all - a fragment carrying a whole second URL, and a nested URL sitting at the very
+start of a path. The mechanism that does cover the unwritten cases is the structural one above: a
+string is redacted because the walk reaches it.
 
 - **Free text is scanned for URLs, for the two value shapes above, and for the vocabulary's names
   written as a pair** (`pat=SECRET`, `"pat": "SECRET"`) - and for nothing else. So
@@ -308,22 +350,38 @@ drift apart silently.
 An allow-list that redacts every parameter value and keeps every name would close the first two by
 construction. It was proposed, and deliberately not adopted: the deny-list is kept and hardened
 shape-by-shape instead, which makes the committed redaction audit the load-bearing safety artefact
-rather than a convenience. Treat it as one - 86 shapes across 6 routes, each named with the class it
+rather than a convenience. Treat it as one - 105 shapes across 7 routes, each named with the class it
 stands for and the failure it was written against.
 
 Its known weakness is that it enumerates **shapes** while the protections are about **classes**, and
 a group holding every instance of its class cannot be told from one holding a convenient subset. That
-gap has misled the work three times, and the third was the worst: a group covering URLs glued
+gap has hidden a defect four times, and the worst of them was this: a group covering URLs glued
 together held only instances with the credential in a query parameter, so deleting the code that
 catches the userinfo form of the same class turned one test red and read as safe. It reopened a
 plaintext password leak. When a mechanism looks unused, the audit is not evidence that it is.
 
-The residual that matters most is the vocabulary, and it is nearly unchanged by ten rounds of work:
+Two guards against that, both of which the audit cannot give:
+
+- Two rows read the module's own structure and fail when it changes: the branches of the value walk,
+  and the fields of `LogRecord`. Adding either without proving where its text is redacted is what has
+  to fail. The list of carriers they hold is still a list, but it can no longer fall behind the code.
+- A green suite is not evidence. When a shape is added, the question to ask is what else is in its
+  class - the round that added seven glued-URL shapes and no offset-zero instance is the example.
+
+The residual that matters most is the vocabulary, and it is nearly unchanged by eleven rounds of work:
 every mechanism for *finding* a named credential was improved, and what a credential is *called* was
-extended by two words, `sig` and `credential`, each on this app's own evidence. `key` was weighed on
-the same standard and declined, because a Jira issue key is the central domain identifier here. Shape detection is the only part of this design that does not depend on
-knowing the name, which is why it closes limits the vocabulary never could - and why the two shapes
-it matches were chosen for being provable rather than for being useful.
+extended by two words. `credential` is held on this app's own evidence - `otoManager.ts:75` scrubs
+`CREDENTIALS?` out of a spawned environment. **`sig` is not, and it is the exception to the standard
+this section sets.** There is no shared access signature anywhere in `src`: `blob.core`,
+`sharedaccess`, `[?&]sig=` and `SharedKey` return nothing outside the logging module. It was added
+pre-emptively, against a credential this app does not currently handle, and it is recorded as an
+exception rather than dressed up as evidence, because otherwise the standard that declined `key` means
+nothing for the next word. It is kept because it costs nothing measurable: anchored as a whole word it
+damages none of the 36 `sig`-containing identifiers here. `key` was weighed on the same standard and
+declined, because a Jira issue key is the central domain identifier here. Shape detection is the only
+part of this design that does not depend on knowing the name, which is why it closes limits the
+vocabulary never could - and why the two shapes it matches were chosen for being provable rather than
+for being useful.
 
 The threat model is a log file pasted into a GitHub issue, not a local attacker: the file is already
 as private as the SQLite database beside it.
