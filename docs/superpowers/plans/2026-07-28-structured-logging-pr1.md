@@ -18,7 +18,10 @@
 - Log file: `<userData>/logs/intersect-YYYY-MM-DD.jsonl`, one JSON object per line. Retention 7 days.
 - `MAX_RECORD_BYTES = 8192`. Records exceeding it are shrunk deterministically, never dropped.
 - Level floor from `INTERSECT_LOG_LEVEL`; default `debug` in development, `info` when packaged.
-- Redaction key pattern, used verbatim: `/pat|token|cookie|password|secret|authorization|bearer|apikey/i`
+- Redaction vocabulary: `pat`, `token`, `cookie`, `password`, `secret`, `authorization`, `bearer`,
+  `apikey`. Short alternatives must match only at a word boundary (string start or end, a `_`/`-`/`.`
+  separator, or a camelCase transition). An earlier draft of this plan pinned a bare-substring regex
+  verbatim; that was wrong and is superseded - see the Redaction section of the spec for why.
 - PTY output is never logged as content anywhere - byte counts only.
 - Logging must never throw into a caller and never change control flow.
 - No new runtime dependencies.

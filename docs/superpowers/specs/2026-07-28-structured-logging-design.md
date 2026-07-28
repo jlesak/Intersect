@@ -207,10 +207,25 @@ and those lines never reach the file.
 
 Applied in `record.ts` at serialization, so no call site can forget it.
 
-- Any key matching `/pat|token|cookie|password|secret|authorization|bearer|apikey/i` serializes as
-  `"[redacted]"`, at any depth.
-- URLs keep origin and path. The query string is stripped when a parameter name matches the same
-  pattern.
+- A key naming a credential serializes as `"[redacted]"`, at any depth. The vocabulary is
+  `pat`, `token`, `cookie`, `password`, `secret`, `authorization`, `bearer`, `apikey`.
+- **Short alternatives match only at a word boundary**, meaning the start or end of the key, a
+  separator (`_`, `-`, `.`), or a camelCase transition. Long unambiguous alternatives may match as
+  substrings.
+
+  This is not cosmetic. Intersect is a workspace and terminal manager, so paths are its primary
+  domain object, and the credential field is itself literally named `pat`
+  (`src/common/domain.ts:837`, plus `AZURE_DEVOPS_PAT`) - so `pat` can neither be dropped nor left
+  unanchored. Unanchored, it redacts 17 path-shaped identifiers in the domain and IPC surface
+  (`filePath`, `folderPath`, `repoPath`, `targetPath`, `worktreePath`, `vttPath`, `backupPath`,
+  `originalPath`, `path`, and more) plus `patch` and `pattern`, which would make the log actively
+  misleading about the values the app handles most. Anchored, `pat`, `PAT`, `savedPat`,
+  `ado_pat` and `AZURE_DEVOPS_PAT` all redact while `path`, `patch`, `pattern`, `dispatch` and
+  `compatible` do not.
+- Every URL surface that can carry a credential is redacted: userinfo (`user:PAT@host`), the query
+  string, and the fragment. Path matrix parameters (`;jsessionid=`) are a known gap, kept because
+  the vocabulary recognises no session-id name, so closing it would require widening the vocabulary
+  rather than adding a surface.
 - PTY output and terminal snapshots are never logged as content.
 
 The threat model is a log file pasted into a GitHub issue, not a local attacker: the file is already
