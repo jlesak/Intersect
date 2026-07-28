@@ -532,7 +532,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       manual: createManualTimeEntryRepo(db, repoDeps),
       overrides: createTimeOverrideRepo(db, repoDeps),
       timer: createRunningTimerRepo(db, repoDeps),
-      now: () => Date.now()
+      now: () => Date.now(),
+      atomically: (fn) => tx(db, fn)
     })
   })
 

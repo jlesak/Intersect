@@ -1,5 +1,7 @@
+import type { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { SessionSummary } from '@common/domain'
+import { tx } from '../db/tx'
 import {
   createManualTimeEntryRepo,
   createRunningTimerRepo,
@@ -44,6 +46,8 @@ function makeIndex(sessions: SessionSummary[]): SessionIndex {
 }
 
 describe('timeTracking service', () => {
+  /** Kept in scope so the service's transactions run against the same database as the repos. */
+  let db: DatabaseSync
   let manual: ManualTimeEntryRepo
   let overrides: TimeOverrideRepo
   let timer: RunningTimerRepo
@@ -51,7 +55,7 @@ describe('timeTracking service', () => {
   let clock: number
 
   beforeEach(() => {
-    const db = makeTestDb()
+    db = makeTestDb()
     const deps = makeTestDeps()
     manual = createManualTimeEntryRepo(db, deps)
     overrides = createTimeOverrideRepo(db, deps)
@@ -63,13 +67,17 @@ describe('timeTracking service', () => {
     clock += ms
   }
 
-  const make = (sessions: SessionSummary[]): TimeTrackingService =>
+  const make = (
+    sessions: SessionSummary[],
+    manualRepo: ManualTimeEntryRepo = manual
+  ): TimeTrackingService =>
     createTimeTracking({
       sessions: makeIndex(sessions),
-      manual,
+      manual: manualRepo,
       overrides,
       timer,
-      now: () => clock
+      now: () => clock,
+      atomically: (fn) => tx(db, fn)
     })
 
   test('buckets sessions into local days of the shown week and derives issue keys', async () => {
@@ -249,7 +257,8 @@ describe('timeTracking service', () => {
       manual,
       overrides,
       timer,
-      now: () => clock
+      now: () => clock,
+      atomically: (fn) => tx(db, fn)
     })
     await svc.refreshWeek(WEEK)
     expect(index.refresh).toHaveBeenCalledOnce()
@@ -399,6 +408,21 @@ describe('timeTracking service', () => {
       })
       expect(manual.listByDays(['2026-07-28'])).toEqual([entry])
       expect(svc.getRunningTimer()).toBeNull()
+    })
+
+    test('a failed write leaves the timer running rather than destroying the span', () => {
+      const svc = make([], {
+        ...manual,
+        create: () => {
+          throw new Error('disk full')
+        }
+      })
+      const started = svc.startTimer('Refactor validators', 'FID2507-611')
+      advance(25 * 60_000)
+
+      expect(() => svc.stopTimer()).toThrow(/disk full/)
+      // The span is only recoverable while the row that holds its start is still there.
+      expect(svc.getRunningTimer()).toEqual(started)
     })
 
     test('a blank description falls back to the issue key rather than logging an unlabelled row', () => {

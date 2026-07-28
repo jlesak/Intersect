@@ -23,6 +23,11 @@ export interface TimeTrackingDeps {
   timer: RunningTimerRepo
   /** Injected so timer tests can advance the clock instead of sleeping. */
   now: () => number
+  /**
+   * Run several writes as one all-or-nothing unit. Stopping the timer both clears the running row
+   * and logs the span, and a half-applied stop would destroy time the user actually worked.
+   */
+  atomically: <T>(fn: () => T) => T
 }
 
 /**
@@ -193,15 +198,19 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
       // One reading of the clock for both the span and the day, so they can never disagree.
       const stoppedAt = deps.now()
       const durationMs = stoppedAt - running.startedAt
-      deps.timer.clear()
-      if (durationMs < MIN_TIMED_MS) return null
-      // Attributed to the day it was stopped, so a span crossing midnight lands on one day rather
-      // than being split across two - the same whole-session rule the auto entries follow.
-      return deps.manual.create({
-        day: dayKeyOf(stoppedAt),
-        description: timedDescription(running.description, running.issueKey),
-        issueKey: running.issueKey,
-        durationMs
+      // Clearing the running row and logging what it measured is one indivisible act: if the entry
+      // cannot be written the timer must keep running, never be silently thrown away.
+      return deps.atomically(() => {
+        deps.timer.clear()
+        if (durationMs < MIN_TIMED_MS) return null
+        // Attributed to the day it was stopped, so a span crossing midnight lands on one day rather
+        // than being split across two - the same whole-session rule the auto entries follow.
+        return deps.manual.create({
+          day: dayKeyOf(stoppedAt),
+          description: timedDescription(running.description, running.issueKey),
+          issueKey: running.issueKey,
+          durationMs
+        })
       })
     }
   }
