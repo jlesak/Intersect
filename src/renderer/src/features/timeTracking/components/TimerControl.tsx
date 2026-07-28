@@ -1,6 +1,6 @@
-import { formatDuration } from '@renderer/features/sessions'
 import { useNow } from '@renderer/shared/ui/useNow'
 import { useTimeTrackingStore } from '../store'
+import { formatElapsed } from '../time'
 
 /**
  * Start/Stop for the work timer, with the elapsed span while one runs. Mounted both in the Time
@@ -34,7 +34,7 @@ export function TimerControl() {
 
   return (
     <div className="ix-timer ix-timer--running">
-      <span className="ix-timer__elapsed">{formatDuration(Math.max(0, now - timer.startedAt))}</span>
+      <span className="ix-timer__elapsed">{formatElapsed(now - timer.startedAt)}</span>
       {what && <span className="ix-timer__what">{what}</span>}
       <button
         type="button"

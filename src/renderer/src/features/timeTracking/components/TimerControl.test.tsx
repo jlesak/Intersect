@@ -65,21 +65,25 @@ describe('TimerControl', () => {
     await act(async () => {
       render(<TimerControl />)
     })
-    expect(text('.ix-timer__elapsed')).toBe('25m')
+    expect(text('.ix-timer__elapsed')).toBe('25:00')
     expect(text('.ix-timer__what')).toContain('Refactor validators')
     expect(text('.ix-timer__what')).toContain('FID2507-611')
     expect(text('.ix-timer__action')).toBe('Stop')
   })
 
-  test('the elapsed span advances while it runs', async () => {
+  test('the elapsed span advances a second at a time while it runs', async () => {
     useTimeTrackingStore.setState({ timer: TIMER })
     await act(async () => {
       render(<TimerControl />)
     })
     await act(async () => {
-      vi.advanceTimersByTime(60_000)
+      vi.advanceTimersByTime(1_000)
     })
-    expect(text('.ix-timer__elapsed')).toBe('26m')
+    expect(text('.ix-timer__elapsed')).toBe('25:01')
+    await act(async () => {
+      vi.advanceTimersByTime(59_000)
+    })
+    expect(text('.ix-timer__elapsed')).toBe('26:00')
   })
 
   test('an unattributed timer shows the elapsed span and nothing else to read', async () => {
@@ -87,7 +91,7 @@ describe('TimerControl', () => {
     await act(async () => {
       render(<TimerControl />)
     })
-    expect(text('.ix-timer__elapsed')).toBe('25m')
+    expect(text('.ix-timer__elapsed')).toBe('25:00')
     expect(document.querySelector('.ix-timer__what')).toBeNull()
   })
 
