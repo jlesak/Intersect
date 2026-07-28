@@ -125,17 +125,27 @@ describe('redactValue', () => {
 
   it('keeps the text that follows a redacted URL', () => {
     const out = redactValue({
-      pair: 'two https://h/a?token=x;https://h/b?token=y done',
       sentence: 'Request https://h/a?api-version=7.1&token=abc, status 401',
       bracketed: '(see https://h/a?token=x)',
       final: 'Failed at https://h/a?token=x.',
       quoted: '"https://h/a?token=x"'
     }) as Record<string, string>
-    expect(out.pair).toBe(`two https://h/a?token=${REDACTED};https://h/b?token=${REDACTED} done`)
     expect(out.sentence).toBe(`Request https://h/a?api-version=7.1&token=${REDACTED}, status 401`)
     expect(out.bracketed).toBe(`(see https://h/a?token=${REDACTED})`)
     expect(out.final).toBe(`Failed at https://h/a?token=${REDACTED}.`)
     expect(out.quoted).toBe(`"https://h/a?token=${REDACTED}"`)
+  })
+
+  it('redacts two glued URLs as one, losing the second as text but not as a secret', () => {
+    // The split that used to keep the second one legible was a rule that had to agree with every
+    // other rule about where a URL starts, and it once did not. Searching parameter values covers
+    // every credential it was protecting, so it is gone and this is what it cost: the second URL is
+    // absorbed into the first parameter value that gets redacted. Neither token survives.
+    const out = redactValue({ pair: 'two https://h/a?token=x;https://h/b?token=y done' }) as {
+      pair: string
+    }
+    expect(out.pair).toBe(`two https://h/a?token=${REDACTED} done`)
+    expect(out.pair).not.toContain('h/b')
   })
 
   it('loses trailing text rather than leaking, when a URL runs into it without a space', () => {
@@ -186,6 +196,31 @@ describe('redactValue', () => {
     expect(out.headers.token).toBe(REDACTED)
     expect(out.headers.accept).toBe('json')
     expect(out.tags).toEqual(['a', 'b'])
+  })
+
+  it('keeps the meaning of the other built-ins a caller reaches for', () => {
+    const out = redactValue({
+      target: new URL('https://h/a?token=abc'),
+      match: /^a.*z$/i,
+      pending: Promise.resolve(1),
+      bytes: new Uint8Array([1, 2, 3]),
+      buffer: new ArrayBuffer(8)
+    }) as Record<string, string>
+    // A URL is the likeliest of these here, and it used to become `{}` - the request and any
+    // credential in it gone.
+    expect(out.target).toBe(`https://h/a?token=${REDACTED}`)
+    expect(out.match).toBe('/^a.*z$/i')
+    expect(out.pending).toBe('[promise]')
+    // Described, not transcribed: enumerating a typed array yields a property per byte, which buries
+    // the record and then costs the whole payload when the line is shrunk to fit.
+    expect(out.bytes).toBe('Uint8Array(3 bytes)')
+    expect(out.buffer).toBe('ArrayBuffer(8 bytes)')
+  })
+
+  it('describes a large binary payload instead of drowning the record in it', () => {
+    const parsed = JSON.parse(serialize({ ...base, data: { blob: new Uint8Array(200000) } }))
+    expect(parsed.data.blob).toBe('Uint8Array(200000 bytes)')
+    expect(parsed.msg).toBe('board fetched')
   })
 
   it('describes an invalid Date instead of throwing on it', () => {
@@ -340,6 +375,14 @@ describe('redactUrl', () => {
   it('reaches a parameter nested two values deep', () => {
     const inner = encodeURIComponent('y?token=S3CR3T')
     expect(redactUrl(`https://h/a?u=${encodeURIComponent(`x?v=${inner}`)}`)).not.toContain('S3CR3T')
+  })
+
+  it('keeps every value of a repeated parameter, not only the one it redacted', () => {
+    // Redacting used to be done with `set`, which drops every repeat of a name it touches, so a
+    // second value under the same name vanished for being adjacent to a credential.
+    const out = redactUrl('https://h/a?u=x?token=S3CR3T&u=keepme')
+    expect(out).not.toContain('S3CR3T')
+    expect(out).toContain('keepme')
   })
 
   it('leaves a parameter value carrying no credential exactly as it arrived', () => {
@@ -624,9 +667,11 @@ describe('the redaction audit', () => {
     },
     {
       covers: 'a credential named inside a parameter value',
-      was: 'a redirect target carries its own parameters, and neither the parser nor the nested-scheme split reached them - percent-encoding hid the scheme, and a question mark is legal in a query',
+      was: 'a redirect target carries its own parameters, and nothing reached them - percent-encoding hid the scheme, and a question mark is legal in a query so the parser saw one value',
       shapes: {
         'a question mark in an earlier value': `https://h/r?next=/x?token=${SECRET}`,
+        'a semicolon separating pairs': `https://h/a?x=1;token=${SECRET}`,
+        'an encoded semicolon inside a value': `https://h/a?state=a%3D1%3Btoken%3D${SECRET}`,
         'an encoded redirect target': `https://h/oauth/authorize?client_id=1&redirect_uri=https%3A%2F%2Fapp%2Fcb%3Faccess_token%3D${SECRET}`,
         'a URL under an innocent name': `https://h/redirect?url=https://other/a?token=${SECRET}`,
         'a URL under an innocent name, doubled colon': `https://h/redirect?url=https:://other/a?token=${SECRET}`,
@@ -637,6 +682,19 @@ describe('the redaction audit', () => {
         'two values deep': `https://h/a?u=${enc(`x?v=${enc(`y?token=${SECRET}`)}`)}`,
         'encoded, quoted in prose': `GET https://h/oauth?redirect_uri=${enc(`https://app/cb?access_token=${SECRET}`)} 302`,
         'encoded, between innocent parameters': `https://h/r?a=1&next=%2Fx%3Ftoken%3D${SECRET}&b=2`
+      }
+    },
+    {
+      covers: 'a credential in the authority of a URL nested inside a parameter value',
+      was: 'searching a value looked only for named parameters, never for userinfo, so basic auth inside an encoded redirect target went unexamined - the one surface the two scanners disagreed about',
+      shapes: {
+        'a user and a password, encoded': `https://h/r?next=${enc(`https://user:${SECRET}@other/a`)}`,
+        'a password alone, encoded': `https://h/r?next=${enc(`https://:${SECRET}@other/a`)}`,
+        'unencoded, under an innocent name': `https://h/r?next=https://user:${SECRET}@other/a`,
+        'in the fragment, encoded': `https://h/a#next=${enc(`https://user:${SECRET}@other/a`)}`,
+        'on a URL that cannot be parsed': `https://h:99999/r?next=${enc(`https://user:${SECRET}@other/a`)}`,
+        'two values deep': `https://h/a?u=${enc(`v=${enc(`https://user:${SECRET}@other/a`)}`)}`,
+        'quoted in prose': `GET https://h/r?next=${enc(`https://user:${SECRET}@other/a`)} 302`
       }
     },
     {
@@ -693,7 +751,7 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(57)
+    expect(counted).toBe(66)
     expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
     expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
   })
@@ -714,6 +772,13 @@ describe('the limits of a deny-list, held on purpose', () => {
     const inner = encodeURIComponent('y?token=SECRETVALUE')
     const beyond = encodeURIComponent(`x?v=${encodeURIComponent(`y?w=${inner}`)}`)
     expect(redactUrl(`https://h/a?u=${beyond}`)).toContain('SECRETVALUE')
+  })
+
+  it('never looks at the path, so a matrix parameter keeps its credential', () => {
+    // Disclosed rather than implied away: `token` is a first-class name in the vocabulary, and this
+    // survives only because the path is not a surface anything scans.
+    expect(redactUrl('https://h/a;token=SECRETVALUE')).toContain('SECRETVALUE')
+    expect(redactUrl('https://h/a;jsessionid=SECRETVALUE?ids=1')).toContain('SECRETVALUE')
   })
 
   it('cannot see a credential whose name is outside the vocabulary', () => {
@@ -771,6 +836,24 @@ describe('no shape stalls the serializer', () => {
       msg: Array.from({ length: 20000 }, (_, i) => `https://h/${i}?token=x`).join(';')
     },
     'a key of nothing but capitals': { ...base, data: { [`${'A'.repeat(160000)}_PAT`]: 1 } },
+    // Reading each value back by name is a scan of the whole list per parameter. A run of glued URLs
+    // never showed it, because every one of those carries a single parameter.
+    'one URL of forty thousand parameters': {
+      ...base,
+      msg: `https://h/a?${Array.from({ length: 40000 }, (_, i) => `k${i}=v${i}`).join('&')}`
+    },
+    'a fragment of forty thousand parameters': {
+      ...base,
+      msg: `https://h/a#${Array.from({ length: 40000 }, (_, i) => `k${i}=v${i}`).join('&')}`
+    },
+    'a cause chain four thousand deep': {
+      ...base,
+      level: 'error',
+      err: Array.from({ length: 4000 }).reduce<NormalizedError>(
+        (cause) => ({ name: 'Error', message: 'wrapped', cause }),
+        { name: 'Error', message: 'root' }
+      )
+    },
     'a long encoded parameter value': { ...base, msg: `https://h/a?u=${'%41'.repeat(53000)}` },
     'a value of many encoded pairs': { ...base, msg: `https://h/a?u=${'k%3Dv%26'.repeat(20000)}` },
     'a deeply nested encoded value': {
@@ -795,6 +878,66 @@ describe('no shape stalls the serializer', () => {
       const line = serialize(record)
       expect(Date.now() - startedAt).toBeLessThan(500)
       expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
+    })
+  }
+
+  /**
+   * A budget catches a stall in a shape somebody listed. This catches the shape of the stall itself.
+   *
+   * Eight of the nine superlinear defects in this module were found by someone measuring a case they
+   * happened to think of, and the eighth was in a surface the budget above already covered - one URL
+   * of many parameters, where the list only ever held many URLs of one parameter each. A growth
+   * assertion does not need the case to be thought of: quadratic work at four times the size costs
+   * sixteen times as much, and linear work costs four, so anything sixteen-ish fails whichever
+   * expression is holding it.
+   */
+  const growth: Record<string, (size: number) => LogRecord> = {
+    'parameters in one query': (size) => ({
+      ...base,
+      msg: `https://h/a?${Array.from({ length: size }, (_, i) => `k${i}=v${i}`).join('&')}`
+    }),
+    'parameters in one fragment': (size) => ({
+      ...base,
+      msg: `https://h/a#${Array.from({ length: size }, (_, i) => `k${i}=v${i}`).join('&')}`
+    }),
+    'characters in one key': (size) => ({ ...base, data: { [`${'A'.repeat(size)}_PAT`]: 1 } }),
+    'characters of punctuation after a URL': (size) => ({
+      ...base,
+      msg: `https://h/a${'.'.repeat(size)}x`
+    }),
+    'characters that look like a scheme': (size) => ({
+      ...base,
+      msg: `${'a.'.repeat(size / 2)} https://h/a?token=x`
+    }),
+    'links in one cause chain': (size) => ({
+      ...base,
+      level: 'error',
+      err: Array.from({ length: size }).reduce<NormalizedError>(
+        (cause) => ({ name: 'Error', message: 'wrapped', cause }),
+        { name: 'Error', message: 'root' }
+      )
+    }),
+    'characters in one encoded value': (size) => ({
+      ...base,
+      msg: `https://h/a?u=${'%41'.repeat(size)}`
+    })
+  }
+
+  const elapsed = (record: LogRecord): number => {
+    const startedAt = performance.now()
+    serialize(record)
+    return performance.now() - startedAt
+  }
+
+  for (const [name, build] of Object.entries(growth)) {
+    it(`grows no worse than linearly with ${name}`, () => {
+      // Warmed first, so the ratio measures the algorithm rather than the just-in-time compiler.
+      elapsed(build(8000))
+      const small = Math.max(elapsed(build(10000)), 0.5)
+      const large = elapsed(build(40000))
+      // Four times the input. Linear would be about 4, quadratic about 16; 10 leaves room for noise
+      // on a small absolute measurement while still failing on genuinely quadratic growth.
+      expect(large / small).toBeLessThan(10)
     })
   }
 })
@@ -887,9 +1030,14 @@ describe('serialize', () => {
   })
 
   it('still emits an identifying line when the record cannot be rendered at all', () => {
-    const err: NormalizedError = { name: 'Error', message: 'looping' }
-    err.cause = err
-    const line = serialize({ ...base, level: 'error', err })
+    // The record's own payload property refuses to be read, so nothing downstream can run.
+    const hostile = {
+      ...base,
+      get data(): never {
+        throw new Error('unreadable record')
+      }
+    }
+    const line = serialize(hostile)
     expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
     const parsed = JSON.parse(line)
     expect(parsed.msg).toBe('board fetched')
@@ -897,6 +1045,33 @@ describe('serialize', () => {
     expect(parsed.data.truncated).toBe(true)
     // Distinguishable from a record merely shed for size, or a defect here reads as sparse logging.
     expect(parsed.data.serializeFailed).toBe(true)
+  })
+
+  it('emits a line even when the identifying fields themselves cannot be read', () => {
+    // The fallback used to read these fields a second time, through the very getter that had just
+    // thrown, so the failure escaped into the caller of a logging call.
+    const hostile = {
+      ...base,
+      get msg(): never {
+        throw new Error('unreadable field')
+      }
+    }
+    let line = ''
+    expect(() => (line = serialize(hostile))).not.toThrow()
+    const parsed = JSON.parse(line)
+    expect(parsed.data.serializeFailed).toBe(true)
+    expect(parsed.msg).toBe('')
+  })
+
+  it('clamps a cause chain rather than being defeated by it', () => {
+    // A self-referential chain is bounded on the way in, so the record survives with a chain of the
+    // depth `normalizeError` would itself have produced instead of degrading to an identity line.
+    const err: NormalizedError = { name: 'Error', message: 'looping' }
+    err.cause = err
+    const parsed = JSON.parse(serialize({ ...base, level: 'error', err }))
+    expect(parsed.err.message).toBe('looping')
+    expect(parsed.data?.serializeFailed).toBeUndefined()
+    expect(messages(parsed.err)).toHaveLength(6)
   })
 
   it('marks only a failure, never a record shed for its size', () => {
@@ -948,9 +1123,17 @@ describe('serialize', () => {
 
   it('bounds the failure line too, not only the one shed for size', () => {
     const huge = String.fromCharCode(1).repeat(20000)
-    const err: NormalizedError = { name: 'Error', message: 'looping' }
-    err.cause = err
-    const hostile = { ts: huge, level: huge, proc: huge, pid: 4821, scope: huge, msg: huge, err }
+    const hostile = {
+      ts: huge,
+      level: huge,
+      proc: huge,
+      pid: 4821,
+      scope: huge,
+      msg: huge,
+      get data(): never {
+        throw new Error('unreadable record')
+      }
+    }
     const line = serialize(hostile as unknown as LogRecord)
     expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
     expect(JSON.parse(line).data.serializeFailed).toBe(true)

@@ -79,6 +79,11 @@ export const LEVEL_ORDER: Record<LogLevel, number> = { error: 0, warn: 1, info: 
  * workspace-to-project assignment are core domain concepts here, so a substring `sig` would silently
  * redact a large part of what the log is for - the same defect unanchored `pat` had against paths.
  * Anchored as a word it matches `sig` and `?sig=` and leaves every one of those alone.
+ *
+ * Adding the word is not quite the whole of the extension mechanism either, because the splitting is
+ * imperfect on a plural of an acronym: `PATs` divides into `pa` and `ts`, so it is not recognised,
+ * while `PATList` and `pats` both are. No name of that shape exists here, and a new one should be
+ * checked against the tests that hold the vocabulary rather than assumed.
  */
 
 /**
@@ -110,10 +115,10 @@ const SECRET_WORDS = new Set(['pat'])
 /**
  * The start of a URL: a scheme, then the slashes that open the authority.
  *
- * Three patterns need to recognise this and they are built from this one source rather than written
- * out three times. Spelling it out repeatedly is what let them drift: widening one to accept a
- * mistyped `https:://` left the other two refusing it, and a credential escaped through each of the
- * two for as long as they disagreed.
+ * Both patterns that need to recognise this are built from this one source rather than spelling it
+ * out twice. Spelling it out repeatedly is what let them drift: widening one to accept a mistyped
+ * `https:://` left the others refusing it, and a credential escaped through each of them for as long
+ * as they disagreed.
  *
  * The scheme is length-bounded because `.`, `-` and `+` are not word characters, so a word boundary
  * opens a fresh start position after every one of them. Left unbounded, each start position rescans
@@ -146,13 +151,6 @@ const EMBEDDED_URL = new RegExp(String.raw`\b${SCHEME}\S+`, 'gi')
  * rescanned from every position in it.
  */
 const CLOSING_PUNCTUATION = new Set([...`"'<>,;.:!?)]}`])
-
-/**
- * Where a second URL begins inside one whitespace-free run, behind a character no scheme may
- * contain. Two URLs written back to back must each be redacted in their own right, rather than the
- * second being swallowed into a parameter value of the first and vanishing with it.
- */
-const NESTED_SCHEME = new RegExp(String.raw`[^a-z0-9+.-]${SCHEME}`, 'gi')
 
 const MAX_STACK_CHARS = 2000
 
@@ -283,6 +281,16 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
     return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString()
   }
   if (value instanceof Error) return redactError(normalizeError(value))
+  // A URL is the likeliest of these to be logged by a module about logging URLs, and it holds
+  // everything internally, so enumerating its properties would have emitted `{}` in place of the
+  // request being diagnosed - and in place of the credential it might carry.
+  if (value instanceof URL) return redactUrl(value.href)
+  if (value instanceof RegExp) return value.toString()
+  if (value instanceof Promise) return '[promise]'
+  // Binary is described rather than transcribed: enumerating a typed array yields one property per
+  // byte, which buries the record and then costs the whole payload when the line is shrunk to fit.
+  if (ArrayBuffer.isView(value)) return `${value[Symbol.toStringTag] ?? 'binary'}(${value.byteLength} bytes)`
+  if (value instanceof ArrayBuffer) return `ArrayBuffer(${value.byteLength} bytes)`
   if (value instanceof Set) return [...value].map((item) => redactAny(item, seen))
   if (value instanceof Map) {
     const out: Record<string, unknown> = {}
@@ -337,32 +345,29 @@ function redactText(value: string): string {
 }
 
 /**
- * Redact every URL inside one whitespace-free run of text.
+ * Redact one whitespace-free run of text that begins with a URL.
  *
- * The run is deliberately over-collected, so it is handed back in pieces: the closing punctuation is
- * put back untouched, a second URL glued onto the first is separated out and redacted in its own
- * right, and the single character that separates them is passed through as itself. Every remaining
- * piece begins with a scheme and goes through `redactUrl`.
+ * The run is deliberately over-collected, and the only thing given back is the punctuation closing
+ * the sentence or bracket around it. Everything else goes to `redactUrl` in one piece: that is the
+ * invariant here, that nothing leaves without having been offered for redaction.
  *
- * That is the invariant this function exists to hold: nothing leaves here without first having been
- * offered for redaction. Text may be lost when a URL absorbs prose that followed it without a space,
- * and that is the direction to fail in - losing a fragment of a log line costs a little context,
- * whereas letting one token past costs a credential.
+ * A second URL glued onto the first used to be split out and redacted separately. It no longer is,
+ * because searching a parameter's value now covers every credential the split was protecting, and a
+ * rule that has to agree with the rest of them is a rule that can disagree - that one already did,
+ * by refusing a scheme separator the others had learned to accept. What is lost with it is text and
+ * not secrecy: two URLs glued together are redacted as one, so the second is absorbed into the first
+ * parameter value that gets redacted and is no longer legible.
+ *
+ * Text may also be lost when a URL absorbs prose that followed it without a space. Both are the
+ * direction to fail in: losing a fragment of a log line costs a little context, whereas letting one
+ * token past costs a credential.
  */
 function redactRun(run: string): string {
   let cut = run.length
   while (cut > 0 && CLOSING_PUNCTUATION.has(run.charAt(cut - 1))) cut -= 1
   const urls = run.slice(0, cut)
   const trailing = run.slice(cut)
-  let out = ''
-  let from = 0
-  for (const nested of urls.matchAll(NESTED_SCHEME)) {
-    const at = nested.index
-    if (at <= from) continue
-    out += redactUrl(urls.slice(from, at)) + urls.charAt(at)
-    from = at + 1
-  }
-  return `${out}${redactUrl(urls.slice(from))}${trailing}`
+  return `${redactUrl(urls)}${trailing}`
 }
 
 /** Redact an error and its causes, since a client's message and stack routinely quote the request. */
@@ -393,22 +398,31 @@ function redactFragment(hash: string): string {
   const query = body.indexOf('?')
   const route = query !== -1 && query < equals
   const prefix = route ? body.slice(0, query + 1) : ''
-  const params = new URLSearchParams(route ? body.slice(query + 1) : body)
+  const params = redactParameters(new URLSearchParams(route ? body.slice(query + 1) : body))
+  return params === undefined ? hash : `#${prefix}${params}`
+}
+
+/**
+ * Redact a parameter list, or report that there was nothing to redact by returning nothing.
+ *
+ * The list is rebuilt rather than edited in place. Editing meant reading each value back by name,
+ * which is a scan of the whole list per parameter and so quadratic in their number; and it meant
+ * `set`, which drops every repeat of a name it touches, silently losing the other values.
+ */
+function redactParameters(params: URLSearchParams): string | undefined {
+  const rebuilt = new URLSearchParams()
   let redacted = false
-  for (const key of [...params.keys()]) {
-    if (isSecretName(key)) {
-      params.set(key, REDACTED)
+  for (const [name, value] of params) {
+    if (isSecretName(name)) {
+      rebuilt.append(name, REDACTED)
       redacted = true
       continue
     }
-    const value = params.get(key) ?? ''
-    const inner = redactInsideValue(value, 1)
-    if (inner !== value) {
-      params.set(key, inner)
-      redacted = true
-    }
+    const inner = redactCredentials(value, 1)
+    if (inner !== value) redacted = true
+    rebuilt.append(name, inner)
   }
-  return redacted ? `#${prefix}${params.toString()}` : hash
+  return redacted ? rebuilt.toString() : undefined
 }
 
 /**
@@ -418,10 +432,10 @@ function redactFragment(hash: string): string {
  * characters is a fresh start that scans to the end looking for an `=` and backtracks, which costs
  * seconds on a run of a few hundred thousand characters.
  */
-const PARAMETER_PAIR = /(^|[?&#])([A-Za-z0-9_.-]+)=([^&#]*)/g
+const PARAMETER_PAIR = /(^|[?&#;])([A-Za-z0-9_.-]+)=([^&#;]*)/g
 
-/** Credentials in the authority of a string that could not be parsed. Anchored, so it scans once. */
-const UNPARSED_USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
+/** Credentials in the authority of a string. Anchored, so it scans once. */
+const USERINFO = new RegExp(String.raw`^(${SCHEME})[^/?#@]*@`, 'i')
 
 /**
  * How far to look for parameters nested inside a parameter's value.
@@ -452,63 +466,65 @@ function decodeOnce(value: string): string {
 }
 
 /**
- * Redact the credentials named inside one parameter's value.
+ * Redact every credential a string names, wherever in the string the naming happens.
  *
- * A parameter's value can carry parameters of its own - a `redirect_uri` or a `next` holding a whole
- * URL - and the credential is then named one level further in than anything the query itself
- * exposes. Neither the query parser nor the nested-scheme split reaches it: the parser sees a single
- * parameter whose value happens to contain a `?`, and the split needs a literal `://` that
- * percent-encoding has hidden.
+ * This is the only scanner. A credential can be named in the authority as userinfo, or as a
+ * parameter, or as a parameter inside another parameter's value - a `redirect_uri` or a `next`
+ * holding a whole URL of its own - and any of those can be percent-encoded out of sight. So all of
+ * it is done in one place, over any string: the authority first, then every pair, then the same
+ * treatment again inside each value that is not itself a credential.
  *
- * The value is returned exactly as it arrived unless something was actually redacted, so an innocent
- * value keeps its own encoding rather than being rewritten by having been examined.
+ * One function rather than one per surface is the point. Twice a rule was taught to one scanner and
+ * not its siblings - a widened scheme separator to one of three patterns, userinfo to one of two
+ * scanners - and each time a credential escaped through whichever of them had not been told. A
+ * scanner that cannot disagree with itself cannot fail that way.
+ *
+ * The string is returned exactly as it arrived unless something was actually redacted, so examining
+ * an innocent value does not rewrite its encoding.
  */
-function redactInsideValue(value: string, depth: number): string {
-  if (depth > MAX_PARAMETER_DEPTH) return value
-  const decoded = decodeOnce(value)
-  let redacted = false
-  const scanned = decoded.replace(
+function redactCredentials(text: string, depth: number): string {
+  const authority = text.replace(USERINFO, `$1${REDACTED}:${REDACTED}@`)
+  let redacted = authority !== text
+  const scanned = authority.replace(
     PARAMETER_PAIR,
-    (pair, lead: string, name: string, inner: string) => {
+    (pair, lead: string, name: string, value: string) => {
       if (isSecretName(name)) {
         redacted = true
         return `${lead}${name}=${REDACTED}`
       }
-      const deeper = redactInsideValue(inner, depth + 1)
-      if (deeper === inner) return pair
+      const inner = redactNestedValue(value, depth)
+      if (inner === value) return pair
       redacted = true
-      return `${lead}${name}=${deeper}`
+      return `${lead}${name}=${inner}`
     }
   )
-  return redacted ? scanned : value
+  return redacted ? scanned : text
 }
 
 /**
- * Redact a string that announces itself as a URL but does not parse as one.
+ * Look inside one parameter's value for the credentials it carries, a layer of encoding at a time.
  *
- * Everything is left as it stands except the values of parameters whose names say they are
- * credentials, and the authority when it carries userinfo. A malformed URL is not a safer URL, and
- * the shapes that fail to parse - an out-of-range port, an unclosed IPv6 host, a stray percent -
- * arrive from configuration mistakes rather than from anything exotic.
+ * A correct client percent-encodes a URL it passes as a parameter, which hides the scheme, the
+ * authority and the parameter names from every pattern here while hiding nothing from a reader of the
+ * log. So each layer is peeled before it is searched, and the depth bound is what stops a crafted
+ * value recursing as deep as it is long.
  */
-function redactUnparsedUrl(raw: string): string {
-  return raw
-    .replace(UNPARSED_USERINFO, `$1${REDACTED}:${REDACTED}@`)
-    .replace(PARAMETER_PAIR, (pair, lead: string, name: string, value: string) => {
-      if (isSecretName(name)) return `${lead}${name}=${REDACTED}`
-      const inner = redactInsideValue(value, 1)
-      return inner === value ? pair : `${lead}${name}=${inner}`
-    })
+function redactNestedValue(value: string, depth: number): string {
+  if (depth >= MAX_PARAMETER_DEPTH) return value
+  const decoded = decodeOnce(value)
+  const inner = redactCredentials(decoded, depth + 1)
+  return inner === decoded ? value : inner
 }
 
 /**
  * Keep a URL useful for diagnosis while removing the credentials it carries, wherever they sit.
  *
  * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment. A scheme
- * carries nothing secret, and the authority, query and fragment are each handled here. The path is
- * the gap, in two forms that both lie beyond the reach of matching on a name: a bare segment has no
- * name to be recognised by, and the one named form a path allows, a `;key=value` matrix parameter,
- * is used in practice only for servlet session ids, whose names this vocabulary does not describe.
+ * carries nothing secret, and the authority, query and fragment are each handled here. **The path is
+ * not scanned at all**, which is the honest statement of the gap: `https://h/a;token=SECRET` keeps its
+ * token even though `token` is a first-class name in the vocabulary, because nothing ever looks at
+ * the path to find it. A bare path segment could not be recognised anyway, having no name to be
+ * recognised by, but a matrix parameter plainly could - it is simply not looked for.
  *
  * A parameter's value is searched too, to a bounded depth, because a redirect target carried as a
  * parameter brings its own parameters and the credential is often one of those. What no amount of
@@ -524,23 +540,16 @@ export function redactUrl(raw: string): string {
   try {
     url = new URL(raw)
   } catch {
-    return redactUnparsedUrl(raw)
+    return redactCredentials(raw, 0)
   }
   // Basic auth against Azure DevOps puts the token in the password, so a credential arrives in the
   // authority as readily as in the query. The user name goes too: it is half of the same secret.
   if (url.username) url.username = REDACTED
   if (url.password) url.password = REDACTED
-  for (const key of [...url.searchParams.keys()]) {
-    if (isSecretName(key)) {
-      url.searchParams.set(key, REDACTED)
-      continue
-    }
-    // The value is only written back when it changed, so examining an innocent parameter does not
-    // re-serialise the query and rewrite everyone else's encoding.
-    const value = url.searchParams.get(key) ?? ''
-    const inner = redactInsideValue(value, 1)
-    if (inner !== value) url.searchParams.set(key, inner)
-  }
+  // The query is only written back when something in it was redacted, so examining an innocent
+  // parameter does not re-serialise the query and rewrite everyone else's encoding.
+  const query = redactParameters(url.searchParams)
+  if (query !== undefined) url.search = query
   if (url.hash) url.hash = redactFragment(url.hash)
   // The marker is left legible rather than percent-escaped, so a reader can see what was removed.
   // Only the marker: decoding the whole string would rewrite every other escape and would throw
@@ -597,7 +606,10 @@ function toWire(record: LogRecord): WireRecord {
     msg: redactText(record.msg)
   }
   if (record.data !== undefined) wire.data = redactValue(record.data)
-  if (record.err !== undefined) wire.err = redactError(record.err)
+  // The chain is clamped before anything walks it. `normalizeError` never builds one deeper than
+  // this, so a deeper one was handed over already assembled - by a producer this process does not
+  // control - and every later pass over it, redaction included, would cost its full length.
+  if (record.err !== undefined) wire.err = redactError(withCauseLimit(record.err, MAX_CAUSE_DEPTH))
   return wire
 }
 
@@ -666,21 +678,48 @@ function causeDepth(err: NormalizedError): number {
 }
 
 /**
+ * The six fields that identify an event, copied out of the record once.
+ *
+ * A fallback line built by reading the record again would be read through the same property getters
+ * that just failed, and so could fail in exactly the same way. These are taken before any of the work
+ * that might throw, and every later read is of this copy.
+ */
+interface RecordIdentity {
+  ts: unknown
+  level: unknown
+  proc: unknown
+  pid: unknown
+  scope: unknown
+  msg: unknown
+}
+
+/** Nothing at all, for when reading the record's own fields was what failed. */
+const NO_IDENTITY: RecordIdentity = {
+  ts: undefined,
+  level: undefined,
+  proc: undefined,
+  pid: undefined,
+  scope: undefined,
+  msg: undefined
+}
+
+/**
  * The fallback line: the fields that identify the event, and a marker saying the rest was shed.
- * Built only from primitives read defensively, so it cannot fail the way the full record did.
+ * Built only from primitives already in hand, so it cannot fail the way the full record did.
  */
 function degrade(
-  record: LogRecord,
+  identity: RecordIdentity,
   err: NormalizedError | undefined,
   budget: number
 ): DegradedRecord {
+  const pid = identity.pid
   const out: DegradedRecord = {
-    ts: field(record.ts, budget),
-    level: field(record.level, budget),
-    proc: field(record.proc, budget),
-    pid: Number.isFinite(record.pid) ? record.pid : 0,
-    scope: field(record.scope, budget),
-    msg: field(record.msg, budget),
+    ts: field(identity.ts, budget),
+    level: field(identity.level, budget),
+    proc: field(identity.proc, budget),
+    pid: typeof pid === 'number' && Number.isFinite(pid) ? pid : 0,
+    scope: field(identity.scope, budget),
+    msg: field(identity.msg, budget),
     data: { truncated: true }
   }
   if (err) out.err = { name: field(err.name, budget), message: field(err.message, budget) }
@@ -692,13 +731,13 @@ function degrade(
  * cap. `failed` distinguishes a record that defeated serialisation from one merely shed for size.
  */
 function degradedLine(
-  record: LogRecord,
+  identity: RecordIdentity,
   err: NormalizedError | undefined,
   failed: boolean
 ): string {
   let line = ''
   for (const budget of FIELD_BUDGETS) {
-    const out = degrade(record, err, budget)
+    const out = degrade(identity, err, budget)
     if (failed) out.data.serializeFailed = true
     line = stringify(out)
     if (bytes(line) <= MAX_RECORD_BYTES) return line
@@ -716,16 +755,27 @@ function degradedLine(
  * what keeps three processes writing one file from interleaving a partial line.
  */
 export function serialize(record: LogRecord): string {
+  let identity = NO_IDENTITY
   try {
-    return bound(record)
+    // Copied before any of the work that might throw, so the fallback below never has to read the
+    // record a second time.
+    identity = {
+      ts: record.ts,
+      level: record.level,
+      proc: record.proc,
+      pid: record.pid,
+      scope: record.scope,
+      msg: record.msg
+    }
+    return bound(record, identity)
   } catch {
     // A value the record carried could not be read or rendered. The event still gets a line: this
     // one is assembled from primitives alone, so it cannot fail the same way, and it says so.
-    return degradedLine(record, undefined, true)
+    return degradedLine(identity, undefined, true)
   }
 }
 
-function bound(record: LogRecord): string {
+function bound(record: LogRecord, identity: RecordIdentity): string {
   const wire = toWire(record)
   let line = stringify(wire)
   if (bytes(line) <= MAX_RECORD_BYTES) return line
@@ -758,5 +808,5 @@ function bound(record: LogRecord): string {
   }
 
   // Only the identifying fields are left, so one of them is itself oversized.
-  return degradedLine(record, wire.err, false)
+  return degradedLine(identity, wire.err, false)
 }
