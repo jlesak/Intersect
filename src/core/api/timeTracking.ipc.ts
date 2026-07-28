@@ -29,7 +29,13 @@ export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): IpcAp
     refreshWeek: (weekStart) => surface(() => deps.service.refreshWeek(weekStart)),
     addManual: (input) => surface(async () => deps.service.addManual(input)),
     updateEntry: (source, id, update) => surface(() => deps.service.updateEntry(source, id, update)),
-    deleteEntry: (source, id) => surface(() => deps.service.deleteEntry(source, id))
+    deleteEntry: (source, id) => surface(() => deps.service.deleteEntry(source, id)),
+    getTimer: () => surface(async () => deps.service.getRunningTimer()),
+    startTimer: (description, issueKey) =>
+      surface(async () => deps.service.startTimer(description, issueKey)),
+    updateTimer: (description, issueKey) =>
+      surface(async () => deps.service.updateTimer(description, issueKey)),
+    stopTimer: () => surface(async () => deps.service.stopTimer())
   }
 }
 
@@ -39,6 +45,10 @@ export function timeTrackingWireRoutes(h: IpcApi['timeTracking']): WireRoutes {
     [Channel.timeTrackingRefreshWeek]: h.refreshWeek,
     [Channel.timeTrackingAddManual]: h.addManual,
     [Channel.timeTrackingUpdateEntry]: h.updateEntry,
-    [Channel.timeTrackingDeleteEntry]: h.deleteEntry
+    [Channel.timeTrackingDeleteEntry]: h.deleteEntry,
+    [Channel.timeTrackingGetTimer]: h.getTimer,
+    [Channel.timeTrackingStartTimer]: h.startTimer,
+    [Channel.timeTrackingUpdateTimer]: h.updateTimer,
+    [Channel.timeTrackingStopTimer]: h.stopTimer
   }
 }
