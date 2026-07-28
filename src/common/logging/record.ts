@@ -188,7 +188,16 @@ const AUTH_SCHEME_VALUE = /\b(Bearer|Basic)(\s+)([A-Za-z0-9+/=_.~-]{20,4096})/gi
  * one colon is admitted because a mistyped `https:://` still carries a credential, and refusing to
  * recognise it means never redacting it.
  */
-const SCHEME = String.raw`[a-z][a-z0-9+.-]{0,31}:+//`
+const SCHEME_CHARACTERS = String.raw`[a-z0-9+.-]`
+
+const SCHEME = String.raw`[a-z]${SCHEME_CHARACTERS}{0,31}:+//`
+
+/**
+ * One character a scheme is allowed to contain, which by its absence is what separates one URL in a
+ * run from the next. Built from the same source as the scheme itself, since the two disagreeing about
+ * what a scheme is made of is how a credential escaped through the gap between them before.
+ */
+const SCHEME_CHARACTER = new RegExp(SCHEME_CHARACTERS, 'i')
 
 /**
  * A scheme-qualified URL wherever it appears in free text. Credentials reach the log inside
@@ -225,16 +234,20 @@ const EMBEDDED_URL = new RegExp(String.raw`${SCHEME}\S+`, 'gi')
 const CLOSING_PUNCTUATION = new Set([...`"'<>,;.:!?)]}`])
 
 /**
- * Where a second URL begins inside one whitespace-free run, behind a character no scheme may contain.
+ * Where each URL inside one whitespace-free run begins.
  *
  * Two URLs written back to back must each be redacted in their own right. This was once deleted on the
  * grounds that searching parameter values had superseded it, which was wrong: a glued URL is only
  * reached that way when it lands in a *parameter value*. Land it in the outer URL's **path** - the
- * `${base}${path}` double-join, which is exactly the mistake a log exists to reveal - and nothing
- * reaches it, because the path is never scanned and the authority pattern is anchored at the start of
- * the string so it cannot fire from the middle of one.
+ * `${base}${path}` double-join, which is exactly the mistake a log exists to reveal - and the
+ * authority pattern is anchored at the start of a string, so it cannot fire from the middle of one.
+ *
+ * The scheme alone marks the start, with nothing required in front of it. A separator used to be
+ * required and consumed, and that cost two whole classes: a join at the very beginning of a path,
+ * where the only separator available is the leading slash the splitter had already passed, and a join
+ * touching a digit, which is a character a scheme may contain and therefore no separator at all.
  */
-const NESTED_SCHEME = new RegExp(String.raw`[^a-z0-9+.-]${SCHEME}`, 'gi')
+const URL_START = new RegExp(SCHEME, 'gi')
 
 const MAX_STACK_CHARS = 2000
 
@@ -396,8 +409,9 @@ function redactObject(value: object, seen: WeakSet<object>): unknown {
   if (value instanceof Error) return redactError(normalizeError(value))
   // A URL is the likeliest of these to be logged by a module about logging URLs, and it holds
   // everything internally, so enumerating its properties would have emitted `{}` in place of the
-  // request being diagnosed - and in place of the credential it might carry.
-  if (value instanceof URL) return redactUrl(value.href)
+  // request being diagnosed - and in place of the credential it might carry. Its text takes the same
+  // route as the same text written as a string: a caller must not lose coverage for having wrapped it.
+  if (value instanceof URL) return redactText(value.href)
   if (value instanceof RegExp) return value.toString()
   if (value instanceof Promise) return '[promise]'
   // Binary is described rather than transcribed: enumerating a typed array yields one property per
@@ -565,9 +579,9 @@ function redactText(value: string): string {
  * the sentence or bracket around it. Everything else goes to `redactUrl` in one piece: that is the
  * invariant here, that nothing leaves without having been offered for redaction.
  *
- * A second URL glued onto the first is split out and redacted in its own right, with the single
- * character between them passed through as itself. That split cannot be replaced by searching
- * parameter values: it is the only thing that reaches a URL glued into another one's **path**.
+ * A second URL glued onto the first is split out and redacted in its own right. That split cannot be
+ * replaced by searching parameter values: it is the only thing that reaches a URL glued into another
+ * one's **path**.
  *
  * A run that turns out to hold no credential is given back exactly as it arrived. Parsing a string as
  * a URL re-encodes it, and a run is over-collected on purpose, so free text that merely looked like a
@@ -588,31 +602,59 @@ function redactRun(run: string): string {
   ) {
     cut -= 1
   }
-  const urls = run.slice(0, cut)
-  const trailing = run.slice(cut)
-  const before = markersWritten
-  const out = eachGluedUrl(urls, redactUrl)
-  return markersWritten === before ? `${urls}${trailing}` : `${out}${trailing}`
+  const urls = onlyIfRedacted(run.slice(0, cut), (text) => eachGluedUrl(text, redactUrl))
+  return `${urls}${run.slice(cut)}`
 }
 
 /**
- * Split a run where a second URL is glued onto the first and redact each part, passing the single
- * character between them through as itself.
+ * Redact a piece of text and hand back exactly what arrived unless a credential was taken out of it.
  *
- * One rule with two callers rather than two copies of it: a run of free text needs it, and so does the
- * path of a URL that has had another joined onto it. Writing the split twice is how the patterns that
- * recognise a URL drifted apart and let a credential through each of them in turn.
+ * Every rule here writes a marker when it removes something, so the count of markers is what says
+ * whether the text needed changing at all. Judging it by whether the result differs would be wrong in
+ * the one direction that matters: parsing a string as a URL normalises the authority and re-encodes
+ * the query, and a run of free text is over-collected on purpose, so a value that was merely examined
+ * would come back rewritten and a line of prose would come back mangled.
+ */
+function onlyIfRedacted(text: string, redact: (part: string) => string): string {
+  const before = markersWritten
+  const out = redact(text)
+  return markersWritten === before ? text : out
+}
+
+/**
+ * Redact each URL in a run of text in its own right, dividing the run wherever another scheme begins.
+ *
+ * One rule with two callers rather than two copies of it: a run of free text needs it, and so does a
+ * string a caller offered as a single URL, which is just as likely to be two of them joined together.
+ * Writing the split twice is how the patterns that recognise a URL drifted apart and let a credential
+ * through each of them in turn.
+ *
+ * Dividing the text before anything parses it is the point. A join reached this way is reached
+ * whatever surface it landed on - path, fragment, or a string the parser rejects outright - whereas a
+ * rule taught to the parsed form has to be taught to each surface separately, which is how the
+ * fragment came to hold an authority nothing looked at.
+ *
+ * The leftmost scheme opens the part already being collected, so only the schemes after it divide the
+ * run.
  */
 function eachGluedUrl(run: string, redact: (part: string) => string): string {
   let out = ''
   let from = 0
-  for (const nested of run.matchAll(NESTED_SCHEME)) {
+  for (const nested of run.matchAll(URL_START)) {
     const at = nested.index
-    if (at <= from) continue
-    out += redact(run.slice(from, at)) + run.charAt(at)
-    from = at + 1
+    if (at === from) continue
+    // The character in front of a joined-on URL separates the two and belongs to neither, so it is
+    // handed through as itself. That keeps it out of the preceding URL's last parameter value, where
+    // redacting the value would swallow the separator and leave the marker touching the next scheme -
+    // text the following pass then reads as one value and takes a bracket out of. A character a scheme
+    // may itself contain separates nothing, and neither does the closing bracket of a marker an
+    // earlier pass wrote, which has to stay whole for the same reason.
+    const cut =
+      SCHEME_CHARACTER.test(run.charAt(at - 1)) || run.endsWith(REDACTED, at) ? at : at - 1
+    out += onlyIfRedacted(run.slice(from, cut), redact) + run.slice(cut, at)
+    from = at
   }
-  return out + redact(run.slice(from))
+  return out + onlyIfRedacted(run.slice(from), redact)
 }
 
 /** Redact an error and its causes, since a client's message and stack routinely quote the request. */
@@ -624,28 +666,20 @@ function redactError(err: NormalizedError): NormalizedError {
 }
 
 /**
- * Redact a fragment that carries parameters, and leave an opaque one alone.
+ * The surfaces the platform's URL parser hands back as free text rather than as a parsed structure.
  *
- * A fragment is where an OAuth implicit flow delivers its access token, and it survives every copy
- * of a URL out of a browser, so it carries credentials as readily as the query does. It is also
- * where a single-page application keeps its route, which is not a parameter list and must not be
- * rewritten: the fragment is only re-serialised when a secret was actually found in it, and a
- * fragment holding no `=` at all is left exactly as it arrived.
+ * A fragment is where an OAuth implicit flow delivers its access token, and it survives every copy of
+ * a URL out of a browser, so it carries credentials as readily as the query does; a path carries them
+ * as a matrix parameter, as a joined-on URL, or as a value whose own shape is a credential. Both are
+ * scanned by the same rule, walked in a loop rather than written out one surface at a time, because
+ * writing them out is what let them differ: the path was given the scanner and the fragment was given
+ * the shape rules alone, so a credential in a fragment holding no `=` sat where nothing looked at it.
+ * A rule now reaches both of them or neither.
+ *
+ * A surface is only written back when the scan actually removed something, which is what keeps a hash
+ * route - the thing a fragment usually holds - exactly as it arrived.
  */
-function redactFragment(hash: string): string {
-  const body = hash.slice(1)
-  const equals = body.indexOf('=')
-  if (equals === -1) return hash
-  // A hash route may carry its own query string, as in `#/board?token=x`, and the path in front of
-  // the `?` stays verbatim. Only a `?` ahead of the first `=` marks such a route: further along it
-  // belongs to a parameter's value, as an implicit flow's `redirect` or `state` carries one, and
-  // treating that as the separator would leave every parameter before it unexamined.
-  const query = body.indexOf('?')
-  const route = query !== -1 && query < equals
-  const prefix = route ? body.slice(0, query + 1) : ''
-  const params = redactParameters(new URLSearchParams(route ? body.slice(query + 1) : body))
-  return params === undefined ? hash : `#${prefix}${params}`
-}
+const FREE_TEXT_SURFACES = ['pathname', 'hash'] as const
 
 /**
  * Redact a parameter list, or report that there was nothing to redact by returning nothing.
@@ -796,9 +830,9 @@ function redactNestedValue(value: string, depth: number): string {
  * Keep a URL useful for diagnosis while removing the credentials it carries, wherever they sit.
  *
  * The surfaces of a URL are enumerable - scheme, authority, path, query and fragment - and all five
- * are covered. A scheme carries nothing secret; the authority, query and fragment each hold names to
- * read; and the path is scanned for a URL joined onto it, for a value whose shape is a credential, and
- * for a matrix parameter, which is named and so was reachable once anything looked there at all.
+ * are covered. A scheme carries nothing secret; the authority and the query hold names to read; and
+ * the path and the fragment go to the scanner as text, which reaches a name, a shape and an authority
+ * in each of them alike.
  *
  * What the path cannot give up is a credential written as a bare segment: `https://h/tokens/SECRET`
  * has no name to be recognised by, and nothing distinguishes that segment from a work item id.
@@ -808,11 +842,19 @@ function redactNestedValue(value: string, depth: number): string {
  * searching reaches is a credential that is neither named nor shaped: `?hmac=SECRET` survives, for the
  * reason set out where the vocabulary is defined.
  *
+ * A string offered as one URL is very often two - a base and a path joined without a separator - so it
+ * is divided at every scheme before any of it is parsed. That happens here rather than in the callers
+ * so that a caller holding a URL is no worse protected than one holding the same text as a string.
+ *
  * A string that fails to parse is still scanned, not trusted. A malformed URL carries exactly the
  * same credentials as a well-formed one - an out-of-range port arriving from bad configuration is
  * enough to make the parse fail - so handing it back untouched would leak on the strength of a typo.
  */
 export function redactUrl(raw: string): string {
+  return eachGluedUrl(raw, redactOneUrl)
+}
+
+function redactOneUrl(raw: string): string {
   let url: URL
   try {
     url = new URL(raw)
@@ -831,20 +873,17 @@ export function redactUrl(raw: string): string {
   // parameter does not re-serialise the query and rewrite everyone else's encoding.
   const query = redactParameters(url.searchParams)
   if (query !== undefined) url.search = query
-  if (url.hash) url.hash = redactFragment(url.hash)
-  // The path and an `=`-less fragment hold no names to read, but they can still hold a value whose own
-  // shape is a credential - a password-reset link puts the token in the path. Nothing else here looks
-  // at either, so without this the shape rules would cover free text and not a parsed URL, which is
-  // the same split-coverage mistake twice over: `redactObject` sends a `URL` instance straight here.
-  // A URL joined onto the end of this one's path - the `${base}${path}` double-join - brings its own
-  // authority, and the authority pattern is anchored at the start of a string so it cannot reach into
-  // the middle of the path. Splitting there is what reaches it, and nothing else does.
-  // The one scanner is what runs over each part, so the path gets names, shapes and an authority alike
-  // without any of those rules being written a second time for it.
-  const path = eachGluedUrl(url.pathname, (part) => scanCredentials(part, 0))
-  if (path !== url.pathname) url.pathname = path
-  const hash = redactShapes(url.hash)
-  if (hash !== url.hash) url.hash = hash
+  // Neither the path nor the fragment is a parameter list, and both can still carry a credential: a
+  // matrix parameter and an implicit flow's access token are named, a password-reset token in a path
+  // is recognised by its shape, and either can hold a whole URL of its own. The one scanner runs over
+  // each of them as text, so both get names, shapes and an authority alike without any of those rules
+  // being written a second time for either.
+  for (const surface of FREE_TEXT_SURFACES) {
+    const arrived = url[surface]
+    if (arrived === '') continue
+    const scanned = scanCredentials(arrived, 0)
+    if (scanned !== arrived) url[surface] = scanned
+  }
   // The marker is left legible rather than percent-escaped, so a reader can see what was removed.
   // Only the marker: decoding the whole string would rewrite every other escape and would throw
   // outright on a malformed one, turning a diagnostic call into the failure being diagnosed. The

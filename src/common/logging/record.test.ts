@@ -410,6 +410,64 @@ describe('redactUrl', () => {
     expect(serialize({ ...base, err: normalizeError(new Error(raw)) })).not.toContain('S3CR3T')
   })
 
+  it('splits a nested URL that begins at the very start of the path', () => {
+    // The leading slash of a path puts a nested URL at index zero, and the splitter used to discard a
+    // match there for being at the position it had already reached. Reported by a caller holding a
+    // `URL`, which is the one entry point where nothing downstream re-scans the result.
+    expect(redactUrl('https://h/https://u:SECRETVALUE@d/e')).toBe(
+      `https://h/https://${REDACTED}:${REDACTED}@d/e`
+    )
+    expect(redactUrl('https://h/https://u:SECRETVALUE@d/e?x=1')).not.toContain('SECRETVALUE')
+    // The join is reached whatever touches the scheme, including a character a scheme may contain,
+    // where there is no separator to find at all.
+    expect(redactUrl('https://h/1https://u:SECRETVALUE@d/e')).not.toContain('SECRETVALUE')
+  })
+
+  it('reaches a credential written into the fragment as a URL of its own', () => {
+    // The fragment was given the shape rules and nothing else, while its sibling the path was given
+    // the split, the scanner and the shape rules. A fragment carrying no `=` therefore held an
+    // authority nothing looked at - and a single-page route is exactly where a copied URL lands.
+    for (const raw of [
+      'https://h/a#https://u:SECRETVALUE@d/e',
+      'https://h/a#/https://u:SECRETVALUE@d/e',
+      'https://h/a#/board/https://u:SECRETVALUE@d/e',
+      'https://h:99999/a#https://u:SECRETVALUE@d/e'
+    ]) {
+      expect(redactUrl(raw), raw).not.toContain('SECRETVALUE')
+    }
+  })
+
+  it('leaves a fragment that is a route and nothing else exactly as it arrived', () => {
+    // The other direction of the same change: scanning the fragment must not rewrite a route, which
+    // is what the fragment mostly holds.
+    expect(redactUrl('https://h/a#/board/42')).toBe('https://h/a#/board/42')
+    expect(redactUrl('https://app.local/#/board?filter=mine')).toBe(
+      'https://app.local/#/board?filter=mine'
+    )
+  })
+
+  it('gives a URL instance the same route as the same text written as a string', () => {
+    // A `URL` instance used to go straight to `redactUrl`, which is a narrower scan than the one every
+    // other string gets: the vocabulary reaches a name written as a pair only from free text, so a
+    // credential named inside a fragment or a path was redacted as a string and kept as a `URL`.
+    const raw = 'https://h/pat=SECRETVALUE/x'
+    expect(serialize({ ...base, data: { url: new URL(raw) } })).not.toContain('SECRETVALUE')
+    expect(String(redactValue(new URL(raw)))).toBe(String(redactValue(raw)))
+  })
+
+  it('keeps the separator between two glued URLs, and the marker in front of one', () => {
+    // The character in front of a joined-on URL is not part of either of them. Absorbed into the
+    // preceding URL's last parameter value it disappears with that value, which leaves the marker
+    // touching the next scheme - and the next pass reads the two as one value and takes a bracket out
+    // of the marker. Both directions of the same seam, so both are pinned.
+    const pair = redactUrl('https://h/a?token=SECRETVALUE;https://h/b?token=SECRETVALUE')
+    expect(pair).toBe(`https://h/a?token=${REDACTED};https://h/b?token=${REDACTED}`)
+    expect(redactUrl(pair)).toBe(pair)
+    const joined = redactUrl('https://h/a?token=SECRETVALUE1https://u:SECRETVALUE@d/e')
+    expect(joined).not.toContain('SECRETVALUE')
+    expect(redactUrl(joined)).toBe(joined)
+  })
+
   it('redacts the fragment and the authority of an unparseable URL too', () => {
     expect(redactUrl('https://h:99999/a#token=S3CR3T')).toBe(
       `https://h:99999/a#token=${REDACTED}`
@@ -650,7 +708,24 @@ describe('the redaction audit', () => {
         'joined into the path, in prose': `GET https://api.example.com/v1/https://alice:${SECRET}@internal/redirect 500`,
         'semicolon, credential in the authority': `two https://h/a?ids=1;https://user:${SECRET}@h/b done`,
         'comma, credential in the authority': `fatal: cannot access https://h/a?x=1,https://user:${SECRET}@h/b`,
-        'a double join with no separator': `https://h/a/https://user:${SECRET}@h/b`
+        'a double join with no separator': `https://h/a/https://user:${SECRET}@h/b`,
+        // Inside a parameter's value rather than beside it. The free-text scanner splits the comma and
+        // reaches this; the URL scanner handed the whole value to a userinfo rule anchored at the start
+        // of a string, which cannot see an authority sitting after the comma.
+        'a comma inside a parameter value, credential in the authority': `https://h/a?x=1,https://user:${SECRET}@h/b`,
+        'a comma inside a parameter value of a URL that cannot be parsed': `https://h:99999/a?x=1,https://user:${SECRET}@h/b`,
+        // A join at the very start of the path, where the splitter used to discard the match for
+        // sitting at index zero - which is exactly where a path's leading slash puts it.
+        'joined at the start of the path': `https://h/https://user:${SECRET}@d/e`,
+        'joined at the start of the path, with a query after it': `https://h/https://user:${SECRET}@d/e?x=1`,
+        // The fragment received the shape rules and nothing else, so a URL written into it was
+        // reached only by the free-text scanner and not by the URL one.
+        'joined into the fragment': `https://h/a#https://user:${SECRET}@d/e`,
+        'joined into the fragment behind a hash route': `https://h/a#/board/https://user:${SECRET}@d/e`,
+        'joined into the fragment of a URL that cannot be parsed': `https://h:99999/a#https://user:${SECRET}@d/e`,
+        // Nothing separates the two at all: a digit is a character a scheme may contain, so there is no
+        // separator to be found in front of the second scheme.
+        'joined behind a digit, credential in the authority': `https://h/a1https://user:${SECRET}@d/e`
       }
     },
     {
@@ -795,11 +870,21 @@ describe('the redaction audit', () => {
     }
   ]
 
+  /** A `URL` instance, where the shape is one the platform parser accepts. */
+  function asUrl(shape: string): URL | undefined {
+    try {
+      return new URL(shape)
+    } catch {
+      return undefined
+    }
+  }
+
   /**
    * Every route a string can travel to reach the file. The first four are how a caller's own strings
    * arrive; the fifth is what an HTTP logger does, redacting a URL itself and putting the result in
    * the payload; the sixth is `redactUrl` judged alone, which is not a route to disk but is exported
-   * and so must not be a trap.
+   * and so must not be a trap; the seventh is a `URL` instance in the payload, which is the same text
+   * as the first route and used to be sent to a weaker scanner for being wrapped in an object.
    */
   function routes(shape: string): Record<string, string> {
     const err = { name: 'Error', message: shape, stack: `Error: ${shape}\n    at frame` }
@@ -815,7 +900,15 @@ describe('the redaction audit', () => {
     }
     // `redactUrl` is only ever asked about something that claims to be a URL. Prose is not one, and
     // neither is a stringified object that merely contains one - both reach disk by the routes above.
-    if (/^[a-z][a-z0-9+.-]*:+\/\/\S+$/i.test(shape)) taken['redactUrl alone'] = redactUrl(shape)
+    if (!/^[a-z][a-z0-9+.-]*:+\/\/\S+$/i.test(shape)) return taken
+    taken['redactUrl alone'] = redactUrl(shape)
+    // A `URL` instance of the same text, which is what an HTTP client hands a logger. Only where the
+    // parser accepts it and keeps the credential: a shape it rejects never becomes a `URL`, and one it
+    // normalises the credential out of would report coverage this route does not have.
+    const url = asUrl(shape)
+    if (url?.href.includes(SECRET)) {
+      taken['a URL instance in the payload'] = serialize({ ...base, data: { url } })
+    }
     return taken
   }
 
@@ -840,10 +933,10 @@ describe('the redaction audit', () => {
 
   it('covers every shape and route the audit claims', () => {
     // The counts are asserted so that deleting a shape is a visible change rather than a quiet one.
-    expect(counted).toBe(93)
-    expect(Object.keys(routes('https://h/a?token=x'))).toHaveLength(6)
-    expect(Object.keys(routes('a https://h/a?token=x b'))).toHaveLength(5)
-    expect(Object.keys(routes('{"pat":"x"}'))).toHaveLength(5)
+    expect(counted).toBe(101)
+    expect(Object.keys(routes(`https://h/a?token=${SECRET}`))).toHaveLength(7)
+    expect(Object.keys(routes(`a https://h/a?token=${SECRET} b`))).toHaveLength(5)
+    expect(Object.keys(routes(`{"pat":"${SECRET}"}`))).toHaveLength(5)
   })
 })
 
