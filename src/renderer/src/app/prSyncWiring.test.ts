@@ -18,7 +18,7 @@ const CONNECTED_ADO: AdoSettings = {
 const BLANK_ADO: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
 const NO_FALLBACK: AdoFallback = { orgUrl: '', project: '', hasPat: false }
 
-/** Older than any staleness window the wiring applies, so the board counts as out of date. */
+/** Older than any staleness window the guard applies, so the board counts as out of date. */
 const LONG_AGO_MS = 60 * 60 * 1000
 
 const sync = vi.fn(async () => {})
@@ -28,8 +28,15 @@ function settingsAre(status: 'idle' | 'loading' | 'ready' | 'error', ado: AdoSet
   useSettingsStore.setState({ status, ado, adoFallback: NO_FALLBACK })
 }
 
-function boardWasSynced(agoMs: number | null): void {
-  usePrInboxStore.setState({ syncedAt: agoMs === null ? null : Date.now() - agoMs })
+/**
+ * Put the board in the state a boot attempt has to judge: whether the cached board has been read
+ * yet, and how fresh it turned out to be.
+ */
+function boardIs(status: 'idle' | 'loading' | 'ready' | 'error', syncedAgoMs: number | null): void {
+  usePrInboxStore.setState({
+    status,
+    syncedAt: syncedAgoMs === null ? null : Date.now() - syncedAgoMs
+  })
 }
 
 function focusWindow(): void {
@@ -37,12 +44,12 @@ function focusWindow(): void {
 }
 
 /**
- * Wire with a freshly synced, connected board, so the boot attempt is a no-op and each test can
- * then set up exactly the state its focus event should be judged against.
+ * Wire with both stores loaded and a freshly synced board, so the boot attempt is a no-op and each
+ * test can then set up exactly the state its focus event should be judged against.
  */
 function wireWithAFreshBoard(): void {
   settingsAre('ready', CONNECTED_ADO)
-  boardWasSynced(0)
+  boardIs('ready', 0)
   unwire = wirePrSync()
   expect(sync).not.toHaveBeenCalled()
 }
@@ -57,16 +64,9 @@ beforeEach(() => {
 describe('wirePrSync', () => {
   test('a focus event refreshes a board that has gone stale, quietly', () => {
     wireWithAFreshBoard()
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('ready', LONG_AGO_MS)
     focusWindow()
     expect(sync).toHaveBeenCalledTimes(1)
-    expect(sync).toHaveBeenCalledWith({ quiet: true })
-  })
-
-  test('a board that has never synced is refreshed on focus', () => {
-    wireWithAFreshBoard()
-    boardWasSynced(null)
-    focusWindow()
     expect(sync).toHaveBeenCalledWith({ quiet: true })
   })
 
@@ -76,33 +76,28 @@ describe('wirePrSync', () => {
     expect(sync).not.toHaveBeenCalled()
   })
 
-  test('a stale board is not refreshed without an Azure DevOps connection', () => {
-    wireWithAFreshBoard()
-    boardWasSynced(LONG_AGO_MS)
-    settingsAre('ready', BLANK_ADO)
-    focusWindow()
-    expect(sync).not.toHaveBeenCalled()
-  })
-
-  test('a sync already in flight is never joined by a second one', () => {
-    wireWithAFreshBoard()
-    boardWasSynced(LONG_AGO_MS)
-    usePrInboxStore.setState({ syncing: true })
-    focusWindow()
-    expect(sync).not.toHaveBeenCalled()
-  })
-
-  test('settings that have not arrived yet count as no connection', () => {
-    settingsAre('idle', CONNECTED_ADO)
-    boardWasSynced(LONG_AGO_MS)
+  test('a boot with both stores loaded refreshes a stale board at once', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('ready', LONG_AGO_MS)
     unwire = wirePrSync()
-    focusWindow()
+    expect(sync).toHaveBeenCalledWith({ quiet: true })
+  })
+
+  test('a boot whose cached board is still fresh does not sync at all', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('idle', null)
+    unwire = wirePrSync()
+    expect(sync).not.toHaveBeenCalled()
+
+    // Relaunching minutes after a sync must not repeat it, which is only decidable once the cache
+    // has been read: the board reports ready and its stamp in one go.
+    boardIs('ready', 8_700)
     expect(sync).not.toHaveBeenCalled()
   })
 
   test('the boot refresh waits for the settings instead of reading them empty', () => {
     settingsAre('idle', BLANK_ADO)
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('ready', LONG_AGO_MS)
     unwire = wirePrSync()
     expect(sync).not.toHaveBeenCalled()
 
@@ -111,16 +106,27 @@ describe('wirePrSync', () => {
     expect(sync).toHaveBeenCalledWith({ quiet: true })
   })
 
-  test('a boot with the settings already loaded refreshes a stale board at once', () => {
+  test('the boot refresh waits for the cached board instead of reading it as never synced', () => {
     settingsAre('ready', CONNECTED_ADO)
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('idle', null)
     unwire = wirePrSync()
-    expect(sync).toHaveBeenCalledWith({ quiet: true })
+    expect(sync).not.toHaveBeenCalled()
+
+    boardIs('ready', LONG_AGO_MS)
+    expect(sync).toHaveBeenCalledTimes(1)
+  })
+
+  test('a cache that could not be read still gets its boot refresh', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('idle', null)
+    unwire = wirePrSync()
+    boardIs('error', null)
+    expect(sync).toHaveBeenCalledTimes(1)
   })
 
   test('settings that failed to load mean no automatic sync', () => {
     settingsAre('idle', CONNECTED_ADO)
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('ready', LONG_AGO_MS)
     unwire = wirePrSync()
     settingsAre('error', CONNECTED_ADO)
     expect(sync).not.toHaveBeenCalled()
@@ -130,18 +136,28 @@ describe('wirePrSync', () => {
     wireWithAFreshBoard()
     unwire?.()
     unwire = undefined
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('ready', LONG_AGO_MS)
     focusWindow()
     expect(sync).not.toHaveBeenCalled()
   })
 
   test('unwiring drops a boot refresh that is still waiting on the settings', () => {
     settingsAre('idle', CONNECTED_ADO)
-    boardWasSynced(LONG_AGO_MS)
+    boardIs('ready', LONG_AGO_MS)
     unwire = wirePrSync()
     unwire()
     unwire = undefined
     settingsAre('ready', CONNECTED_ADO)
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  test('unwiring drops a boot refresh that is still waiting on the cached board', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('idle', null)
+    unwire = wirePrSync()
+    unwire()
+    unwire = undefined
+    boardIs('ready', LONG_AGO_MS)
     expect(sync).not.toHaveBeenCalled()
   })
 })

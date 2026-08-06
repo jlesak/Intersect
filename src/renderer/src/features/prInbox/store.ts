@@ -6,13 +6,25 @@ import type {
   PrVote,
   PullRequest
 } from '@common/domain'
+import { hasAdoConnection } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
+import { useSettingsStore } from '@renderer/features/settings'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 type ThreadFilter = 'active' | 'all' | 'resolved'
+
+/**
+ * How old the board's data may be before an automatic refresh is worth what it costs.
+ *
+ * One sync is one Azure DevOps call per repository plus one thread fetch per open pull request, so
+ * refreshing on every trigger would fire that whole fan-out each time the user glances away at
+ * their editor or opens another section. Five minutes is short enough that a board being read is
+ * effectively live, and long enough that alt-tabbing costs nothing.
+ */
+const STALE_AFTER_MS = 5 * 60 * 1000
 
 /** The stable `${repositoryId}:${prId}` key a PR is stored and selected under. */
 export const prKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
@@ -79,6 +91,17 @@ interface PrInboxState {
   /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
    * should stay loud so a broken sync is never silently ignored. */
   sync(opts?: { quiet?: boolean }): Promise<void>
+  /**
+   * Refresh from Azure DevOps only when it is worth reaching for the network: there is a connection
+   * to reach it with, the board's data is old enough to doubt (or was never fetched), and no
+   * refresh is already running. Otherwise does nothing.
+   *
+   * Every automatic trigger goes through this one guard, so no two of them can disagree about when
+   * the board is stale or fire a second fan-out seconds after the first. The refresh is always
+   * quiet, because a machine that is merely offline must not interrupt the user over a sync they
+   * never asked for. Anything the user does ask for calls `sync` directly and loudly.
+   */
+  syncIfStale(): Promise<void>
   select(repositoryId: string, prId: number): Promise<void>
   /** Open the PR's detail from the board (select + switch view). */
   openDetail(repositoryId: string, prId: number): Promise<void>
@@ -222,13 +245,19 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
 
   async hydrate() {
     set({ status: 'loading', error: null })
+    // Both reads start together, since neither waits on the other.
+    const stamp = readSyncedAt(set)
+    let board: Partial<PrInboxState>
     try {
-      const prs = await api.list()
-      set({ status: 'ready', ...indexPrs(prs) })
+      board = { status: 'ready', ...indexPrs(await api.list()) }
     } catch (e) {
-      set({ status: 'error', error: message(e) })
+      board = { status: 'error', error: message(e) }
     }
-    await readSyncedAt(set)
+    // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
+    // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
+    // board that has never synced at all, however fresh the cache actually is.
+    await stamp
+    set(board)
   },
 
   async sync(opts) {
@@ -245,6 +274,20 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     } finally {
       set({ syncing: false })
     }
+  },
+
+  async syncIfStale() {
+    const settings = useSettingsStore.getState()
+    // Settings that have not arrived look exactly like settings the user left blank, so an unloaded
+    // form counts as no connection rather than as a reason to try.
+    if (settings.status !== 'ready') return
+    if (!hasAdoConnection(settings.ado, settings.adoFallback)) return
+
+    const { syncing, syncedAt } = get()
+    if (syncing) return
+    if (syncedAt !== null && Date.now() - syncedAt < STALE_AFTER_MS) return
+
+    await get().sync({ quiet: true })
   },
 
   async select(repositoryId, prId) {

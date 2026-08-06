@@ -75,7 +75,7 @@ wireWorkItemLaunch()
 wireProjectsToWorkspaces()
 // Hydrate the settings store and keep live terminals following the terminal font size.
 wireSettings()
-// Refresh the PR board at boot and on focus regain, once the settings say ADO is connected.
+// Refresh the PR board at boot and on focus regain, once the settings and the cache have loaded.
 wirePrSync()
 // Mark sessions interrupted on a core crash and re-hydrate the stores once it recovers.
 wireCoreRecovery()

@@ -2,6 +2,16 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/domain'
 
 vi.mock('./ipc')
+// The staleness guard asks the settings store one question - whether Azure DevOps is connected - so
+// that single answer is stubbed here instead of loading the settings feature and its views.
+const settings = vi.hoisted(() => ({
+  status: 'ready' as 'idle' | 'loading' | 'ready' | 'error',
+  ado: { orgUrl: '', project: '', repository: '', pat: '' },
+  adoFallback: { orgUrl: '', project: '', hasPat: false }
+}))
+vi.mock('@renderer/features/settings', () => ({
+  useSettingsStore: { getState: () => settings }
+}))
 import * as api from './ipc'
 import {
   groupBoardColumns,
@@ -114,6 +124,31 @@ describe('prInboxStore', () => {
     mocked.getSyncedAt.mockResolvedValue(1_700_000_000_000)
     await usePrInboxStore.getState().hydrate()
     expect(usePrInboxStore.getState().syncedAt).toBe(1_700_000_000_000)
+  })
+
+  test('hydrate has the freshness stamp in hand by the time it reports the board ready', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    // The stamp is held back until after the cached board has arrived, since two IPC round trips
+    // land in whatever order they please and the slower one must still be waited for.
+    let deliverStamp: (at: number | null) => void = () => {}
+    mocked.getSyncedAt.mockReturnValue(
+      new Promise<number | null>((resolve) => {
+        deliverStamp = resolve
+      })
+    )
+    let stampWhenReady: number | null | undefined
+    const off = usePrInboxStore.subscribe((s) => {
+      if (s.status === 'ready' && stampWhenReady === undefined) stampWhenReady = s.syncedAt
+    })
+
+    const hydrated = usePrInboxStore.getState().hydrate()
+    deliverStamp(1_700_000_000_000)
+    await hydrated
+    off()
+
+    // Anything that acts on a ready board judges its freshness from this value, so a null here is
+    // a board that reads as never synced however fresh the cache actually is.
+    expect(stampWhenReady).toBe(1_700_000_000_000)
   })
 
   test('a sync refreshes the freshness stamp', async () => {
@@ -297,6 +332,70 @@ describe('prInboxStore', () => {
     expect(mocked.publishDraft).toHaveBeenCalledWith('d1')
     expect(d?.status).toBe('published')
     expect(d?.publishedThreadId).toBe(42)
+  })
+})
+
+describe('syncIfStale', () => {
+  /**
+   * The five minutes the guard promises, written out here rather than imported, so the two
+   * boundary cases below actually pin that number instead of following it wherever it moves.
+   */
+  const STALE_AFTER_MS = 5 * 60 * 1000
+
+  /** Put the settings where the guard will read them, connected or blank. */
+  function settingsAre(status: 'idle' | 'loading' | 'ready' | 'error', connected: boolean): void {
+    settings.status = status
+    settings.ado = connected
+      ? { orgUrl: 'https://dev.azure.com/acme', project: 'shop', repository: 'web', pat: 'token' }
+      : { orgUrl: '', project: '', repository: '', pat: '' }
+  }
+
+  const syncedAgo = (ms: number): void => usePrInboxStore.setState({ syncedAt: Date.now() - ms })
+
+  beforeEach(() => {
+    settingsAre('ready', true)
+    mocked.sync.mockResolvedValue([])
+  })
+
+  test('a board that has never synced is refreshed', async () => {
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).toHaveBeenCalledOnce()
+  })
+
+  test('a board refreshed a moment ago is left alone', async () => {
+    syncedAgo(0)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a board refreshed just inside five minutes is left alone', async () => {
+    syncedAgo(STALE_AFTER_MS - 1000)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a board refreshed just outside five minutes is refreshed', async () => {
+    syncedAgo(STALE_AFTER_MS + 1000)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).toHaveBeenCalledOnce()
+  })
+
+  test('a stale board is not refreshed without an Azure DevOps connection', async () => {
+    settingsAre('ready', false)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a stale board is not refreshed before the settings have loaded', async () => {
+    settingsAre('idle', true)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a sync already in flight is never joined by a second one', async () => {
+    usePrInboxStore.setState({ syncing: true })
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
   })
 })
 
