@@ -48,6 +48,27 @@ fan-out every time the user alt-tabs from their editor.
 succeed, so it must not try - otherwise the failure banner below becomes permanent furniture on a
 board that was never going to have data.
 
+**One guard, every automatic caller.** Opening My Work already fires an unguarded
+`sync({ quiet: true })` once per session (`myWork/store.ts:130-133`). This design's first draft named
+that call site in its Problem section and then never resolved it, which left two unguarded automatic
+triggers next to each other: two full fan-outs seconds apart on a connected machine, and on an
+unconfigured machine the My Work one fails and leaves precisely the permanent failure line the
+paragraph above forbids.
+
+The guard is therefore not the focus wiring's private business. It lives on the store as
+`syncIfStale()`, and every automatic caller goes through it - the focus wiring and My Work's hydrate
+alike. My Work keeps its behaviour, since opening it still fetches current pull requests whenever they
+are stale, and loses only the ability to sync unguarded. Its explicit Refresh button stays loud and
+unguarded: a user asking for data now has overridden every reason to wait.
+
+**The boot guard must see the freshness it guards on.** `hydrate()` reads the cached pull requests and
+the freshness stamp over two sequential IPC round trips, while the settings store needs one. So a boot
+attempt that waits only for settings always reads `syncedAt === null` and syncs regardless of how
+fresh the cache is - the staleness guard is inert on exactly the path the first draft claimed it
+covered. `hydrate()` therefore reads the freshness stamp *before* it reports ready, and the boot
+attempt waits for both stores. This also removes a visible glitch: the freshness chip can no longer
+render "never synced" for one frame over a board that has data.
+
 ## Architecture
 
 Three layers, each with one job.
@@ -125,15 +146,13 @@ overriding it.
 dashboard's callers and tests do not change, and the two surfaces cannot drift on what "configured"
 means.
 
-### `app/prSyncWiring.ts`
-
-Exports `wirePrSync(): () => void`, called from `main.tsx` beside the other `wire*()` calls.
+### `syncIfStale()` on the store - the one guard
 
 ```
 STALE_AFTER_MS = 5 * 60 * 1000
 ```
 
-On boot and on every `window` `focus` event, it syncs when all three hold:
+`syncIfStale(): Promise<void>` performs a quiet sync when all three hold, and otherwise does nothing:
 
 - `hasAdoConnection` is true for the current settings and fallback
 - `syncedAt` is null, or older than `STALE_AFTER_MS`
@@ -142,11 +161,32 @@ On boot and on every `window` `focus` event, it syncs when all three hold:
 The sync is always `{ quiet: true }`: an automatic sync that fails must not toast, because a machine
 that is merely offline would otherwise interrupt the user for something they did not ask for.
 
-Settings must have loaded before `hasAdoConnection` can be trusted. `app/settingsWiring.ts:16` starts
-that load at boot, asynchronously, so a sync fired synchronously at wire time would read empty
-settings and conclude the connection is missing. The boot attempt therefore waits for the settings
-store to reach `ready` - already ready, act now; otherwise subscribe until it is. A settings load that
-fails outright means no automatic sync, and the next focus event re-evaluates.
+It lives on the store rather than in the wiring because it has two callers, and a second copy of these
+three conditions is how the two automatic triggers drifted apart in the first place. Both callers are
+automatic; nothing user-initiated goes through it.
+
+### `app/prSyncWiring.ts`
+
+Exports `wirePrSync(): () => void`, called from `main.tsx` beside the other `wire*()` calls. It owns
+*when* to ask, never *whether* to sync - it calls `syncIfStale()` on boot and on every `window`
+`focus` event.
+
+Two stores must be ready before the first ask, and for different reasons. Settings must have loaded or
+`hasAdoConnection` reads an empty form and reports no connection. The prInbox store must have
+hydrated or `syncedAt` is still null and the staleness guard passes vacuously. `app/settingsWiring.ts:16`
+and `main.tsx` start both loads asynchronously at boot, so the boot attempt waits for each - acting at
+once when both are already there, otherwise subscribing until they are and unsubscribing when it
+fires. A settings load that ends in `error` means no automatic sync; the next focus event re-evaluates.
+
+Teardown removes the focus listener *and* cancels a boot wait that has not fired, so a wiring torn
+down before its stores load cannot sync afterwards.
+
+### My Work stops syncing unguarded
+
+`myWork/store.ts` hydrate calls `syncIfStale()` in place of its raw `sync({ quiet: true })`. Its
+`prSyncStarted` once-per-session flag becomes redundant - the staleness guard subsumes it and is
+strictly better, since a session lasting all day should refresh more than once - and is removed.
+`refresh()` keeps calling `sync()` directly and loudly.
 
 ### Board header - freshness and failure
 
@@ -177,6 +217,13 @@ it always describes the latest attempt rather than accumulating history.
 - `● new changes` chip, accent-toned, when `newChangesSinceMyReview`.
 - `N unresolved` chip when `activeThreadCount > 0`.
 
+Each new chip is suppressed when the card's existing `boardReason` chip already states that same fact,
+which it does for both in the action column (`prBoard.ts` returns "new changes since your review" and
+"N unresolved comments" there). Rendering one fact twice, side by side and identically toned, reads as
+two separate signals. The chips earn their place in the cases `boardReason` does not cover - unresolved
+threads on a pull request I am only reviewing, new changes on one I have not voted on - so the fix is a
+condition, not removal.
+
 `groupBoardColumns` (`store.ts:145`) sorts each column by `lastActivityAt` descending. It is a pure
 function memoized at the call site, not a selector, so this cannot destabilise a store snapshot or
 trip the store factory's guard (#60).
@@ -189,9 +236,11 @@ trip the store factory's guard (#60).
 | Manual sync fails | Existing loud path unchanged: toast via `reportError`, plus the stale line. |
 | One repository fails | Unchanged: the sync succeeds on the rest and reports `failedRepos`. |
 | One PR's thread fetch fails | `activeThreadCount` and `lastActivityAt` both carry the prior cached values forward. |
-| ADO not configured | No automatic sync at all. The Sync button still works and still reports loudly. |
-| Sync already in flight | Focus event is ignored; no queueing, no second request. |
+| ADO not configured | No automatic sync at all, from either caller. The Sync button still works and still reports loudly. |
+| Sync already in flight | The ask is dropped; no queueing, no second request. |
 | Settings not loaded yet | Treated as not configured; the next focus event re-evaluates. |
+| Cache freshness not read yet | The boot attempt waits for it rather than syncing on a null it would misread as "never". |
+| Opening My Work on a fresh cache | No sync: `syncIfStale` sees data younger than `STALE_AFTER_MS` and does nothing. |
 
 ## Testing
 
@@ -203,17 +252,33 @@ thread fetch throws. Migration: the column exists and pre-existing rows are back
 Unit, common: `hasAdoConnection` for saved values, fallback values, blank-defers-to-fallback, and
 each half missing. `adoSetup` still returns `unknown` before settings load.
 
-Unit, renderer: `groupBoardColumns` orders by activity, not creation; the sync chip's three states
-including the warning threshold; the stale line appears on `syncError` with the cached board still
-rendered; `syncError` clears on a successful sync; `PrCard` renders both new badges only when their
-fields warrant it.
+Unit, renderer: `groupBoardColumns` orders by activity, not creation; the sync chip's three states;
+the stale line appears on `syncError` with the cached board still rendered; `syncError` clears on a
+successful sync; `PrCard` renders each new badge only when its field warrants it *and* `boardReason` is
+not already saying the same thing.
 
-Unit, wiring: dispatching a `focus` event syncs when stale and configured; does not when fresh, when
-unconfigured, when settings have not loaded, or when a sync is in flight. The unsubscribe removes the
-listener.
+Unit, wiring and guard: `syncIfStale` syncs when stale and configured, and does not when fresh, when
+unconfigured, or when a sync is in flight; My Work's hydrate syncs through it rather than around it;
+dispatching a `focus` event reaches it; the boot attempt waits for both stores; teardown removes the
+listener and cancels a pending boot wait.
 
-E2E: on a fresh profile with no ADO configured, the board shows its never-synced chip, shows no
-failure banner, and no sync is attempted.
+**Both thresholds are pinned at their boundaries, not merely bracketed.** A test set that only proves
+"0 minutes does not sync, an hour does" leaves every value in between passing, so the specified five
+minutes is not actually pinned and neither is its ordering against the fifteen-minute tint. Each
+threshold gets a case just inside and just outside it. The board's clock is pinned too: a test advances
+fake timers and asserts the chip's text moved, because replacing `useNow(60_000)` with a plain
+`Date.now()` read otherwise passes every assertion while freshness silently freezes at mount.
+
+E2E: on a fresh profile with no ADO configured, the board shows its never-synced chip, shows no failure
+banner, and no sync is attempted.
+
+**E2E specs must not inherit the developer's Azure DevOps credentials.** Being connected is a property
+of the machine, not the profile: a blank profile still picks up an organisation URL and token from
+`~/.claude.json` or `AZURE_DEVOPS_*`, so automatic syncing switches on or off according to whose laptop
+runs the suite. Any spec whose assertions depend on how many syncs have happened must therefore state
+the machine it wants. The harness owns the two environments - unconnected (empty home, blank credential
+pair) and connected - so a spec declares its intent instead of hardcoding it, and the existing specs
+that count stub syncs adopt the unconnected one.
 
 Gate: `npm run typecheck && npm test && npm run lint && npm run e2e`.
 
