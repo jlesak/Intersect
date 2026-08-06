@@ -34,6 +34,11 @@ export interface AdoServiceDeps {
    * clobbering the persisted count with 0.
    */
   priorThreadCount: (repositoryId: string, prId: number) => number
+  /**
+   * The last-known activity timestamp for a PR, read from the cache. Used so a single PR's failed
+   * thread fetch cannot drop that card to the bottom of an activity-ordered column.
+   */
+  priorActivityAt: (repositoryId: string, prId: number) => number
   /** Org URL + PAT for the direct REST vote call, resolved lazily per vote (see adoVote). */
   resolveVoteCredentials: () => { orgUrl: string; pat: string }
   /** Injected in tests to fake the vote HTTP round-trip. */
@@ -162,18 +167,23 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         throw new Error(`Sync failed for every repository: ${failedRepos.join(', ')}`)
       }
       const merged = mergeMyPrs(prs)
-      // Thread counts feed the board's author-side "needs my action" signal. One PR's failure
-      // must not fail the sync; carry that PR's last-known count forward so a transient thread
-      // fetch does not clear the board signal until the next fully-successful sync.
+      // Thread counts feed the board's author-side "needs my action" signal, and the newest
+      // comment across all threads dates the PR for an activity-ordered queue. One PR's failure
+      // must not fail the sync; carry that PR's last-known values forward so a transient thread
+      // fetch neither clears the board signal nor moves the card until the next successful sync.
       const enriched = await Promise.all(
         merged.map(async (pr) => {
           try {
             const threads = await fetchThreads(pr.repositoryId, pr.prId)
             const count = threads.filter((t) => !t.isSystem && isThreadUnresolved(t)).length
-            return { ...pr, activeThreadCount: count }
+            return { ...pr, activeThreadCount: count, lastActivityAt: lastActivity(pr, threads) }
           } catch (err) {
             console.warn(`Thread fetch failed for PR ${pr.prId} in ${pr.repositoryName}`, err)
-            return { ...pr, activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId) }
+            return {
+              ...pr,
+              activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId),
+              lastActivityAt: Math.max(pr.createdAt, d.priorActivityAt(pr.repositoryId, pr.prId))
+            }
           }
         })
       )
@@ -229,6 +239,23 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
       )
     }
   }
+}
+
+/**
+ * When this pull request was last touched: the newest comment on any of its threads, or its own
+ * creation when nothing is newer. System threads count, because Azure DevOps records pushes, vote
+ * changes and policy evaluations as system comments and those are real activity on a review queue.
+ * Creation is the floor, so a comment whose publish date was missing (mapped to 0) cannot backdate
+ * a pull request to 1970.
+ */
+function lastActivity(pr: PullRequest, threads: PrThread[]): number {
+  let newest = pr.createdAt
+  for (const thread of threads) {
+    for (const comment of thread.comments) {
+      if (comment.publishedAt > newest) newest = comment.publishedAt
+    }
+  }
+  return newest
 }
 
 // --- raw ADO shapes + defensive mappers -------------------------------------

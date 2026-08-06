@@ -25,6 +25,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   reviewers: [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 5000,
   ...over
 })
 
@@ -50,6 +51,12 @@ describe('prCacheRepo', () => {
   test('round-trips the active thread count', () => {
     repo.replaceAll([pr({ activeThreadCount: 3 })])
     expect(repo.get('repo-a', 100)?.activeThreadCount).toBe(3)
+  })
+
+  test('round-trips when the PR was last touched, distinct from when it was created', () => {
+    repo.replaceAll([pr({ createdAt: 5000, lastActivityAt: 9000 })])
+    expect(repo.get('repo-a', 100)?.lastActivityAt).toBe(9000)
+    expect(repo.list()[0].lastActivityAt).toBe(9000)
   })
 
   test('replaceAll clears the previous cache', () => {

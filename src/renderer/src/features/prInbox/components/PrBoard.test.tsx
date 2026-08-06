@@ -26,6 +26,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     reviewers: [],
     newChangesSinceMyReview: false,
     activeThreadCount: 0,
+    lastActivityAt: 3,
     ...over
   }
 }

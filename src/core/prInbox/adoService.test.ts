@@ -18,11 +18,16 @@ function fakeClient(handlers: Record<string, ToolHandler>): AdoClient {
   }
 }
 
-const deps = (client: AdoClient, priorThreadCount: (r: string, p: number) => number = () => 0) => ({
+const deps = (
+  client: AdoClient,
+  priorThreadCount: (r: string, p: number) => number = () => 0,
+  priorActivityAt: (r: string, p: number) => number = () => 0
+) => ({
   client,
   resolveIdentity: async () => ({ id: 'me-uuid', displayName: 'Me', uniqueName: 'me@x' }),
   projectId: () => 'SPOT',
   priorThreadCount,
+  priorActivityAt,
   resolveVoteCredentials: () => ({ orgUrl: 'https://o', pat: 'p' })
 })
 
@@ -140,18 +145,27 @@ describe('thread mutations', () => {
   })
 })
 
-describe('syncMyPrs thread enrichment', () => {
-  const rawPr = {
-    pullRequestId: 9,
-    title: 'T',
-    status: 'active',
-    createdBy: { id: 'other', displayName: 'O' },
-    reviewers: [{ id: 'me-uuid', displayName: 'Me', vote: 0 }],
-    repository: { id: 'repo-1', name: 'repo', project: { id: 'SPOT' } },
-    sourceRefName: 'refs/heads/f',
-    targetRefName: 'refs/heads/main'
-  }
+const CREATED = '2026-07-01T10:00:00.000Z'
 
+const rawPr = {
+  pullRequestId: 9,
+  title: 'T',
+  status: 'active',
+  creationDate: CREATED,
+  createdBy: { id: 'other', displayName: 'O' },
+  reviewers: [{ id: 'me-uuid', displayName: 'Me', vote: 0 }],
+  repository: { id: 'repo-1', name: 'repo', project: { id: 'SPOT' } },
+  sourceRefName: 'refs/heads/f',
+  targetRefName: 'refs/heads/main'
+}
+
+/** The two list calls every sync makes, answering with the one PR I review. */
+const listHandlers = {
+  list_repositories: [{ id: 'repo-1', name: 'repo' }],
+  list_pull_requests: (args: Record<string, unknown>) => ({ value: args.reviewerId ? [rawPr] : [] })
+}
+
+describe('syncMyPrs thread enrichment', () => {
   test('counts unresolved non-system threads per PR', async () => {
     const svc = createAdoService(
       deps(
@@ -206,5 +220,120 @@ describe('syncMyPrs thread enrichment', () => {
     const { prs } = await svc.syncMyPrs()
     expect(prs).toHaveLength(1)
     expect(prs[0].activeThreadCount).toBe(0)
+  })
+})
+
+describe('syncMyPrs activity derivation', () => {
+  test('the newest comment of any thread dates the PR, system threads included', async () => {
+    const newest = '2026-07-09T08:30:00.000Z'
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          ...listHandlers,
+          get_pull_request_comments: {
+            value: [
+              {
+                id: 1,
+                status: 'active',
+                comments: [
+                  { content: 'older', commentType: 'text', publishedDate: '2026-07-05T09:00:00.000Z' },
+                  { content: 'newer', commentType: 'text', publishedDate: '2026-07-06T09:00:00.000Z' }
+                ]
+              },
+              {
+                id: 2,
+                status: 'closed',
+                comments: [
+                  { content: 'pushed a commit', commentType: 'system', publishedDate: newest }
+                ]
+              }
+            ]
+          }
+        })
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(Date.parse(newest))
+    // The unresolved count still ignores system threads; only the activity clock counts them.
+    expect(prs[0].activeThreadCount).toBe(1)
+  })
+
+  test('a PR with no threads at all is dated by its own creation', async () => {
+    const svc = createAdoService(
+      deps(fakeClient({ ...listHandlers, get_pull_request_comments: { value: [] } }))
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(Date.parse(CREATED))
+  })
+
+  test('a comment carrying no publish date loses to the creation floor', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          ...listHandlers,
+          get_pull_request_comments: {
+            value: [{ id: 1, status: 'active', comments: [{ content: 'c', commentType: 'text' }] }]
+          }
+        })
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(Date.parse(CREATED))
+  })
+
+  test('a comment older than the PR itself cannot backdate it', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          ...listHandlers,
+          get_pull_request_comments: {
+            value: [
+              {
+                id: 1,
+                status: 'active',
+                comments: [
+                  { content: 'c', commentType: 'text', publishedDate: '2026-06-01T00:00:00.000Z' }
+                ]
+              }
+            ]
+          }
+        })
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(Date.parse(CREATED))
+  })
+
+  test('a failing thread fetch keeps the last-known activity so the card does not move', async () => {
+    const cached = Date.parse('2026-07-08T12:00:00.000Z')
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          ...listHandlers,
+          get_pull_request_comments: () => {
+            throw new Error('boom')
+          }
+        }),
+        () => 0,
+        (_repositoryId, prId) => (prId === 9 ? cached : 0)
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(cached)
+  })
+
+  test('a failing thread fetch with nothing cached still falls back to the creation floor', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          ...listHandlers,
+          get_pull_request_comments: () => {
+            throw new Error('boom')
+          }
+        })
+      )
+    )
+    const { prs } = await svc.syncMyPrs()
+    expect(prs[0].lastActivityAt).toBe(Date.parse(CREATED))
   })
 })

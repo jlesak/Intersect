@@ -125,6 +125,7 @@ export function roleForIdentity(raw: AdoRawPullRequest, identity: AdoIdentity): 
 export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: AdoIdentity): PullRequest {
   const repo = raw.repository ?? {}
   const myReview = (raw.reviewers ?? []).find((r) => matchesIdentity(r, identity))
+  const createdAt = raw.creationDate ? Date.parse(raw.creationDate) : 0
   return {
     prId: raw.pullRequestId,
     repositoryId: repo.id ?? '',
@@ -133,7 +134,7 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: A
     title: raw.title ?? '',
     authorId: raw.createdBy?.id ?? '',
     authorName: raw.createdBy?.displayName ?? '',
-    createdAt: raw.creationDate ? Date.parse(raw.creationDate) : 0,
+    createdAt,
     status: mapStatus(raw.status),
     sourceRefName: raw.sourceRefName ?? '',
     targetRefName: raw.targetRefName ?? '',
@@ -147,7 +148,10 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: A
     // Derived from the review watermark by the read path (see reviewWatermark), never mapped here.
     newChangesSinceMyReview: false,
     // Enriched with the real unresolved-thread count by the sync (see adoService.syncMyPrs).
-    activeThreadCount: 0
+    activeThreadCount: 0,
+    // The PR payload carries no activity timestamp, so creation is the floor the sync raises once
+    // it has read the threads. It is never zero on a PR that has any creation date at all.
+    lastActivityAt: createdAt
   }
 }
 

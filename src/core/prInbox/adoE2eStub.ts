@@ -21,7 +21,8 @@ const basePr = {
   targetRefName: 'refs/heads/main',
   targetCommitId: 'target-1',
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 0
 }
 
 function radarPrs(syncCount: number): PullRequest[] {
@@ -176,11 +177,21 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
     }))
   }
 
+  /** Mirrors the real sync: the newest comment on any thread dates the PR, creation is the floor. */
+  function applyActivity(prs: PullRequest[]): PullRequest[] {
+    return prs.map((pr) => {
+      const published = (threadsByPr.get(pr.prId) ?? []).flatMap((t) =>
+        t.comments.map((c) => c.publishedAt)
+      )
+      return { ...pr, lastActivityAt: Math.max(pr.createdAt, ...published) }
+    })
+  }
+
   return {
     async syncMyPrs(): Promise<SyncResult> {
       syncCount += 1
       return {
-        prs: mode === 'radar' ? applyThreadCounts(applyVotes(radarPrs(syncCount))) : [],
+        prs: mode === 'radar' ? applyActivity(applyThreadCounts(applyVotes(radarPrs(syncCount)))) : [],
         failedRepos: []
       }
     },

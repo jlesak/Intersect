@@ -565,6 +565,18 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // PR board: when each pull request was last touched, so the board can be ordered by what needs
+    // attention rather than by age. Rows already cached are dated by their own creation instead of
+    // being left at 1970, which is what the board would otherwise show until the next sync lands.
+    version: 23,
+    up(db) {
+      db.exec(`
+        ALTER TABLE pr_cache ADD COLUMN last_activity_at INTEGER NOT NULL DEFAULT 0;
+        UPDATE pr_cache SET last_activity_at = created_at;
+      `)
+    }
   }
 ]
 
