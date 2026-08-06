@@ -1,8 +1,15 @@
 import { act, render } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
+
+// The board reads the shared relative-time formatter through the My Work barrel, which transitively
+// reaches monaco - and monaco cannot initialise under jsdom.
+vi.mock('monaco-editor', () => ({ editor: {} }))
+
 import { prKey, usePrInboxStore } from '../store'
 import { PrBoard } from './PrBoard'
+
+const MINUTE = 60_000
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -60,6 +67,24 @@ function seedBoard(prs: PullRequest[] = SEEDED): void {
   })
 }
 
+/** Mount the board and fail the test on any React or store-guard complaint. */
+async function mountBoard(): Promise<{ logged: string[] }> {
+  const logged: string[] = []
+  const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' '))
+  })
+  try {
+    await act(async () => {
+      render(<PrBoard />)
+    })
+  } finally {
+    consoleError.mockRestore()
+  }
+  return { logged }
+}
+
+const syncChip = (): Element | null => document.querySelector('[data-testid="pr-sync-age"]')
+
 /**
  * The PR review board, mounted client-side. Static markup cannot expose a re-render loop, so only a
  * real root exercises how the board subscribes to the cached PR list.
@@ -71,28 +96,72 @@ describe('PrBoard', () => {
       error: null,
       syncing: false,
       prsByKey: {},
-      order: []
+      order: [],
+      syncedAt: null,
+      syncError: null
     })
   })
 
   test('mounts and settles without a render loop', async () => {
     seedBoard()
-    const logged: string[] = []
-    const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
-      logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(' '))
-    })
-    try {
-      await act(async () => {
-        render(<PrBoard />)
-      })
 
-      expect(logged).toEqual([])
-      expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
-      const counts = [...document.querySelectorAll('.ix-board-col__count')].map((e) => e.textContent)
-      expect(counts).toEqual(['1', '1', '1'])
-    } finally {
-      consoleError.mockRestore()
-    }
+    const { logged } = await mountBoard()
+
+    expect(logged).toEqual([])
+    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+    const counts = [...document.querySelectorAll('.ix-board-col__count')].map((e) => e.textContent)
+    expect(counts).toEqual(['1', '1', '1'])
+  })
+
+  test('says how long ago the board last synced', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - 4 * MINUTE })
+
+    const { logged } = await mountBoard()
+
+    expect(logged).toEqual([])
+    expect(syncChip()?.textContent).toBe('Synced 4m ago')
+    expect(syncChip()?.className).not.toContain('ix-chip--warn')
+  })
+
+  test('a board that never synced says so instead of claiming an age', async () => {
+    seedBoard()
+
+    await mountBoard()
+
+    expect(syncChip()?.textContent).toBe('never synced')
+  })
+
+  test('warns once the board has gone a quarter of an hour without a sync', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - 16 * MINUTE })
+
+    await mountBoard()
+
+    expect(syncChip()?.textContent).toBe('Synced 16m ago')
+    expect(syncChip()?.className).toContain('ix-chip--warn')
+  })
+
+  test('a failed refresh is admitted with the cached board still readable', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - MINUTE, syncError: 'ADO is unreachable' })
+
+    const { logged } = await mountBoard()
+
+    expect(logged).toEqual([])
+    expect(document.querySelector('[data-testid="pr-sync-error"]')?.textContent).toBe(
+      'Could not refresh: ADO is unreachable'
+    )
+    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+  })
+
+  test('says nothing about refreshing while the last sync succeeded', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - MINUTE })
+
+    await mountBoard()
+
+    expect(document.querySelector('[data-testid="pr-sync-error"]')).toBeNull()
   })
 
   test('a PR arriving from a sync re-renders the subscribed board', async () => {
