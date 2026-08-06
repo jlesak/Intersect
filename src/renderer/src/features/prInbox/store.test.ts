@@ -72,6 +72,7 @@ beforeEach(() => {
       status: 'idle',
       error: null,
       syncing: false,
+      syncError: null,
       prsByKey: {},
       order: [],
       syncedAt: null,
@@ -154,6 +155,38 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().syncing).toBe(false)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  test('a quiet sync failure records why, and keeps the cached board', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    usePrInboxStore.setState({
+      status: 'ready',
+      prsByKey: { [prKey('repo', 5)]: pr('repo', 5) },
+      order: [prKey('repo', 5)]
+    })
+    mocked.sync.mockRejectedValue(new Error('getaddrinfo ENOTFOUND dev.azure.com'))
+    await usePrInboxStore.getState().sync({ quiet: true })
+    const s = usePrInboxStore.getState()
+    expect(s.syncError).toMatch(/ENOTFOUND/)
+    expect(s.order).toEqual([prKey('repo', 5)])
+    expect(s.status).toBe('ready')
+    warn.mockRestore()
+  })
+
+  test('a loud sync failure records why as well as toasting', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.sync.mockRejectedValue(new Error('ADO returned 401'))
+    await usePrInboxStore.getState().sync()
+    expect(usePrInboxStore.getState().syncError).toMatch(/401/)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not sync pull requests'))
+    error.mockRestore()
+  })
+
+  test('a successful sync clears an earlier failure', async () => {
+    usePrInboxStore.setState({ syncError: 'ADO returned 401' })
+    mocked.sync.mockResolvedValue([pr('repo', 7)])
+    await usePrInboxStore.getState().sync()
+    expect(usePrInboxStore.getState().syncError).toBeNull()
   })
 
   test('select loads changes and drafts but defers threads (lazy)', async () => {
@@ -341,17 +374,17 @@ describe('review session', () => {
 })
 
 describe('groupBoardColumns', () => {
-  test('splits PRs by boardColumn, newest first', () => {
+  test('splits PRs by boardColumn, most recently active first', () => {
     usePrInboxStore.setState({
       prsByKey: {
-        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, createdAt: 10 }),
-        'r:2': pr('r', 2, { role: 'reviewer', myVote: 'approved', createdAt: 20 }),
+        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, lastActivityAt: 10 }),
+        'r:2': pr('r', 2, { role: 'reviewer', myVote: 'approved', lastActivityAt: 20 }),
         'r:3': pr('r', 3, {
           role: 'author',
-          createdAt: 30,
+          lastActivityAt: 30,
           reviewers: [{ id: 'x', displayName: 'X', vote: 'approved', isRequired: false }]
         }),
-        'r:4': pr('r', 4, { role: 'reviewer', myVote: null, createdAt: 40 })
+        'r:4': pr('r', 4, { role: 'reviewer', myVote: null, lastActivityAt: 40 })
       },
       order: ['r:1', 'r:2', 'r:3', 'r:4']
     })
@@ -359,6 +392,18 @@ describe('groupBoardColumns', () => {
     expect(cols.action.map((p) => p.prId)).toEqual([4, 1])
     expect(cols.waiting.map((p) => p.prId)).toEqual([2])
     expect(cols.approved.map((p) => p.prId)).toEqual([3])
+  })
+
+  test('a long-lived PR touched just now outranks a brand-new quiet one', () => {
+    usePrInboxStore.setState({
+      prsByKey: {
+        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, createdAt: 100, lastActivityAt: 900 }),
+        'r:2': pr('r', 2, { role: 'reviewer', myVote: null, createdAt: 500, lastActivityAt: 500 })
+      },
+      order: ['r:1', 'r:2']
+    })
+    const cols = groupBoardColumns(selectPrList(usePrInboxStore.getState()))
+    expect(cols.action.map((p) => p.prId)).toEqual([1, 2])
   })
 })
 

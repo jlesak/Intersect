@@ -29,6 +29,12 @@ interface PrInboxState {
    * reading as unknown at exactly the moment the board is most likely to be stale.
    */
   syncedAt: number | null
+  /**
+   * Why the latest refresh from Azure DevOps failed, or null when it succeeded. Describes only the
+   * most recent attempt, so the board can admit it is showing cached data without ever hiding that
+   * data behind an error state.
+   */
+  syncError: string | null
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
@@ -128,8 +134,10 @@ export function selectDrafts(state: PrInboxState): DraftComment[] {
 }
 
 /**
- * The board's three columns, newest PRs first within each. A pure function over the list (not a
- * store selector) so components can memoize it - it returns fresh arrays on every call.
+ * The board's three columns, most recently active PRs first within each, so a review queue is
+ * ordered by what needs attention rather than by what happens to be oldest. A pure function over
+ * the list (not a store selector) so components can memoize it - it returns fresh arrays on every
+ * call.
  */
 export function groupBoardColumns(prs: PullRequest[]): {
   action: PullRequest[]
@@ -142,7 +150,7 @@ export function groupBoardColumns(prs: PullRequest[]): {
     approved: [] as PullRequest[]
   }
   for (const pr of prs) cols[boardColumn(pr)].push(pr)
-  for (const list of Object.values(cols)) list.sort((a, b) => b.createdAt - a.createdAt)
+  for (const list of Object.values(cols)) list.sort((a, b) => b.lastActivityAt - a.lastActivityAt)
   return cols
 }
 
@@ -192,6 +200,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   prsByKey: {},
   order: [],
   syncedAt: null,
+  syncError: null,
   selectedKey: null,
   view: 'board',
   activeTab: 'files',
@@ -226,9 +235,11 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     set({ syncing: true })
     try {
       const prs = await api.sync()
-      set({ status: 'ready', ...indexPrs(prs) })
+      set({ status: 'ready', syncError: null, ...indexPrs(prs) })
       await readSyncedAt(set)
     } catch (e) {
+      // The cached board is left as it is: a refresh that failed still leaves data worth acting on.
+      set({ syncError: message(e) })
       if (opts?.quiet) console.warn('Background PR sync failed', e)
       else reportError('Could not sync pull requests', e)
     } finally {
