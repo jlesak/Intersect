@@ -13,6 +13,7 @@ import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
 import { wireDashboardNav } from './app/dashboardNavWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
+import { wirePrSync } from './app/prSyncWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
@@ -74,6 +75,8 @@ wireWorkItemLaunch()
 wireProjectsToWorkspaces()
 // Hydrate the settings store and keep live terminals following the terminal font size.
 wireSettings()
+// Refresh the PR board at boot and on focus regain, once the settings say ADO is connected.
+wirePrSync()
 // Mark sessions interrupted on a core crash and re-hydrate the stores once it recovers.
 wireCoreRecovery()
 // Run the command a native menu accelerator asked for (the app-wide keyboard layer).
