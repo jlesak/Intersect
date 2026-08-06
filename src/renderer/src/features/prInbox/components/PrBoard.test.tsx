@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
 
 // The board reads the shared relative-time formatter through the My Work barrel, which transitively
@@ -10,6 +10,16 @@ import { prKey, usePrInboxStore } from '../store'
 import { PrBoard } from './PrBoard'
 
 const MINUTE = 60_000
+
+/**
+ * The age at which the freshness chip stops being a quiet fact and becomes a warning.
+ *
+ * Written out here rather than imported from the board, so the number the user actually sees is
+ * pinned by this suite instead of following the implementation wherever it moves. It has to stay far
+ * above the five minutes that trigger an automatic refresh: were the two ever swapped, an in-use
+ * board would sit permanently tinted and the warning would mean nothing.
+ */
+const WARN_AFTER = 15 * MINUTE
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -90,7 +100,14 @@ const syncChip = (): Element | null => document.querySelector('[data-testid="pr-
  * real root exercises how the board subscribes to the cached PR list.
  */
 describe('PrBoard', () => {
+  // Freshness is read in milliseconds against a threshold, so a real clock makes the cases that sit
+  // a millisecond either side of it a coin toss. A controlled clock also lets time pass on demand.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
   afterEach(() => {
+    vi.useRealTimers()
     usePrInboxStore.setState({
       status: 'idle',
       error: null,
@@ -140,6 +157,38 @@ describe('PrBoard', () => {
 
     expect(syncChip()?.textContent).toBe('Synced 16m ago')
     expect(syncChip()?.className).toContain('ix-chip--warn')
+  })
+
+  test('stays quiet a millisecond short of a quarter of an hour', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - (WARN_AFTER - 1) })
+
+    await mountBoard()
+
+    expect(syncChip()?.className).not.toContain('ix-chip--warn')
+  })
+
+  test('warns the millisecond the board turns a quarter of an hour stale', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - WARN_AFTER })
+
+    await mountBoard()
+
+    expect(syncChip()?.className).toContain('ix-chip--warn')
+  })
+
+  test('keeps its own clock, so freshness ages while the board stays open', async () => {
+    seedBoard()
+    usePrInboxStore.setState({ syncedAt: Date.now() - 4 * MINUTE })
+
+    await mountBoard()
+    expect(syncChip()?.textContent).toBe('Synced 4m ago')
+
+    await act(async () => {
+      vi.advanceTimersByTime(MINUTE)
+    })
+
+    expect(syncChip()?.textContent).toBe('Synced 5m ago')
   })
 
   test('a failed refresh is admitted with the cached board still readable', async () => {
