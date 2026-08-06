@@ -58,7 +58,7 @@ beforeEach(() => {
   unwire?.()
   unwire = undefined
   sync.mockClear()
-  usePrInboxStore.setState({ sync, syncing: false })
+  usePrInboxStore.setState({ sync, syncing: false, adoConnected: false })
 })
 
 describe('wirePrSync', () => {
@@ -159,5 +159,58 @@ describe('wirePrSync', () => {
     unwire = undefined
     boardIs('ready', LONG_AGO_MS)
     expect(sync).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The board's refresh guard asks its own state whether Azure DevOps is reachable, and this wiring is
+ * what puts the answer there. Nothing else does, so a board left disconnected here never refreshes
+ * itself however stale it gets.
+ */
+describe('the connection the board judges itself against', () => {
+  const connected = (): boolean => usePrInboxStore.getState().adoConnected
+
+  test('loaded settings that reach Azure DevOps mark the board connected', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(connected()).toBe(true)
+  })
+
+  test('settings that have not loaded leave the board disconnected', () => {
+    settingsAre('loading', CONNECTED_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(connected()).toBe(false)
+  })
+
+  test('loaded settings with nothing to connect with leave the board disconnected', () => {
+    settingsAre('ready', BLANK_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(connected()).toBe(false)
+  })
+
+  test('saving a token makes the board refresh on the next focus, with no restart', () => {
+    settingsAre('ready', BLANK_ADO)
+    boardIs('ready', LONG_AGO_MS)
+    unwire = wirePrSync()
+    focusWindow()
+    expect(sync).not.toHaveBeenCalled()
+
+    settingsAre('ready', CONNECTED_ADO)
+    focusWindow()
+    expect(sync).toHaveBeenCalledTimes(1)
+  })
+
+  test('unwiring stops the connection being republished', () => {
+    settingsAre('ready', BLANK_ADO)
+    boardIs('ready', LONG_AGO_MS)
+    unwire = wirePrSync()
+    unwire()
+    unwire = undefined
+
+    settingsAre('ready', CONNECTED_ADO)
+    expect(connected()).toBe(false)
   })
 })

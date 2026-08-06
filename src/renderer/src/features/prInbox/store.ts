@@ -6,9 +6,7 @@ import type {
   PrVote,
   PullRequest
 } from '@common/domain'
-import { hasAdoConnection } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
-import { useSettingsStore } from '@renderer/features/settings'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
@@ -47,6 +45,16 @@ interface PrInboxState {
    * data behind an error state.
    */
   syncError: string | null
+  /**
+   * Whether Azure DevOps can be reached at all, as far as the saved settings are concerned.
+   *
+   * Mirrored in by the app layer rather than read from the settings slice directly: a feature store
+   * reaching into another feature's barrel to answer this drags that feature's whole UI into this
+   * one's module graph, and here it closed a cycle back onto this very file. False until the app
+   * layer says otherwise, so a connection that is not yet known is never mistaken for one that
+   * exists.
+   */
+  adoConnected: boolean
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
@@ -102,6 +110,8 @@ interface PrInboxState {
    * never asked for. Anything the user does ask for calls `sync` directly and loudly.
    */
   syncIfStale(): Promise<void>
+  /** Record whether Azure DevOps is reachable, so the guard above can consult it. */
+  setAdoConnected(connected: boolean): void
   select(repositoryId: string, prId: number): Promise<void>
   /** Open the PR's detail from the board (select + switch view). */
   openDetail(repositoryId: string, prId: number): Promise<void>
@@ -224,6 +234,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   order: [],
   syncedAt: null,
   syncError: null,
+  adoConnected: false,
   selectedKey: null,
   view: 'board',
   activeTab: 'files',
@@ -277,17 +288,16 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   },
 
   async syncIfStale() {
-    const settings = useSettingsStore.getState()
-    // Settings that have not arrived look exactly like settings the user left blank, so an unloaded
-    // form counts as no connection rather than as a reason to try.
-    if (settings.status !== 'ready') return
-    if (!hasAdoConnection(settings.ado, settings.adoFallback)) return
-
-    const { syncing, syncedAt } = get()
+    const { adoConnected, syncing, syncedAt } = get()
+    if (!adoConnected) return
     if (syncing) return
     if (syncedAt !== null && Date.now() - syncedAt < STALE_AFTER_MS) return
 
     await get().sync({ quiet: true })
+  },
+
+  setAdoConnected(connected) {
+    set({ adoConnected: connected })
   },
 
   async select(repositoryId, prId) {

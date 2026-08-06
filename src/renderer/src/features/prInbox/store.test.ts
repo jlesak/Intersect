@@ -2,16 +2,6 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/domain'
 
 vi.mock('./ipc')
-// The staleness guard asks the settings store one question - whether Azure DevOps is connected - so
-// that single answer is stubbed here instead of loading the settings feature and its views.
-const settings = vi.hoisted(() => ({
-  status: 'ready' as 'idle' | 'loading' | 'ready' | 'error',
-  ado: { orgUrl: '', project: '', repository: '', pat: '' },
-  adoFallback: { orgUrl: '', project: '', hasPat: false }
-}))
-vi.mock('@renderer/features/settings', () => ({
-  useSettingsStore: { getState: () => settings }
-}))
 import * as api from './ipc'
 import {
   groupBoardColumns,
@@ -342,18 +332,10 @@ describe('syncIfStale', () => {
    */
   const STALE_AFTER_MS = 5 * 60 * 1000
 
-  /** Put the settings where the guard will read them, connected or blank. */
-  function settingsAre(status: 'idle' | 'loading' | 'ready' | 'error', connected: boolean): void {
-    settings.status = status
-    settings.ado = connected
-      ? { orgUrl: 'https://dev.azure.com/acme', project: 'shop', repository: 'web', pat: 'token' }
-      : { orgUrl: '', project: '', repository: '', pat: '' }
-  }
-
   const syncedAgo = (ms: number): void => usePrInboxStore.setState({ syncedAt: Date.now() - ms })
 
   beforeEach(() => {
-    settingsAre('ready', true)
+    usePrInboxStore.getState().setAdoConnected(true)
     mocked.sync.mockResolvedValue([])
   })
 
@@ -381,13 +363,16 @@ describe('syncIfStale', () => {
   })
 
   test('a stale board is not refreshed without an Azure DevOps connection', async () => {
-    settingsAre('ready', false)
+    usePrInboxStore.getState().setAdoConnected(false)
     await usePrInboxStore.getState().syncIfStale()
     expect(mocked.sync).not.toHaveBeenCalled()
   })
 
-  test('a stale board is not refreshed before the settings have loaded', async () => {
-    settingsAre('idle', true)
+  test('a stale board is not refreshed while the connection is still unknown', async () => {
+    // Nothing has published a connection yet, which is the state at boot before settings land. An
+    // unknown connection must read as no connection, or the guard reaches for a network that may
+    // not be there.
+    usePrInboxStore.setState({ adoConnected: false })
     await usePrInboxStore.getState().syncIfStale()
     expect(mocked.sync).not.toHaveBeenCalled()
   })
