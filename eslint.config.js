@@ -68,7 +68,6 @@ const UNMIGRATED_E2E_SPECS = [
   'e2e/settings.spec.ts',
   'e2e/shortcuts.spec.ts',
   'e2e/smoke.spec.ts',
-  'e2e/theme.spec.ts',
   'e2e/todo.spec.ts'
 ]
 
