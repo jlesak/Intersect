@@ -43,6 +43,7 @@ export function TranscriptViewer() {
   const summary = useSessionsStore((s) => s.all.find((x) => x.id === s.selectedId) ?? null)
   const transcript = useSessionsStore((s) => s.transcript)
   const transcriptStatus = useSessionsStore((s) => s.transcriptStatus)
+  const resuming = useSessionsStore((s) => s.resumingId !== null && s.resumingId === s.selectedId)
 
   if (!selectedId) {
     return (
@@ -74,9 +75,11 @@ export function TranscriptViewer() {
           <button
             type="button"
             className="ix-btn ix-btn--primary"
+            disabled={resuming}
             onClick={() => useSessionsStore.getState().requestResume(summary)}
           >
-            Resume
+            {resuming && <span className="ix-spinner" aria-hidden />}
+            {resuming ? 'Resuming…' : 'Resume'}
           </button>
         )}
       </div>

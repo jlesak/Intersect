@@ -205,5 +205,8 @@ test('resume opens a Claude tab in a workspace for the session folder', async ()
   await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
   await expect(win.locator('.xterm')).toBeVisible()
 
+  // The resume says it finished, naming the session it brought back.
+  await expect(win.locator('.ix-toast')).toContainText('Resumed Building the widget factory')
+
   await app.close()
 })
