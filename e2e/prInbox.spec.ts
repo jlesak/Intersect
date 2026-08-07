@@ -2,15 +2,28 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { unconfiguredAdo } from './harness'
 
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
-/** Launch the app; `ado: 'radar'` boots against the stubbed ADO backend with canned PRs. */
+/**
+ * Launch the app; `ado: 'radar'` boots against the stubbed ADO backend with canned PRs.
+ *
+ * Always on an unconnected machine. These tests count what the canned backend has served by the
+ * time they assert, and the app refreshes pull requests by itself only when it has a connection to
+ * do it with - so inheriting the developer's credentials would make a Sync click below the second
+ * sync on one laptop and the first on another.
+ */
 async function launch(ado?: 'radar'): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', ...(ado ? { INTERSECT_E2E_ADO: ado } : {}) }
+    env: {
+      ...process.env,
+      INTERSECT_E2E: '1',
+      ...unconfiguredAdo(),
+      ...(ado ? { INTERSECT_E2E_ADO: ado } : {})
+    }
   })
   const win = await app.firstWindow()
   const errors: string[] = []

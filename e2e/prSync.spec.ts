@@ -1,29 +1,12 @@
-import { expect, launch, openRailSection, tempDir, test, userDataDir } from './harness'
-
-/**
- * Environment for a machine that has no Azure DevOps connection at all.
- *
- * Being connected is a property of the machine, not of the profile: a blank profile still inherits
- * an organisation URL and a token from `~/.claude.json` or from `AZURE_DEVOPS_*`, so on a developer
- * laptop a fresh profile is usually connected. Pointing the home directory at an empty temp dir and
- * blanking the environment pair is what makes "not connected" reproducible everywhere.
- */
-function unconfigured(): Record<string, string> {
-  return { HOME: tempDir('intersect-empty-home-'), AZURE_DEVOPS_ORG_URL: '', AZURE_DEVOPS_PAT: '' }
-}
-
-/**
- * Environment for a connected machine, resolved from the same empty home so only these credentials
- * can count. The values are never dialled: an E2E run answers every Azure DevOps call from the
- * canned backend, and what is under test is which of them the app decides to make.
- */
-function connected(): Record<string, string> {
-  return {
-    HOME: tempDir('intersect-empty-home-'),
-    AZURE_DEVOPS_ORG_URL: 'https://devops.example/e2e',
-    AZURE_DEVOPS_PAT: 'e2e-token'
-  }
-}
+import {
+  connectedAdo,
+  expect,
+  launch,
+  openRailSection,
+  test,
+  unconfiguredAdo,
+  userDataDir
+} from './harness'
 
 /**
  * The case every launch on an unconfigured machine hits. Automatic refreshing must stay off there,
@@ -36,7 +19,7 @@ function connected(): Record<string, string> {
  * proves the chip would have said so.
  */
 test('an unconnected board says it never synced and never refreshes itself', async () => {
-  const { app, win } = await launch(userDataDir(), { env: unconfigured() })
+  const { app, win } = await launch(userDataDir(), { env: unconfiguredAdo() })
   await openRailSection(win, 'PR Review', '.ix-board-head')
 
   const age = win.getByTestId('pr-sync-age')
@@ -70,7 +53,7 @@ test('an unconnected board says it never synced and never refreshes itself', asy
  */
 test('a connected board refreshes itself at boot with nobody pressing Sync', async () => {
   const { app, win } = await launch(userDataDir(), {
-    env: { ...connected(), INTERSECT_E2E_ADO: 'radar' }
+    env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
   })
 
   // The rail badge counts what needs my action, so it filling in on its own - before the section has

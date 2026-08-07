@@ -76,6 +76,34 @@ export function userDataDir(): string {
   return tempDir('intersect-e2e-')
 }
 
+/**
+ * Environment for a machine with no Azure DevOps connection at all.
+ *
+ * Being connected is a property of the machine, not of the profile: a blank profile still inherits an
+ * organisation URL and a token from `~/.claude.json` or from `AZURE_DEVOPS_*`, so on a developer
+ * laptop a fresh profile is usually connected. That decides whether the app refreshes pull requests
+ * by itself, which in turn decides how many syncs the canned backend has served by the time a spec
+ * asserts anything - so a spec that counts syncs and does not say which machine it wants passes or
+ * fails according to whose laptop ran it. Pointing the home directory at an empty temp dir and
+ * blanking the environment pair is what makes "not connected" reproducible everywhere.
+ */
+export function unconfiguredAdo(): Record<string, string> {
+  return { HOME: tempDir('intersect-empty-home-'), AZURE_DEVOPS_ORG_URL: '', AZURE_DEVOPS_PAT: '' }
+}
+
+/**
+ * Environment for a connected machine, resolved from the same empty home so only these credentials
+ * can count. The values are never dialled: an E2E run answers every Azure DevOps call from the canned
+ * backend, and what is under test is which of those calls the app decides to make.
+ */
+export function connectedAdo(): Record<string, string> {
+  return {
+    HOME: tempDir('intersect-empty-home-'),
+    AZURE_DEVOPS_ORG_URL: 'https://devops.example/e2e',
+    AZURE_DEVOPS_PAT: 'e2e-token'
+  }
+}
+
 export interface LaunchOptions {
   /** Extra environment for the app process. Overrides the harness defaults. */
   env?: Record<string, string>

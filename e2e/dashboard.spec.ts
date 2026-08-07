@@ -1,4 +1,4 @@
-import { expect, launch, test, userDataDir } from './harness'
+import { expect, launch, test, unconfiguredAdo, userDataDir } from './harness'
 
 // Saturday and Sunday get the weekend line instead of a day total, and the timer's own logging
 // notice differs there too - so the assertions about a figure only hold on a weekday.
@@ -10,7 +10,7 @@ const RUNS_ON_WEEKDAY = ![0, 6].includes(new Date().getDay())
  * a crash on boot - the shell's region boundary would replace the whole main area with .ix-crash.
  */
 test('a fresh profile lands on the Dashboard with all four zones in their empty states', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { app, win } = await launch(userDataDir(), { env: unconfiguredAdo() })
 
   await expect(win.locator('.ix-dash')).toBeVisible()
   // Nothing was clicked: the shell fell back to the rail's first section owning a main component.
@@ -26,18 +26,20 @@ test('a fresh profile lands on the Dashboard with all four zones in their empty 
   // An empty zone shrinks to a one-line state; it never disappears and never moves.
   await expect(win.locator('.ix-dash-zone')).toHaveCount(4)
   await expect(win.locator('.ix-dash-group__label')).toHaveText(['Pull requests', 'Deadlines'])
-  // Whether Azure DevOps counts as connected depends on the credentials of the machine running the
-  // suite (`~/.claude.json` or `AZURE_DEVOPS_*`), so the PR line has two legitimate readings here.
-  // Both are asserted because the one thing it must never do is stay silent about which is true.
+  // The launch declares an unconnected machine, so there is exactly one right answer here rather
+  // than the two readings this had to accept while the suite inherited whatever credentials the
+  // developer's laptop happened to hold.
   await expect(win.locator('.ix-dash-group__empty .ix-dash-note__text').first()).toHaveText(
-    /No pull request is waiting on you\.|Azure DevOps is not connected/
+    /Azure DevOps is not connected/
   )
   await expect(win.locator('.ix-dash-group__empty .ix-dash-note__text').nth(1)).toHaveText(
     'Nothing is due today.'
   )
   await expect(win.locator('.ix-dash-sessions__empty')).toBeVisible()
   await expect(win.locator('.ix-dash-sync__value').first()).toHaveText('never')
-  await expect(win.locator('.ix-dash-sync__value').nth(1)).toHaveText(/never|not set up/)
+  // Nothing synced pull requests behind the user's back: with no connection there is nothing to
+  // sync with, and the row says so rather than reporting a freshness it invented.
+  await expect(win.locator('.ix-dash-sync__value').nth(1)).toHaveText('not set up')
   await expect(win.locator('.ix-dash-row')).toHaveCount(0)
 
   // No zone threw: the region boundary never replaced the main area.

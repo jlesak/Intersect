@@ -2,15 +2,21 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { connectedAdo } from './harness'
 
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
-/** Launch the app against the stubbed ADO backend in radar mode (see adoE2eStub). */
+/**
+ * Launch the app against the stubbed ADO backend in radar mode (see adoE2eStub).
+ *
+ * Always on a connected machine: these tests start from a populated radar, which the app fills by
+ * refreshing itself, and it only does that where Azure DevOps is reachable.
+ */
 async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', INTERSECT_E2E_ADO: 'radar' }
+    env: { ...process.env, INTERSECT_E2E: '1', ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
