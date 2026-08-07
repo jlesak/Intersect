@@ -7,6 +7,8 @@ export function registerWorkItemsFeature(): void {
   registerCommand({
     id: 'workItems.setForActiveTab',
     title: 'Session: Set Work Item',
+    keywords: ['jira', 'issue', 'link', 'attach', 'todo'],
+    enabled: () => useTabsStore.getState().activeTabId !== null,
     handler: () => {
       const tabId = useTabsStore.getState().activeTabId
       if (tabId) useWorkItemsStore.getState().openPicker(tabId)

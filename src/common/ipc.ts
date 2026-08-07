@@ -327,6 +327,12 @@ export interface IpcApi {
     /** Fired whenever a run finishes (done or failed) so the history refreshes live. */
     onRunChanged(cb: (run: OtoRun) => void): () => void
   }
+  palette: {
+    /** Command ids the user ran most recently, newest first; empty on a fresh profile. */
+    getRecent(): Promise<string[]>
+    /** Note that a command was just run, and answer with the updated recently-used list. */
+    recordUse(commandId: string): Promise<string[]>
+  }
   settings: {
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
     get(): Promise<AppSettings>
@@ -613,6 +619,9 @@ export const Channel = {
   oneOnOneStart: 'oneOnOne:start',
   oneOnOnePickVtt: 'oneOnOne:pickVtt',
   oneOnOneRunChanged: 'oneOnOne:runChanged',
+  // commandPalette (request/response)
+  paletteGetRecent: 'palette:getRecent',
+  paletteRecordUse: 'palette:recordUse',
   // settings (request/response)
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',

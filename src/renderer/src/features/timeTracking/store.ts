@@ -29,7 +29,11 @@ interface TimeTrackingState {
   goToday(): Promise<void>
   /** Force a session re-scan from disk, then reload the shown week. */
   refresh(): Promise<void>
-  addManual(input: NewManualTimeEntry): Promise<void>
+  /**
+   * Log a manual entry, answering whether it was really written. Quick capture confirms the entry
+   * to a user who is not looking at the board, so it has to know a failure from a success.
+   */
+  addManual(input: NewManualTimeEntry): Promise<boolean>
   updateEntry(entry: TimeEntry, update: TimeEntryUpdate): Promise<void>
   removeEntry(entry: TimeEntry): Promise<void>
   startTimer(description: string, issueKey: string | null): Promise<void>
@@ -63,14 +67,20 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     }
   }
 
-  /** Run a mutation, then re-read the week so the board always shows main's truth. */
-  async function mutate(op: () => Promise<unknown>, failure: string): Promise<void> {
+  /**
+   * Run a mutation, then re-read the week so the board always shows main's truth. Answers whether
+   * the mutation itself succeeded; a failure has already been reported to the user.
+   */
+  async function mutate(op: () => Promise<unknown>, failure: string): Promise<boolean> {
+    let ok = true
     try {
       await op()
     } catch (e) {
+      ok = false
       reportError(failure, e)
     }
     await reload()
+    return ok
   }
 
   return {
@@ -120,7 +130,7 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     },
 
     async addManual(input) {
-      await mutate(() => api.addManual(input), 'Could not add the entry')
+      return mutate(() => api.addManual(input), 'Could not add the entry')
     },
 
     async updateEntry(entry, update) {

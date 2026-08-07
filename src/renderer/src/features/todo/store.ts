@@ -21,7 +21,12 @@ interface TodoState {
   pendingFocusId: string | null
   load(): Promise<void>
   toggleShowDone(): void
-  add(text: string, dueDay: string | null): Promise<void>
+  /**
+   * Add a task, answering whether it was really written. A caller that confirms the add to the
+   * user - quick capture, which never shows the list - has to be able to tell success from a
+   * failure that only reported itself to a toast.
+   */
+  add(text: string, dueDay: string | null): Promise<boolean>
   /** Edit any subset of a task's fields in place (inline editing). */
   update(id: string, patch: TodoTaskPatch): Promise<void>
   toggleDone(id: string, done: boolean): Promise<void>
@@ -48,15 +53,21 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     }
   }
 
-  /** Run a mutation, then re-read both lists so the section always shows main's truth. */
-  async function mutate(op: () => Promise<unknown>, failure: string): Promise<void> {
+  /**
+   * Run a mutation, then re-read both lists so the section always shows main's truth. Answers
+   * whether the mutation itself succeeded; a failure has already been reported to the user.
+   */
+  async function mutate(op: () => Promise<unknown>, failure: string): Promise<boolean> {
     reorderRevision += 1
+    let ok = true
     try {
       await op()
     } catch (e) {
+      ok = false
       reportError(failure, e)
     }
     await reload()
+    return ok
   }
 
   return {
@@ -86,7 +97,7 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     },
 
     async add(text, dueDay) {
-      await mutate(() => api.add(text, dueDay), 'Could not add the task')
+      return mutate(() => api.add(text, dueDay), 'Could not add the task')
     },
 
     async update(id, patch) {

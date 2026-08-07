@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from './shared/ui/ErrorBoundary'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
+import { registerPaletteTargets } from './app/paletteTargets'
 import { registerShellCommands } from './app/shellCommands'
 import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
@@ -20,6 +21,7 @@ import { wireSettings } from './app/settingsWiring'
 import { wireShortcuts } from './app/shortcutWiring'
 import { wireTodoFocus } from './app/todoFocusWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
+import { useCommandPaletteStore } from './features/commandPalette'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
@@ -31,6 +33,7 @@ import { useWorkspacesStore } from './features/workspaces'
 // registries. Store hydration is fired after render (non-blocking); slices show their own state.
 registerFeatures()
 registerShellCommands()
+registerPaletteTargets()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('root element missing')
@@ -46,6 +49,9 @@ createRoot(root).render(
 )
 
 void useWorkspacesStore.getState().hydrate()
+// Read the palette's recently-used commands, so the first Cmd+K of the day already leads with the
+// user's own habits rather than an alphabetical listing.
+void useCommandPaletteStore.getState().hydrateRecent()
 // Load the cached PRs (no network) and start listening for pushed drafts / review-session exits.
 void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
