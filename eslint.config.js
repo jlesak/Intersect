@@ -62,8 +62,7 @@ const UNMIGRATED_E2E_SPECS = [
   'e2e/mywork.spec.ts',
   'e2e/prInbox.live.spec.ts',
   'e2e/prInbox.spec.ts',
-  'e2e/prvote.spec.ts',
-  'e2e/smoke.spec.ts'
+  'e2e/prvote.spec.ts'
 ]
 
 export default tseslint.config(
