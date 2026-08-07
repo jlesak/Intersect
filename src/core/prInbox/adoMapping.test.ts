@@ -130,6 +130,20 @@ describe('mapPullRequest', () => {
     ])
   })
 
+  test('carries the description the author wrote, verbatim', () => {
+    const raw: AdoRawPullRequest = {
+      ...rawAuthored,
+      description: 'Adds the overview endpoints.\n\n- one\n- two'
+    }
+    expect(mapPullRequest(raw, 'author', me).description).toBe(
+      'Adds the overview endpoints.\n\n- one\n- two'
+    )
+  })
+
+  test('a PR the author left undescribed maps to an empty description, never undefined', () => {
+    expect(mapPullRequest(rawAuthored, 'author', me).description).toBe('')
+  })
+
   test('myVote is null when I am not among the reviewers (pure author)', () => {
     expect(mapPullRequest(rawAuthored, 'author', me).myVote).toBeNull()
   })

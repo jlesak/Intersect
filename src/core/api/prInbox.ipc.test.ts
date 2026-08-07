@@ -29,6 +29,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'spot-backend',
   projectId: 'SPOT',
   title: 'a change',
+  description: '',
   authorId: 'a1',
   authorName: 'Jan',
   createdAt: 1000,
@@ -99,7 +100,7 @@ function makeReview(over: Partial<ReviewManager> = {}): ReviewManager {
 function makeLocalDiff(over: Partial<LocalDiffService> = {}): LocalDiffService {
   return {
     getChanges: vi.fn(
-      async (): Promise<PrChangeFile[]> => [{ path: 'src/a.ts', changeType: 'edit', originalPath: null }]
+      async (): Promise<PrChangeFile[]> => [{ path: 'src/a.ts', changeType: 'edit', originalPath: null, added: 3, removed: 1 }]
     ),
     getFileDiff: vi.fn(
       async (): Promise<FileDiff> => ({
@@ -585,8 +586,8 @@ describe('applyMyVote', () => {
 describe('buildReviewContext', () => {
   test('summarizes the PR and changed files', () => {
     const md = buildReviewContext(pr(), [
-      { path: 'src/a.ts', changeType: 'edit', originalPath: null },
-      { path: 'src/b.ts', changeType: 'add', originalPath: null }
+      { path: 'src/a.ts', changeType: 'edit', originalPath: null, added: 3, removed: 1 },
+      { path: 'src/b.ts', changeType: 'add', originalPath: null, added: 9, removed: 0 }
     ])
     expect(md).toContain('# PR 100: a change')
     expect(md).toContain('- edit: src/a.ts')

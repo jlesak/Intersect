@@ -8,6 +8,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'spot-backend',
   projectId: 'SPOT',
   title: 'a change',
+  description: '',
   authorId: 'a1',
   authorName: 'Jan',
   createdAt: 1000,

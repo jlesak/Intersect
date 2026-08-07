@@ -34,6 +34,7 @@ const pullRequest = (prId: number, title: string, repositoryName = 'spot-backend
   repositoryName,
   projectId: 'ado-project',
   title,
+  description: '',
   authorId: 'a',
   authorName: 'A',
   createdAt: 1,

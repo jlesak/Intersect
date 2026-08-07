@@ -99,6 +99,25 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await app.close()
 })
 
+test('the header sizes the change, and every file row carries its own counts', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+
+  // The four canned files total 128 added and 14 removed, and the summary is on the conversation
+  // too - the reviewer never had to open the file list to learn how big the change is.
+  await expect(win.getByTestId('pr-size')).toHaveText('4 files · +128 -14')
+
+  await win.getByTestId('pr-tab-files').click()
+  const rateLimiter = win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first()
+  await expect(rateLimiter).toContainText('+42')
+  await expect(rateLimiter).toContainText('-9')
+
+  await app.close()
+})
+
 test('a freshly opened PR lands on the conversation, not on the files', async () => {
   const { app, win } = await launch('radar')
 
@@ -110,6 +129,38 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
   await expect(win.getByTestId('pr-tab-overview')).toHaveClass(/ix-ptab--active/)
   // The one real thread of PR 501 is there without the user asking for it.
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
+
+  await app.close()
+})
+
+test('the conversation leads with the description, laid out as the author typed it', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+
+  const description = win.getByTestId('pr-description')
+  await expect(description).toContainText('Caps the outbound sync at 25 requests a second.')
+  await expect(description).toContainText('token bucket per host')
+  // The stylesheet is what keeps the author's line breaks on the screen, and only a real browser
+  // can say whether it reached this element.
+  expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre-wrap')
+
+  // The correlation id in that description is one unbroken run of characters wider than the box.
+  // Nothing may paint outside the border, and the pane it sits in may not have grown a sideways
+  // scroll to fit it.
+  const laidOut = await description.evaluate((el) => ({
+    overflows: el.scrollWidth > el.clientWidth,
+    paneOverflows: el.closest('.ix-overview')!.scrollWidth > el.closest('.ix-overview')!.clientWidth
+  }))
+  expect(laidOut).toEqual({ overflows: false, paneOverflows: false })
+
+  // A PR nobody described gets no box rather than an empty one.
+  await win.keyboard.press('Escape')
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await expect(win.getByTestId('pr-overview')).toBeVisible()
+  await expect(win.getByTestId('pr-description')).toHaveCount(0)
 
   await app.close()
 })
@@ -177,6 +228,28 @@ test('the diff carries its inline threads on a PR the user took straight to File
   // The thread anchored to this file renders as a Monaco view zone under its line, without the
   // conversation ever having been opened.
   await expect(win.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
+
+  await app.close()
+})
+
+test('a thread anchored past the end of the file says its position is a guess', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Extract the notification preferences' }).click()
+  await win.getByTestId('pr-tab-files').click()
+
+  // Monaco clamps an out-of-range anchor to the last line rather than refusing it, so the thread
+  // renders either way and only the badge distinguishes a real position from a clamped one.
+  await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
+  await expect(win.getByTestId('pr-thread')).toContainText('written against an older iteration')
+  await expect(win.getByTestId('pr-thread-stale-anchor')).toBeVisible()
+
+  // The same view, a thread whose line the file does reach: no warning.
+  await win.getByTestId('tree-file').filter({ hasText: 'queue.ts' }).first().click()
+  await expect(win.getByTestId('pr-thread')).toContainText('belongs in config')
+  await expect(win.getByTestId('pr-thread-stale-anchor')).toHaveCount(0)
 
   await app.close()
 })

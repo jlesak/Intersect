@@ -31,46 +31,131 @@ function changeTypeOf(status: string): PrChangeFile['changeType'] {
 }
 
 /**
- * Parse the tab-delimited `--name-status -M` output into change records. Paths are normalized to the
- * Azure DevOps convention used everywhere else in the PR pipeline (leading slash), so thread
- * matching, comment badges, and draft publishing all key off the same shape.
+ * Walk a NUL-separated git stream field by field. The trailing NUL leaves an empty last field,
+ * which is not a record and is dropped.
  */
-export function parseNameStatus(raw: string): PrChangeFile[] {
-  const changes: PrChangeFile[] = []
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue
-    const [status, ...paths] = line.split('\t')
-    const changeType = changeTypeOf(status)
-    if (changeType === 'rename') {
-      const [originalPath, path] = paths
-      changes.push({ path: `/${path}`, changeType, originalPath: `/${originalPath}` })
-    } else {
-      changes.push({ path: `/${paths[0]}`, changeType, originalPath: null })
-    }
+function nulFields(raw: string): string[] {
+  const fields = raw.split('\0')
+  if (fields[fields.length - 1] === '') fields.pop()
+  return fields
+}
+
+/** A changed file as the file-list run describes it: what happened, and to which path. */
+export type NamedChange = Omit<PrChangeFile, 'added' | 'removed'>
+
+/**
+ * Parse the NUL-separated `--name-status -M -z` stream into change records. Paths are normalized to
+ * the Azure DevOps convention used everywhere else in the PR pipeline (leading slash), so thread
+ * matching, comment badges, and draft publishing all key off the same shape. This run says what
+ * happened to each file and nothing about how much of it changed, so the line counts are left to
+ * the caller rather than filled in with a zero that would be indistinguishable from a file that
+ * genuinely gained and lost nothing.
+ */
+export function parseNameStatus(raw: string): NamedChange[] {
+  const changes: NamedChange[] = []
+  const fields = nulFields(raw)
+  let i = 0
+  while (i < fields.length) {
+    const status = fields[i++]
+    if (!status) continue
+    // A rename or a copy names both sides, each as a field of its own; everything else names one.
+    const twoSided = status[0] === 'R' || status[0] === 'C'
+    const first = fields[i++]
+    const second = twoSided ? fields[i++] : undefined
+    const path = twoSided ? second : first
+    if (!path) continue
+    changes.push({
+      path: `/${path}`,
+      changeType: changeTypeOf(status),
+      originalPath: twoSided ? `/${first}` : null
+    })
   }
   return changes
 }
 
 /**
- * The PR's changed files, computed locally against the merge base of target and source (three-dot),
- * so target-side changes not part of the PR are excluded - matching the Azure DevOps web diff.
+ * Line counts from the `--numstat -M -z` stream, keyed by the same leading-slash path
+ * {@link parseNameStatus} produces. A binary file, which git reports as `-` on both sides, counts
+ * as no lines rather than as a number nothing can be added to.
+ */
+export function parseNumstat(raw: string): Map<string, { added: number; removed: number }> {
+  const counts = new Map<string, { added: number; removed: number }>()
+  const fields = nulFields(raw)
+  let i = 0
+  while (i < fields.length) {
+    const head = fields[i++]
+    const firstTab = head.indexOf('\t')
+    const secondTab = head.indexOf('\t', firstTab + 1)
+    if (firstTab < 0 || secondTab < 0) continue
+    // A rename leaves the path slot of the head empty and follows it with the old and then the new
+    // path, each as a field of its own. The new side is what the rest of the pipeline keys off.
+    let path = head.slice(secondTab + 1)
+    if (!path) {
+      i++
+      path = fields[i++] ?? ''
+    }
+    if (!path) continue
+    counts.set(`/${path}`, {
+      added: lineCount(head.slice(0, firstTab)),
+      removed: lineCount(head.slice(firstTab + 1, secondTab))
+    })
+  }
+  return counts
+}
+
+/** One side of a numstat record. Git writes `-` for a binary file, which counts as no lines. */
+function lineCount(field: string): number {
+  return Number.parseInt(field, 10) || 0
+}
+
+/**
+ * Give each changed file the lines it gained and lost. Both git runs behind these two arguments see
+ * the same revisions with the same rename detection, so they always name the same files; a file
+ * with no counts to its name therefore means one of them was read wrong, and throwing says so.
+ * Reporting it as 0 / 0 instead would be a size the reviewer has no way to tell from a real one.
+ */
+export function withCounts(
+  named: NamedChange[],
+  counts: Map<string, { added: number; removed: number }>
+): PrChangeFile[] {
+  return named.map((change) => {
+    const counted = counts.get(change.path)
+    if (!counted) {
+      throw new Error(`git listed ${change.path} as changed but reported no line counts for it.`)
+    }
+    return { ...change, ...counted }
+  })
+}
+
+/**
+ * The PR's changed files with their line counts, computed locally against the merge base of target
+ * and source (three-dot), so target-side changes not part of the PR are excluded - matching the
+ * Azure DevOps web diff. Git answers the file list and the line counts on separate runs, joined
+ * here by path.
  */
 export async function localChanges(
   repoDir: string,
   targetCommit: string,
   sourceCommit: string
 ): Promise<PrChangeFile[]> {
-  const raw = await git(repoDir, [
-    '-c',
-    'core.quotePath=false',
+  // `-z` on both runs: it spells every path plainly and in full - no `a/{b => c}/f.ts` shorthand to
+  // expand, and no C-quoting of paths that hold a quote, a backslash or a tab. The path git prints
+  // is the path, which is what lets the two runs be joined on it and lets a failed join mean a bug
+  // rather than a shape nobody thought of.
+  const diffArgs = (mode: string): string[] => [
     'diff',
     '--merge-base',
-    '--name-status',
+    mode,
     '-M',
+    '-z',
     targetCommit,
     sourceCommit
+  ]
+  const [nameStatus, numstat] = await Promise.all([
+    gitRaw(repoDir, diffArgs('--name-status')),
+    gitRaw(repoDir, diffArgs('--numstat'))
   ])
-  return parseNameStatus(raw)
+  return withCounts(parseNameStatus(nameStatus), parseNumstat(numstat))
 }
 
 export interface FileDiffInput {

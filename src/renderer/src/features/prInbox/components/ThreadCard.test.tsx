@@ -121,3 +121,42 @@ describe('ThreadCard reply', () => {
     expect(input.value).toBe('Line one\nLine two')
   })
 })
+
+const renderCard = async (positionOutdated: boolean): Promise<void> => {
+  await act(async () => {
+    render(
+      <ThreadCard
+        thread={thread()}
+        positionOutdated={positionOutdated}
+        onReply={async () => true}
+        onSetStatus={async () => true}
+      />
+    )
+  })
+}
+
+const badge = (): HTMLElement | null =>
+  document.querySelector<HTMLElement>('[data-testid="pr-thread-stale-anchor"]')
+
+/**
+ * A thread whose recorded line the file no longer reaches still renders, clamped to the bottom of
+ * the diff. Without a word about it the reviewer reads a comment about line 12 as a comment about
+ * the last line of the file.
+ */
+describe('ThreadCard stale anchor', () => {
+  test('says the position is only approximate when the line is past the end of the file', async () => {
+    await renderCard(true)
+
+    expect(badge()).not.toBeNull()
+    expect(badge()!.textContent!.toLowerCase()).toContain('approximate')
+    // The line it was written against is still named, so the reviewer can go looking.
+    expect(badge()!.title).toContain('line 12')
+  })
+
+  test('a thread sitting where it says it does carries no such warning', async () => {
+    await renderCard(false)
+
+    expect(badge()).toBeNull()
+    expect(document.body.textContent!.toLowerCase()).not.toContain('approximate')
+  })
+})

@@ -10,6 +10,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'spot-backend',
   projectId: 'SPOT',
   title: 'a change',
+  description: '',
   authorId: 'author-1',
   authorName: 'Jan',
   createdAt: 5000,
@@ -46,6 +47,12 @@ describe('prCacheRepo', () => {
     expect(got?.reviewers).toEqual([
       { id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }
     ])
+  })
+
+  test('round-trips the description, including its line breaks', () => {
+    repo.replaceAll([pr({ description: 'What this does.\n\n- first\n- second' })])
+    expect(repo.get('repo-a', 100)?.description).toBe('What this does.\n\n- first\n- second')
+    expect(repo.list()[0].description).toBe('What this does.\n\n- first\n- second')
   })
 
   test('round-trips the active thread count', () => {

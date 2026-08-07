@@ -1013,6 +1013,13 @@
   min-width: 0;
   overflow: hidden;
 }
+.ix-pr-header__size {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 .ix-pr-ref {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1266,6 +1273,24 @@
   font-size: 10px;
   color: var(--text-faint);
 }
+.ix-tree__lines {
+  flex: none;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+/* The comment badge already carries the auto margin that pushes the row's tail right, and two
+   auto margins in one flex row would share the slack and strand both in the middle instead. */
+.ix-tree__node:not(:has(.ix-tree__count)) .ix-tree__lines {
+  margin-left: auto;
+}
+.ix-lines-added {
+  color: #8fce9b;
+}
+.ix-lines-removed {
+  color: var(--danger);
+}
 
 /* ---------------- PR review: diff view zones (threads, drafts, composer) ---------------- */
 .ix-zone-host {
@@ -1408,6 +1433,26 @@
   align-items: center;
   gap: 10px;
   padding: 4px 0 10px;
+}
+/* The author's own explanation, shown as the text they typed. Azure DevOps stores it as markdown
+   and nothing here renders markup, so the line breaks they used are the only structure that
+   survives - and losing those would run the whole description into one paragraph. A description is
+   also where a pasted id, hash or token lands, and such a run offers no character a line break may
+   fall on - a URL at least breaks at its slashes and ampersands, this does not. Left alone it
+   paints past the border and drags a horizontal scrollbar across the whole pane, so the box is
+   allowed to break inside a word when it has no other choice. */
+.ix-overview__description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 760px;
+  margin: 6px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 /* Settled threads stay on the page, dimmed and folded away, rather than being filtered out. The
    dimming is on the threads alone: the toggle is the control that reveals them, so it has to stay

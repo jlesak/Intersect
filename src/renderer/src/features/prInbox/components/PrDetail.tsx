@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import type { PrChangeFile } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
 import { prKey, selectDrafts, selectPrWebUrl, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
@@ -15,6 +16,20 @@ const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
 /** Why the outbound links are dead: the address of the Azure DevOps organisation is not known. */
 const NO_WEB_LINK =
   'Set the Azure DevOps organisation URL in Settings to link out to this pull request.'
+
+/**
+ * How much there is to read, answered before the reviewer opens anything. Null while no changed
+ * files are in hand: an empty list is also what "not fetched yet" looks like, and "0 files" would
+ * be a claim about the pull request rather than about what is known of it.
+ */
+function changeSize(changes: PrChangeFile[]): { files: string; added: number; removed: number } | null {
+  if (changes.length === 0) return null
+  return {
+    files: `${changes.length} ${changes.length === 1 ? 'file' : 'files'}`,
+    added: changes.reduce((sum, c) => sum + c.added, 0),
+    removed: changes.reduce((sum, c) => sum + c.removed, 0)
+  }
+}
 
 /** The changed-files view: file tree, the active file's diff, and this PR's draft comments. */
 function ChangesView() {
@@ -88,6 +103,7 @@ export function PrDetail() {
   const reviewPrKey = usePrInboxStore((s) => s.reviewPrKey)
   const reviewView = usePrInboxStore((s) => s.reviewView)
   const webUrl = usePrInboxStore(selectPrWebUrl)
+  const size = useMemo(() => changeSize(changes), [changes])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -122,6 +138,13 @@ export function PrDetail() {
           <span className="ix-faint">→</span>
           <span className="ix-pr-ref">{shortRef(pr.targetRefName)}</span>
         </div>
+        {size && (
+          <div className="ix-pr-header__size" data-testid="pr-size">
+            {`${size.files} · `}
+            <span className="ix-lines-added">{`+${size.added}`}</span>{' '}
+            <span className="ix-lines-removed">{`-${size.removed}`}</span>
+          </div>
+        )}
         <div className="ix-row" style={{ gap: 8, marginLeft: 'auto' }}>
           <button
             type="button"

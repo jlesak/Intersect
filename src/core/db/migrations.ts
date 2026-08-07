@@ -586,6 +586,14 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE projects DROP COLUMN toggl_project_id;`)
     }
+  },
+  {
+    // PR detail: the author's own explanation of the change, which the sync already received and
+    // discarded. Empty for a PR nobody described, and for rows cached before the column existed.
+    version: 25,
+    up(db) {
+      db.exec(`ALTER TABLE pr_cache ADD COLUMN description TEXT NOT NULL DEFAULT '';`)
+    }
   }
 ]
 

@@ -17,6 +17,21 @@ interface DiffViewerProps {
 }
 
 /**
+ * Whether a thread's recorded line falls past the end of the file as this diff has it.
+ *
+ * Azure DevOps anchors a comment to the iteration it was written against, while the diff here is
+ * computed locally against the current merge base, so a recorded line can name a line the file no
+ * longer has. Monaco does not refuse such an anchor - it clamps it and renders the thread under the
+ * last line - so the placement itself says nothing about the position being a guess.
+ *
+ * Read off the text the model was built from rather than off the model: the two are the same
+ * content, and the arithmetic is then answerable wherever the anchors are decided.
+ */
+export function anchorPastEndOfFile(modified: string, line: number): boolean {
+  return line > modified.split('\n').length
+}
+
+/**
  * Side-by-side, read-only Monaco diff of one changed file. Existing ADO threads render inline
  * under their lines (full conversation, reply, resolve), drafts as pinned notes, and a click on
  * a line number opens an inline comment composer. All inline content lives in Monaco view zones
@@ -110,6 +125,7 @@ export function DiffViewer({
         node: (
           <ThreadCard
             thread={t}
+            positionOutdated={anchorPastEndOfFile(diff.modified, t.line)}
             onReply={(body) => store().replyToThread(t.threadId, body)}
             onSetStatus={(status) => store().setThreadStatus(t.threadId, status)}
             initialReply={store().commentDrafts[replyKey] ?? ''}

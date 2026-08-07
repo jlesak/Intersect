@@ -326,6 +326,12 @@ export interface PullRequest {
   repositoryName: string
   projectId: string
   title: string
+  /**
+   * What the author wrote to explain the change, as they typed it. Empty when they wrote nothing.
+   * Azure DevOps stores it as markdown, and Intersect shows it as the text it is - the wording and
+   * the line breaks are the point, the formatting is not.
+   */
+  description: string
   authorId: string
   authorName: string
   createdAt: number
@@ -429,6 +435,13 @@ export interface PrChangeFile {
   path: string
   changeType: 'add' | 'edit' | 'delete' | 'rename'
   originalPath: string | null
+  /**
+   * Lines the file gained and lost, as git counts them, so a reviewer can weigh a change before
+   * opening it. Both are 0 for a binary file: git counts no lines in one, and a size summary that
+   * cannot be added up is worse than one that leaves such a file out of its arithmetic.
+   */
+  added: number
+  removed: number
 }
 
 /** Both sides of one file for the diff editor. `binary`/`tooLarge` render a placeholder instead. */
