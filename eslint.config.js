@@ -65,7 +65,6 @@ const UNMIGRATED_E2E_SPECS = [
   'e2e/prInbox.spec.ts',
   'e2e/prvote.spec.ts',
   'e2e/review-pane-shot.spec.ts',
-  'e2e/settings.spec.ts',
   'e2e/shortcuts.spec.ts',
   'e2e/smoke.spec.ts'
 ]
