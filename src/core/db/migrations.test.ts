@@ -530,4 +530,35 @@ describe('migrations', () => {
         .run()
     ).toThrow()
   })
+
+  test('the Toggl binding is gone and pre-removal projects keep every other field', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 23)
+    db.prepare(
+      'INSERT INTO projects (id,name,sort_order,archived,jira_jql,jira_board_url,toggl_project_id,created_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).run('p1', 'SPOT', 0, 0, 'project = FID2507', 'https://jira/board/1', 42, 100)
+    db.prepare(
+      'INSERT INTO project_repo (project_id,path,sort_order,created_at) VALUES (?,?,?,?)'
+    ).run('p1', '/repos/spot', 0, 100)
+
+    runMigrations(db)
+
+    const cols = (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map(
+      (c) => c.name
+    )
+    expect(cols).not.toContain('toggl_project_id')
+    expect(db.prepare('SELECT * FROM projects').get()).toEqual({
+      id: 'p1',
+      name: 'SPOT',
+      sort_order: 0,
+      archived: 0,
+      jira_jql: 'project = FID2507',
+      jira_board_url: 'https://jira/board/1',
+      created_at: 100
+    })
+    // The rebuild-free drop leaves child bindings and their foreign key intact.
+    expect(db.prepare('SELECT project_id AS p, path FROM project_repo').all()).toEqual([
+      { p: 'p1', path: '/repos/spot' }
+    ])
+  })
 })

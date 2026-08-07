@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
@@ -8,6 +8,7 @@ import {
 import { formatAccelerator, SHORTCUT_ACTIONS } from '@common/shortcuts'
 import { ProjectsPane } from '@renderer/features/projects'
 import { AgentToolingPane } from '@renderer/features/agentTooling'
+import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { useSettingsStore } from '../store'
 
 const CATEGORIES = [
@@ -24,9 +25,26 @@ const CATEGORIES = [
 type CategoryId = (typeof CATEGORIES)[number]['id']
 
 /**
+ * The pane each category owns. Only the selected one is ever mounted, so a category the user
+ * never opens costs nothing - which matters most for Agent Tooling, whose first render reads the
+ * whole Claude Code configuration off disk.
+ */
+const PANES: Record<CategoryId, ComponentType> = {
+  projects: ProjectsPane,
+  agentTooling: AgentToolingPane,
+  notif: NotificationsPane,
+  ado: AdoPane,
+  review: ReviewPane,
+  sessions: SessionsPane,
+  keys: ShortcutsPane,
+  appearance: AppearancePane
+}
+
+/**
  * The Settings section's main region: a left sub-navigation over the categories, content on the
- * right. All panes stay mounted (the inactive ones only hidden), and every field binds to
- * the store which persists on change - so switching categories can never lose anything.
+ * right. Leaving a category discards its pane: store-backed fields survive that, because they
+ * persist as they change, but text a pane holds in an editor buffer of its own until the user
+ * commits it - the raw JSON editor above all - is lost.
  */
 export function SettingsView() {
   const [category, setCategory] = useState<CategoryId>('projects')
@@ -35,8 +53,7 @@ export function SettingsView() {
     void useSettingsStore.getState().load()
   }, [])
 
-  const pane = (id: CategoryId): string =>
-    `ix-settings__pane${category === id ? ' ix-settings__pane--active' : ''}`
+  const Pane = PANES[category]
 
   return (
     <div className="ix-main">
@@ -55,30 +72,13 @@ export function SettingsView() {
         </nav>
 
         <div className="ix-settings__body">
-          <div className={pane('projects')}>
-            <ProjectsPane />
-          </div>
-          <div className={pane('agentTooling')}>
-            <AgentToolingPane />
-          </div>
-          <div className={pane('notif')}>
-            <NotificationsPane />
-          </div>
-          <div className={pane('ado')}>
-            <AdoPane />
-          </div>
-          <div className={pane('review')}>
-            <ReviewPane />
-          </div>
-          <div className={pane('sessions')}>
-            <SessionsPane />
-          </div>
-          <div className={pane('keys')}>
-            <ShortcutsPane />
-          </div>
-          <div className={pane('appearance')}>
-            <AppearancePane />
-          </div>
+          {/* Keyed by category so switching away from a pane that failed mounts the next one
+              clean, leaving the user a way out instead of a dead settings region. */}
+          <ErrorBoundary key={category} scope="region">
+            <div className="ix-settings__pane ix-settings__pane--active">
+              <Pane />
+            </div>
+          </ErrorBoundary>
         </div>
       </div>
     </div>

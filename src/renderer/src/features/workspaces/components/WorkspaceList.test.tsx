@@ -33,8 +33,7 @@ function project(id: string, name: string): Project {
     repoPaths: [`/repos/${id}`],
     jiraJql: null,
     jiraBoardUrl: null,
-    adoRepositories: [],
-    togglProjectId: null
+    adoRepositories: []
   }
 }
 

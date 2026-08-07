@@ -151,8 +151,8 @@ export interface BootState {
 /**
  * The umbrella entity binding repositories and external tools into one durable work context.
  * A project owns one or more repository-folder bindings (`repoPaths`, canonical absolute paths
- * in binding order - the first is the original/primary folder) plus optional Jira, Azure DevOps
- * and Toggl bindings. Sessions, PRs, issues and time attach to a project automatically through
+ * in binding order - the first is the original/primary folder) plus optional Jira and Azure DevOps
+ * bindings. Sessions, PRs, issues and time attach to a project automatically through
  * these bindings; anything unmatched falls into a virtual "Other" bucket that is never persisted
  * as a project. Deleting or archiving a project is app-state only and never touches the
  * filesystem or any remote resource.
@@ -170,8 +170,6 @@ export interface Project {
   jiraBoardUrl: string | null
   /** Azure DevOps repository names whose PRs belong to this project. */
   adoRepositories: string[]
-  /** Toggl project id time is booked against, or null. */
-  togglProjectId: number | null
 }
 
 /** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
@@ -180,7 +178,6 @@ export interface ProjectPatch {
   jiraJql?: string | null
   jiraBoardUrl?: string | null
   adoRepositories?: string[]
-  togglProjectId?: number | null
 }
 
 /** External content kinds that can carry a manual project-assignment override. */

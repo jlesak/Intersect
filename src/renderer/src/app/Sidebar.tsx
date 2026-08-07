@@ -17,7 +17,7 @@ import { resolveShellContext, useShellStore, type ShellContext } from './shellSt
 /**
  * The app sidebar in the approved rail order: Dashboard on top, then the project pins (with an
  * aggregated session-status dot per project) and the virtual Other bucket, then the global
- * sections (People, TODO, Time, ...), with utility sections (Settings) pinned to the bottom.
+ * sections (1:1, TODO, Time, ...), with utility sections (Settings) pinned to the bottom.
  * Below the rail lives only the active context's own body: a project's workspace list, or the
  * active global section's panel. A collapse toggle shrinks everything to the icon rails alone.
  * Context resolution mirrors App.tsx via `resolveShellContext`.

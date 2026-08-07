@@ -58,8 +58,14 @@ interface AgentToolingState {
   lastUndo: LastUndo | null
   /** Switch scope and refetch; a no-op when the scope is unchanged. */
   setScope(scope: AgentToolingScope): void
-  /** Fetch the effective config plus both catalogs for the current scope. */
+  /**
+   * Make the effective config plus both catalogs available for the current scope, reusing what is
+   * already loaded. Every read walks the whole Claude Code configuration on disk, so a revisit to
+   * a scope that is already in hand must cost nothing.
+   */
   load(): Promise<void>
+  /** Re-read the current scope from disk, for when its files are known to have changed. */
+  refresh(): Promise<void>
   /** Reveal a discovered source file in the OS file manager (failures toast, never throw). */
   reveal(path: string): Promise<void>
   /** Preview a mutation and open the confirm dialog (even when invalid, so errors are visible). */
@@ -77,6 +83,8 @@ interface AgentToolingState {
 export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) => {
   // Answers can land out of order (a fast scope switch); only the latest load may set state.
   let requestSeq = 0
+  // The scope the data in the store was read for, or null while nothing usable is held.
+  let loadedScope: AgentToolingScope | null = null
 
   return {
     adapter: 'claude-code',
@@ -94,10 +102,16 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
       if (scopesEqual(get().scope, scope)) return
       // A scope switch abandons any pending preview and undo bound to the old scope's files.
       set({ scope, status: 'loading', error: null, pendingPreview: null, lastUndo: null })
-      void get().load()
+      void get().refresh()
     },
 
     async load() {
+      const { status, scope } = get()
+      if (status === 'ready' && loadedScope && scopesEqual(loadedScope, scope)) return
+      await get().refresh()
+    },
+
+    async refresh() {
       const seq = ++requestSeq
       const scope = get().scope
       if (get().status !== 'loading') set({ status: 'loading', error: null })
@@ -108,9 +122,11 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
           api.listAgents(scope)
         ])
         if (requestSeq !== seq) return
+        loadedScope = scope
         set({ status: 'ready', error: null, config, skills, agents })
       } catch (e) {
         if (requestSeq !== seq) return
+        loadedScope = null
         set({ status: 'error', error: message(e), config: null, skills: [], agents: [] })
       }
     },
@@ -159,7 +175,7 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
         useToastStore
           .getState()
           .push(result.backupPath ? `Saved. Backup: ${result.backupPath}` : 'Saved.')
-        await get().load()
+        await get().refresh()
       } catch (e) {
         set({ saving: false, pendingPreview: null })
         reportError('The save failed', e)
@@ -179,7 +195,7 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
         }
         set({ saving: false, lastUndo: null })
         useToastStore.getState().push('Change undone.')
-        await get().load()
+        await get().refresh()
       } catch (e) {
         set({ saving: false })
         reportError('Undo failed', e)

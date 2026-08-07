@@ -10,7 +10,6 @@ interface ProjectRow {
   archived: number
   jira_jql: string | null
   jira_board_url: string | null
-  toggl_project_id: number | null
   created_at: number
 }
 
@@ -70,8 +69,7 @@ export function createProjectRepo(db: DatabaseSync, deps: ProjectRepoDeps): Proj
     repoPaths: repoPathsOf(row.id),
     jiraJql: row.jira_jql,
     jiraBoardUrl: row.jira_board_url,
-    adoRepositories: adoReposOf(row.id),
-    togglProjectId: row.toggl_project_id
+    adoRepositories: adoReposOf(row.id)
   })
 
   const getById = (id: string): Project | undefined => {
@@ -159,12 +157,6 @@ export function createProjectRepo(db: DatabaseSync, deps: ProjectRepoDeps): Proj
         if (patch.jiraBoardUrl !== undefined) {
           sets.push('jira_board_url = ?')
           params.push(patch.jiraBoardUrl?.trim() || null)
-        }
-        if (patch.togglProjectId !== undefined) {
-          if (patch.togglProjectId !== null && !Number.isInteger(patch.togglProjectId))
-            throw new Error(`Invalid Toggl project id: ${patch.togglProjectId}`)
-          sets.push('toggl_project_id = ?')
-          params.push(patch.togglProjectId)
         }
         if (sets.length > 0) {
           params.push(id)

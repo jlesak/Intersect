@@ -34,8 +34,7 @@ describe('projectRepo', () => {
       repoPaths: ['/real/spot'],
       jiraJql: null,
       jiraBoardUrl: null,
-      adoRepositories: [],
-      togglProjectId: null
+      adoRepositories: []
     })
     expect(b.sortOrder).toBe(1)
     expect(repo.list().map((p) => p.id)).toEqual(['id-1', 'id-2'])
@@ -48,24 +47,23 @@ describe('projectRepo', () => {
     expect(() => repo.create('Dup', '/link/spot')).toThrow('already bound to project "SPOT"')
   })
 
-  test('update edits name, Jira, ADO and Toggl bindings; omitted fields stay', () => {
+  test('update edits name, Jira and ADO bindings; omitted fields stay', () => {
     const p = repo.create('SPOT', '/real/spot')
     const updated = repo.update(p.id, {
       name: ' SPOT 2 ',
       jiraJql: ' project = FID2507 ',
       jiraBoardUrl: 'https://jira/board/1',
-      adoRepositories: ['spot-backend', 'spot-frontend'],
-      togglProjectId: 12345
+      adoRepositories: ['spot-backend', 'spot-frontend']
     })
     expect(updated.name).toBe('SPOT 2')
     expect(updated.jiraJql).toBe('project = FID2507')
     expect(updated.jiraBoardUrl).toBe('https://jira/board/1')
     expect(updated.adoRepositories).toEqual(['spot-backend', 'spot-frontend'])
-    expect(updated.togglProjectId).toBe(12345)
 
-    const untouched = repo.update(p.id, { togglProjectId: null })
+    const untouched = repo.update(p.id, { jiraBoardUrl: 'https://jira/board/2' })
+    expect(untouched.jiraBoardUrl).toBe('https://jira/board/2')
     expect(untouched.name).toBe('SPOT 2')
-    expect(untouched.togglProjectId).toBeNull()
+    expect(untouched.jiraJql).toBe('project = FID2507')
     expect(untouched.adoRepositories).toEqual(['spot-backend', 'spot-frontend'])
   })
 
@@ -75,7 +73,6 @@ describe('projectRepo', () => {
     expect(cleared.jiraJql).toBeNull()
     expect(cleared.jiraBoardUrl).toBeNull()
     expect(() => repo.update(p.id, { name: ' ' })).toThrow('name must not be empty')
-    expect(() => repo.update(p.id, { togglProjectId: 1.5 })).toThrow('Invalid Toggl project id')
     expect(() => repo.update(p.id, { adoRepositories: ['a', ' a '] })).toThrow(
       'ADO repository names must be unique'
     )

@@ -61,6 +61,50 @@ test('Settings opens from the footer rail with every category and the notificati
   await app.close()
 })
 
+test('only the active category pane is in the DOM', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const { app, win } = await launch(userDataDir)
+  await openSettings(win)
+
+  await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
+
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
+  await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
+  await expect(win.locator('#ix-set-review-prompt')).toHaveCount(0)
+
+  await app.close()
+})
+
+/**
+ * The project fields commit on blur rather than on every keystroke, and leaving the category now
+ * unmounts them. Clicking the sub-navigation has to blur the field first, so the edit is saved on
+ * the way out - anything else silently discards what the user just typed.
+ */
+test('a project name typed but not blurred survives switching category', async () => {
+  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const projectDir = mkdtempSync(join(tmpdir(), 'settingsproj-'))
+  const { app, win } = await launch(userDataDir)
+  await openSettings(win)
+
+  await app.evaluate(({ dialog }, folder) => {
+    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [folder]
+    })
+  }, projectDir)
+  await win.getByRole('button', { name: 'Nový projekt (vybrat složku)' }).click()
+
+  const name = win.locator('input[id^="ix-proj-name-"]')
+  await expect(name).toHaveCount(1)
+  await name.fill('Přejmenovaný projekt')
+
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Projekty' }).click()
+  await expect(name).toHaveValue('Přejmenovaný projekt')
+
+  await app.close()
+})
+
 test('switching categories never loses the typed ADO values, and the shortcuts table is read-only', async () => {
   const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
   const { app, win } = await launch(userDataDir)

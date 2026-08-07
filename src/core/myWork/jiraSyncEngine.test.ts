@@ -38,7 +38,6 @@ const project = (over: Partial<Project> = {}): Project => ({
   jiraJql: null,
   jiraBoardUrl: null,
   adoRepositories: [],
-  togglProjectId: null,
   ...over
 })
 

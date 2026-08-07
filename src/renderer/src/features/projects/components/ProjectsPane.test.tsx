@@ -15,7 +15,6 @@ function project(partial: Partial<Project> & Pick<Project, 'id'>): Project {
     jiraJql: null,
     jiraBoardUrl: null,
     adoRepositories: [],
-    togglProjectId: null,
     ...partial
   }
 }
@@ -39,8 +38,7 @@ describe('ProjectsPane', () => {
         name: 'SPOT',
         repoPaths: ['/repos/spot', '/repos/spot-backend'],
         jiraJql: 'project = FID2507',
-        adoRepositories: ['spot-backend'],
-        togglProjectId: 42
+        adoRepositories: ['spot-backend']
       }),
       project({ id: 'p2', name: 'Archived one', archived: true })
     ])
@@ -50,7 +48,6 @@ describe('ProjectsPane', () => {
       'project = FID2507'
     )
     expect(host.querySelector<HTMLInputElement>('#ix-proj-ado-p1')?.value).toBe('spot-backend')
-    expect(host.querySelector<HTMLInputElement>('#ix-proj-toggl-p1')?.value).toBe('42')
     expect([...host.querySelectorAll('.ix-proj__path')].map((el) => el.textContent)).toEqual([
       '/repos/spot',
       '/repos/spot-backend',
