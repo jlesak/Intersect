@@ -179,6 +179,11 @@ describe('mapPullRequest', () => {
     expect(mapPullRequest(rawAuthored, 'author', me).myReviewerId).toBeNull()
   })
 
+  test('a freshly mapped PR is dated by its own creation until the sync enriches it', () => {
+    const pr = mapPullRequest(rawAuthored, 'author', me)
+    expect(pr.lastActivityAt).toBe(pr.createdAt)
+  })
+
   test('myReviewerId is null when my entry matched by name carries no id', () => {
     const raw: AdoRawPullRequest = {
       ...rawAuthored,

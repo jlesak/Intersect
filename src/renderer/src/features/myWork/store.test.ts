@@ -4,10 +4,12 @@ import type { MyWorkChangedEvent } from '@common/ipc'
 
 vi.mock('./ipc')
 // The store fans a shared refresh out to the prInbox slice; stub its store so these tests stay
-// isolated from that slice (and from the heavyweight components its barrel re-exports).
+// isolated from that slice (and from the heavyweight components its barrel re-exports). Both the
+// loud sync and the guarded one are stubbed, so a test can tell which of the two was asked for.
 const prInboxSync = vi.hoisted(() => vi.fn(async () => {}))
+const prInboxSyncIfStale = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@renderer/features/prInbox', () => ({
-  usePrInboxStore: { getState: () => ({ sync: prInboxSync }) }
+  usePrInboxStore: { getState: () => ({ sync: prInboxSync, syncIfStale: prInboxSyncIfStale }) }
 }))
 import * as api from './ipc'
 import { formatRelativeTime, groupByColumn, useMyWorkStore } from './store'
@@ -52,7 +54,6 @@ const reset = (over: Partial<ReturnType<typeof useMyWorkStore.getState>> = {}): 
       partial: false,
       issues: [],
       fetchedAt: null,
-      prSyncStarted: false,
       pendingPrOpen: null,
       ...over
     },
@@ -262,14 +263,22 @@ describe('push-driven refetch', () => {
 })
 
 describe('shared refresh fan-out to the PR inbox', () => {
-  test('hydrate kicks off the PR sync once per app session, quietly', async () => {
+  test('hydrate asks for the PRs through the shared staleness guard, never around it', async () => {
     mocked.list.mockResolvedValue(board())
     await useMyWorkStore.getState().hydrate()
-    expect(prInboxSync).toHaveBeenCalledOnce()
-    expect(prInboxSync).toHaveBeenCalledWith({ quiet: true })
-    // A second hydrate in the same session must not re-sync.
+    expect(prInboxSyncIfStale).toHaveBeenCalledOnce()
+    // Syncing unguarded is what makes two automatic triggers fire twice at boot, and what leaves an
+    // unconfigured machine wearing a failure line it can never clear.
+    expect(prInboxSync).not.toHaveBeenCalled()
+  })
+
+  test('hydrate keeps asking on later visits and lets the guard decide', async () => {
+    mocked.list.mockResolvedValue(board())
     await useMyWorkStore.getState().hydrate()
-    expect(prInboxSync).toHaveBeenCalledOnce()
+    await useMyWorkStore.getState().hydrate()
+    // A session lasting all day should refresh more than once; how often is the guard's call, not
+    // this section's.
+    expect(prInboxSyncIfStale).toHaveBeenCalledTimes(2)
   })
 
   test('refresh always triggers both the Jira refresh and the PR sync', async () => {

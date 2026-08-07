@@ -14,6 +14,16 @@ import * as api from './ipc'
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 type ThreadFilter = 'active' | 'all' | 'resolved'
 
+/**
+ * How old the board's data may be before an automatic refresh is worth what it costs.
+ *
+ * One sync is one Azure DevOps call per repository plus one thread fetch per open pull request, so
+ * refreshing on every trigger would fire that whole fan-out each time the user glances away at
+ * their editor or opens another section. Five minutes is short enough that a board being read is
+ * effectively live, and long enough that alt-tabbing costs nothing.
+ */
+const STALE_AFTER_MS = 5 * 60 * 1000
+
 /** The stable `${repositoryId}:${prId}` key a PR is stored and selected under. */
 export const prKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
 
@@ -29,6 +39,22 @@ interface PrInboxState {
    * reading as unknown at exactly the moment the board is most likely to be stale.
    */
   syncedAt: number | null
+  /**
+   * Why the latest refresh from Azure DevOps failed, or null when it succeeded. Describes only the
+   * most recent attempt, so the board can admit it is showing cached data without ever hiding that
+   * data behind an error state.
+   */
+  syncError: string | null
+  /**
+   * Whether Azure DevOps can be reached at all, as far as the saved settings are concerned.
+   *
+   * Mirrored in by the app layer rather than read from the settings slice directly: a feature store
+   * reaching into another feature's barrel to answer this drags that feature's whole UI into this
+   * one's module graph, and here it closed a cycle back onto this very file. False until the app
+   * layer says otherwise, so a connection that is not yet known is never mistaken for one that
+   * exists.
+   */
+  adoConnected: boolean
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
@@ -73,6 +99,19 @@ interface PrInboxState {
   /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
    * should stay loud so a broken sync is never silently ignored. */
   sync(opts?: { quiet?: boolean }): Promise<void>
+  /**
+   * Refresh from Azure DevOps only when it is worth reaching for the network: there is a connection
+   * to reach it with, the board's data is old enough to doubt (or was never fetched), and no
+   * refresh is already running. Otherwise does nothing.
+   *
+   * Every automatic trigger goes through this one guard, so no two of them can disagree about when
+   * the board is stale or fire a second fan-out seconds after the first. The refresh is always
+   * quiet, because a machine that is merely offline must not interrupt the user over a sync they
+   * never asked for. Anything the user does ask for calls `sync` directly and loudly.
+   */
+  syncIfStale(): Promise<void>
+  /** Record whether Azure DevOps is reachable, so the guard above can consult it. */
+  setAdoConnected(connected: boolean): void
   select(repositoryId: string, prId: number): Promise<void>
   /** Open the PR's detail from the board (select + switch view). */
   openDetail(repositoryId: string, prId: number): Promise<void>
@@ -128,8 +167,10 @@ export function selectDrafts(state: PrInboxState): DraftComment[] {
 }
 
 /**
- * The board's three columns, newest PRs first within each. A pure function over the list (not a
- * store selector) so components can memoize it - it returns fresh arrays on every call.
+ * The board's three columns, most recently active PRs first within each, so a review queue is
+ * ordered by what needs attention rather than by what happens to be oldest. A pure function over
+ * the list (not a store selector) so components can memoize it - it returns fresh arrays on every
+ * call.
  */
 export function groupBoardColumns(prs: PullRequest[]): {
   action: PullRequest[]
@@ -142,7 +183,7 @@ export function groupBoardColumns(prs: PullRequest[]): {
     approved: [] as PullRequest[]
   }
   for (const pr of prs) cols[boardColumn(pr)].push(pr)
-  for (const list of Object.values(cols)) list.sort((a, b) => b.createdAt - a.createdAt)
+  for (const list of Object.values(cols)) list.sort((a, b) => b.lastActivityAt - a.lastActivityAt)
   return cols
 }
 
@@ -192,6 +233,8 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   prsByKey: {},
   order: [],
   syncedAt: null,
+  syncError: null,
+  adoConnected: false,
   selectedKey: null,
   view: 'board',
   activeTab: 'files',
@@ -213,27 +256,48 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
 
   async hydrate() {
     set({ status: 'loading', error: null })
+    // Both reads start together, since neither waits on the other.
+    const stamp = readSyncedAt(set)
+    let board: Partial<PrInboxState>
     try {
-      const prs = await api.list()
-      set({ status: 'ready', ...indexPrs(prs) })
+      board = { status: 'ready', ...indexPrs(await api.list()) }
     } catch (e) {
-      set({ status: 'error', error: message(e) })
+      board = { status: 'error', error: message(e) }
     }
-    await readSyncedAt(set)
+    // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
+    // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
+    // board that has never synced at all, however fresh the cache actually is.
+    await stamp
+    set(board)
   },
 
   async sync(opts) {
     set({ syncing: true })
     try {
       const prs = await api.sync()
-      set({ status: 'ready', ...indexPrs(prs) })
+      set({ status: 'ready', syncError: null, ...indexPrs(prs) })
       await readSyncedAt(set)
     } catch (e) {
+      // The cached board is left as it is: a refresh that failed still leaves data worth acting on.
+      set({ syncError: message(e) })
       if (opts?.quiet) console.warn('Background PR sync failed', e)
       else reportError('Could not sync pull requests', e)
     } finally {
       set({ syncing: false })
     }
+  },
+
+  async syncIfStale() {
+    const { adoConnected, syncing, syncedAt } = get()
+    if (!adoConnected) return
+    if (syncing) return
+    if (syncedAt !== null && Date.now() - syncedAt < STALE_AFTER_MS) return
+
+    await get().sync({ quiet: true })
+  },
+
+  setAdoConnected(connected) {
+    set({ adoConnected: connected })
   },
 
   async select(repositoryId, prId) {

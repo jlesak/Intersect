@@ -133,6 +133,45 @@ describe('migrations', () => {
     expect(row.c).toBe(0)
   })
 
+  test('pull requests cached before the activity column are dated by their creation, not by 1970', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the last schema version without an activity timestamp.
+    runMigrations(db, 22)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, active_thread_count, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 7000, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 2, 1)`
+    ).run()
+
+    runMigrations(db)
+
+    const row = db
+      .prepare('SELECT last_activity_at AS a, active_thread_count AS c FROM pr_cache WHERE pr_id = 1')
+      .get() as { a: number; c: number }
+    expect(row.a).toBe(7000)
+    expect(row.c).toBe(2)
+  })
+
+  test('pr_cache defaults last_activity_at to 0 for rows inserted without it', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 1)`
+    ).run()
+    const row = db
+      .prepare('SELECT last_activity_at AS a FROM pr_cache WHERE pr_id = 1')
+      .get() as { a: number }
+    expect(row.a).toBe(0)
+  })
+
   test('the todo table defaults priority to 4 and description to empty for rows inserted without them', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

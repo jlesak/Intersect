@@ -844,6 +844,16 @@
   padding: 14px 18px 6px;
   flex: none;
 }
+/* Freshness reads as the board's own footnote, so it sits with the Sync button rather than beside
+   the heading. */
+.ix-board-head__age {
+  margin-left: auto;
+}
+/* The failed-refresh line belongs to the whole board, not to a card inside it, so it takes the
+   columns' horizontal padding and drops the vertical padding an inline card notice needs. */
+.ix-mw-loading.ix-board-stale {
+  padding: 0 18px 4px;
+}
 .ix-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -920,6 +930,12 @@
   color: #8fce9b;
   border-color: rgba(143, 206, 155, 0.5);
   background: rgba(143, 206, 155, 0.12);
+}
+/* Something the user may want to act on, but not an error: data that has gone old enough to doubt. */
+.ix-chip--warn {
+  color: var(--status-waiting);
+  border-color: var(--status-waiting);
+  background: var(--status-waiting-soft);
 }
 .ix-rail__badge {
   margin-left: auto;

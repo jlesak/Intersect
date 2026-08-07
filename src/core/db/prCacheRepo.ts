@@ -25,6 +25,7 @@ interface PrRow {
   my_reviewer_id: string | null
   reviewers_json: string
   active_thread_count: number
+  last_activity_at: number
   synced_at: number
 }
 
@@ -50,7 +51,8 @@ function toPr(row: PrRow): PullRequest {
     reviewers: JSON.parse(row.reviewers_json) as PrReviewer[],
     // Derived from the review watermark by the read path (see reviewWatermark), never stored.
     newChangesSinceMyReview: false,
-    activeThreadCount: row.active_thread_count ?? 0
+    activeThreadCount: row.active_thread_count ?? 0,
+    lastActivityAt: row.last_activity_at ?? 0
   }
 }
 
@@ -95,8 +97,9 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
           `INSERT INTO pr_cache
              (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
               created_at, status, source_ref, target_ref, source_commit, target_commit, url,
-              my_role, my_vote, my_reviewer_id, reviewers_json, active_thread_count, synced_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+              my_role, my_vote, my_reviewer_id, reviewers_json, active_thread_count,
+              last_activity_at, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         for (const pr of prs) {
           stmt.run(
@@ -119,6 +122,7 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.myReviewerId,
             JSON.stringify(pr.reviewers),
             pr.activeThreadCount,
+            pr.lastActivityAt,
             syncedAt
           )
         }

@@ -2,17 +2,25 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { connectedAdo } from './harness'
 
 const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 
-/** Launch the app with the stubbed My Work backends in the given modes (see jiraE2eStub / adoE2eStub). */
+/**
+ * Launch the app with the stubbed My Work backends in the given modes (see jiraE2eStub / adoE2eStub).
+ *
+ * Always on a connected machine. The PR radar is filled by the app's own automatic refresh, which
+ * runs only where Azure DevOps is reachable, so a machine without credentials would leave the radar
+ * empty and every assertion about it meaningless. Saying so here is what keeps that independent of
+ * whose laptop runs the suite.
+ */
 async function launch(
   env: Record<string, string>,
   userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
 ): Promise<{ app: ElectronApplication; win: Page; userDataDir: string }> {
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', ...env }
+    env: { ...process.env, INTERSECT_E2E: '1', ...connectedAdo(), ...env }
   })
   const win = await app.firstWindow()
   await win.waitForSelector('.ix-wordmark__name')
@@ -99,8 +107,9 @@ test('the PR radar groups pull requests and flags new changes after the author p
   const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
   const prSection = win.locator('.ix-mw-section', { hasText: 'Pull requests' })
 
-  // The boot sync seeds the review watermark for the already-approved PR, so only the first two
-  // subgroups exist - nothing is retroactively flagged as changed.
+  // The app's own refresh at boot seeds the review watermark for the already-approved PR, so only
+  // the first two subgroups exist - nothing is retroactively flagged as changed. Opening My Work
+  // adds no second refresh: it asks the same staleness guard, which has just been satisfied.
   await expect(prSection.locator('.ix-mw-subgroup__label')).toHaveText([
     'My PRs waiting to merge',
     'Waiting on my review'

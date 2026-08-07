@@ -360,6 +360,12 @@ export interface PullRequest {
    * "needs my action" board signal; 0 when the thread fetch for this PR failed.
    */
   activeThreadCount: number
+  /**
+   * When anything last happened on this pull request - a comment, a push, a vote change - so a
+   * review queue can be ordered by what needs attention rather than by how old each pull request
+   * is. Never earlier than the pull request's own creation.
+   */
+  lastActivityAt: number
 }
 
 /** Which side of the diff a comment anchors to. Publishing supports 'right' only (ADO server). */

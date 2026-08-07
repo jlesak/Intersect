@@ -1,3 +1,4 @@
+import { hasAdoConnection } from '@common/ado'
 import type { AdoFallback, AdoSettings, PullRequest, TimeEntry, TodoTask } from '@common/domain'
 import { boardColumn, boardReason } from '@common/prBoard'
 import { dayKeyOf, weekStartOf } from '@common/week'
@@ -27,10 +28,9 @@ export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type SourceSetup = 'configured' | 'missing' | 'unknown'
 
 /**
- * Whether Azure DevOps has enough of a connection for anything to load, mirroring what the core
- * requires to spawn its client: an organisation URL and a token. Each may come from what the user
- * saved in the app or from the `~/.claude.json` / environment fallback, and a blank saved field
- * defers to that fallback rather than overriding it.
+ * Whether Azure DevOps is connected, as a zone reads it: the shared connection rule, but only once
+ * the settings that rule reads have actually arrived. Before that the answer is `unknown`, because a
+ * form that has not loaded looks exactly like a form the user left blank.
  */
 export function adoSetup(
   status: LoadStatus,
@@ -38,9 +38,7 @@ export function adoSetup(
   fallback: AdoFallback
 ): SourceSetup {
   if (status !== 'ready') return 'unknown'
-  const orgUrl = ado.orgUrl.trim() || fallback.orgUrl.trim()
-  const hasPat = ado.pat.trim() !== '' || fallback.hasPat
-  return orgUrl !== '' && hasPat ? 'configured' : 'missing'
+  return hasAdoConnection(ado, fallback) ? 'configured' : 'missing'
 }
 
 /**

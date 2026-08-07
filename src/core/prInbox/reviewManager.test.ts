@@ -63,7 +63,8 @@ const pr: PullRequest = {
   myReviewerId: 'reviewer-id',
   reviewers: [],
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 1
 }
 
 async function harness() {

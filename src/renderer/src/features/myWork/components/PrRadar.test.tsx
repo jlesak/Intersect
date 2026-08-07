@@ -30,6 +30,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     reviewers: [],
     newChangesSinceMyReview: false,
     activeThreadCount: 0,
+    lastActivityAt: Date.now() - 3_600_000,
     ...over
   }
 }

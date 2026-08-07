@@ -44,6 +44,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   reviewers: [],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 1000,
   ...over
 })
 

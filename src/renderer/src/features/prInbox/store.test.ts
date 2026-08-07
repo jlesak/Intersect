@@ -33,6 +33,7 @@ const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {})
   reviewers: [],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 0,
   ...over
 })
 
@@ -71,6 +72,7 @@ beforeEach(() => {
       status: 'idle',
       error: null,
       syncing: false,
+      syncError: null,
       prsByKey: {},
       order: [],
       syncedAt: null,
@@ -114,6 +116,31 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().syncedAt).toBe(1_700_000_000_000)
   })
 
+  test('hydrate has the freshness stamp in hand by the time it reports the board ready', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    // The stamp is held back until after the cached board has arrived, since two IPC round trips
+    // land in whatever order they please and the slower one must still be waited for.
+    let deliverStamp: (at: number | null) => void = () => {}
+    mocked.getSyncedAt.mockReturnValue(
+      new Promise<number | null>((resolve) => {
+        deliverStamp = resolve
+      })
+    )
+    let stampWhenReady: number | null | undefined
+    const off = usePrInboxStore.subscribe((s) => {
+      if (s.status === 'ready' && stampWhenReady === undefined) stampWhenReady = s.syncedAt
+    })
+
+    const hydrated = usePrInboxStore.getState().hydrate()
+    deliverStamp(1_700_000_000_000)
+    await hydrated
+    off()
+
+    // Anything that acts on a ready board judges its freshness from this value, so a null here is
+    // a board that reads as never synced however fresh the cache actually is.
+    expect(stampWhenReady).toBe(1_700_000_000_000)
+  })
+
   test('a sync refreshes the freshness stamp', async () => {
     mocked.sync.mockResolvedValue([pr('repo', 7)])
     mocked.getSyncedAt.mockResolvedValue(42)
@@ -153,6 +180,38 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().syncing).toBe(false)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  test('a quiet sync failure records why, and keeps the cached board', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    usePrInboxStore.setState({
+      status: 'ready',
+      prsByKey: { [prKey('repo', 5)]: pr('repo', 5) },
+      order: [prKey('repo', 5)]
+    })
+    mocked.sync.mockRejectedValue(new Error('getaddrinfo ENOTFOUND dev.azure.com'))
+    await usePrInboxStore.getState().sync({ quiet: true })
+    const s = usePrInboxStore.getState()
+    expect(s.syncError).toMatch(/ENOTFOUND/)
+    expect(s.order).toEqual([prKey('repo', 5)])
+    expect(s.status).toBe('ready')
+    warn.mockRestore()
+  })
+
+  test('a loud sync failure records why as well as toasting', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.sync.mockRejectedValue(new Error('ADO returned 401'))
+    await usePrInboxStore.getState().sync()
+    expect(usePrInboxStore.getState().syncError).toMatch(/401/)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not sync pull requests'))
+    error.mockRestore()
+  })
+
+  test('a successful sync clears an earlier failure', async () => {
+    usePrInboxStore.setState({ syncError: 'ADO returned 401' })
+    mocked.sync.mockResolvedValue([pr('repo', 7)])
+    await usePrInboxStore.getState().sync()
+    expect(usePrInboxStore.getState().syncError).toBeNull()
   })
 
   test('select loads changes and drafts but defers threads (lazy)', async () => {
@@ -266,6 +325,65 @@ describe('prInboxStore', () => {
   })
 })
 
+describe('syncIfStale', () => {
+  /**
+   * The five minutes the guard promises, written out here rather than imported, so the two
+   * boundary cases below actually pin that number instead of following it wherever it moves.
+   */
+  const STALE_AFTER_MS = 5 * 60 * 1000
+
+  const syncedAgo = (ms: number): void => usePrInboxStore.setState({ syncedAt: Date.now() - ms })
+
+  beforeEach(() => {
+    usePrInboxStore.getState().setAdoConnected(true)
+    mocked.sync.mockResolvedValue([])
+  })
+
+  test('a board that has never synced is refreshed', async () => {
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).toHaveBeenCalledOnce()
+  })
+
+  test('a board refreshed a moment ago is left alone', async () => {
+    syncedAgo(0)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a board refreshed just inside five minutes is left alone', async () => {
+    syncedAgo(STALE_AFTER_MS - 1000)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a board refreshed just outside five minutes is refreshed', async () => {
+    syncedAgo(STALE_AFTER_MS + 1000)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).toHaveBeenCalledOnce()
+  })
+
+  test('a stale board is not refreshed without an Azure DevOps connection', async () => {
+    usePrInboxStore.getState().setAdoConnected(false)
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a stale board is not refreshed while the connection is still unknown', async () => {
+    // Nothing has published a connection yet, which is the state at boot before settings land. An
+    // unknown connection must read as no connection, or the guard reaches for a network that may
+    // not be there.
+    usePrInboxStore.setState({ adoConnected: false })
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+
+  test('a sync already in flight is never joined by a second one', async () => {
+    usePrInboxStore.setState({ syncing: true })
+    await usePrInboxStore.getState().syncIfStale()
+    expect(mocked.sync).not.toHaveBeenCalled()
+  })
+})
+
 describe('board navigation', () => {
   test('openDetail loads the PR and switches view; goBack returns to board', async () => {
     mocked.getChanges.mockResolvedValue([])
@@ -340,17 +458,17 @@ describe('review session', () => {
 })
 
 describe('groupBoardColumns', () => {
-  test('splits PRs by boardColumn, newest first', () => {
+  test('splits PRs by boardColumn, most recently active first', () => {
     usePrInboxStore.setState({
       prsByKey: {
-        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, createdAt: 10 }),
-        'r:2': pr('r', 2, { role: 'reviewer', myVote: 'approved', createdAt: 20 }),
+        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, lastActivityAt: 10 }),
+        'r:2': pr('r', 2, { role: 'reviewer', myVote: 'approved', lastActivityAt: 20 }),
         'r:3': pr('r', 3, {
           role: 'author',
-          createdAt: 30,
+          lastActivityAt: 30,
           reviewers: [{ id: 'x', displayName: 'X', vote: 'approved', isRequired: false }]
         }),
-        'r:4': pr('r', 4, { role: 'reviewer', myVote: null, createdAt: 40 })
+        'r:4': pr('r', 4, { role: 'reviewer', myVote: null, lastActivityAt: 40 })
       },
       order: ['r:1', 'r:2', 'r:3', 'r:4']
     })
@@ -358,6 +476,18 @@ describe('groupBoardColumns', () => {
     expect(cols.action.map((p) => p.prId)).toEqual([4, 1])
     expect(cols.waiting.map((p) => p.prId)).toEqual([2])
     expect(cols.approved.map((p) => p.prId)).toEqual([3])
+  })
+
+  test('a long-lived PR touched just now outranks a brand-new quiet one', () => {
+    usePrInboxStore.setState({
+      prsByKey: {
+        'r:1': pr('r', 1, { role: 'reviewer', myVote: null, createdAt: 100, lastActivityAt: 900 }),
+        'r:2': pr('r', 2, { role: 'reviewer', myVote: null, createdAt: 500, lastActivityAt: 500 })
+      },
+      order: ['r:1', 'r:2']
+    })
+    const cols = groupBoardColumns(selectPrList(usePrInboxStore.getState()))
+    expect(cols.action.map((p) => p.prId)).toEqual([1, 2])
   })
 })
 

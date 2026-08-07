@@ -484,6 +484,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       projectId: () => safeDefaultProject(env, settings.getSavedAdo()),
       priorThreadCount: (repositoryId, prId) =>
         prCache.get(repositoryId, prId)?.activeThreadCount ?? 0,
+      priorActivityAt: (repositoryId, prId) => prCache.get(repositoryId, prId)?.lastActivityAt ?? 0,
       resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
 

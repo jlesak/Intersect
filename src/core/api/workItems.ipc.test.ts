@@ -48,7 +48,8 @@ const pullRequest = (prId: number, title: string, repositoryName = 'spot-backend
   myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 1
 })
 
 const jiraRef = (key: string): NewWorkItemRef => ({
