@@ -120,11 +120,16 @@ export interface LaunchOptions {
  * Session data is pointed at an empty fixture directory unless the caller supplies its own.
  * Without that, the indexer falls back to the real `~/.claude/projects`, so specs would read
  * whichever transcripts the developer happens to have and fail differently on every machine.
+ *
+ * The returned `errors` array accumulates renderer console errors and uncaught page errors for the
+ * life of the window. Collection is unconditional because it has to start before the shell mounts:
+ * a spec cannot subscribe after `launch` returns without having already missed everything the app
+ * logged while booting, which is the part worth catching.
  */
 export async function launch(
   profileDir: string,
   opts: LaunchOptions = {}
-): Promise<{ app: ElectronApplication; win: Page }> {
+): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${profileDir}`],
     env: {
@@ -135,10 +140,15 @@ export async function launch(
     }
   })
   const win = await app.firstWindow()
+  const errors: string[] = []
+  win.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
+  win.on('pageerror', (e) => errors.push(e.message))
   await win.waitForSelector('.ix-wordmark__name')
   await assertCoreHealthy(win)
   if (opts.openOther) await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
+  return { app, win, errors }
 }
 
 /**
