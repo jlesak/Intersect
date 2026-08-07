@@ -12,7 +12,7 @@ import {
 } from './harness'
 
 async function openOneOnOne(win: Page): Promise<void> {
-  await openRailSection(win, 'People', '.ix-oto')
+  await openRailSection(win, '1:1', '.ix-oto')
 }
 
 /** A real .vtt fixture on disk, so the main-side existence/extension validation passes. */
@@ -33,7 +33,7 @@ async function stubVttDialog(app: ElectronApplication, vttPath: string): Promise
   }, vttPath)
 }
 
-test('the 1:1 section sits under People between Other and TODO, and starts empty', async () => {
+test('the 1:1 section sits between Other and TODO, and starts empty', async () => {
   const profileDir = userDataDir()
   const { app, win } = await launch(profileDir)
 

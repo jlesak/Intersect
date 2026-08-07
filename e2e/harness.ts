@@ -25,7 +25,7 @@ export const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 export const RAIL_LABELS = [
   'Dashboard',
   'Other',
-  'People',
+  '1:1',
   'TODO',
   'Time Tracking',
   'My Work',
