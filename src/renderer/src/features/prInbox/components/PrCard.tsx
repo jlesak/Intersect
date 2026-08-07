@@ -1,5 +1,5 @@
 import type { PrReviewer, PullRequest } from '@common/domain'
-import { boardReason } from '@common/prBoard'
+import { boardReason, reasonAlreadyStates } from '@common/prBoard'
 import { prKey, usePrInboxStore } from '../store'
 
 /** Compact relative age (e.g. "3d", "2h", "just now") from an epoch-ms timestamp. */
@@ -40,6 +40,7 @@ function VoteChip({ reviewer }: { reviewer: PrReviewer }) {
  */
 export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; now: number }) {
   const reason = boardReason(pr)
+  const stated = reasonAlreadyStates(pr)
   const reviewing = usePrInboxStore((s) => s.reviewPrKey === prKey(pr.repositoryId, pr.prId))
   const open = (): void => void usePrInboxStore.getState().openDetail(pr.repositoryId, pr.prId)
   return (
@@ -68,14 +69,15 @@ export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; 
           </span>
         )}
         {reason && <span className={`ix-chip${urgent ? ' ix-chip--accent' : ''}`}>{reason}</span>}
-        {/* Both of these are the reasons a reviewer needs to come back to a PR they have already
-            seen, so they belong on the card rather than only inside the detail. */}
-        {pr.newChangesSinceMyReview && (
+        {/* Both of these are reasons to come back to a pull request already seen, so they belong on
+            the card rather than only inside the detail - but not where the reason chip beside them
+            has just said the same thing, which it does for each of them in the action column. */}
+        {pr.newChangesSinceMyReview && !stated.newChanges && (
           <span className="ix-chip ix-chip--accent" data-testid="pr-card-new-changes">
             ● new changes
           </span>
         )}
-        {pr.activeThreadCount > 0 && (
+        {pr.activeThreadCount > 0 && !stated.unresolved && (
           <span className="ix-chip" data-testid="pr-card-unresolved">
             {pr.activeThreadCount} unresolved
           </span>

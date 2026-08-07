@@ -98,4 +98,37 @@ describe('PrCard', () => {
     await mountCard(pr({ activeThreadCount: 0 }))
     expect(chips().some((c) => c.includes('unresolved'))).toBe(false)
   })
+
+  /**
+   * In the action column the reason chip can be announcing the very thing the badge beside it
+   * announces. One fact wearing two chips reads as two things needing attention, which on the one
+   * surface built to say what needs the user is the wrong answer.
+   */
+  test('does not repeat new changes the reason chip has already given as the reason', async () => {
+    await mountCard(pr({ role: 'reviewer', myVote: 'approved', newChangesSinceMyReview: true }))
+
+    expect(chips()).toContain('new changes since your review')
+    expect(chips().filter((c) => c.includes('new changes'))).toHaveLength(1)
+  })
+
+  test('still flags new changes when the reason chip is saying something else', async () => {
+    await mountCard(pr({ role: 'reviewer', myVote: null, newChangesSinceMyReview: true }))
+
+    expect(chips()).toContain('no vote yet')
+    expect(chips().some((c) => c.includes('● new changes'))).toBe(true)
+  })
+
+  test('does not repeat a thread count the reason chip has already given as the reason', async () => {
+    await mountCard(pr({ role: 'author', reviewers: [], activeThreadCount: 3 }))
+
+    expect(chips()).toContain('3 unresolved comments')
+    expect(chips()).not.toContain('3 unresolved')
+  })
+
+  test('still counts unresolved threads when the reason chip is saying something else', async () => {
+    await mountCard(pr({ role: 'reviewer', myVote: null, activeThreadCount: 3 }))
+
+    expect(chips()).toContain('no vote yet')
+    expect(chips()).toContain('3 unresolved')
+  })
 })
