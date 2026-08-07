@@ -95,15 +95,21 @@ export function ThreadCard({
         </div>
       ))}
       <div className="ix-thread__reply">
-        <input
-          className="ix-input"
+        <textarea
+          className="ix-thread__reply-input"
+          rows={2}
           placeholder="Reply…"
           value={reply}
           data-testid="pr-thread-reply"
           disabled={busy}
           onChange={(e) => changeReply(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              // Without this the submitted reply also gains a trailing newline.
+              e.preventDefault()
+              void submit()
+            }
+            // Escape belongs to the reply box; the window-level one navigates back to the board.
             if (e.key === 'Escape') e.stopPropagation()
           }}
         />

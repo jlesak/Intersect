@@ -1332,12 +1332,25 @@
 }
 .ix-thread__reply {
   display: flex;
+  align-items: flex-end;
   gap: 7px;
   padding: 9px 12px 10px;
 }
-.ix-thread__reply .ix-input {
-  height: 28px;
+.ix-thread__reply-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 6px 9px;
+  font: inherit;
   font-size: 12px;
+  resize: vertical;
+}
+.ix-thread__reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .ix-thread__reply .ix-btn {
   height: 28px;
