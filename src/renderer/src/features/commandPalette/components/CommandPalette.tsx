@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom'
 import { formatAccelerator, shortcutActionFor } from '@common/shortcuts'
 import {
   getAllCommands,
+  isCommandEnabled,
   type Command
 } from '@renderer/shared/registries/commandRegistry'
 import { filterCommands } from '../fuzzy'
+import { paletteSections } from '../sections'
 import { useCommandPaletteStore } from '../store'
 
 /** The registry namespace a command belongs to (the id prefix before the first dot). */
@@ -31,6 +33,34 @@ export function CommandPalette() {
   // the set is stable while it is open.
   const [commands, setCommands] = useState<Command[]>([])
   const results = useMemo(() => filterCommands(query, commands), [query, commands])
+  const sections = useMemo(() => paletteSections(results, query), [results, query])
+
+  // The rendered order, flattened. Selection is an index into this, so what the arrow keys walk and
+  // what the eye reads can never come apart.
+  const rows = useMemo(() => sections.flatMap((section) => section.commands), [sections])
+
+  // Which rows can actually run right now, resolved once per render so a predicate that reads a
+  // store is not called again for every keystroke of navigation.
+  const runnable = useMemo(() => rows.map((command) => isCommandEnabled(command)), [rows])
+
+  // Where each section starts in `rows`, so a rendered button can name its own flat index without
+  // the render pass having to count as it goes.
+  const sectionStarts = useMemo(() => {
+    let start = 0
+    return sections.map((section) => {
+      const at = start
+      start += section.commands.length
+      return at
+    })
+  }, [sections])
+
+  /** The nearest runnable row from `from` walking in `step`, or the current one when there is none. */
+  function nextRunnable(from: number, step: -1 | 1): number {
+    for (let i = from; i >= 0 && i < rows.length; i += step) {
+      if (runnable[i]) return i
+    }
+    return selected
+  }
 
   useEffect(() => {
     if (!open) return
@@ -38,24 +68,25 @@ export function CommandPalette() {
     // out of the list while keeping their accelerators.
     setCommands(getAllCommands().filter((c) => shortcutActionFor(c.id)?.hidden !== true))
     setQuery('')
-    setSelected(0)
     inputRef.current?.focus()
   }, [open])
 
-  // Keep the query change from stranding the selection past the end of the filtered list.
+  // Keep the query change from stranding the selection past the end of the filtered list, and from
+  // landing it on a command that cannot run.
   useEffect(() => {
-    setSelected(0)
-  }, [query])
+    setSelected(runnable.findIndex(Boolean))
+  }, [runnable])
 
   // Keep the highlighted row visible as the selection moves by keyboard.
   useEffect(() => {
     listRef.current
       ?.querySelector('.ix-palette__item--active')
       ?.scrollIntoView({ block: 'nearest' })
-  }, [selected, results])
+  }, [selected, rows])
 
-  function run(command: Command | undefined): void {
-    if (!command) return
+  function run(index: number): void {
+    const command = rows[index]
+    if (!command || !runnable[index]) return
     close()
     void command.handler()
   }
@@ -65,13 +96,13 @@ export function CommandPalette() {
       close()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setSelected((i) => Math.min(i + 1, results.length - 1))
+      setSelected(nextRunnable(selected + 1, 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setSelected((i) => Math.max(i - 1, 0))
+      setSelected(nextRunnable(selected - 1, -1))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      run(results[selected])
+      run(selected)
     }
   }
 
@@ -105,30 +136,46 @@ export function CommandPalette() {
           />
         </div>
 
-        {results.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="ix-palette__empty">No commands match "{query.trim()}"</div>
         ) : (
           <div ref={listRef} id="ix-palette-list" className="ix-palette__list" role="listbox">
-            {results.map((command, i) => {
-              const action = shortcutActionFor(command.id)
-              return (
-                <button
-                  key={command.id}
-                  type="button"
-                  role="option"
-                  aria-selected={i === selected}
-                  className={
-                    i === selected ? 'ix-palette__item ix-palette__item--active' : 'ix-palette__item'
-                  }
-                  onMouseEnter={() => setSelected(i)}
-                  onClick={() => run(command)}
-                >
-                  <span className="ix-palette__title">{command.title}</span>
-                  <span className="ix-palette__ns">{namespaceOf(command)}</span>
-                  {action && <kbd className="ix-kbd">{formatAccelerator(action.accelerator)}</kbd>}
-                </button>
-              )
-            })}
+            {sections.map((section, sectionIndex) => (
+              <div className="ix-palette__section" key={section.heading ?? ''}>
+                {section.heading && (
+                  <div className="ix-palette__heading" role="presentation">
+                    {section.heading}
+                  </div>
+                )}
+                {section.commands.map((command, positionInSection) => {
+                  const i = sectionStarts[sectionIndex] + positionInSection
+                  const action = shortcutActionFor(command.id)
+                  const enabled = runnable[i]
+                  const classes = ['ix-palette__item']
+                  if (i === selected) classes.push('ix-palette__item--active')
+                  if (!enabled) classes.push('ix-palette__item--disabled')
+                  return (
+                    <button
+                      key={command.id}
+                      type="button"
+                      role="option"
+                      aria-selected={i === selected}
+                      aria-disabled={!enabled}
+                      disabled={!enabled}
+                      className={classes.join(' ')}
+                      onMouseEnter={() => enabled && setSelected(i)}
+                      onClick={() => run(i)}
+                    >
+                      <span className="ix-palette__title">{command.title}</span>
+                      <span className="ix-palette__ns">{namespaceOf(command)}</span>
+                      {action && (
+                        <kbd className="ix-kbd">{formatAccelerator(action.accelerator)}</kbd>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         )}
 

@@ -10,6 +10,7 @@ export function registerWorkspacesFeature(): void {
   registerCommand({
     id: 'workspaces.create',
     title: 'Add Workspace',
+    keywords: ['folder', 'directory', 'open', 'new', 'project'],
     handler: async () => {
       const path = await useWorkspacesStore.getState().pickFolder()
       if (path) await useWorkspacesStore.getState().create(path)

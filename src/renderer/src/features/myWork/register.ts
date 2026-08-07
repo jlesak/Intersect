@@ -18,6 +18,8 @@ export function registerMyWorkFeature(): void {
   registerCommand({
     id: 'myWork.refresh',
     title: 'Refresh My Work',
+    group: 'Refresh',
+    keywords: ['jira', 'board', 'issues', 'sync', 'reload'],
     handler: () => useMyWorkStore.getState().refresh()
   })
 }

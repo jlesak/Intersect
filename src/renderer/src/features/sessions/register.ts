@@ -18,6 +18,8 @@ export function registerSessionsFeature(): void {
   registerCommand({
     id: 'sessions.refresh',
     title: 'Refresh Sessions',
+    group: 'Refresh',
+    keywords: ['history', 'transcripts', 'reindex', 'sync', 'reload'],
     handler: () => useSessionsStore.getState().refresh()
   })
 }

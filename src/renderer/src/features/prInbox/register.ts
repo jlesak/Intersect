@@ -3,7 +3,7 @@ import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { registerSidebarSection } from '@renderer/shared/registries/sidebarRegistry'
 import { IconInbox } from '@renderer/shared/ui/icons'
 import { PrInboxView } from './components/PrInboxView'
-import { selectActionCount, usePrInboxStore } from './store'
+import { selectActionCount, selectSelectedPr, usePrInboxStore } from './store'
 
 /** The PR Review section's registry id, exported so other slices can navigate to it. */
 export const PR_INBOX_SECTION_ID = 'prInbox'
@@ -28,11 +28,15 @@ export function registerPrInboxFeature(): void {
   registerCommand({
     id: 'prInbox.sync',
     title: 'Sync Pull Requests',
+    group: 'Refresh',
+    keywords: ['pr', 'azure', 'devops', 'ado', 'fetch', 'reload'],
     handler: () => usePrInboxStore.getState().sync()
   })
   registerCommand({
     id: 'prInbox.review',
     title: 'Review PR with Claude Code',
+    keywords: ['pr', 'pull request', 'ai', 'agent', 'comments'],
+    enabled: () => selectSelectedPr(usePrInboxStore.getState()) !== undefined,
     handler: () => usePrInboxStore.getState().startReview()
   })
 }

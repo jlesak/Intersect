@@ -19,6 +19,8 @@ export function registerTimeTrackingFeature(): void {
   registerCommand({
     id: 'timeTracking.refresh',
     title: 'Refresh Time Tracking',
+    group: 'Refresh',
+    keywords: ['worklog', 'hours', 'timesheet', 'sync', 'reload'],
     handler: async () => {
       // Refresh the worklog board and the agent-runtime supporting figures together.
       await Promise.all([

@@ -28,6 +28,9 @@ export function nextProject(): void {
   useShellStore.getState().setActiveProject(next.id)
 }
 
+/** The palette heading for commands that move the user around the app rather than change anything. */
+const NAVIGATE_GROUP = 'Navigate'
+
 /**
  * Registers the app-wide commands that steer the shell itself rather than one feature slice. They
  * live here because they reach for shell state and cross-slice navigation, which a feature is not
@@ -37,16 +40,24 @@ export function registerShellCommands(): void {
   registerCommand({
     id: 'shell.toggleSidebar',
     title: 'Toggle Sidebar',
+    group: NAVIGATE_GROUP,
+    keywords: ['hide', 'show', 'rail', 'panel', 'collapse'],
     handler: () => useShellStore.getState().toggleSidebar()
   })
   registerCommand({
     id: 'projects.next',
     title: 'Switch Project',
+    group: NAVIGATE_GROUP,
+    keywords: ['next', 'cycle', 'change', 'repo'],
+    enabled: () => selectActiveProjects(useProjectsStore.getState()).length > 0,
     handler: nextProject
   })
   registerCommand({
     id: 'attention.jumpOldestWaiting',
     title: 'Jump to Waiting Session',
+    group: NAVIGATE_GROUP,
+    keywords: ['blocked', 'attention', 'prompt', 'oldest'],
+    enabled: () => oldestWaitingSession(useAttentionStore.getState().status) !== undefined,
     handler: () => {
       const sessionId = oldestWaitingSession(useAttentionStore.getState().status)
       if (sessionId !== undefined) void navigateToSession(sessionId)

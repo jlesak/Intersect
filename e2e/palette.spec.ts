@@ -42,6 +42,53 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   await app.close()
 })
 
+test('at rest the list is filed under headings; a command with nothing to act on will not run', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('palettews-'))
+
+  await openPalette(app)
+  await expect(win.locator('.ix-palette__heading')).toHaveText([
+    'Navigate',
+    'Refresh',
+    'Tabs & Layout',
+    'Other'
+  ])
+
+  // The workspace is empty, so there is no tab for "Close Tab" to close. It stays listed - a
+  // command that vanishes reads as a broken palette - but it is not offered as runnable.
+  const closeTab = win.locator('.ix-palette__item', { hasText: 'Close Tab' })
+  await expect(closeTab).toBeDisabled()
+
+  // Give it something to act on. The same row, found the same way, now really does close the tab -
+  // which is what stops the assertion above from passing against a row that is simply always dead.
+  await win.locator('.ix-palette__input').fill('new shell')
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+
+  await openPalette(app)
+  const closeAgain = win.locator('.ix-palette__item', { hasText: 'Close Tab' })
+  await expect(closeAgain).toBeEnabled()
+  await closeAgain.click()
+  await expect(win.locator('.ix-palette')).toHaveCount(0)
+  await expect(win.locator('.ix-tab')).toHaveCount(0)
+
+  await app.close()
+})
+
+test('a command is found by a keyword its title never contains', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('palettews-'))
+
+  await openPalette(app)
+  // "bash" appears nowhere in "New Shell Tab" - only in the command's own keywords.
+  await win.locator('.ix-palette__input').fill('bash')
+  await expect(win.locator('.ix-palette__item')).toHaveCount(1)
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-tab__title')).toHaveText('Shell')
+
+  await app.close()
+})
+
 test('Escape closes the palette without running a command', async () => {
   const { app, win } = await launch(userDataDir(), { openOther: true })
   await addWorkspace(win, app, tempDir('palettews-'))

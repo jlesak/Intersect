@@ -3,6 +3,7 @@ import {
   __resetCommandRegistryForTests,
   getAllCommands,
   getCommand,
+  isCommandEnabled,
   registerCommand,
   type Command
 } from './commandRegistry'
@@ -53,5 +54,46 @@ describe('commandRegistry', () => {
     registerCommand(cmd({ id: 'a' }))
     __resetCommandRegistryForTests()
     expect(getAllCommands()).toEqual([])
+  })
+
+  test('carries the optional keywords, group and enabled predicate through the registry', () => {
+    registerCommand(
+      cmd({ id: 'a', keywords: ['bash', 'zsh'], group: 'Terminal', enabled: () => false })
+    )
+    const stored = getCommand('a')!
+    expect(stored.keywords).toEqual(['bash', 'zsh'])
+    expect(stored.group).toBe('Terminal')
+    expect(stored.enabled!()).toBe(false)
+  })
+
+  test('a command that declares none of the optional fields leaves them undefined', () => {
+    registerCommand(cmd({ id: 'a' }))
+    const stored = getCommand('a')!
+    expect(stored.keywords).toBeUndefined()
+    expect(stored.group).toBeUndefined()
+    expect(stored.enabled).toBeUndefined()
+  })
+})
+
+describe('isCommandEnabled', () => {
+  test('a command with no predicate is always enabled', () => {
+    expect(isCommandEnabled(cmd({}))).toBe(true)
+  })
+
+  test('follows the predicate in both directions', () => {
+    expect(isCommandEnabled(cmd({ enabled: () => true }))).toBe(true)
+    expect(isCommandEnabled(cmd({ enabled: () => false }))).toBe(false)
+  })
+
+  test('a predicate that throws counts as disabled rather than breaking the caller', () => {
+    expect(
+      isCommandEnabled(
+        cmd({
+          enabled: () => {
+            throw new Error('store not ready')
+          }
+        })
+      )
+    ).toBe(false)
   })
 })
