@@ -57,8 +57,12 @@ export function CommandPalette() {
   // what the eye reads can never come apart.
   const rows = useMemo(() => sections.flatMap((section) => section.commands), [sections])
 
-  // Which rows can actually run right now, resolved once per render so a predicate that reads a
-  // store is not called again for every keystroke of navigation.
+  // Which rows can run, answered whenever the row set changes - which in practice means on
+  // opening and on every keystroke. Like the command list itself, this is a snapshot: the overlay
+  // subscribes to no slice's store, so a precondition that changes while the palette sits open and
+  // untouched is not noticed until the next keystroke. Running a stale-enabled command is harmless
+  // (its handler guards itself); a stale-disabled one becomes runnable again the moment the user
+  // types, which in a box you type into is immediately.
   const runnable = useMemo(() => rows.map((command) => isCommandEnabled(command)), [rows])
 
   // Where each section starts in `rows`, so a rendered button can name its own flat index without

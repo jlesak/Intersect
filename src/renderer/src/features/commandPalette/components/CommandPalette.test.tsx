@@ -190,6 +190,51 @@ describe('CommandPalette', () => {
     expect(useCommandPaletteStore.getState().open).toBe(true)
   })
 
+  test('the selection lands on a runnable row even when a group above it is entirely dead', async () => {
+    const ran: string[] = []
+    await openWith(
+      { id: 'a.one', title: 'Alpha', group: 'Alpha', enabled: () => false, handler: () => {} },
+      { id: 'b.one', title: 'Bravo', group: 'Bravo', handler: () => void ran.push('bravo') }
+    )
+
+    expect(activeTitle()).toBe('Bravo')
+    await press('Enter')
+    expect(ran).toEqual(['bravo'])
+  })
+
+  // The rendered order is grouped while the selection is an index into one flat list. If the two
+  // ever disagree, Enter runs a different command from the one highlighted - which no assertion
+  // about the highlight alone can catch.
+  test('Enter runs the row that is highlighted, across group boundaries', async () => {
+    const ran: string[] = []
+    await openWith(
+      { id: 'z.one', title: 'Zulu One', group: 'Zulu', handler: () => void ran.push('zulu-one') },
+      { id: 'a.one', title: 'Alpha One', group: 'Alpha', handler: () => void ran.push('alpha-one') },
+      { id: 'z.two', title: 'Zulu Two', group: 'Zulu', handler: () => void ran.push('zulu-two') }
+    )
+
+    // Alphabetical groups put Alpha first, so the rendered order is Alpha One, Zulu One, Zulu Two.
+    expect(titles()).toEqual(['Alpha One', 'Zulu One', 'Zulu Two'])
+
+    await press('ArrowDown')
+    expect(activeTitle()).toBe('Zulu One')
+    await press('ArrowDown')
+    expect(activeTitle()).toBe('Zulu Two')
+    await press('Enter')
+    expect(ran).toEqual(['zulu-two'])
+  })
+
+  test('the recently used commands really are the ones the store remembers', async () => {
+    useCommandPaletteStore.setState({ recentIds: ['b.one'] }, false)
+    await openWith(
+      { id: 'a.one', title: 'Alpha', group: 'Alpha', handler: () => {} },
+      { id: 'b.one', title: 'Bravo', group: 'Bravo', handler: () => {} }
+    )
+
+    expect(headings()).toEqual(['Recent', 'Alpha'])
+    expect(titles()).toEqual(['Bravo', 'Alpha'])
+  })
+
   test('arrow navigation steps over an unrunnable command instead of stopping on it', async () => {
     await openWith(
       { id: 'a.one', title: 'First', handler: () => {} },

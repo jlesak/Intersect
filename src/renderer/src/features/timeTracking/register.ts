@@ -52,12 +52,15 @@ export function registerTimeTrackingFeature(): void {
       const parsed = parseTimeCapture(rest)
       if (!parsed) return
       const day = dayKeyOf(Date.now())
-      await useTimeTrackingStore.getState().addManual({
+      // The board is not on screen to contradict a false confirmation, so the store has to say
+      // whether the entry was really written. A failure has already raised its own message.
+      const written = await useTimeTrackingStore.getState().addManual({
         day,
         description: parsed.description,
         issueKey: parsed.issueKey,
         durationMs: parsed.durationMs
       })
+      if (!written) return
       // Captured from wherever the user was, the board is not on screen to show the new card, so
       // the entry has to say it landed. A span written to a weekend borrows the timer's wording
       // for the same reason it exists: the weekday board will not show it.

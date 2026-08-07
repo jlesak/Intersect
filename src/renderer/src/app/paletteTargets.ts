@@ -1,4 +1,5 @@
 import type { PullRequest, SessionSummary, Workspace } from '@common/domain'
+import { useCommandPaletteStore } from '@renderer/features/commandPalette'
 import { PR_INBOX_SECTION_ID, selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
 import { useSessionsStore } from '@renderer/features/sessions'
 import { selectWorkspaceList, useWorkspacesStore } from '@renderer/features/workspaces'
@@ -73,8 +74,19 @@ function sessionCommand(session: SessionSummary): Command {
  * They live in the app layer rather than in their slices because reaching them means cross-slice
  * navigation: a pull request has to bring the shell to the PR section with it, and a workspace to
  * its project context. A feature is not allowed to import the shell.
+ *
+ * Returns an unsubscribe for the palette-open listener, matching the other app-layer wirings.
  */
-export function registerPaletteTargets(): void {
+export function registerPaletteTargets(): () => void {
+  // Index the session history the moment the palette opens, not at boot and not when the Sessions
+  // section is first visited. Building the index reads every transcript on disk, which is too much
+  // to spend on every launch - but a session target that only appears after the user has already
+  // walked to the section saves them exactly the trip it exists to save.
+  const stopIndexingOnOpen = useCommandPaletteStore.subscribe((state, previous) => {
+    if (!state.open || previous.open) return
+    if (useSessionsStore.getState().status === 'idle') void useSessionsStore.getState().hydrate()
+  })
+
   registerCommandProvider(() => selectWorkspaceList(useWorkspacesStore.getState()).map(workspaceCommand))
   registerCommandProvider(() => selectPrList(usePrInboxStore.getState()).map(pullRequestCommand))
   registerCommandProvider((query) =>
@@ -82,4 +94,6 @@ export function registerPaletteTargets(): void {
       ? []
       : useSessionsStore.getState().all.map(sessionCommand)
   )
+
+  return stopIndexingOnOpen
 }

@@ -3,6 +3,10 @@ import { parseDuration } from './time'
 /** A Jira issue key: a project part of at least two alphanumerics, a dash, and a number. */
 const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9]+-\d+$/
 
+// The two halves of a duration written as two words, each required to name its own unit.
+const HOURS = /^\d+\s*h$/i
+const MINUTES = /^\d+\s*m$/i
+
 /** What a quick-capture line asked to be logged. */
 export interface TimeCapture {
   durationMs: number
@@ -26,7 +30,11 @@ export function parseTimeCapture(raw: string): TimeCapture | null {
 
   // Try the two-word duration first. `1h` parses on its own, so reading one word at a time would
   // always stop there and hand `30m` to the description - the space is exactly what someone types.
-  const pair = words.length > 1 ? parseDuration(`${words[0]} ${words[1]}`) : null
+  //
+  // Both words must carry their unit. Bare minutes are a duration on their own, so accepting
+  // `1h 1` would read the opening word of "1 on 1 with Marek" as a minute and log 1h 1m against a
+  // description missing its first word.
+  const pair = HOURS.test(words[0]) && MINUTES.test(words[1] ?? '') ? parseDuration(`${words[0]} ${words[1]}`) : null
   const durationMs = pair ?? parseDuration(words[0])
   if (durationMs === null) return null
   const rest = words.slice(pair === null ? 1 : 2)

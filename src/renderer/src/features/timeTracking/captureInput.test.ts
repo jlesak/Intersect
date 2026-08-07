@@ -45,6 +45,21 @@ describe('parseTimeCapture', () => {
     expect(parseTimeCapture('1:30 x')?.durationMs).toBe(5_400_000)
   })
 
+  test('a bare number after an hour count is description, not minutes', () => {
+    // "1 on 1 with Marek" opens with a number; reading it as minutes would both inflate the span
+    // and eat the first word of what the time was spent on.
+    expect(parseTimeCapture('1h 1 on 1 with Marek')).toEqual({
+      durationMs: 3_600_000,
+      issueKey: null,
+      description: '1 on 1 with Marek'
+    })
+    expect(parseTimeCapture('2h 3 amigos session')).toEqual({
+      durationMs: 7_200_000,
+      issueKey: null,
+      description: '3 amigos session'
+    })
+  })
+
   test('text that does not start with a duration is not a worklog entry', () => {
     expect(parseTimeCapture('sprint review')).toBeNull()
     expect(parseTimeCapture('')).toBeNull()

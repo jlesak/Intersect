@@ -41,7 +41,9 @@ export function registerTodoFeature(): void {
       const today = dayKeyOf(Date.now())
       const { text, dueDay } = parseDueFromText(rest, today)
       if (text === '') return
-      await useTodoStore.getState().add(text, dueDay)
+      // Nothing here is on screen to contradict a false confirmation, so the store has to say
+      // whether the task was really written. A failure has already raised its own message.
+      if (!(await useTodoStore.getState().add(text, dueDay))) return
       // The TODO list is not on screen when a task is captured from elsewhere, so the confirmation
       // is the only thing telling the user it was written down - and which day it was pinned to.
       const when = dueDay === null ? '' : `, due ${formatDueDay(dueDay, today)}`
