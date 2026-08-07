@@ -60,8 +60,7 @@ const PLAYWRIGHT_ELECTRON = {
 // Shrinking list: specs not yet moved onto the harness. Do not add to it.
 const UNMIGRATED_E2E_SPECS = [
   'e2e/mywork.spec.ts',
-  'e2e/prInbox.live.spec.ts',
-  'e2e/prInbox.spec.ts'
+  'e2e/prInbox.live.spec.ts'
 ]
 
 export default tseslint.config(
