@@ -67,8 +67,7 @@ const UNMIGRATED_E2E_SPECS = [
   'e2e/review-pane-shot.spec.ts',
   'e2e/settings.spec.ts',
   'e2e/shortcuts.spec.ts',
-  'e2e/smoke.spec.ts',
-  'e2e/todo.spec.ts'
+  'e2e/smoke.spec.ts'
 ]
 
 export default tseslint.config(
