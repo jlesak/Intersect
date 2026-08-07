@@ -4,6 +4,8 @@ import { formatAccelerator, shortcutActionFor } from '@common/shortcuts'
 import { getCaptures, matchCapture } from '@renderer/shared/registries/captureRegistry'
 import {
   getAllCommands,
+  getCommand,
+  getProvidedCommands,
   isCommandEnabled,
   type Command
 } from '@renderer/shared/registries/commandRegistry'
@@ -39,8 +41,11 @@ export function CommandPalette() {
   const capturing = useMemo(() => matchCapture(query), [query])
   const capturePreview = capturing?.capture.preview(capturing.rest) ?? null
 
+  // Targets that only exist because of what is loaded right now - one per workspace, pull request
+  // or past session - are rebuilt per query rather than snapshotted, so a provider can decline to
+  // answer an empty one.
   const results = useMemo(
-    () => (capturing ? [] : filterCommands(query, commands)),
+    () => (capturing ? [] : filterCommands(query, [...commands, ...getProvidedCommands(query)])),
     [capturing, query, commands]
   )
   const sections = useMemo(
@@ -101,7 +106,10 @@ export function CommandPalette() {
     const command = rows[index]
     if (!command || !runnable[index]) return
     close()
-    void useCommandPaletteStore.getState().recordUse(command.id)
+    // Only registered commands are remembered. A state-derived target's id names one workspace or
+    // one past session, so remembering it would fill the recents with history rather than habits -
+    // and with entries that stop resolving the moment that target is gone.
+    if (getCommand(command.id)) void useCommandPaletteStore.getState().recordUse(command.id)
     void command.handler()
   }
 

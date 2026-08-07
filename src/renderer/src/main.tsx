@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from './shared/ui/ErrorBoundary'
 import { App } from './app/App'
 import { registerFeatures } from './app/registerFeatures'
+import { registerPaletteTargets } from './app/paletteTargets'
 import { registerShellCommands } from './app/shellCommands'
 import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
@@ -32,6 +33,7 @@ import { useWorkspacesStore } from './features/workspaces'
 // registries. Store hydration is fired after render (non-blocking); slices show their own state.
 registerFeatures()
 registerShellCommands()
+registerPaletteTargets()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('root element missing')

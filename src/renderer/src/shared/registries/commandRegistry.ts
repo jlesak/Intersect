@@ -36,7 +36,18 @@ export function isCommandEnabled(command: Command): boolean {
   }
 }
 
+/**
+ * Builds the commands that only exist because of what is on screen right now - one per open
+ * workspace, one per pull request, one per past session. They cannot be registered up front
+ * because their targets appear and disappear while the app runs.
+ *
+ * The query is passed in so a provider over a long list can decline to answer an empty one: three
+ * hundred sessions offered before the user has typed anything would bury every real command.
+ */
+export type CommandProvider = (query: string) => Command[]
+
 const commands = new Map<string, Command>()
+const providers: CommandProvider[] = []
 
 /** Register a command. Throws if the id is already registered. */
 export function registerCommand(command: Command): void {
@@ -56,7 +67,30 @@ export function getAllCommands(): Command[] {
   return [...commands.values()]
 }
 
+/** Register a source of state-derived commands. */
+export function registerCommandProvider(provider: CommandProvider): void {
+  providers.push(provider)
+}
+
+/**
+ * Every state-derived command for the given query. A provider that throws contributes nothing
+ * rather than taking the palette down: its slice's state being unreadable must not cost the user
+ * every other slice's commands.
+ */
+export function getProvidedCommands(query: string): Command[] {
+  const built: Command[] = []
+  for (const provider of providers) {
+    try {
+      built.push(...provider(query))
+    } catch {
+      // Deliberately ignored - see above.
+    }
+  }
+  return built
+}
+
 /** Test-only: clear the module-level registry between tests. */
 export function __resetCommandRegistryForTests(): void {
   commands.clear()
+  providers.length = 0
 }

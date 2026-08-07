@@ -1,6 +1,6 @@
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { useToastStore } from '@renderer/shared/ui/toast'
-import { useTabsStore } from './store'
+import { selectTabList, useTabsStore } from './store'
 
 /**
  * A tab needs a workspace to live in. Reached from a menu accelerator there is no button to grey
@@ -14,6 +14,31 @@ function requireWorkspace(): boolean {
 
 /** Whether a workspace is open for a new tab to be created in. */
 const hasWorkspace = (): boolean => useTabsStore.getState().workspaceId !== null
+
+/** The active tab's index in bar order, or -1 when there is no active tab. */
+function activeIndex(): number {
+  const state = useTabsStore.getState()
+  return selectTabList(state).findIndex((tab) => tab.id === state.activeTabId)
+}
+
+/** Whether the active tab has anywhere to go in the given direction. */
+const canMove = (direction: -1 | 1): (() => boolean) => {
+  return () => {
+    const at = activeIndex()
+    const target = at + direction
+    return at !== -1 && target >= 0 && target < selectTabList(useTabsStore.getState()).length
+  }
+}
+
+/** Swap the active tab with its neighbour in the given direction and persist the whole order. */
+function moveActiveTab(direction: -1 | 1): void {
+  const ids = selectTabList(useTabsStore.getState()).map((tab) => tab.id)
+  const at = activeIndex()
+  const target = at + direction
+  if (at === -1 || target < 0 || target >= ids.length) return
+  ;[ids[at], ids[target]] = [ids[target], ids[at]]
+  void useTabsStore.getState().reorderTabs(ids)
+}
 
 /** The palette heading the tab and layout commands are filed under. */
 const GROUP = 'Tabs & Layout'
@@ -90,6 +115,22 @@ export function registerTabsFeature(): void {
     keywords: ['ai', 'agent', 'cc'],
     enabled: hasWorkspace,
     handler: () => void useTabsStore.getState().createTab('claude')
+  })
+  registerCommand({
+    id: 'tabs.moveLeft',
+    title: 'Move Tab Left',
+    group: GROUP,
+    keywords: ['reorder', 'shift', 'before'],
+    enabled: canMove(-1),
+    handler: () => moveActiveTab(-1)
+  })
+  registerCommand({
+    id: 'tabs.moveRight',
+    title: 'Move Tab Right',
+    group: GROUP,
+    keywords: ['reorder', 'shift', 'after'],
+    enabled: canMove(1),
+    handler: () => moveActiveTab(1)
   })
   registerCommand({
     id: 'terminal.layoutSingle',

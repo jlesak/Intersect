@@ -1,15 +1,20 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   __resetCaptureRegistryForTests,
   registerCapture
 } from '@renderer/shared/registries/captureRegistry'
 import {
   __resetCommandRegistryForTests,
-  registerCommand
+  registerCommand,
+  registerCommandProvider
 } from '@renderer/shared/registries/commandRegistry'
+vi.mock('../ipc')
+import * as paletteApi from '../ipc'
 import { useCommandPaletteStore } from '../store'
 import { CommandPalette } from './CommandPalette'
+
+const mocked = vi.mocked(paletteApi)
 
 /**
  * The palette's visibility now comes from a store rather than a key listener, and which commands it
@@ -21,6 +26,8 @@ describe('CommandPalette', () => {
     __resetCommandRegistryForTests()
     __resetCaptureRegistryForTests()
     useCommandPaletteStore.setState({ open: false, recentIds: [] }, false)
+    vi.clearAllMocks()
+    mocked.recordUse.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -106,6 +113,13 @@ describe('CommandPalette', () => {
 
   const activeTitle = (): string | null | undefined =>
     document.querySelector('.ix-palette__item--active .ix-palette__title')?.textContent
+
+  const type = async (value: string): Promise<void> => {
+    const input = document.querySelector('.ix-palette__input')!
+    await act(async () => {
+      fireEvent.change(input, { target: { value } })
+    })
+  }
 
   test('files commands under their group heading at rest', async () => {
     await openWith(
@@ -202,15 +216,54 @@ describe('CommandPalette', () => {
     expect(ran).toEqual(['second'])
   })
 
+  describe('state-derived targets', () => {
+    test('a provider contributes rows the registry never held', async () => {
+      const opened: string[] = []
+      registerCommandProvider(() => [
+        { id: 'workspaces.goto.w1', title: 'Switch to workspace: api', handler: () => void opened.push('w1') }
+      ])
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+
+      await type('workspace api')
+      expect(titles()).toEqual(['Switch to workspace: api'])
+      await press('Enter')
+      expect(opened).toEqual(['w1'])
+    })
+
+    test('a provider is asked about the query it should answer', async () => {
+      const asked: string[] = []
+      registerCommandProvider((query) => {
+        asked.push(query)
+        return query.length < 2 ? [] : [{ id: 'x.1', title: 'Late Target', handler: () => {} }]
+      })
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+
+      expect(titles()).toEqual(['Next Tab'])
+      await type('la')
+      expect(titles()).toEqual(['Late Target'])
+      expect(asked).toContain('la')
+    })
+
+    test('running a derived target does not enter the recently-used list', async () => {
+      registerCommandProvider(() => [
+        { id: 'sessions.resume.abc', title: 'Resume session: fix the parser', handler: () => {} }
+      ])
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+
+      await type('resume fix')
+      await press('Enter')
+      expect(mocked.recordUse).not.toHaveBeenCalled()
+    })
+
+    test('running a registered command does enter the recently-used list', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await press('Enter')
+      expect(mocked.recordUse).toHaveBeenCalledWith('tabs.next')
+    })
+  })
+
   describe('quick capture', () => {
     const captured: string[] = []
-
-    const type = async (value: string): Promise<void> => {
-      const input = document.querySelector('.ix-palette__input')!
-      await act(async () => {
-        fireEvent.change(input, { target: { value } })
-      })
-    }
 
     beforeEach(() => {
       captured.length = 0

@@ -3,8 +3,10 @@ import {
   __resetCommandRegistryForTests,
   getAllCommands,
   getCommand,
+  getProvidedCommands,
   isCommandEnabled,
   registerCommand,
+  registerCommandProvider,
   type Command
 } from './commandRegistry'
 
@@ -72,6 +74,46 @@ describe('commandRegistry', () => {
     expect(stored.keywords).toBeUndefined()
     expect(stored.group).toBeUndefined()
     expect(stored.enabled).toBeUndefined()
+  })
+})
+
+describe('command providers', () => {
+  beforeEach(() => __resetCommandRegistryForTests())
+
+  test('no providers means nothing is contributed', () => {
+    expect(getProvidedCommands('anything')).toEqual([])
+  })
+
+  test('every provider contributes, in registration order', () => {
+    registerCommandProvider(() => [cmd({ id: 'a' })])
+    registerCommandProvider(() => [cmd({ id: 'b' }), cmd({ id: 'c' })])
+    expect(getProvidedCommands('').map((c) => c.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  test('the query reaches the provider so it can decline to answer', () => {
+    const seen: string[] = []
+    registerCommandProvider((query) => {
+      seen.push(query)
+      return query === '' ? [] : [cmd({ id: 'a' })]
+    })
+    expect(getProvidedCommands('')).toEqual([])
+    expect(getProvidedCommands('x').map((c) => c.id)).toEqual(['a'])
+    expect(seen).toEqual(['', 'x'])
+  })
+
+  test('a provider that throws costs only its own commands', () => {
+    registerCommandProvider(() => [cmd({ id: 'a' })])
+    registerCommandProvider(() => {
+      throw new Error('store not ready')
+    })
+    registerCommandProvider(() => [cmd({ id: 'c' })])
+    expect(getProvidedCommands('').map((c) => c.id)).toEqual(['a', 'c'])
+  })
+
+  test('reset clears the providers too', () => {
+    registerCommandProvider(() => [cmd({ id: 'a' })])
+    __resetCommandRegistryForTests()
+    expect(getProvidedCommands('')).toEqual([])
   })
 })
 

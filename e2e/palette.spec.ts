@@ -18,11 +18,12 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   // Open the palette and confirm it shows every registered command (workspaces/tabs/terminal +
   // the app-wide shortcut commands + the PR Review Inbox slice's prInbox.sync / prInbox.review +
   // the Sessions slice's sessions.refresh + the My Work slice's myWork.refresh + the Time
-  // Tracking slice's timeTracking.refresh). The nine positional tab jumps and the palette's own
-  // open command are mapped but deliberately not listed here.
+  // Tracking slice's timeTracking.refresh), plus the one workspace this test just added as a
+  // switch-to target. The nine positional tab jumps and the palette's own open command are mapped
+  // but deliberately not listed here.
   await openPalette(app)
   await expect(win.locator('.ix-palette')).toBeVisible()
-  await expect(win.locator('.ix-palette__item')).toHaveCount(20)
+  await expect(win.locator('.ix-palette__item')).toHaveCount(23)
 
   // The two deliberate exclusions, asserted by name so the count above cannot mask a regression:
   // the nine positional tab jumps, and the palette's own open command.
@@ -51,6 +52,7 @@ test('at rest the list is filed under headings; a command with nothing to act on
     'Navigate',
     'Refresh',
     'Tabs & Layout',
+    'Workspaces',
     'Other'
   ])
 
@@ -123,6 +125,28 @@ test('a command you ran leads the list next time, and still does after a relaunc
   ).toHaveText(['Toggle Sidebar', 'Layout: Rows'])
 
   await relaunched.app.close()
+})
+
+test('every open workspace is a palette target that really switches to it', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('palette-alpha-'))
+  await addWorkspace(win, app, tempDir('palette-beta-'))
+
+  // Both workspaces are offered under their own heading, without anything being typed.
+  await openPalette(app)
+  const workspaceRows = win
+    .locator('.ix-palette__section', { has: win.locator('.ix-palette__heading', { hasText: 'Workspaces' }) })
+    .locator('.ix-palette__title')
+  await expect(workspaceRows).toHaveCount(2)
+
+  // Switching through the palette really moves the app: the named workspace becomes the active one.
+  const target = (await workspaceRows.first().textContent())!.replace('Switch to workspace: ', '')
+  await win.locator('.ix-palette__input').fill(target)
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-palette')).toHaveCount(0)
+  await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(target)
+
+  await app.close()
 })
 
 test('Escape closes the palette without running a command', async () => {
