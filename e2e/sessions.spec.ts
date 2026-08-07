@@ -110,6 +110,60 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   await app.close()
 })
 
+test('arrow keys walk the list from the search box and Enter opens what they land on', async () => {
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
+  const projectsDir = buildProjectsFixture(cwdA, cwdB)
+  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+
+  await openSessions(win)
+  await expect(win.locator('.ix-session-row')).toHaveCount(2)
+
+  // ArrowDown out of the search box lands on the first row; a second one steps to the next.
+  await win.locator('.ix-sessions-search').click()
+  await win.locator('.ix-sessions-search').press('ArrowDown')
+  await expect(win.locator('.ix-session-row').first()).toBeFocused()
+  await win.keyboard.press('ArrowDown')
+  await expect(win.locator('.ix-session-row').nth(1)).toBeFocused()
+
+  // Only the row the list points at is a Tab stop, so Tab leaves the list rather than crawling it.
+  await expect(win.locator('.ix-session-row').first()).toHaveAttribute('tabindex', '-1')
+  await expect(win.locator('.ix-session-row').nth(1)).toHaveAttribute('tabindex', '0')
+
+  // Enter opens the second session, not the first: the transcript proves where the pointer was.
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-transcript__title')).toHaveText('Fixing the login redirect')
+
+  // ArrowUp walks back, and Enter there opens the other session.
+  await win.keyboard.press('ArrowUp')
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
+
+  await app.close()
+})
+
+test('a fuzzy query finds a session the letters are only scattered through', async () => {
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
+  const projectsDir = buildProjectsFixture(cwdA, cwdB)
+  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+
+  await openSessions(win)
+
+  // "lgnrdrct" is nowhere in the text contiguously; only a subsequence match can find it.
+  await win.locator('.ix-sessions-search').fill('lgnrdrct')
+  await expect(win.locator('.ix-session-row')).toHaveCount(1)
+  await expect(win.locator('.ix-session-row__title')).toHaveText('Fixing the login redirect')
+
+  // The matched prompt is shown with the characters that earned the hit marked.
+  await expect(win.locator('.ix-session-row__snip')).toContainText('the login redirect loops forever')
+  await expect(win.locator('.ix-session-row__mark').first()).toBeVisible()
+
+  await app.close()
+})
+
 test('folder multiselect narrows the list to the checked folders', async () => {
   const profileDir = userDataDir()
   const cwdA = tempDir('proj-a-')

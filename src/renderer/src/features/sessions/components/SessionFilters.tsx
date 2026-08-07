@@ -96,6 +96,15 @@ export function SessionFilters() {
         placeholder="Search titles and your prompts…"
         value={query}
         onChange={(e) => useSessionsStore.getState().setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // Typing and then walking the results is one gesture, so ArrowDown steps out of the box
+          // into the list rather than stopping at the end of the query.
+          if (e.key !== 'ArrowDown') return
+          const first = document.querySelector<HTMLElement>('.ix-session-row')
+          if (!first) return
+          e.preventDefault()
+          first.focus()
+        }}
       />
       <div className="ix-sessions-controls">
         <label className="ix-sessions-date">

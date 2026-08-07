@@ -135,7 +135,7 @@ describe('CommandPalette', () => {
   test('drops the headings while a query is being typed, so ranking is what is shown', async () => {
     await openWith(
       { id: 'tabs.next', title: 'Next Tab', group: 'Tabs', handler: () => {} },
-      { id: 'prInbox.sync', title: 'Sync Tabulator', group: 'Pull Requests', handler: () => {} }
+      { id: 'prInbox.sync', title: 'Tabulator Sync', group: 'Pull Requests', handler: () => {} }
     )
 
     const input = document.querySelector('.ix-palette__input')!
@@ -143,10 +143,10 @@ describe('CommandPalette', () => {
       fireEvent.change(input, { target: { value: 'tab' } })
     })
 
-    // "tab" starts a word in "Sync TABulator" and lands mid-word in "Next Tab", so the ranked
+    // "tab" opens "TABulator Sync" and only reaches the last word of "Next Tab", so the ranked
     // order is the reverse of registration order - which is only observable without headings.
     expect(headings()).toEqual([])
-    expect(titles()).toEqual(['Sync Tabulator', 'Next Tab'])
+    expect(titles()).toEqual(['Tabulator Sync', 'Next Tab'])
   })
 
   test('finds a command by a keyword that is not in its title, and runs it', async () => {
