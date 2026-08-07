@@ -42,8 +42,9 @@ const PANES: Record<CategoryId, ComponentType> = {
 
 /**
  * The Settings section's main region: a left sub-navigation over the categories, content on the
- * right. Every field binds to the store, which persists on change, so switching categories can
- * never lose anything even though leaving a category discards its pane.
+ * right. Leaving a category discards its pane: store-backed fields survive that, because they
+ * persist as they change, but text a pane holds in an editor buffer of its own until the user
+ * commits it - the raw JSON editor above all - is lost.
  */
 export function SettingsView() {
   const [category, setCategory] = useState<CategoryId>('projects')

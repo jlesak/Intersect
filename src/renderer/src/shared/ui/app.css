@@ -3060,9 +3060,9 @@
   margin-bottom: 20px;
 }
 
-/* Only the selected category's pane is mounted, so nothing needs hiding. Both
-   `.ix-settings__pane` and `--active` stay in the markup as the marker the DOM and end-to-end
-   tests select the live pane by. */
+/* `.ix-settings__pane` and `.ix-settings__pane--active` carry no styling: only the selected
+   category is mounted, so there is nothing to hide. They stay in the markup as the hook the
+   end-to-end tests find the live pane by. */
 
 .ix-set-row {
   display: flex;
