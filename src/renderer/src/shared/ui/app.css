@@ -1409,10 +1409,14 @@
   gap: 10px;
   padding: 4px 0 10px;
 }
-/* Settled threads stay on the page, dimmed and folded away, rather than being filtered out. */
+/* Settled threads stay on the page, dimmed and folded away, rather than being filtered out. The
+   dimming is on the threads alone: the toggle is the control that reveals them, so it has to stay
+   as legible as anything else on the page. */
 .ix-overview__resolved {
-  opacity: 0.62;
   padding-top: 4px;
+}
+.ix-overview__resolved .ix-thread {
+  opacity: 0.62;
 }
 .ix-overview__resolved-toggle {
   gap: 7px;

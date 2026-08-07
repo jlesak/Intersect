@@ -23,7 +23,10 @@ function thread(threadId: number, over: Partial<PrThread> = {}): PrThread {
  * fixed, two unresolved, and one ADO housekeeping thread.
  */
 const THREADS = [
-  thread(3, { status: 'fixed' }),
+  thread(3, {
+    status: 'fixed',
+    comments: [{ authorName: 'Marek Kral', body: 'Already handled last push.', publishedAt: 0 }]
+  }),
   thread(1),
   thread(2, { filePath: null, line: null, comments: [{ authorName: 'Jan Lesak', body: 'Ship it.', publishedAt: 2 }] }),
   thread(4, { isSystem: true, status: 'closed' })
@@ -71,9 +74,20 @@ describe('OverviewTab', () => {
     await act(async () => {
       render(<OverviewTab />)
     })
+    // Read with the settled section open, so the assertion spans every thread the page holds. A
+    // collapsed list would look the same whether the resolved thread had been sorted to the bottom
+    // or merely filtered out, and could not tell the two apart.
+    await act(async () => {
+      fireEvent.click(document.querySelector<HTMLButtonElement>('[data-testid="pr-resolved-toggle"]')!)
+    })
 
-    // The server listed the resolved thread first; it is not what the reviewer owes anything on.
-    expect(rendered()).toEqual(['This retry loop can spin forever.', 'Ship it.'])
+    // The server listed the resolved thread first; it is not what the reviewer owes anything on, so
+    // it sinks below the two that are.
+    expect(rendered()).toEqual([
+      'This retry loop can spin forever.',
+      'Ship it.',
+      'Already handled last push.'
+    ])
     expect(document.body.textContent).not.toContain('Policy status')
   })
 
