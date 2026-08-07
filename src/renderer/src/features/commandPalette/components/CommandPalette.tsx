@@ -24,6 +24,7 @@ function namespaceOf(command: Command): string {
 export function CommandPalette() {
   const open = useCommandPaletteStore((s) => s.open)
   const close = useCommandPaletteStore((s) => s.close)
+  const recentIds = useCommandPaletteStore((s) => s.recentIds)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -33,7 +34,10 @@ export function CommandPalette() {
   // the set is stable while it is open.
   const [commands, setCommands] = useState<Command[]>([])
   const results = useMemo(() => filterCommands(query, commands), [query, commands])
-  const sections = useMemo(() => paletteSections(results, query), [results, query])
+  const sections = useMemo(
+    () => paletteSections(results, query, recentIds),
+    [results, query, recentIds]
+  )
 
   // The rendered order, flattened. Selection is an index into this, so what the arrow keys walk and
   // what the eye reads can never come apart.
@@ -88,6 +92,7 @@ export function CommandPalette() {
     const command = rows[index]
     if (!command || !runnable[index]) return
     close()
+    void useCommandPaletteStore.getState().recordUse(command.id)
     void command.handler()
   }
 

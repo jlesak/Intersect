@@ -89,6 +89,42 @@ test('a command is found by a keyword its title never contains', async () => {
   await app.close()
 })
 
+test('a command you ran leads the list next time, and still does after a relaunch', async () => {
+  const profile = userDataDir()
+  const workspace = tempDir('palettews-')
+  const { app, win } = await launch(profile, { openOther: true })
+  await addWorkspace(win, app, workspace)
+
+  // Nothing has been run yet, so there is nothing to lead with.
+  await openPalette(app)
+  await expect(win.locator('.ix-palette__heading').first()).toHaveText('Navigate')
+  await win.keyboard.press('Escape')
+
+  // Run two commands. The second is the more recent, so it must end up above the first.
+  await openPalette(app)
+  await win.locator('.ix-palette__input').fill('layout rows')
+  await win.keyboard.press('Enter')
+  await openPalette(app)
+  await win.locator('.ix-palette__input').fill('toggle sidebar')
+  await win.keyboard.press('Enter')
+
+  await openPalette(app)
+  await expect(win.locator('.ix-palette__heading').first()).toHaveText('Recent')
+  await expect(
+    win.locator('.ix-palette__section').first().locator('.ix-palette__title')
+  ).toHaveText(['Toggle Sidebar', 'Layout: Rows'])
+  await app.close()
+
+  // The list is the core's, not the window's: the same profile reopens onto the same history.
+  const relaunched = await launch(profile, { openOther: true })
+  await openPalette(relaunched.app)
+  await expect(
+    relaunched.win.locator('.ix-palette__section').first().locator('.ix-palette__title')
+  ).toHaveText(['Toggle Sidebar', 'Layout: Rows'])
+
+  await relaunched.app.close()
+})
+
 test('Escape closes the palette without running a command', async () => {
   const { app, win } = await launch(userDataDir(), { openOther: true })
   await addWorkspace(win, app, tempDir('palettews-'))

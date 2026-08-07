@@ -9,8 +9,12 @@ const cmd = (id: string, title: string, group?: string): Command => ({
   handler: () => {}
 })
 
-const shape = (results: Command[], query: string): [string | null, string[]][] =>
-  paletteSections(results, query).map((s) => [s.heading, s.commands.map((c) => c.id)])
+const shape = (
+  results: Command[],
+  query: string,
+  recentIds: string[] = []
+): [string | null, string[]][] =>
+  paletteSections(results, query, recentIds).map((s) => [s.heading, s.commands.map((c) => c.id)])
 
 describe('paletteSections', () => {
   test('a typed query keeps one flat section so ranking survives', () => {
@@ -58,5 +62,33 @@ describe('paletteSections', () => {
   test('a whitespace-only query groups, like an empty one', () => {
     const results = [cmd('a', 'A', 'Tabs')]
     expect(shape(results, '  ')).toEqual([['Tabs', ['a']]])
+  })
+
+  test('recently used commands lead the list, in recency order', () => {
+    const results = [cmd('a', 'A', 'Tabs'), cmd('b', 'B', 'Tabs'), cmd('c', 'C', 'Tabs')]
+    expect(shape(results, '', ['c', 'a'])).toEqual([
+      ['Recent', ['c', 'a']],
+      ['Tabs', ['b']]
+    ])
+  })
+
+  test('a recent command is not also repeated under its group', () => {
+    const results = [cmd('a', 'A', 'Tabs')]
+    expect(shape(results, '', ['a'])).toEqual([['Recent', ['a']]])
+  })
+
+  test('a remembered id that is no longer a listed command is skipped', () => {
+    const results = [cmd('a', 'A', 'Tabs')]
+    expect(shape(results, '', ['gone', 'a'])).toEqual([['Recent', ['a']]])
+  })
+
+  test('recency is ignored while a query is being typed, so rank is what shows', () => {
+    const results = [cmd('a', 'A', 'Tabs'), cmd('b', 'B', 'Tabs')]
+    expect(shape(results, 'x', ['b'])).toEqual([[null, ['a', 'b']]])
+  })
+
+  test('no recents means no Recent heading at all', () => {
+    const results = [cmd('a', 'A', 'Tabs')]
+    expect(shape(results, '', []).map(([heading]) => heading)).toEqual(['Tabs'])
   })
 })

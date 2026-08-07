@@ -176,6 +176,10 @@ const api: IpcApi = {
     remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
     reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
   },
+  palette: {
+    getRecent: () => ipcRenderer.invoke(Channel.paletteGetRecent),
+    recordUse: (commandId) => ipcRenderer.invoke(Channel.paletteRecordUse, commandId)
+  },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),
     refresh: () => ipcRenderer.invoke(Channel.myWorkRefresh),

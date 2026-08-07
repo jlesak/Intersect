@@ -20,6 +20,7 @@ import { wireSettings } from './app/settingsWiring'
 import { wireShortcuts } from './app/shortcutWiring'
 import { wireTodoFocus } from './app/todoFocusWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
+import { useCommandPaletteStore } from './features/commandPalette'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
@@ -46,6 +47,9 @@ createRoot(root).render(
 )
 
 void useWorkspacesStore.getState().hydrate()
+// Read the palette's recently-used commands, so the first Cmd+K of the day already leads with the
+// user's own habits rather than an alphabetical listing.
+void useCommandPaletteStore.getState().hydrateRecent()
 // Load the cached PRs (no network) and start listening for pushed drafts / review-session exits.
 void usePrInboxStore.getState().hydrate()
 usePrInboxStore.getState().subscribe()
