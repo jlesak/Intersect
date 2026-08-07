@@ -3060,14 +3060,9 @@
   margin-bottom: 20px;
 }
 
-/* All four category panes stay mounted; only the active one is shown, so switching
-   categories never loses another pane's field state. */
-.ix-settings__pane {
-  display: none;
-}
-.ix-settings__pane--active {
-  display: block;
-}
+/* Only the selected category's pane is mounted, so nothing needs hiding. Both
+   `.ix-settings__pane` and `--active` stay in the markup as the marker the DOM and end-to-end
+   tests select the live pane by. */
 
 .ix-set-row {
   display: flex;
