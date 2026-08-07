@@ -1,10 +1,12 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { connectedAdo } from './harness'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  connectedAdo,
+  expect,
+  launch as launchApp,
+  openRailSection,
+  test,
+  userDataDir
+} from './harness'
 
 /**
  * Launch the app against the stubbed ADO backend in radar mode (see adoE2eStub).
@@ -13,15 +15,11 @@ const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
  * refreshing itself, and it only does that where Azure DevOps is reachable.
  */
 async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const { app, win } = await launchApp(userDataDir(), {
+    env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
   })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
   // Boot lands on Claude Code, not My Work; switch to the section most of these tests start from.
-  await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
+  await openRailSection(win, 'My Work', '.ix-mywork')
   return { app, win }
 }
 
