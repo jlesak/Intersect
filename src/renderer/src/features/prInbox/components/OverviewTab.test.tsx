@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { PrThread } from '@common/domain'
+import type { PrThread, PullRequest } from '@common/domain'
 import { usePrInboxStore } from '../store'
 import { OverviewTab } from './OverviewTab'
 
@@ -172,5 +172,86 @@ describe('OverviewTab', () => {
     expect(
       document.querySelector<HTMLButtonElement>('[data-testid="pr-resolved-toggle"]')!.textContent
     ).toContain('1')
+  })
+})
+
+function pullRequest(description: string): PullRequest {
+  return {
+    prId: 1,
+    repositoryId: 'repo-1',
+    repositoryName: 'intersect-app',
+    projectId: 'SPOT',
+    title: 'Add rate limiting',
+    description,
+    authorId: 'u1',
+    authorName: 'Jan Lesak',
+    createdAt: 0,
+    status: 'active',
+    sourceRefName: 'refs/heads/feature/rate-limit',
+    targetRefName: 'refs/heads/main',
+    sourceCommitId: 'a',
+    targetCommitId: 'b',
+    url: 'https://devops/pr/1',
+    role: 'reviewer',
+    myVote: null,
+    myReviewerId: null,
+    reviewers: [],
+    newChangesSinceMyReview: false,
+    activeThreadCount: 0,
+    lastActivityAt: 0
+  }
+}
+
+const seedPr = async (description: string): Promise<void> => {
+  usePrInboxStore.setState({
+    prsByKey: { 'repo-1:1': pullRequest(description) },
+    order: ['repo-1:1'],
+    selectedKey: 'repo-1:1',
+    threads: [],
+    threadsLoaded: true
+  })
+  await act(async () => {
+    render(<OverviewTab />)
+  })
+}
+
+const description = (): HTMLElement | null =>
+  document.querySelector<HTMLElement>('[data-testid="pr-description"]')
+
+describe('OverviewTab description', () => {
+  afterEach(() => {
+    usePrInboxStore.setState({ prsByKey: {}, order: [], selectedKey: null, threads: [] })
+  })
+
+  test('leads with what the author wrote, keeping their line breaks', async () => {
+    await seedPr('Adds a token bucket.\n\n- caps bursts\n- keeps the queue drained')
+
+    // The author's own line breaks reach the DOM intact; that they survive to the screen is the
+    // stylesheet's job, and the end-to-end suite reads the computed style in a real browser.
+    expect(description()!.textContent).toBe(
+      'Adds a token bucket.\n\n- caps bursts\n- keeps the queue drained'
+    )
+  })
+
+  test('an undescribed PR gets no box at all rather than an empty one', async () => {
+    await seedPr('')
+
+    expect(description()).toBeNull()
+  })
+
+  test('a description of nothing but whitespace is treated as none', async () => {
+    await seedPr('   \n\n  ')
+
+    expect(description()).toBeNull()
+  })
+
+  test('markup a colleague wrote reaches the screen as characters, never as elements', async () => {
+    // Descriptions are written by other people on a remote server. They are shown as the text they
+    // are; nothing in them is ever allowed to become part of this page.
+    await seedPr('<img src=x onerror="alert(1)"> **bold** <b>hi</b>')
+
+    expect(description()!.querySelector('img')).toBeNull()
+    expect(description()!.querySelector('b')).toBeNull()
+    expect(description()!.textContent).toBe('<img src=x onerror="alert(1)"> **bold** <b>hi</b>')
   })
 })

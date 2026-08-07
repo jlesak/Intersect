@@ -17,6 +17,7 @@ const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projec
 
 const basePr = {
   ...REPO,
+  description: '',
   status: 'active',
   targetRefName: 'refs/heads/main',
   targetCommitId: 'target-1',
@@ -32,6 +33,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       ...basePr,
       prId: 501,
       title: 'Add rate limiting to the sync pipeline',
+      description: 'Caps the outbound sync at 25 requests a second.\n\n- token bucket per host\n- burst of 5',
       authorId: 'me',
       authorName: 'Jan Lesak',
       createdAt: now - 20 * 60_000,

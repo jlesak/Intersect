@@ -326,6 +326,12 @@ export interface PullRequest {
   repositoryName: string
   projectId: string
   title: string
+  /**
+   * What the author wrote to explain the change, as they typed it. Empty when they wrote nothing.
+   * Azure DevOps stores it as markdown, and Intersect shows it as the text it is - the wording and
+   * the line breaks are the point, the formatting is not.
+   */
+  description: string
   authorId: string
   authorName: string
   createdAt: number

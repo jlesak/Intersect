@@ -35,6 +35,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'spot-backend',
   projectId: 'SPOT',
   title: 'Fix the sync',
+  description: '',
   authorId: 'u1',
   authorName: 'Jan',
   createdAt: NOW - 3_600_000,

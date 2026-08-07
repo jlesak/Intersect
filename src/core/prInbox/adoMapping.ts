@@ -132,6 +132,7 @@ export function mapPullRequest(raw: AdoRawPullRequest, role: PrRole, identity: A
     repositoryName: repo.name ?? '',
     projectId: repo.project?.name ?? repo.project?.id ?? '',
     title: raw.title ?? '',
+    description: raw.description ?? '',
     authorId: raw.createdBy?.id ?? '',
     authorName: raw.createdBy?.displayName ?? '',
     createdAt,

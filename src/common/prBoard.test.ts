@@ -15,6 +15,7 @@ const pr = (over: Partial<PullRequest>): PullRequest => ({
   repositoryName: 'repo',
   projectId: 'p',
   title: 't',
+  description: '',
   authorId: 'a',
   authorName: 'A',
   createdAt: 0,

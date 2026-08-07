@@ -49,6 +49,7 @@ const pr: PullRequest = {
   repositoryName: 'Intersect',
   projectId: 'project-id',
   title: 'Use ordinary Claude Code for reviews',
+  description: '',
   authorId: 'author-id',
   authorName: 'Author',
   createdAt: 1,

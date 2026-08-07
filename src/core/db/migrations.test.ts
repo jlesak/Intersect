@@ -133,6 +133,40 @@ describe('migrations', () => {
     expect(row.c).toBe(0)
   })
 
+  test('pr_cache stores a description, and rows cached before the column read as empty', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the last schema version without a description column.
+    runMigrations(db, 24)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 1)`
+    ).run()
+
+    runMigrations(db)
+
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, description, synced_at)
+       VALUES ('r', 2, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 'Why this exists.', 1)`
+    ).run()
+
+    const legacy = db.prepare('SELECT description AS d FROM pr_cache WHERE pr_id = 1').get() as {
+      d: string
+    }
+    const written = db.prepare('SELECT description AS d FROM pr_cache WHERE pr_id = 2').get() as {
+      d: string
+    }
+    expect(legacy.d).toBe('')
+    expect(written.d).toBe('Why this exists.')
+  })
+
   test('pull requests cached before the activity column are dated by their creation, not by 1970', () => {
     const db = new DatabaseSync(':memory:')
     // A database genuinely at the last schema version without an activity timestamp.

@@ -9,6 +9,7 @@ interface PrRow {
   project_id: string
   repository_name: string
   title: string
+  description: string
   author_id: string
   author_name: string
   created_at: number
@@ -36,6 +37,7 @@ function toPr(row: PrRow): PullRequest {
     repositoryName: row.repository_name,
     projectId: row.project_id,
     title: row.title,
+    description: row.description ?? '',
     authorId: row.author_id,
     authorName: row.author_name,
     createdAt: row.created_at,
@@ -95,11 +97,11 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
         db.exec('DELETE FROM pr_cache')
         const stmt = db.prepare(
           `INSERT INTO pr_cache
-             (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
-              created_at, status, source_ref, target_ref, source_commit, target_commit, url,
-              my_role, my_vote, my_reviewer_id, reviewers_json, active_thread_count,
-              last_activity_at, synced_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+             (repository_id, pr_id, project_id, repository_name, title, description, author_id,
+              author_name, created_at, status, source_ref, target_ref, source_commit,
+              target_commit, url, my_role, my_vote, my_reviewer_id, reviewers_json,
+              active_thread_count, last_activity_at, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         for (const pr of prs) {
           stmt.run(
@@ -108,6 +110,7 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.projectId,
             pr.repositoryName,
             pr.title,
+            pr.description,
             pr.authorId,
             pr.authorName,
             pr.createdAt,

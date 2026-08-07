@@ -19,6 +19,7 @@ const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {})
   repositoryName: repositoryId,
   projectId: 'proj',
   title: `PR ${prId}`,
+  description: '',
   authorId: 'u1',
   authorName: 'Author',
   createdAt: 0,

@@ -1409,6 +1409,21 @@
   gap: 10px;
   padding: 4px 0 10px;
 }
+/* The author's own explanation, shown as the text they typed. Azure DevOps stores it as markdown
+   and nothing here renders markup, so the line breaks they used are the only structure that
+   survives - and losing those would run the whole description into one paragraph. */
+.ix-overview__description {
+  white-space: pre-wrap;
+  max-width: 760px;
+  margin: 6px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
 /* Settled threads stay on the page, dimmed and folded away, rather than being filtered out. The
    dimming is on the threads alone: the toggle is the control that reveals them, so it has to stay
    as legible as anything else on the page. */

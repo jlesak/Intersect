@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PrThread } from '@common/domain'
-import { splitThreadsByResolution, usePrInboxStore } from '../store'
+import { selectSelectedPr, splitThreadsByResolution, usePrInboxStore } from '../store'
 import { CommentComposer } from './CommentComposer'
 import { ThreadCard } from './ThreadCard'
 
@@ -27,6 +27,7 @@ function Thread({ thread }: { thread: PrThread }) {
  * out hiding it can never tell me it changed.
  */
 export function OverviewTab() {
+  const pr = usePrInboxStore(selectSelectedPr)
   const threads = usePrInboxStore(useShallow((s) => s.threads))
   const threadsError = usePrInboxStore((s) => s.threadsError)
   const { unresolved, resolved } = useMemo(() => splitThreadsByResolution(threads), [threads])
@@ -35,6 +36,11 @@ export function OverviewTab() {
 
   return (
     <div className="ix-overview" data-testid="pr-overview">
+      {pr && pr.description.trim() !== '' && (
+        <div className="ix-overview__description" data-testid="pr-description">
+          {pr.description}
+        </div>
+      )}
       <div className="ix-overview__head">
         <span className="ix-eyebrow">Comments</span>
         <button

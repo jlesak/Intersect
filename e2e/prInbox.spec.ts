@@ -114,6 +114,29 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
   await app.close()
 })
 
+test('the conversation leads with the description, laid out as the author typed it', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+
+  const description = win.getByTestId('pr-description')
+  await expect(description).toContainText('Caps the outbound sync at 25 requests a second.')
+  await expect(description).toContainText('token bucket per host')
+  // The stylesheet is what keeps the author's line breaks on the screen, and only a real browser
+  // can say whether it reached this element.
+  expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre-wrap')
+
+  // A PR nobody described gets no box rather than an empty one.
+  await win.keyboard.press('Escape')
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await expect(win.getByTestId('pr-overview')).toBeVisible()
+  await expect(win.getByTestId('pr-description')).toHaveCount(0)
+
+  await app.close()
+})
+
 test('the detail header copies the PR web link to the clipboard', async () => {
   const { app, win } = await launchConnected()
 

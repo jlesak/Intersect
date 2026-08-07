@@ -15,6 +15,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     repositoryName: 'intersect-app',
     projectId: 'SPOT',
     title: 'Add rate limiting',
+    description: '',
     authorId: 'u1',
     authorName: 'Jan Lesak',
     createdAt: 0,
