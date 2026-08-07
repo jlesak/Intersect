@@ -7,8 +7,8 @@ import {
   groupBoardColumns,
   prKey,
   selectDrafts,
-  selectFilteredThreads,
   selectPrList,
+  splitThreadsByResolution,
   usePrInboxStore
 } from './store'
 
@@ -91,8 +91,7 @@ beforeEach(() => {
       reviewPrKey: null,
       reviewOutput: '',
       view: 'board',
-      activeTab: 'files',
-      threadFilter: 'active',
+      activeTab: 'overview',
       pendingReveal: null
     },
     false
@@ -622,27 +621,29 @@ describe('revealThread', () => {
   })
 })
 
-describe('selectFilteredThreads', () => {
-  const seed = (): void =>
-    usePrInboxStore.setState({
-      threads: [
-        thread(1, { status: 'active' }),
-        thread(2, { status: 'fixed' }),
-        thread(3, { status: 'active', isSystem: true })
-      ]
-    })
-
-  test('active filter hides resolved and system threads', () => {
-    seed()
-    usePrInboxStore.setState({ threadFilter: 'active' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1])
+describe('splitThreadsByResolution', () => {
+  test('answers the unresolved threads and the resolved ones, in that order', () => {
+    const split = splitThreadsByResolution([
+      thread(1, { status: 'fixed' }),
+      thread(2, { status: 'active' }),
+      thread(3, { status: 'closed' }),
+      thread(4, { status: 'pending' })
+    ])
+    expect(split.unresolved.map((t) => t.threadId)).toEqual([2, 4])
+    expect(split.resolved.map((t) => t.threadId)).toEqual([1, 3])
   })
 
-  test('all shows everything except system; resolved shows only resolved', () => {
-    seed()
-    usePrInboxStore.setState({ threadFilter: 'all' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1, 2])
-    usePrInboxStore.setState({ threadFilter: 'resolved' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([2])
+  test('the housekeeping Azure DevOps writes on a PR appears in neither half', () => {
+    const split = splitThreadsByResolution([
+      thread(1, { status: 'active', isSystem: true }),
+      thread(2, { status: 'fixed', isSystem: true })
+    ])
+    expect(split.unresolved).toEqual([])
+    expect(split.resolved).toEqual([])
+  })
+
+  test('the relative order of the threads within each half is left alone', () => {
+    const split = splitThreadsByResolution([thread(9), thread(3), thread(7)])
+    expect(split.unresolved.map((t) => t.threadId)).toEqual([9, 3, 7])
   })
 })

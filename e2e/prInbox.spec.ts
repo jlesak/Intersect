@@ -157,23 +157,29 @@ test('collapsing a tree directory hides its files and shows the file count', asy
   await app.close()
 })
 
-test('overview lists threads, hides system messages, and resolve moves a thread out of Active', async () => {
+test('overview lists threads, hides system messages, and resolving folds a thread away', async () => {
   const { app, win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   // PR 501 carries one real active thread plus one system thread (hidden everywhere).
   await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
-  await win.getByTestId('pr-tab-overview').click()
 
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
   await expect(win.getByTestId('pr-overview')).not.toContainText('Policy status has been updated')
+  // Nothing is resolved yet, so there is no settled section to fold.
+  await expect(win.getByTestId('pr-resolved-toggle')).toHaveCount(0)
 
-  // Resolve: the active filter now shows nothing; the resolved filter shows the thread.
   await win.getByTestId('pr-thread-toggle').click()
+
+  // The thread leaves the list it was asking something of, and becomes a counted, dimmed section.
+  const resolved = win.locator('.ix-overview__resolved')
+  await expect(win.getByTestId('pr-resolved-toggle')).toContainText('1')
   await expect(win.getByTestId('pr-thread')).toHaveCount(0)
-  await win.getByTestId('pr-thread-filter').selectOption('resolved')
-  await expect(win.getByTestId('pr-thread')).toHaveCount(1)
+
+  await win.getByTestId('pr-resolved-toggle').click()
+  await expect(resolved.getByTestId('pr-thread')).toHaveCount(1)
+  await expect(resolved.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
 
   await app.close()
 })

@@ -12,7 +12,6 @@ import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
-type ThreadFilter = 'active' | 'all' | 'resolved'
 
 /**
  * How old the board's data may be before an automatic refresh is worth what it costs.
@@ -59,7 +58,6 @@ interface PrInboxState {
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
   activeTab: 'files' | 'overview'
-  threadFilter: ThreadFilter
   /** File + line the Files tab should scroll to (set by Overview's file:line chip). */
   pendingReveal: { path: string; line: number | null } | null
   // The selected PR's loaded detail.
@@ -128,7 +126,6 @@ interface PrInboxState {
   setTab(tab: 'files' | 'overview'): void
   /** Fetch the selected PR's foreign threads once (idempotent). */
   loadThreads(): Promise<void>
-  setThreadFilter(filter: ThreadFilter): void
   /**
    * Publish my own comment immediately; null path/line anchors it to the PR itself. Resolves to
    * true only when ADO accepted the write, so the caller can keep the composer open (preserving
@@ -200,12 +197,22 @@ export function selectActionCount(state: PrInboxState): number {
   return selectPrList(state).filter((pr) => boardColumn(pr) === 'action').length
 }
 
-/** Threads visible under the Overview filter; system threads never show. */
-export function selectFilteredThreads(state: PrInboxState): PrThread[] {
-  const real = state.threads.filter((t) => !t.isSystem)
-  if (state.threadFilter === 'active') return real.filter(isThreadUnresolved)
-  if (state.threadFilter === 'resolved') return real.filter((t) => !isThreadUnresolved(t))
-  return real
+/**
+ * The PR's conversation split into what still asks for a reaction and what is already settled, so
+ * the Overview can lead with the first and keep the second within reach. ADO's own housekeeping
+ * threads (vote changes, policy updates) are in neither: they are not a conversation. A pure
+ * function over the thread list (not a store selector) so components can memoize it - it returns
+ * fresh arrays on every call.
+ */
+export function splitThreadsByResolution(threads: PrThread[]): {
+  unresolved: PrThread[]
+  resolved: PrThread[]
+} {
+  const real = threads.filter((t) => !t.isSystem)
+  return {
+    unresolved: real.filter(isThreadUnresolved),
+    resolved: real.filter((t) => !isThreadUnresolved(t))
+  }
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -246,7 +253,6 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   selectedKey: null,
   view: 'board',
   activeTab: 'overview',
-  threadFilter: 'active',
   pendingReveal: null,
   changes: [],
   changesError: null,
@@ -343,7 +349,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   },
 
   async openDetail(repositoryId, prId) {
-    set({ view: 'detail', activeTab: 'overview', threadFilter: 'active', pendingReveal: null })
+    set({ view: 'detail', activeTab: 'overview', pendingReveal: null })
     await get().select(repositoryId, prId)
     // The threads belong to the whole detail, not to the conversation tab: the diff renders them
     // inline too, so fetching them only when the conversation is opened leaves a reader who went
@@ -387,10 +393,6 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     } catch (e) {
       reportError('Could not load the pull request comments', e)
     }
-  },
-
-  setThreadFilter(threadFilter) {
-    set({ threadFilter })
   },
 
   async addComment(filePath, line, body) {
