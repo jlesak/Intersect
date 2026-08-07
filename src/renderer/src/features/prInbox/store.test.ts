@@ -85,6 +85,7 @@ beforeEach(() => {
       diffLoading: false,
       threads: [],
       threadsLoaded: false,
+      threadsError: null,
       drafts: [],
       commentDrafts: {},
       review: { status: 'idle' },
@@ -248,6 +249,98 @@ describe('prInboxStore', () => {
     usePrInboxStore.getState().setTab('files')
     await Promise.resolve()
     expect(mocked.getThreads).toHaveBeenCalledTimes(1)
+  })
+
+  test('the conversation is not made to wait for the changed files', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    // The changed files come from git, whose fetch can run for minutes; the threads come from Azure
+    // DevOps and depend on none of it, so they must not be queued behind it.
+    let releaseChanges = (): void => {}
+    mocked.getChanges.mockReturnValue(
+      new Promise<PrChangeFile[]>((resolve) => {
+        releaseChanges = () => resolve([])
+      })
+    )
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([thread(10)])
+
+    const opening = usePrInboxStore.getState().openDetail('repo', 1)
+    await vi.waitFor(() =>
+      expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
+    )
+    expect(usePrInboxStore.getState().changes).toEqual([])
+
+    releaseChanges()
+    await opening
+  })
+
+  test('a thread fetch that failed says so and can be retried, rather than reading as no comments', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockRejectedValue(new Error('TF400813: the token has expired'))
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
+    let s = usePrInboxStore.getState()
+    expect(s.threads).toEqual([])
+    expect(s.threadsLoaded).toBe(false)
+    expect(s.threadsError).toMatch(/TF400813/)
+
+    mocked.getThreads.mockResolvedValue([thread(10)])
+    await usePrInboxStore.getState().loadThreads()
+
+    s = usePrInboxStore.getState()
+    expect(s.threads.map((t) => t.threadId)).toEqual([10])
+    expect(s.threadsLoaded).toBe(true)
+    expect(s.threadsError).toBeNull()
+  })
+
+  test('reopening the same PR refetches its threads rather than trusting the last visit', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([thread(10)])
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+    usePrInboxStore.getState().goBack()
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
+    expect(mocked.getThreads).toHaveBeenCalledTimes(2)
+  })
+
+  test('an older thread fetch that lands last does not overwrite the newer one', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)],
+      selectedKey: prKey('repo', 1)
+    })
+    // Leaving and returning to the same PR leaves two fetches in flight under one key, so the key
+    // alone cannot tell them apart - only which was issued later can.
+    const resolvers: Array<(threads: PrThread[]) => void> = []
+    mocked.getThreads.mockImplementation(
+      () => new Promise<PrThread[]>((resolve) => resolvers.push(resolve))
+    )
+
+    const first = usePrInboxStore.getState().loadThreads()
+    usePrInboxStore.setState({ threadsLoaded: false })
+    const second = usePrInboxStore.getState().loadThreads()
+    expect(resolvers).toHaveLength(2)
+
+    resolvers[1]([thread(20)])
+    resolvers[0]([thread(10)])
+    await Promise.all([first, second])
+
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([20])
   })
 
   test('select records a changesError inline when the diff cannot load (e.g. no local clone)', async () => {

@@ -28,6 +28,7 @@ function Thread({ thread }: { thread: PrThread }) {
  */
 export function OverviewTab() {
   const threads = usePrInboxStore(useShallow((s) => s.threads))
+  const threadsError = usePrInboxStore((s) => s.threadsError)
   const { unresolved, resolved } = useMemo(() => splitThreadsByResolution(threads), [threads])
   const [composing, setComposing] = useState(false)
   const [showResolved, setShowResolved] = useState(false)
@@ -55,7 +56,21 @@ export function OverviewTab() {
           onCancel={() => setComposing(false)}
         />
       )}
-      {unresolved.length === 0 && resolved.length === 0 ? (
+      {threadsError ? (
+        <div className="ix-empty">
+          <span className="ix-eyebrow">Comments unavailable</span>
+          <div className="ix-empty__title">Could not read the conversation</div>
+          <p className="ix-faint">{threadsError}</p>
+          <button
+            type="button"
+            className="ix-btn"
+            data-testid="pr-threads-retry"
+            onClick={() => void usePrInboxStore.getState().loadThreads()}
+          >
+            Try again
+          </button>
+        </div>
+      ) : unresolved.length === 0 && resolved.length === 0 ? (
         <div className="ix-empty">
           <span className="ix-eyebrow">No comments</span>
           <div className="ix-empty__title">Nothing here</div>

@@ -42,8 +42,10 @@ const resolvedSection = (): HTMLElement | null =>
  * so only a real root exercises how the tab subscribes to the threads.
  */
 describe('OverviewTab', () => {
+  const loadThreads = usePrInboxStore.getState().loadThreads
+
   afterEach(() => {
-    usePrInboxStore.setState({ threads: [], threadsLoaded: false })
+    usePrInboxStore.setState({ threads: [], threadsLoaded: false, threadsError: null, loadThreads })
   })
 
   test('mounts and settles without a render loop', async () => {
@@ -105,6 +107,44 @@ describe('OverviewTab', () => {
 
     expect(document.querySelector('[data-testid="pr-resolved-toggle"]')).toBeNull()
     expect(document.querySelector('.ix-empty__title')).not.toBeNull()
+  })
+
+  test('a conversation that could not be read is never reported as no conversation', async () => {
+    // An expired token or a dropped VPN must not have the app assert that a colleague's review does
+    // not exist.
+    usePrInboxStore.setState({
+      threads: [],
+      threadsLoaded: false,
+      threadsError: 'TF400813: the token has expired'
+    })
+
+    await act(async () => {
+      render(<OverviewTab />)
+    })
+
+    expect(document.body.textContent).not.toContain('Nobody has commented')
+    expect(document.body.textContent).toContain('TF400813')
+  })
+
+  test('the failed conversation offers a retry that fetches again', async () => {
+    const retried = vi.fn(async () => {})
+    usePrInboxStore.setState({
+      threads: [],
+      threadsLoaded: false,
+      threadsError: 'offline',
+      loadThreads: retried
+    })
+
+    await act(async () => {
+      render(<OverviewTab />)
+    })
+    await act(async () => {
+      fireEvent.click(document.querySelector<HTMLButtonElement>('[data-testid="pr-threads-retry"]')!)
+    })
+
+    // Nothing else recovers this: the tabs are pure setters, so without the retry the failure is
+    // final for as long as the PR stays open.
+    expect(retried).toHaveBeenCalledOnce()
   })
 
   test('a PR whose every thread is resolved says so instead of claiming nothing was said', async () => {

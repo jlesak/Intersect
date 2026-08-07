@@ -76,8 +76,18 @@ interface PrInboxState {
   fileDiff: FileDiff | null
   diffLoading: boolean
   threads: PrThread[]
-  /** Whether the selected PR's foreign threads have been fetched, so no open refetches them. */
+  /**
+   * Whether the selected PR's foreign threads are in hand. Reset by every selection, so opening a
+   * PR always reads its conversation afresh; within one selection it keeps a second reader of the
+   * same threads from fetching them again.
+   */
   threadsLoaded: boolean
+  /**
+   * Why the selected PR's conversation could not be read, or null. Held apart from an empty thread
+   * list because the two mean opposite things: a PR nobody has commented on and a PR whose comments
+   * we failed to fetch look identical otherwise, and the second must never be reported as the first.
+   */
+  threadsError: string | null
   drafts: DraftComment[]
   /**
    * In-progress inline reply/composer text keyed by a stable id (`reply:${threadId}` or
@@ -134,7 +144,10 @@ interface PrInboxState {
   /** Put the selected PR's web link on the clipboard, to paste into a chat or a work item. */
   copyLink(): Promise<void>
   setTab(tab: 'files' | 'overview'): void
-  /** Fetch the selected PR's foreign threads once (idempotent). */
+  /**
+   * Fetch the selected PR's foreign threads, unless this selection already has them. Also the retry
+   * offered after a failed fetch, since a failure leaves them unheld.
+   */
   loadThreads(): Promise<void>
   /**
    * Publish my own comment immediately; null path/line anchors it to the PR itself. Resolves to
@@ -260,346 +273,364 @@ const indexPrs = (prs: PullRequest[]): { prsByKey: Record<string, PullRequest>; 
   return { prsByKey, order }
 }
 
-export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
-  status: 'idle',
-  error: null,
-  syncing: false,
-  prsByKey: {},
-  order: [],
-  syncedAt: null,
-  syncError: null,
-  adoConnected: false,
-  adoOrgUrl: '',
-  selectedKey: null,
-  view: 'board',
-  activeTab: 'overview',
-  pendingReveal: null,
-  changes: [],
-  changesError: null,
-  activeFilePath: null,
-  fileDiff: null,
-  diffLoading: false,
-  threads: [],
-  threadsLoaded: false,
-  drafts: [],
-  commentDrafts: {},
-  review: { status: 'idle' },
-  reviewView: 'terminal',
-  reviewPrKey: null,
-  reviewOutput: '',
+export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
+  // Answers can land out of order, and the selected PR is not enough to tell them apart: leaving a
+  // PR and reopening it issues a second fetch under the very same key. Only the latest may land.
+  let threadsSeq = 0
 
-  async hydrate() {
-    set({ status: 'loading', error: null })
-    // Both reads start together, since neither waits on the other.
-    const stamp = readSyncedAt(set)
-    let board: Partial<PrInboxState>
-    try {
-      board = { status: 'ready', ...indexPrs(await api.list()) }
-    } catch (e) {
-      board = { status: 'error', error: message(e) }
-    }
-    // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
-    // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
-    // board that has never synced at all, however fresh the cache actually is.
-    await stamp
-    set(board)
-  },
+  return {
+    status: 'idle',
+    error: null,
+    syncing: false,
+    prsByKey: {},
+    order: [],
+    syncedAt: null,
+    syncError: null,
+    adoConnected: false,
+    adoOrgUrl: '',
+    selectedKey: null,
+    view: 'board',
+    activeTab: 'overview',
+    pendingReveal: null,
+    changes: [],
+    changesError: null,
+    activeFilePath: null,
+    fileDiff: null,
+    diffLoading: false,
+    threads: [],
+    threadsLoaded: false,
+    threadsError: null,
+    drafts: [],
+    commentDrafts: {},
+    review: { status: 'idle' },
+    reviewView: 'terminal',
+    reviewPrKey: null,
+    reviewOutput: '',
 
-  async sync(opts) {
-    set({ syncing: true })
-    try {
-      const prs = await api.sync()
-      set({ status: 'ready', syncError: null, ...indexPrs(prs) })
-      await readSyncedAt(set)
-    } catch (e) {
-      // The cached board is left as it is: a refresh that failed still leaves data worth acting on.
-      set({ syncError: message(e) })
-      if (opts?.quiet) console.warn('Background PR sync failed', e)
-      else reportError('Could not sync pull requests', e)
-    } finally {
-      set({ syncing: false })
-    }
-  },
-
-  async syncIfStale() {
-    const { adoConnected, syncing, syncedAt } = get()
-    if (!adoConnected) return
-    if (syncing) return
-    if (syncedAt !== null && Date.now() - syncedAt < STALE_AFTER_MS) return
-
-    await get().sync({ quiet: true })
-  },
-
-  setAdoConnected(connected) {
-    set({ adoConnected: connected })
-  },
-
-  setAdoOrgUrl(orgUrl) {
-    set({ adoOrgUrl: orgUrl })
-  },
-
-  async select(repositoryId, prId) {
-    const key = prKey(repositoryId, prId)
-    set({
-      selectedKey: key,
-      changes: [],
-      changesError: null,
-      activeFilePath: null,
-      fileDiff: null,
-      diffLoading: false,
-      threads: [],
-      threadsLoaded: false,
-      drafts: [],
-      commentDrafts: {}
-    })
-    // The changed files and the drafts are all this needs; the threads are the caller's to fetch.
-    const [changesR, draftsR] = await Promise.allSettled([
-      api.getChanges(repositoryId, prId),
-      api.listDrafts(repositoryId, prId)
-    ])
-    // Ignore a stale response if the selection changed while awaiting; also suppress the error toast
-    // for a PR the user has already left.
-    if (get().selectedKey !== key) return
-    const next: Partial<PrInboxState> = {}
-    if (changesR.status === 'fulfilled') next.changes = changesR.value
-    else next.changesError = message(changesR.reason)
-    if (draftsR.status === 'fulfilled') next.drafts = draftsR.value
-    set(next)
-    // A missing local clone surfaces inline in the Files view (changesError); only a drafts failure
-    // needs the toast here.
-    if (draftsR.status === 'rejected') {
-      reportError('Could not load the pull request', draftsR.reason)
-    }
-  },
-
-  async openDetail(repositoryId, prId) {
-    set({ view: 'detail', activeTab: 'overview', pendingReveal: null })
-    await get().select(repositoryId, prId)
-    // The threads belong to the whole detail, not to the conversation tab: the diff renders them
-    // inline too, so fetching them only when the conversation is opened leaves a reader who went
-    // straight to the code looking at a diff that claims nobody has commented on it.
-    await get().loadThreads()
-  },
-
-  goBack() {
-    set({ view: 'board', selectedKey: null, pendingReveal: null })
-  },
-
-  openInBrowser() {
-    const url = selectPrWebUrl(get())
-    if (!url) return
-    api.openExternal(url).catch((e) => reportError('Could not open the pull request', e))
-  },
-
-  async copyLink() {
-    const url = selectPrWebUrl(get())
-    if (!url) return
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch (e) {
-      reportError('Could not copy the pull request link', e)
-    }
-  },
-
-  setTab(tab) {
-    set({ activeTab: tab })
-  },
-
-  async loadThreads() {
-    const pr = selectSelectedPr(get())
-    if (!pr || get().threadsLoaded) return
-    const key = get().selectedKey
-    try {
-      const threads = await api.getThreads(pr.repositoryId, pr.prId)
-      // Drop a stale response if the user switched PRs while awaiting.
-      if (get().selectedKey !== key) return
-      set({ threads, threadsLoaded: true })
-    } catch (e) {
-      reportError('Could not load the pull request comments', e)
-    }
-  },
-
-  async addComment(filePath, line, body) {
-    const pr = selectSelectedPr(get())
-    if (!pr) return false
-    try {
-      const threads = await api.addComment({
-        repositoryId: pr.repositoryId,
-        prId: pr.prId,
-        filePath,
-        line,
-        body
-      })
-      set({ threads })
-      return true
-    } catch (e) {
-      reportError('Could not publish the comment to Azure DevOps', e)
-      return false
-    }
-  },
-
-  async replyToThread(threadId, body) {
-    const pr = selectSelectedPr(get())
-    if (!pr) return false
-    try {
-      const threads = await api.replyToThread(pr.repositoryId, pr.prId, threadId, body)
-      set({ threads })
-      return true
-    } catch (e) {
-      reportError('Could not publish the reply to Azure DevOps', e)
-      return false
-    }
-  },
-
-  async setThreadStatus(threadId, status) {
-    const pr = selectSelectedPr(get())
-    if (!pr) return false
-    try {
-      const threads = await api.setThreadStatus(pr.repositoryId, pr.prId, threadId, status)
-      set({ threads })
-      return true
-    } catch (e) {
-      reportError('Could not update the thread status', e)
-      return false
-    }
-  },
-
-  setCommentDraft(key, text) {
-    set((s) => {
-      if (!text) {
-        if (!(key in s.commentDrafts)) return s
-        const next = { ...s.commentDrafts }
-        delete next[key]
-        return { commentDrafts: next }
+    async hydrate() {
+      set({ status: 'loading', error: null })
+      // Both reads start together, since neither waits on the other.
+      const stamp = readSyncedAt(set)
+      let board: Partial<PrInboxState>
+      try {
+        board = { status: 'ready', ...indexPrs(await api.list()) }
+      } catch (e) {
+        board = { status: 'error', error: message(e) }
       }
-      return { commentDrafts: { ...s.commentDrafts, [key]: text } }
-    })
-  },
+      // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
+      // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
+      // board that has never synced at all, however fresh the cache actually is.
+      await stamp
+      set(board)
+    },
 
-  revealThread(path, line) {
-    set({ activeTab: 'files', pendingReveal: { path, line } })
-    void get().openFile(path)
-  },
+    async sync(opts) {
+      set({ syncing: true })
+      try {
+        const prs = await api.sync()
+        set({ status: 'ready', syncError: null, ...indexPrs(prs) })
+        await readSyncedAt(set)
+      } catch (e) {
+        // The cached board is left as it is: a refresh that failed still leaves data worth acting on.
+        set({ syncError: message(e) })
+        if (opts?.quiet) console.warn('Background PR sync failed', e)
+        else reportError('Could not sync pull requests', e)
+      } finally {
+        set({ syncing: false })
+      }
+    },
 
-  clearReveal() {
-    set({ pendingReveal: null })
-  },
+    async syncIfStale() {
+      const { adoConnected, syncing, syncedAt } = get()
+      if (!adoConnected) return
+      if (syncing) return
+      if (syncedAt !== null && Date.now() - syncedAt < STALE_AFTER_MS) return
 
-  async openFile(path) {
-    const pr = selectSelectedPr(get())
-    if (!pr) return
-    const key = get().selectedKey
-    set({ activeFilePath: path, fileDiff: null, diffLoading: true })
-    try {
-      const fileDiff = await api.getFileDiff(pr.repositoryId, pr.prId, path)
-      // Drop the response if the user switched PRs or files while awaiting.
-      if (get().selectedKey !== key || get().activeFilePath !== path) return
-      set({ fileDiff, diffLoading: false })
-    } catch (e) {
-      set({ diffLoading: false })
-      reportError('Could not load the file diff', e)
-    }
-  },
+      await get().sync({ quiet: true })
+    },
 
-  async editDraft(id, body) {
-    try {
-      const draft = await api.editDraft(id, body)
-      set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
-    } catch (e) {
-      reportError('Could not edit the comment', e)
-    }
-  },
+    setAdoConnected(connected) {
+      set({ adoConnected: connected })
+    },
 
-  async discardDraft(id) {
-    try {
-      await api.discardDraft(id)
-      set((s) => ({ drafts: s.drafts.filter((d) => d.id !== id) }))
-    } catch (e) {
-      reportError('Could not discard the comment', e)
-    }
-  },
+    setAdoOrgUrl(orgUrl) {
+      set({ adoOrgUrl: orgUrl })
+    },
 
-  async publishDraft(id) {
-    try {
-      const draft = await api.publishDraft(id)
-      set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
-    } catch (e) {
-      reportError('Could not publish the comment to Azure DevOps', e)
-    }
-  },
-
-  async castVote(vote) {
-    const pr = selectSelectedPr(get())
-    if (!pr) return
-    try {
-      const updated = await api.castVote(pr.repositoryId, pr.prId, vote)
-      set((s) => ({
-        prsByKey: { ...s.prsByKey, [prKey(updated.repositoryId, updated.prId)]: updated }
-      }))
-    } catch (e) {
-      reportError('Could not cast vote', e)
-    }
-  },
-
-  async startReview() {
-    const pr = selectSelectedPr(get())
-    if (!pr) return
-    try {
-      await api.startReview(pr.repositoryId, pr.prId)
-      // Start the buffer clean so the new session's output is not appended to a prior one's, and
-      // open on the terminal; the drafts view is one toggle away.
+    async select(repositoryId, prId) {
+      const key = prKey(repositoryId, prId)
       set({
-        review: { status: 'running' },
-        reviewPrKey: prKey(pr.repositoryId, pr.prId),
-        reviewView: 'terminal',
-        reviewOutput: ''
+        selectedKey: key,
+        changes: [],
+        changesError: null,
+        activeFilePath: null,
+        fileDiff: null,
+        diffLoading: false,
+        threads: [],
+        threadsLoaded: false,
+        threadsError: null,
+        drafts: [],
+        commentDrafts: {}
       })
-    } catch (e) {
-      reportError('Could not start the review session', e)
-    }
-  },
+      // The changed files and the drafts are all this needs; the threads are the caller's to fetch.
+      const [changesR, draftsR] = await Promise.allSettled([
+        api.getChanges(repositoryId, prId),
+        api.listDrafts(repositoryId, prId)
+      ])
+      // Ignore a stale response if the selection changed while awaiting; also suppress the error toast
+      // for a PR the user has already left.
+      if (get().selectedKey !== key) return
+      const next: Partial<PrInboxState> = {}
+      if (changesR.status === 'fulfilled') next.changes = changesR.value
+      else next.changesError = message(changesR.reason)
+      if (draftsR.status === 'fulfilled') next.drafts = draftsR.value
+      set(next)
+      // A missing local clone surfaces inline in the Files view (changesError); only a drafts failure
+      // needs the toast here.
+      if (draftsR.status === 'rejected') {
+        reportError('Could not load the pull request', draftsR.reason)
+      }
+    },
 
-  async endReview() {
-    try {
-      await api.endReview()
-    } catch (e) {
-      reportError('Could not end the review session', e)
-    } finally {
-      set({ review: { status: 'idle' }, reviewPrKey: null, reviewView: 'terminal', reviewOutput: '' })
-    }
-  },
+    async openDetail(repositoryId, prId) {
+      set({ view: 'detail', activeTab: 'overview', pendingReveal: null })
+      // The threads belong to the whole detail, not to the conversation tab: the diff renders them
+      // inline too, so fetching them only when the conversation is opened leaves a reader who went
+      // straight to the code looking at a diff that claims nobody has commented on it.
+      //
+      // They are read alongside the selection rather than after it. The changed files come from
+      // git, whose fetch can run for minutes on a cold clone, and the conversation depends on none
+      // of it - waiting would leave the tab the PR opens on empty for all of that. `select` claims
+      // the selection synchronously before its first await, so the fetch started beside it already
+      // knows which PR it is reading.
+      await Promise.all([get().select(repositoryId, prId), get().loadThreads()])
+    },
 
-  setReviewView(view) {
-    set({ reviewView: view })
-  },
+    goBack() {
+      set({ view: 'board', selectedKey: null, pendingReveal: null })
+    },
 
-  reviewInput(data) {
-    api.reviewInput(data)
-  },
+    openInBrowser() {
+      const url = selectPrWebUrl(get())
+      if (!url) return
+      api.openExternal(url).catch((e) => reportError('Could not open the pull request', e))
+    },
 
-  reviewResize(cols, rows) {
-    api.reviewResize(cols, rows)
-  },
+    async copyLink() {
+      const url = selectPrWebUrl(get())
+      if (!url) return
+      try {
+        await navigator.clipboard.writeText(url)
+      } catch (e) {
+        reportError('Could not copy the pull request link', e)
+      }
+    },
 
-  subscribe() {
-    // A draft recorded by the live review session (or manually) is pushed from main; merge it into
-    // the selected PR's drafts so it appears without a manual refresh.
-    const offDraft = api.onDraftAdded((draft) => {
+    setTab(tab) {
+      set({ activeTab: tab })
+    },
+
+    async loadThreads() {
       const pr = selectSelectedPr(get())
-      if (!pr || pr.repositoryId !== draft.repositoryId || pr.prId !== draft.prId) return
-      set((s) => ({ drafts: upsertDraft(s.drafts, draft) }))
-    })
-    // Buffer review PTY output here (subscribe runs once at module scope, before any review is
-    // started) so nothing emitted before the terminal mounts - including the initial banner - is lost.
-    const offData = api.onReviewData((data) => set((s) => ({ reviewOutput: s.reviewOutput + data })))
-    const offExit = api.onReviewExit(() => set({ review: { status: 'idle' }, reviewPrKey: null }))
-    return () => {
-      offDraft()
-      offData()
-      offExit()
+      if (!pr || get().threadsLoaded) return
+      // Leaving a PR and returning to it puts two fetches in flight under the same selection key, so
+      // the key cannot tell them apart; only the sequence says which was asked for last.
+      const seq = ++threadsSeq
+      set({ threadsError: null })
+      try {
+        const threads = await api.getThreads(pr.repositoryId, pr.prId)
+        if (seq !== threadsSeq) return
+        set({ threads, threadsLoaded: true, threadsError: null })
+      } catch (e) {
+        if (seq !== threadsSeq) return
+        // Surfaced inline where the conversation would be, not as a toast: an empty list and a list
+        // that could not be read must not look the same, and the reader needs the retry.
+        set({ threadsError: message(e) })
+      }
+    },
+
+    async addComment(filePath, line, body) {
+      const pr = selectSelectedPr(get())
+      if (!pr) return false
+      try {
+        const threads = await api.addComment({
+          repositoryId: pr.repositoryId,
+          prId: pr.prId,
+          filePath,
+          line,
+          body
+        })
+        set({ threads })
+        return true
+      } catch (e) {
+        reportError('Could not publish the comment to Azure DevOps', e)
+        return false
+      }
+    },
+
+    async replyToThread(threadId, body) {
+      const pr = selectSelectedPr(get())
+      if (!pr) return false
+      try {
+        const threads = await api.replyToThread(pr.repositoryId, pr.prId, threadId, body)
+        set({ threads })
+        return true
+      } catch (e) {
+        reportError('Could not publish the reply to Azure DevOps', e)
+        return false
+      }
+    },
+
+    async setThreadStatus(threadId, status) {
+      const pr = selectSelectedPr(get())
+      if (!pr) return false
+      try {
+        const threads = await api.setThreadStatus(pr.repositoryId, pr.prId, threadId, status)
+        set({ threads })
+        return true
+      } catch (e) {
+        reportError('Could not update the thread status', e)
+        return false
+      }
+    },
+
+    setCommentDraft(key, text) {
+      set((s) => {
+        if (!text) {
+          if (!(key in s.commentDrafts)) return s
+          const next = { ...s.commentDrafts }
+          delete next[key]
+          return { commentDrafts: next }
+        }
+        return { commentDrafts: { ...s.commentDrafts, [key]: text } }
+      })
+    },
+
+    revealThread(path, line) {
+      set({ activeTab: 'files', pendingReveal: { path, line } })
+      void get().openFile(path)
+    },
+
+    clearReveal() {
+      set({ pendingReveal: null })
+    },
+
+    async openFile(path) {
+      const pr = selectSelectedPr(get())
+      if (!pr) return
+      const key = get().selectedKey
+      set({ activeFilePath: path, fileDiff: null, diffLoading: true })
+      try {
+        const fileDiff = await api.getFileDiff(pr.repositoryId, pr.prId, path)
+        // Drop the response if the user switched PRs or files while awaiting.
+        if (get().selectedKey !== key || get().activeFilePath !== path) return
+        set({ fileDiff, diffLoading: false })
+      } catch (e) {
+        set({ diffLoading: false })
+        reportError('Could not load the file diff', e)
+      }
+    },
+
+    async editDraft(id, body) {
+      try {
+        const draft = await api.editDraft(id, body)
+        set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
+      } catch (e) {
+        reportError('Could not edit the comment', e)
+      }
+    },
+
+    async discardDraft(id) {
+      try {
+        await api.discardDraft(id)
+        set((s) => ({ drafts: s.drafts.filter((d) => d.id !== id) }))
+      } catch (e) {
+        reportError('Could not discard the comment', e)
+      }
+    },
+
+    async publishDraft(id) {
+      try {
+        const draft = await api.publishDraft(id)
+        set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
+      } catch (e) {
+        reportError('Could not publish the comment to Azure DevOps', e)
+      }
+    },
+
+    async castVote(vote) {
+      const pr = selectSelectedPr(get())
+      if (!pr) return
+      try {
+        const updated = await api.castVote(pr.repositoryId, pr.prId, vote)
+        set((s) => ({
+          prsByKey: { ...s.prsByKey, [prKey(updated.repositoryId, updated.prId)]: updated }
+        }))
+      } catch (e) {
+        reportError('Could not cast vote', e)
+      }
+    },
+
+    async startReview() {
+      const pr = selectSelectedPr(get())
+      if (!pr) return
+      try {
+        await api.startReview(pr.repositoryId, pr.prId)
+        // Start the buffer clean so the new session's output is not appended to a prior one's, and
+        // open on the terminal; the drafts view is one toggle away.
+        set({
+          review: { status: 'running' },
+          reviewPrKey: prKey(pr.repositoryId, pr.prId),
+          reviewView: 'terminal',
+          reviewOutput: ''
+        })
+      } catch (e) {
+        reportError('Could not start the review session', e)
+      }
+    },
+
+    async endReview() {
+      try {
+        await api.endReview()
+      } catch (e) {
+        reportError('Could not end the review session', e)
+      } finally {
+        set({ review: { status: 'idle' }, reviewPrKey: null, reviewView: 'terminal', reviewOutput: '' })
+      }
+    },
+
+    setReviewView(view) {
+      set({ reviewView: view })
+    },
+
+    reviewInput(data) {
+      api.reviewInput(data)
+    },
+
+    reviewResize(cols, rows) {
+      api.reviewResize(cols, rows)
+    },
+
+    subscribe() {
+      // A draft recorded by the live review session (or manually) is pushed from main; merge it into
+      // the selected PR's drafts so it appears without a manual refresh.
+      const offDraft = api.onDraftAdded((draft) => {
+        const pr = selectSelectedPr(get())
+        if (!pr || pr.repositoryId !== draft.repositoryId || pr.prId !== draft.prId) return
+        set((s) => ({ drafts: upsertDraft(s.drafts, draft) }))
+      })
+      // Buffer review PTY output here (subscribe runs once at module scope, before any review is
+      // started) so nothing emitted before the terminal mounts - including the initial banner - is lost.
+      const offData = api.onReviewData((data) => set((s) => ({ reviewOutput: s.reviewOutput + data })))
+      const offExit = api.onReviewExit(() => set({ review: { status: 'idle' }, reviewPrKey: null }))
+      return () => {
+        offDraft()
+        offData()
+        offExit()
+      }
     }
   }
-}))
+})
 
 /** Insert the draft, or replace the existing row with the same id. */
 function upsertDraft(drafts: DraftComment[], draft: DraftComment): DraftComment[] {
