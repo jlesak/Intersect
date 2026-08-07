@@ -14,11 +14,25 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([JIRA_HOST, 'notion.so', 'www.notion.so',
  */
 const ALLOWED_EXTERNAL_HOST_SUFFIXES = ['.notion.so', '.slack.com']
 
+/** The host part of an organisation URL, or null when it is blank or not a URL at all. */
+function hostOf(orgUrl: string): string | null {
+  try {
+    return new URL(orgUrl.trim()).hostname
+  } catch {
+    return null
+  }
+}
+
 /**
  * Whether a URL may be opened in the system browser: https only, host allowlisted. Everything
  * else is rejected so this channel can never be used to launch arbitrary URLs or local schemes.
+ *
+ * `adoOrgUrl` is the Azure DevOps organisation the user has configured, and its host joins the
+ * allowlist for as long as it stays configured. Azure DevOps is self-hosted here, so there is no
+ * fixed host to list - and a wildcard would leave nothing of the allowlist. An empty or unparseable
+ * organisation admits nothing.
  */
-export function isAllowedExternalUrl(url: string): boolean {
+export function isAllowedExternalUrl(url: string, adoOrgUrl: string): boolean {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -28,7 +42,8 @@ export function isAllowedExternalUrl(url: string): boolean {
   if (parsed.protocol !== 'https:') return false
   return (
     ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname) ||
-    ALLOWED_EXTERNAL_HOST_SUFFIXES.some((suffix) => parsed.hostname.endsWith(suffix))
+    ALLOWED_EXTERNAL_HOST_SUFFIXES.some((suffix) => parsed.hostname.endsWith(suffix)) ||
+    parsed.hostname === hostOf(adoOrgUrl)
   )
 }
 
@@ -78,6 +93,11 @@ export interface SystemHandlerDeps {
   retryCore: () => void
   /** Quit through the coordinated shutdown path (app.quit); injected for tests. */
   quitApp: () => void
+  /**
+   * The Azure DevOps organisation URL the user has configured, empty when there is none. Asked per
+   * call rather than captured, so the allowlist tracks the server the app is currently pointed at.
+   */
+  adoOrgUrl: () => Promise<string>
 }
 
 /**
@@ -103,7 +123,10 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
   return {
     openExternal: (url) =>
       surface(async () => {
-        if (!isAllowedExternalUrl(url)) throw new Error(`Blocked external URL: ${url}`)
+        // A configuration that cannot be read names no organisation, so the link fails closed
+        // rather than being waved through on a guess.
+        const adoOrgUrl = await deps.adoOrgUrl().catch(() => '')
+        if (!isAllowedExternalUrl(url, adoOrgUrl)) throw new Error(`Blocked external URL: ${url}`)
         await deps.openExternal(url)
       }),
     revealPath: (path) =>

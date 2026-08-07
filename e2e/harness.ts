@@ -179,6 +179,25 @@ export async function stubFolderPick(app: ElectronApplication, dir: string): Pro
 }
 
 /**
+ * Replace the system-browser launch with a recorder, and answer with what it has been handed.
+ *
+ * Opening a real browser mid-suite is both disruptive and unassertable, and the URL is the whole
+ * point of a link: it travels the renderer, the preload bridge, the IPC allowlist and Electron's
+ * shell, and only the far end proves the address a user would actually land on.
+ */
+export async function stubOpenExternal(app: ElectronApplication): Promise<() => Promise<string[]>> {
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = []
+    ;(globalThis as unknown as { __openedExternal: string[] }).__openedExternal = opened
+    ;(shell as unknown as { openExternal: unknown }).openExternal = async (url: string) => {
+      opened.push(url)
+    }
+  })
+  return () =>
+    app.evaluate(() => (globalThis as unknown as { __openedExternal: string[] }).__openedExternal)
+}
+
+/**
  * Answer the quit confirmation with "Suspend & Quit".
  *
  * Quitting with a live Claude session prompts, and an automated run has nobody to answer it.

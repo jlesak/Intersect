@@ -7,8 +7,9 @@ import {
   groupBoardColumns,
   prKey,
   selectDrafts,
-  selectFilteredThreads,
   selectPrList,
+  selectSelectedPr,
+  splitThreadsByResolution,
   usePrInboxStore
 } from './store'
 
@@ -84,6 +85,7 @@ beforeEach(() => {
       diffLoading: false,
       threads: [],
       threadsLoaded: false,
+      threadsError: null,
       drafts: [],
       commentDrafts: {},
       review: { status: 'idle' },
@@ -91,8 +93,7 @@ beforeEach(() => {
       reviewPrKey: null,
       reviewOutput: '',
       view: 'board',
-      activeTab: 'files',
-      threadFilter: 'active',
+      activeTab: 'overview',
       pendingReveal: null
     },
     false
@@ -214,7 +215,7 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().syncError).toBeNull()
   })
 
-  test('select loads changes and drafts but defers threads (lazy)', async () => {
+  test('select loads changes and drafts; fetching threads is openDetail\'s job', async () => {
     usePrInboxStore.setState({ prsByKey: { [prKey('repo', 1)]: pr('repo', 1) }, order: [prKey('repo', 1)] })
     mocked.getChanges.mockResolvedValue([change('a.ts')])
     mocked.listDrafts.mockResolvedValue([draft('d1')])
@@ -225,28 +226,130 @@ describe('prInboxStore', () => {
     expect(selectDrafts(s).map((d) => d.id)).toEqual(['d1'])
     expect(s.threads).toEqual([])
     expect(s.threadsLoaded).toBe(false)
-    // Opening the PR must not pay for the foreign-comment fetch.
+    // Selecting on its own stays cheap; the detail decides when the foreign comments are worth
+    // fetching.
     expect(mocked.getThreads).not.toHaveBeenCalled()
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
   })
 
-  test('threads load lazily on first Overview open, and are not refetched', async () => {
+  test('opening a PR fetches its threads, and switching tabs does not refetch them', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([thread(10)])
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
+    expect(usePrInboxStore.getState().threadsLoaded).toBe(true)
+    usePrInboxStore.getState().setTab('overview')
+    usePrInboxStore.getState().setTab('files')
+    await Promise.resolve()
+    expect(mocked.getThreads).toHaveBeenCalledTimes(1)
+  })
+
+  test('the conversation is not made to wait for the changed files', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    // The changed files come from git, whose fetch can run for minutes; the threads come from Azure
+    // DevOps and depend on none of it, so they must not be queued behind it.
+    let releaseChanges = (): void => {}
+    mocked.getChanges.mockReturnValue(
+      new Promise<PrChangeFile[]>((resolve) => {
+        releaseChanges = () => resolve([])
+      })
+    )
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([thread(10)])
+
+    const opening = usePrInboxStore.getState().openDetail('repo', 1)
+    await vi.waitFor(() =>
+      expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
+    )
+    expect(usePrInboxStore.getState().changes).toEqual([])
+
+    releaseChanges()
+    await opening
+  })
+
+  test('a thread fetch that failed says so and can be retried, rather than reading as no comments', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockRejectedValue(new Error('TF400813: the token has expired'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
+    let s = usePrInboxStore.getState()
+    expect(s.threads).toEqual([])
+    expect(s.threadsLoaded).toBe(false)
+    expect(s.threadsError).toMatch(/TF400813/)
+    // The threads render on the diff as well as in the conversation, and the diff has nowhere to
+    // put the inline state - so the failure is toasted too, for a reader who is on the other tab.
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('Could not load the pull request comments')
+    )
+
+    mocked.getThreads.mockResolvedValue([thread(10)])
+    await usePrInboxStore.getState().loadThreads()
+
+    s = usePrInboxStore.getState()
+    expect(s.threads.map((t) => t.threadId)).toEqual([10])
+    expect(s.threadsLoaded).toBe(true)
+    expect(s.threadsError).toBeNull()
+    // A retry that worked says nothing further.
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+  })
+
+  test('reopening the same PR refetches its threads rather than trusting the last visit', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)]
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    mocked.getThreads.mockResolvedValue([thread(10)])
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+    usePrInboxStore.getState().goBack()
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
+    expect(mocked.getThreads).toHaveBeenCalledTimes(2)
+  })
+
+  test('an older thread fetch that lands last does not overwrite the newer one', async () => {
     usePrInboxStore.setState({
       prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
       order: [prKey('repo', 1)],
       selectedKey: prKey('repo', 1)
     })
-    mocked.getThreads.mockResolvedValue([thread(10)])
-    usePrInboxStore.getState().setTab('overview')
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
-    expect(usePrInboxStore.getState().threadsLoaded).toBe(true)
-    // Switch away and back: no second fetch.
-    usePrInboxStore.getState().setTab('files')
-    usePrInboxStore.getState().setTab('overview')
-    await Promise.resolve()
-    expect(mocked.getThreads).toHaveBeenCalledTimes(1)
+    // Leaving and returning to the same PR leaves two fetches in flight under one key, so the key
+    // alone cannot tell them apart - only which was issued later can.
+    const resolvers: Array<(threads: PrThread[]) => void> = []
+    mocked.getThreads.mockImplementation(
+      () => new Promise<PrThread[]>((resolve) => resolvers.push(resolve))
+    )
+
+    const first = usePrInboxStore.getState().loadThreads()
+    usePrInboxStore.setState({ threadsLoaded: false })
+    const second = usePrInboxStore.getState().loadThreads()
+    expect(resolvers).toHaveLength(2)
+
+    resolvers[1]([thread(20)])
+    resolvers[0]([thread(10)])
+    await Promise.all([first, second])
+
+    expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([20])
   })
 
   test('select records a changesError inline when the diff cannot load (e.g. no local clone)', async () => {
@@ -385,14 +488,14 @@ describe('syncIfStale', () => {
 })
 
 describe('board navigation', () => {
-  test('openDetail loads the PR and switches view; goBack returns to board', async () => {
+  test('openDetail loads the PR and lands on Overview; goBack returns to board', async () => {
     mocked.getChanges.mockResolvedValue([])
     mocked.listDrafts.mockResolvedValue([])
     mocked.getThreads.mockResolvedValue([])
     usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1) }, order: ['r:1'] })
     await usePrInboxStore.getState().openDetail('r', 1)
     expect(usePrInboxStore.getState().view).toBe('detail')
-    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().activeTab).toBe('overview')
     expect(usePrInboxStore.getState().selectedKey).toBe('r:1')
     usePrInboxStore.getState().goBack()
     expect(usePrInboxStore.getState().view).toBe('board')
@@ -554,6 +657,61 @@ describe('thread actions', () => {
   })
 })
 
+describe('header links to Azure DevOps', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+  const WEB_URL = 'https://devops.example.com/tfs/DefaultCollection/proj/_git/repo/pullrequest/1'
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': pr('r', 1, { projectId: 'proj', repositoryName: 'repo' }) },
+      order: ['r:1'],
+      selectedKey: 'r:1',
+      adoOrgUrl: 'https://devops.example.com/tfs/DefaultCollection'
+    })
+  })
+
+  test('the link handed out is the browsable page, not the REST resource the payload carried', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    // The PR's own `url` is the "used internally" REST endpoint; opening it would show a human JSON.
+    expect(selectSelectedPr(usePrInboxStore.getState())!.url).toBe('https://ado/pr')
+    usePrInboxStore.getState().openInBrowser()
+    expect(mocked.openExternal).toHaveBeenCalledWith(WEB_URL)
+  })
+
+  test('a browser that refuses to open reports it instead of vanishing', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.openExternal.mockRejectedValue(new Error('blocked'))
+    usePrInboxStore.getState().openInBrowser()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not open the pull request'))
+    error.mockRestore()
+  })
+
+  test('copying puts the browsable page on the clipboard', async () => {
+    await usePrInboxStore.getState().copyLink()
+    expect(clipboard.writeText).toHaveBeenCalledWith(WEB_URL)
+  })
+
+  test('a changed organisation URL is reflected without the board being re-synced', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    usePrInboxStore.setState({ adoOrgUrl: 'https://elsewhere.example.com' })
+    usePrInboxStore.getState().openInBrowser()
+    expect(mocked.openExternal).toHaveBeenCalledWith(
+      'https://elsewhere.example.com/proj/_git/repo/pullrequest/1'
+    )
+  })
+
+  test('no configured organisation means no link to hand out at all', async () => {
+    usePrInboxStore.setState({ adoOrgUrl: '' })
+    usePrInboxStore.getState().openInBrowser()
+    await usePrInboxStore.getState().copyLink()
+    expect(mocked.openExternal).not.toHaveBeenCalled()
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+  })
+})
+
 describe('revealThread', () => {
   test('switches to files tab, opens the file, remembers the line', () => {
     mocked.getFileDiff.mockResolvedValue({
@@ -579,27 +737,29 @@ describe('revealThread', () => {
   })
 })
 
-describe('selectFilteredThreads', () => {
-  const seed = (): void =>
-    usePrInboxStore.setState({
-      threads: [
-        thread(1, { status: 'active' }),
-        thread(2, { status: 'fixed' }),
-        thread(3, { status: 'active', isSystem: true })
-      ]
-    })
-
-  test('active filter hides resolved and system threads', () => {
-    seed()
-    usePrInboxStore.setState({ threadFilter: 'active' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1])
+describe('splitThreadsByResolution', () => {
+  test('answers the unresolved threads and the resolved ones, in that order', () => {
+    const split = splitThreadsByResolution([
+      thread(1, { status: 'fixed' }),
+      thread(2, { status: 'active' }),
+      thread(3, { status: 'closed' }),
+      thread(4, { status: 'pending' })
+    ])
+    expect(split.unresolved.map((t) => t.threadId)).toEqual([2, 4])
+    expect(split.resolved.map((t) => t.threadId)).toEqual([1, 3])
   })
 
-  test('all shows everything except system; resolved shows only resolved', () => {
-    seed()
-    usePrInboxStore.setState({ threadFilter: 'all' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([1, 2])
-    usePrInboxStore.setState({ threadFilter: 'resolved' })
-    expect(selectFilteredThreads(usePrInboxStore.getState()).map((t) => t.threadId)).toEqual([2])
+  test('the housekeeping Azure DevOps writes on a PR appears in neither half', () => {
+    const split = splitThreadsByResolution([
+      thread(1, { status: 'active', isSystem: true }),
+      thread(2, { status: 'fixed', isSystem: true })
+    ])
+    expect(split.unresolved).toEqual([])
+    expect(split.resolved).toEqual([])
+  })
+
+  test('the relative order of the threads within each half is left alone', () => {
+    const split = splitThreadsByResolution([thread(9), thread(3), thread(7)])
+    expect(split.unresolved.map((t) => t.threadId)).toEqual([9, 3, 7])
   })
 })

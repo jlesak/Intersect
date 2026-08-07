@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { isThreadUnresolved } from '@common/prBoard'
-import { prKey, selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
+import { prKey, selectDrafts, selectPrWebUrl, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
 import { escapeShouldGoBack } from './escapeNav'
@@ -11,6 +11,10 @@ import { PrVoteButtons } from './PrVoteButtons'
 import { ReviewTerminal } from './ReviewTerminal'
 
 const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
+
+/** Why the outbound links are dead: the address of the Azure DevOps organisation is not known. */
+const NO_WEB_LINK =
+  'Set the Azure DevOps organisation URL in Settings to link out to this pull request.'
 
 /** The changed-files view: file tree, the active file's diff, and this PR's draft comments. */
 function ChangesView() {
@@ -69,7 +73,7 @@ function ChangesView() {
 }
 
 /**
- * ADO-like PR detail: breadcrumb header, vote actions, Files/Overview tabs. While a review runs the
+ * ADO-like PR detail: breadcrumb header, vote actions, Overview/Files tabs. While a review runs the
  * tabs become a Terminal/Changes toggle - the session keeps running in the background so the user
  * can read the drafted comments and switch back to keep prompting. Esc goes back (except mid-review
  * or inside a keyboard-owning widget).
@@ -83,6 +87,7 @@ export function PrDetail() {
   const reviewStatus = usePrInboxStore((s) => s.review.status)
   const reviewPrKey = usePrInboxStore((s) => s.reviewPrKey)
   const reviewView = usePrInboxStore((s) => s.reviewView)
+  const webUrl = usePrInboxStore(selectPrWebUrl)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -118,6 +123,26 @@ export function PrDetail() {
           <span className="ix-pr-ref">{shortRef(pr.targetRefName)}</span>
         </div>
         <div className="ix-row" style={{ gap: 8, marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost"
+            data-testid="pr-open-external"
+            disabled={!webUrl}
+            title={webUrl ? undefined : NO_WEB_LINK}
+            onClick={() => usePrInboxStore.getState().openInBrowser()}
+          >
+            Open in Azure DevOps
+          </button>
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost"
+            data-testid="pr-copy-link"
+            disabled={!webUrl}
+            title={webUrl ? undefined : NO_WEB_LINK}
+            onClick={() => void usePrInboxStore.getState().copyLink()}
+          >
+            Copy PR link
+          </button>
           <PrVoteButtons pr={pr} />
           {!running ? (
             <button
@@ -173,7 +198,7 @@ export function PrDetail() {
       ) : (
         <>
           <div className="ix-ptabs">
-            {(['files', 'overview'] as const).map((tab) => (
+            {(['overview', 'files'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
