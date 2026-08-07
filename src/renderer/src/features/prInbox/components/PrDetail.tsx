@@ -69,7 +69,7 @@ function ChangesView() {
 }
 
 /**
- * ADO-like PR detail: breadcrumb header, vote actions, Files/Overview tabs. While a review runs the
+ * ADO-like PR detail: breadcrumb header, vote actions, Overview/Files tabs. While a review runs the
  * tabs become a Terminal/Changes toggle - the session keeps running in the background so the user
  * can read the drafted comments and switch back to keep prompting. Esc goes back (except mid-review
  * or inside a keyboard-owning widget).
@@ -173,7 +173,7 @@ export function PrDetail() {
       ) : (
         <>
           <div className="ix-ptabs">
-            {(['files', 'overview'] as const).map((tab) => (
+            {(['overview', 'files'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"

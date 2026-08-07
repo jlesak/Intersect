@@ -70,7 +70,7 @@ interface PrInboxState {
   fileDiff: FileDiff | null
   diffLoading: boolean
   threads: PrThread[]
-  /** Foreign PR threads load lazily (on first Overview open), so opening a PR stays cheap. */
+  /** Whether the selected PR's foreign threads have been fetched, so no open refetches them. */
   threadsLoaded: boolean
   drafts: DraftComment[]
   /**
@@ -118,7 +118,7 @@ interface PrInboxState {
   /** Back to the board (breadcrumb or Esc). */
   goBack(): void
   setTab(tab: 'files' | 'overview'): void
-  /** Fetch the selected PR's foreign threads once (idempotent); used on first Overview open. */
+  /** Fetch the selected PR's foreign threads once (idempotent). */
   loadThreads(): Promise<void>
   setThreadFilter(filter: ThreadFilter): void
   /**
@@ -237,7 +237,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   adoConnected: false,
   selectedKey: null,
   view: 'board',
-  activeTab: 'files',
+  activeTab: 'overview',
   threadFilter: 'active',
   pendingReveal: null,
   changes: [],
@@ -314,7 +314,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
       drafts: [],
       commentDrafts: {}
     })
-    // Load only what the Files view needs up front; foreign threads load lazily on Overview open.
+    // The changed files and the drafts are all this needs; the threads are the caller's to fetch.
     const [changesR, draftsR] = await Promise.allSettled([
       api.getChanges(repositoryId, prId),
       api.listDrafts(repositoryId, prId)
@@ -335,8 +335,12 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   },
 
   async openDetail(repositoryId, prId) {
-    set({ view: 'detail', activeTab: 'files', threadFilter: 'active', pendingReveal: null })
+    set({ view: 'detail', activeTab: 'overview', threadFilter: 'active', pendingReveal: null })
     await get().select(repositoryId, prId)
+    // The threads belong to the whole detail, not to the conversation tab: the diff renders them
+    // inline too, so fetching them only when the conversation is opened leaves a reader who went
+    // straight to the code looking at a diff that claims nobody has commented on it.
+    await get().loadThreads()
   },
 
   goBack() {
@@ -345,7 +349,6 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
 
   setTab(tab) {
     set({ activeTab: tab })
-    if (tab === 'overview' && !get().threadsLoaded) void get().loadThreads()
   },
 
   async loadThreads() {

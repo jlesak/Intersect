@@ -214,7 +214,7 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().syncError).toBeNull()
   })
 
-  test('select loads changes and drafts but defers threads (lazy)', async () => {
+  test('select loads changes and drafts; fetching threads is openDetail\'s job', async () => {
     usePrInboxStore.setState({ prsByKey: { [prKey('repo', 1)]: pr('repo', 1) }, order: [prKey('repo', 1)] })
     mocked.getChanges.mockResolvedValue([change('a.ts')])
     mocked.listDrafts.mockResolvedValue([draft('d1')])
@@ -225,26 +225,27 @@ describe('prInboxStore', () => {
     expect(selectDrafts(s).map((d) => d.id)).toEqual(['d1'])
     expect(s.threads).toEqual([])
     expect(s.threadsLoaded).toBe(false)
-    // Opening the PR must not pay for the foreign-comment fetch.
+    // Selecting on its own stays cheap; the detail decides when the foreign comments are worth
+    // fetching.
     expect(mocked.getThreads).not.toHaveBeenCalled()
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
   })
 
-  test('threads load lazily on first Overview open, and are not refetched', async () => {
+  test('opening a PR fetches its threads, and switching tabs does not refetch them', async () => {
     usePrInboxStore.setState({
       prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
-      order: [prKey('repo', 1)],
-      selectedKey: prKey('repo', 1)
+      order: [prKey('repo', 1)]
     })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
     mocked.getThreads.mockResolvedValue([thread(10)])
-    usePrInboxStore.getState().setTab('overview')
-    await Promise.resolve()
-    await Promise.resolve()
+
+    await usePrInboxStore.getState().openDetail('repo', 1)
+
     expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([10])
     expect(usePrInboxStore.getState().threadsLoaded).toBe(true)
-    // Switch away and back: no second fetch.
-    usePrInboxStore.getState().setTab('files')
     usePrInboxStore.getState().setTab('overview')
+    usePrInboxStore.getState().setTab('files')
     await Promise.resolve()
     expect(mocked.getThreads).toHaveBeenCalledTimes(1)
   })
@@ -385,14 +386,14 @@ describe('syncIfStale', () => {
 })
 
 describe('board navigation', () => {
-  test('openDetail loads the PR and switches view; goBack returns to board', async () => {
+  test('openDetail loads the PR and lands on Overview; goBack returns to board', async () => {
     mocked.getChanges.mockResolvedValue([])
     mocked.listDrafts.mockResolvedValue([])
     mocked.getThreads.mockResolvedValue([])
     usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1) }, order: ['r:1'] })
     await usePrInboxStore.getState().openDetail('r', 1)
     expect(usePrInboxStore.getState().view).toBe('detail')
-    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().activeTab).toBe('overview')
     expect(usePrInboxStore.getState().selectedKey).toBe('r:1')
     usePrInboxStore.getState().goBack()
     expect(usePrInboxStore.getState().view).toBe('board')

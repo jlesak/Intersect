@@ -72,12 +72,43 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
 
   await expect(win.locator('.ix-pr-header__title')).toHaveText('Fix PTY backpressure on large output')
-  await expect(win.getByTestId('pr-tab-files')).toBeVisible()
+  await win.getByTestId('pr-tab-files').click()
   // 4 canned changed files in the stub, grouped under a compacted tree.
   await expect(win.getByTestId('tree-file')).toHaveCount(4)
 
   await win.keyboard.press('Escape')
   await expect(win.getByTestId('pr-board')).toBeVisible()
+
+  await app.close()
+})
+
+test('a freshly opened PR lands on the conversation, not on the files', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+
+  await expect(win.getByTestId('pr-overview')).toBeVisible()
+  await expect(win.getByTestId('pr-tab-overview')).toHaveClass(/ix-ptab--active/)
+  // The one real thread of PR 501 is there without the user asking for it.
+  await expect(win.getByTestId('pr-thread')).toHaveCount(1)
+
+  await app.close()
+})
+
+test('the diff carries its inline threads on a PR the user took straight to Files', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await win.getByTestId('pr-tab-files').click()
+  await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
+
+  // The thread anchored to this file renders as a Monaco view zone under its line, without the
+  // conversation ever having been opened.
+  await expect(win.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
 
   await app.close()
 })
@@ -88,6 +119,7 @@ test('collapsing a tree directory hides its files and shows the file count', asy
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await win.getByTestId('pr-tab-files').click()
 
   const before = await win.getByTestId('tree-file').count()
   const firstDir = win.getByTestId('tree-dir').first()
