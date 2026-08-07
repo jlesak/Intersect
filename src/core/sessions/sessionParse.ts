@@ -28,17 +28,35 @@ interface ToolUsePart {
 const MAX_TOOL_SUMMARY = 80
 
 /**
- * Remove the slash-command wrapper blocks Claude Code injects for the first user turn
- * (`<command-name>`, `<command-message>`, `<command-args>`) and trim. Used both for the title
- * fallback and for the searchable prompt text, so a `/clear` or `/model` invocation never masks
- * the real prompt.
+ * The wrapper tags Claude Code writes into a user turn that carry no words the user typed: the
+ * slash-command envelope, whatever the command printed to the terminal, and the reminders the
+ * harness injects. Each is matched non-greedily so two of the same tag in one turn are two blocks.
  */
-export function stripCommandWrappers(text: string): string {
-  return text
-    .replace(/<command-name>[\s\S]*?<\/command-name>/g, '')
-    .replace(/<command-message>[\s\S]*?<\/command-message>/g, '')
-    .replace(/<command-args>[\s\S]*?<\/command-args>/g, '')
-    .trim()
+const SERVICE_BLOCKS = [
+  'command-name',
+  'command-message',
+  'command-args',
+  'local-command-stdout',
+  'local-command-stderr',
+  'system-reminder'
+].map((tag) => new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g'))
+
+/**
+ * ANSI colour, cursor and window-title codes, which survive into a transcript as unreadable
+ * bracket noise. Anchored on the escape character, so a bracketed word the user typed is safe.
+ */
+const ANSI = /\u001b\[[0-9;?]*[a-zA-Z]|\u001b\][^\u0007]*\u0007/g
+
+/**
+ * Reduce a stored message to what the user or the assistant actually said, dropping the service
+ * text the harness wrapped around it and any terminal escape codes. Used for the title fallback,
+ * the searchable prompt text and the transcript alike, so a `/model` invocation and the line it
+ * printed never stand in for the real prompt.
+ */
+export function stripServiceNoise(text: string): string {
+  let out = text
+  for (const block of SERVICE_BLOCKS) out = out.replace(block, '')
+  return out.replace(ANSI, '').trim()
 }
 
 /**
@@ -203,7 +221,7 @@ export function parseSummary(filePath: string, lines: string[]): SessionSummary 
 
     if (isNonMetaUser(record)) {
       messageCount += 1
-      const prompt = stripCommandWrappers(extractText(record.message?.content))
+      const prompt = stripServiceNoise(extractText(record.message?.content))
       if (prompt) userPrompts.push(prompt)
     } else if (isAssistant(record)) {
       messageCount += 1
@@ -245,6 +263,9 @@ function extractTools(content: unknown): string[] {
  * Build the renderable transcript for one session: one entry per non-meta user message and per
  * assistant message, in file order. User command wrappers are stripped so slash-command turns read
  * cleanly; assistant `tool_use` parts become one-line `tools` summaries. Never throws on bad lines.
+ *
+ * A user turn that was nothing but service text is left out entirely rather than shown as an empty
+ * bubble - the reader is looking for the conversation, not for the harness's bookkeeping.
  */
 export function parseTranscript(
   id: string,
@@ -255,9 +276,11 @@ export function parseTranscript(
   const entries: TranscriptEntry[] = []
   for (const record of parseLines(lines)) {
     if (isNonMetaUser(record)) {
+      const text = stripServiceNoise(extractText(record.message?.content))
+      if (!text) continue
       entries.push({
         role: 'user',
-        text: stripCommandWrappers(extractText(record.message?.content)),
+        text,
         timestamp: parseTimestamp(record.timestamp),
         tools: []
       })

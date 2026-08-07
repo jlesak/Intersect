@@ -3,7 +3,7 @@ import {
   extractText,
   parseSummary,
   parseTranscript,
-  stripCommandWrappers,
+  stripServiceNoise,
   toolSummary
 } from './sessionParse'
 
@@ -20,20 +20,42 @@ const assistantLine = (
   over: Record<string, unknown> = {}
 ): string => line({ type: 'assistant', message: { content }, ...over })
 
-describe('stripCommandWrappers', () => {
+describe('stripServiceNoise', () => {
   test('removes command-name / command-message / command-args blocks and trims', () => {
     const raw =
       '<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>'
-    expect(stripCommandWrappers(raw)).toBe('')
+    expect(stripServiceNoise(raw)).toBe('')
   })
 
   test('keeps the real prompt text after the wrapper', () => {
     const raw = '<command-name>/model</command-name> please refactor the parser'
-    expect(stripCommandWrappers(raw)).toBe('please refactor the parser')
+    expect(stripServiceNoise(raw)).toBe('please refactor the parser')
   })
 
   test('leaves plain text untouched', () => {
-    expect(stripCommandWrappers('just a question')).toBe('just a question')
+    expect(stripServiceNoise('just a question')).toBe('just a question')
+  })
+
+  test('removes the output a slash command echoed back into the turn', () => {
+    const raw = '<local-command-stdout>Set model to \u001b[1mopus\u001b[22m</local-command-stdout>'
+    expect(stripServiceNoise(raw)).toBe('')
+  })
+
+  test('removes command error output too', () => {
+    expect(stripServiceNoise('<local-command-stderr>no such file</local-command-stderr>')).toBe('')
+  })
+
+  test('removes an injected system reminder but keeps what the user wrote around it', () => {
+    const raw = 'rename the column\n<system-reminder>Plan mode is active.</system-reminder>'
+    expect(stripServiceNoise(raw)).toBe('rename the column')
+  })
+
+  test('removes terminal colour codes left in the text', () => {
+    expect(stripServiceNoise('run \u001b[1mnpm test\u001b[0m now')).toBe('run npm test now')
+  })
+
+  test('leaves square brackets that are no escape code alone', () => {
+    expect(stripServiceNoise('the [1m] mark in the log')).toBe('the [1m] mark in the log')
   })
 })
 
@@ -105,6 +127,16 @@ describe('parseSummary', () => {
       userLine('the real first prompt', { cwd: '/repo/spot' })
     ]
     expect(parseSummary('/p/s.jsonl', lines).title).toBe('the real first prompt')
+  })
+
+  test('a turn that only echoed command output is neither the title nor a searchable prompt', () => {
+    const lines = [
+      userLine('<local-command-stdout>Set model to \u001b[1mopus\u001b[22m</local-command-stdout>'),
+      userLine('the real first prompt', { cwd: '/repo/spot' })
+    ]
+    const s = parseSummary('/p/s.jsonl', lines)
+    expect(s.title).toBe('the real first prompt')
+    expect(s.userPrompts).toEqual(['the real first prompt'])
   })
 
   test('falls back to folderName when there is no aiTitle and no usable prompt', () => {
@@ -244,6 +276,31 @@ describe('parseSummary activeDurationMs', () => {
 })
 
 describe('parseTranscript', () => {
+  test('leaves out a user turn that was only a slash command and its output', () => {
+    const lines = [
+      userLine('<command-name>/model</command-name><command-args>opus</command-args>', {
+        timestamp: '2026-01-01T00:00:01Z'
+      }),
+      userLine('<local-command-stdout>Set model to opus</local-command-stdout>', {
+        timestamp: '2026-01-01T00:00:02Z'
+      }),
+      userLine('now fix the parser', { timestamp: '2026-01-01T00:00:03Z' })
+    ]
+    const t = parseTranscript('sess-1', 'Title', '/cwd', lines)
+    expect(t.entries.map((e) => e.text)).toEqual(['now fix the parser'])
+  })
+
+  test('keeps an assistant turn that only called tools', () => {
+    const lines = [
+      assistantLine([{ type: 'tool_use', name: 'Read', input: { file_path: 'src/foo.ts' } }], {
+        timestamp: '2026-01-01T00:00:01Z'
+      })
+    ]
+    const t = parseTranscript('sess-1', 'Title', '/cwd', lines)
+    expect(t.entries).toHaveLength(1)
+    expect(t.entries[0].tools).toEqual(['Read src/foo.ts'])
+  })
+
   test('builds one entry per non-meta user and assistant message, in file order', () => {
     const lines = [
       userLine('meta', { isMeta: true, timestamp: '2026-01-01T00:00:00Z' }),
