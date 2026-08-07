@@ -11,7 +11,8 @@ import {
   utilityProcess
 } from 'electron'
 import { Channel, type CoreStatus } from '@common/ipc'
-import type { LiveClaudeSession } from '@common/domain'
+import { effectiveAdoOrgUrl } from '@common/ado'
+import type { AppSettings, LiveClaudeSession } from '@common/domain'
 import { WINDOW_FOCUS_CHANGED, type NativeNotificationRequest } from '@common/coreBridge'
 import type { RpcPort } from '@common/portRpc'
 import { createCoreHost, type CoreHost } from './coreHost'
@@ -206,7 +207,13 @@ function wireCore(userDataDir: string): void {
       app.exit(0)
     },
     retryCore: () => host?.retry(),
-    quitApp: () => app.quit()
+    quitApp: () => app.quit(),
+    // The core owns the settings, so the organisation the allowlist has to admit is asked for over
+    // the bridge at the moment a link is opened.
+    adoOrgUrl: async () => {
+      const settings = (await host!.request(Channel.settingsGet, [])) as AppSettings
+      return effectiveAdoOrgUrl(settings.ado, settings.adoFallback)
+    }
   })
 
   registerCoreBridge({

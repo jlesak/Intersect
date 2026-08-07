@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { AdoFallback, AdoSettings } from './domain'
-import { hasAdoConnection } from './ado'
+import { effectiveAdoOrgUrl, hasAdoConnection, prWebUrl } from './ado'
 
 const blank: AdoSettings = { orgUrl: '', project: '', repository: '', pat: '' }
 const noFallback: AdoFallback = { orgUrl: '', project: '', hasPat: false }
@@ -35,5 +35,59 @@ describe('hasAdoConnection', () => {
     expect(hasAdoConnection({ ...blank, orgUrl: '  ', pat: '  ' }, noFallback)).toBe(false)
     const blankishFallback: AdoFallback = { orgUrl: '  ', project: '', hasPat: false }
     expect(hasAdoConnection({ ...blank, pat: 't' }, blankishFallback)).toBe(false)
+  })
+})
+
+describe('effectiveAdoOrgUrl', () => {
+  test('what the user saved wins over the fallback', () => {
+    expect(
+      effectiveAdoOrgUrl({ ...blank, orgUrl: ' https://saved ' }, { orgUrl: 'https://fallback', project: '', hasPat: true })
+    ).toBe('https://saved')
+  })
+
+  test('a blank saved org URL defers to the fallback', () => {
+    expect(effectiveAdoOrgUrl({ ...blank, orgUrl: '  ' }, { orgUrl: ' https://fallback ', project: '', hasPat: false })).toBe(
+      'https://fallback'
+    )
+  })
+
+  test('neither configured is no org URL at all', () => {
+    expect(effectiveAdoOrgUrl(blank, noFallback)).toBe('')
+  })
+})
+
+describe('prWebUrl', () => {
+  const pr = { projectId: 'SPOT', repositoryName: 'intersect-app', prId: 501 }
+
+  test('builds the browsable pull-request page from the org URL, project, repository and id', () => {
+    expect(prWebUrl('https://devops.example.com/tfs/DefaultCollection', pr)).toBe(
+      'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/intersect-app/pullrequest/501'
+    )
+  })
+
+  test('a trailing slash on the org URL does not double up', () => {
+    expect(prWebUrl('https://devops.example.com/tfs/DefaultCollection//', pr)).toBe(
+      'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/intersect-app/pullrequest/501'
+    )
+  })
+
+  test('a project or repository whose name needs encoding stays one path segment', () => {
+    expect(
+      prWebUrl('https://devops.example.com', {
+        projectId: 'Škoda Digital',
+        repositoryName: 'intersect/app',
+        prId: 7
+      })
+    ).toBe(
+      'https://devops.example.com/%C5%A0koda%20Digital/_git/intersect%2Fapp/pullrequest/7'
+    )
+  })
+
+  test('nothing to build a link from is no link, never a malformed one', () => {
+    expect(prWebUrl('', pr)).toBe('')
+    expect(prWebUrl('   ', pr)).toBe('')
+    expect(prWebUrl('https://devops.example.com', { ...pr, projectId: '' })).toBe('')
+    expect(prWebUrl('https://devops.example.com', { ...pr, repositoryName: '' })).toBe('')
+    expect(prWebUrl('https://devops.example.com', { ...pr, prId: 0 })).toBe('')
   })
 })

@@ -35,13 +35,17 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
   }
 }
 
-const seed = async (over: Partial<PullRequest> = {}): Promise<void> => {
+const seed = async (
+  over: Partial<PullRequest> = {},
+  adoOrgUrl = 'https://devops.example.com/tfs/DefaultCollection'
+): Promise<void> => {
   usePrInboxStore.setState({
     prsByKey: { 'repo-1:1': pr(over) },
     order: ['repo-1:1'],
     selectedKey: 'repo-1:1',
     view: 'detail',
-    activeTab: 'overview'
+    activeTab: 'overview',
+    adoOrgUrl
   })
   await act(async () => {
     render(<PrDetail />)
@@ -62,10 +66,17 @@ describe('PrDetail header links', () => {
     expect(button('pr-copy-link').disabled).toBe(false)
   })
 
-  test('both are dead when Azure DevOps never gave the PR a web link', async () => {
-    // The mapper defaults a missing url to the empty string, which would otherwise open about:blank
-    // and copy nothing.
-    await seed({ url: '' })
+  test('both are dead while no Azure DevOps organisation is configured', async () => {
+    // Nothing addresses a page without the organisation URL, and a half-built one would open the
+    // browser on garbage.
+    await seed({}, '')
+    expect(button('pr-open-external').disabled).toBe(true)
+    expect(button('pr-copy-link').disabled).toBe(true)
+    expect(button('pr-open-external').title).toContain('Settings')
+  })
+
+  test('both are dead for a PR the server named no repository for', async () => {
+    await seed({ repositoryName: '' })
     expect(button('pr-open-external').disabled).toBe(true)
     expect(button('pr-copy-link').disabled).toBe(true)
   })

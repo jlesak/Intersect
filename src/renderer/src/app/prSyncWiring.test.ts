@@ -58,7 +58,7 @@ beforeEach(() => {
   unwire?.()
   unwire = undefined
   sync.mockClear()
-  usePrInboxStore.setState({ sync, syncing: false, adoConnected: false })
+  usePrInboxStore.setState({ sync, syncing: false, adoConnected: false, adoOrgUrl: '' })
 })
 
 describe('wirePrSync', () => {
@@ -212,5 +212,49 @@ describe('the connection the board judges itself against', () => {
 
     settingsAre('ready', CONNECTED_ADO)
     expect(connected()).toBe(false)
+  })
+})
+
+/**
+ * The detail's links out to Azure DevOps are built from the organisation URL, and this wiring is the
+ * only thing that puts it in the board's reach. Without it every pull request would look like one
+ * the app cannot address.
+ */
+describe('the organisation the board links out to', () => {
+  const orgUrl = (): string => usePrInboxStore.getState().adoOrgUrl
+
+  test('the saved organisation URL reaches the board', () => {
+    settingsAre('ready', CONNECTED_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(orgUrl()).toBe('https://dev.azure.com/acme')
+  })
+
+  test('a blank saved field takes the organisation from the fallback', () => {
+    useSettingsStore.setState({
+      status: 'ready',
+      ado: BLANK_ADO,
+      adoFallback: { orgUrl: 'https://devops.example.com/tfs/DefaultCollection', project: '', hasPat: true }
+    })
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(orgUrl()).toBe('https://devops.example.com/tfs/DefaultCollection')
+  })
+
+  test('settings that have not loaded name no organisation at all', () => {
+    settingsAre('loading', CONNECTED_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(orgUrl()).toBe('')
+  })
+
+  test('pointing the app at another server takes effect without a restart', () => {
+    settingsAre('ready', BLANK_ADO)
+    boardIs('ready', 0)
+    unwire = wirePrSync()
+    expect(orgUrl()).toBe('')
+
+    settingsAre('ready', CONNECTED_ADO)
+    expect(orgUrl()).toBe('https://dev.azure.com/acme')
   })
 })

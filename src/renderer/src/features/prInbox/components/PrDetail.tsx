@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { isThreadUnresolved } from '@common/prBoard'
-import { prKey, selectDrafts, selectSelectedPr, usePrInboxStore } from '../store'
+import { prKey, selectDrafts, selectPrWebUrl, selectSelectedPr, usePrInboxStore } from '../store'
 import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
 import { escapeShouldGoBack } from './escapeNav'
@@ -11,6 +11,10 @@ import { PrVoteButtons } from './PrVoteButtons'
 import { ReviewTerminal } from './ReviewTerminal'
 
 const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
+
+/** Why the outbound links are dead: the address of the Azure DevOps organisation is not known. */
+const NO_WEB_LINK =
+  'Set the Azure DevOps organisation URL in Settings to link out to this pull request.'
 
 /** The changed-files view: file tree, the active file's diff, and this PR's draft comments. */
 function ChangesView() {
@@ -83,6 +87,7 @@ export function PrDetail() {
   const reviewStatus = usePrInboxStore((s) => s.review.status)
   const reviewPrKey = usePrInboxStore((s) => s.reviewPrKey)
   const reviewView = usePrInboxStore((s) => s.reviewView)
+  const webUrl = usePrInboxStore(selectPrWebUrl)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -122,8 +127,8 @@ export function PrDetail() {
             type="button"
             className="ix-btn ix-btn--ghost"
             data-testid="pr-open-external"
-            disabled={!pr.url}
-            title={pr.url ? undefined : 'Azure DevOps did not report a web link for this pull request.'}
+            disabled={!webUrl}
+            title={webUrl ? undefined : NO_WEB_LINK}
             onClick={() => usePrInboxStore.getState().openInBrowser()}
           >
             Open in Azure DevOps
@@ -132,8 +137,8 @@ export function PrDetail() {
             type="button"
             className="ix-btn ix-btn--ghost"
             data-testid="pr-copy-link"
-            disabled={!pr.url}
-            title={pr.url ? undefined : 'Azure DevOps did not report a web link for this pull request.'}
+            disabled={!webUrl}
+            title={webUrl ? undefined : NO_WEB_LINK}
             onClick={() => void usePrInboxStore.getState().copyLink()}
           >
             Copy PR link

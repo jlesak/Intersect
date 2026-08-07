@@ -336,6 +336,11 @@ export interface PullRequest {
   sourceCommitId: string
   /** Target/base commit id for the diff's original side. */
   targetCommitId: string
+  /**
+   * The REST resource the server addressed this pull request by, which Azure DevOps documents as
+   * internal: it answers JSON and is not a page. The address a person opens or pastes is composed
+   * from the configured organisation plus project, repository and id (see `prWebUrl`).
+   */
   url: string
   role: PrRole
   /** My own vote when I am among the reviewers; null otherwise (e.g. a PR I only authored). */

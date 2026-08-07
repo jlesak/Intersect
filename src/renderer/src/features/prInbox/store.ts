@@ -6,6 +6,7 @@ import type {
   PrVote,
   PullRequest
 } from '@common/domain'
+import { prWebUrl } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
@@ -54,6 +55,13 @@ interface PrInboxState {
    * exists.
    */
   adoConnected: boolean
+  /**
+   * The organisation URL Azure DevOps is reached at, or empty when none is configured. Mirrored in
+   * by the app layer for the same reason as `adoConnected` above, and read live rather than baked
+   * into each cached pull request, so pointing the app at another server takes effect at once
+   * instead of at the next sync.
+   */
+  adoOrgUrl: string
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
@@ -110,6 +118,8 @@ interface PrInboxState {
   syncIfStale(): Promise<void>
   /** Record whether Azure DevOps is reachable, so the guard above can consult it. */
   setAdoConnected(connected: boolean): void
+  /** Record which Azure DevOps organisation the app is pointed at, so PR links can be built. */
+  setAdoOrgUrl(orgUrl: string): void
   select(repositoryId: string, prId: number): Promise<void>
   /** Open the PR's detail from the board (select + switch view). */
   openDetail(repositoryId: string, prId: number): Promise<void>
@@ -117,8 +127,8 @@ interface PrInboxState {
   goBack(): void
   /**
    * Show the selected PR on Azure DevOps itself, for the parts of a review this app does not model
-   * (policies, work items, the full iteration history). Does nothing for a PR whose web link the
-   * server never gave us.
+   * (policies, work items, the full iteration history). Does nothing when there is not enough
+   * configuration to address a page.
    */
   openInBrowser(): void
   /** Put the selected PR's web link on the clipboard, to paste into a chat or a work item. */
@@ -169,6 +179,15 @@ export function selectSelectedPr(state: PrInboxState): PullRequest | undefined {
 /** The drafts of the selected PR. */
 export function selectDrafts(state: PrInboxState): DraftComment[] {
   return state.drafts
+}
+
+/**
+ * The browsable Azure DevOps page for the selected PR, or empty when there is nothing to build one
+ * from. Empty is what makes the header's link and copy actions dead rather than malformed.
+ */
+export function selectPrWebUrl(state: PrInboxState): string {
+  const pr = selectSelectedPr(state)
+  return pr ? prWebUrl(state.adoOrgUrl, pr) : ''
 }
 
 /**
@@ -250,6 +269,7 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   syncedAt: null,
   syncError: null,
   adoConnected: false,
+  adoOrgUrl: '',
   selectedKey: null,
   view: 'board',
   activeTab: 'overview',
@@ -314,6 +334,10 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
     set({ adoConnected: connected })
   },
 
+  setAdoOrgUrl(orgUrl) {
+    set({ adoOrgUrl: orgUrl })
+  },
+
   async select(repositoryId, prId) {
     const key = prKey(repositoryId, prId)
     set({
@@ -362,13 +386,13 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
   },
 
   openInBrowser() {
-    const url = selectSelectedPr(get())?.url
+    const url = selectPrWebUrl(get())
     if (!url) return
     api.openExternal(url).catch((e) => reportError('Could not open the pull request', e))
   },
 
   async copyLink() {
-    const url = selectSelectedPr(get())?.url
+    const url = selectPrWebUrl(get())
     if (!url) return
     try {
       await navigator.clipboard.writeText(url)

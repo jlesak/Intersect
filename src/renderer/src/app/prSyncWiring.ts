@@ -1,10 +1,11 @@
-import { hasAdoConnection } from '@common/ado'
+import { effectiveAdoOrgUrl, hasAdoConnection } from '@common/ado'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useSettingsStore } from '@renderer/features/settings'
 
 /**
- * Tell the board whether Azure DevOps is reachable, so its refresh guard can consult that without
- * reading another feature's slice itself.
+ * Tell the board whether Azure DevOps is reachable and which organisation it lives at, so its
+ * refresh guard and its outbound pull-request links can consult those without reading another
+ * feature's slice themselves.
  *
  * This crossing lives in the app layer because both directions of it are needed: the board's guard
  * needs the answer, and the settings form is where the answer changes. Having the board's store read
@@ -16,9 +17,10 @@ function publishConnection(): void {
   const settings = useSettingsStore.getState()
   // Settings that have not arrived look exactly like settings the user left blank, so an unloaded
   // form counts as no connection rather than as a reason to try.
-  const connected =
-    settings.status === 'ready' && hasAdoConnection(settings.ado, settings.adoFallback)
-  usePrInboxStore.getState().setAdoConnected(connected)
+  const ready = settings.status === 'ready'
+  const board = usePrInboxStore.getState()
+  board.setAdoConnected(ready && hasAdoConnection(settings.ado, settings.adoFallback))
+  board.setAdoOrgUrl(ready ? effectiveAdoOrgUrl(settings.ado, settings.adoFallback) : '')
 }
 
 /**

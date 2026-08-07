@@ -1,8 +1,10 @@
 import { type ElectronApplication, type Page } from '@playwright/test'
 import {
+  connectedAdo,
   expect,
   launch as launchApp,
   openRailSection,
+  stubOpenExternal,
   test,
   unconfiguredAdo,
   userDataDir
@@ -22,6 +24,21 @@ async function launch(
   return launchApp(userDataDir(), {
     env: { ...unconfiguredAdo(), ...(ado ? { INTERSECT_E2E_ADO: ado } : {}) }
   })
+}
+
+/**
+ * The pull-request page a user opens is composed from the configured organisation, so the two specs
+ * about the header's outbound links need a machine that has one. Everything else stays on the
+ * unconnected launch above, where sync counts are the thing under test.
+ */
+const PR_501_WEB_URL = 'https://devops.example/e2e/SPOT/_git/intersect-app/pullrequest/501'
+
+async function launchConnected(): Promise<{
+  app: ElectronApplication
+  win: Page
+  errors: string[]
+}> {
+  return launchApp(userDataDir(), { env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' } })
 }
 
 /** Open PR Review and wait for the board head, which is up whether or not the board has cards. */
@@ -97,14 +114,13 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
   await app.close()
 })
 
-test('the detail header hands the PR to Azure DevOps and to the clipboard', async () => {
-  const { app, win } = await launch('radar')
+test('the detail header copies the PR web link to the clipboard', async () => {
+  const { app, win } = await launchConnected()
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
 
-  await expect(win.getByTestId('pr-open-external')).toBeEnabled()
   // Copying writes the real system clipboard, so whatever the developer had in it is put back
   // below rather than quietly lost to a test run.
   const before = await app.evaluate(({ clipboard }) => clipboard.readText())
@@ -112,10 +128,39 @@ test('the detail header hands the PR to Azure DevOps and to the clipboard', asyn
 
   // Read back through the main process: this proves the link actually left the app, rather than
   // only that a button exists.
-  await expect
-    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
-    .toBe('https://devops/pr/501')
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(PR_501_WEB_URL)
   await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), before)
+
+  await app.close()
+})
+
+test('Open in Azure DevOps hands the browsable pull-request page to the system browser', async () => {
+  const { app, win } = await launchConnected()
+  const opened = await stubOpenExternal(app)
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await win.getByTestId('pr-open-external').click()
+
+  // The whole chain has to hold for this to arrive: a web address rather than the REST resource the
+  // payload carried, and a main-process allowlist that admits the configured Azure DevOps server.
+  await expect.poll(opened).toEqual([PR_501_WEB_URL])
+
+  await app.close()
+})
+
+test('a machine with no Azure DevOps organisation offers no link to open', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+
+  // Nothing composes a page address without the organisation, so the header says so by being dead
+  // rather than by opening the browser on a broken URL.
+  await expect(win.getByTestId('pr-open-external')).toBeDisabled()
+  await expect(win.getByTestId('pr-copy-link')).toBeDisabled()
 
   await app.close()
 })

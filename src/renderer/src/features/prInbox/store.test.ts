@@ -8,6 +8,7 @@ import {
   prKey,
   selectDrafts,
   selectPrList,
+  selectSelectedPr,
   splitThreadsByResolution,
   usePrInboxStore
 } from './store'
@@ -556,21 +557,25 @@ describe('thread actions', () => {
 
 describe('header links to Azure DevOps', () => {
   const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+  const WEB_URL = 'https://devops.example.com/tfs/DefaultCollection/proj/_git/repo/pullrequest/1'
 
   beforeEach(() => {
     clipboard.writeText.mockReset().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
     usePrInboxStore.setState({
-      prsByKey: { 'r:1': pr('r', 1, { url: 'https://devops/pr/1' }) },
+      prsByKey: { 'r:1': pr('r', 1, { projectId: 'proj', repositoryName: 'repo' }) },
       order: ['r:1'],
-      selectedKey: 'r:1'
+      selectedKey: 'r:1',
+      adoOrgUrl: 'https://devops.example.com/tfs/DefaultCollection'
     })
   })
 
-  test('opening hands the PR web link to the system browser bridge', () => {
+  test('the link handed out is the browsable page, not the REST resource the payload carried', () => {
     mocked.openExternal.mockResolvedValue(undefined)
+    // The PR's own `url` is the "used internally" REST endpoint; opening it would show a human JSON.
+    expect(selectSelectedPr(usePrInboxStore.getState())!.url).toBe('https://ado/pr')
     usePrInboxStore.getState().openInBrowser()
-    expect(mocked.openExternal).toHaveBeenCalledWith('https://devops/pr/1')
+    expect(mocked.openExternal).toHaveBeenCalledWith(WEB_URL)
   })
 
   test('a browser that refuses to open reports it instead of vanishing', async () => {
@@ -582,13 +587,22 @@ describe('header links to Azure DevOps', () => {
     error.mockRestore()
   })
 
-  test('copying puts the PR web link on the clipboard', async () => {
+  test('copying puts the browsable page on the clipboard', async () => {
     await usePrInboxStore.getState().copyLink()
-    expect(clipboard.writeText).toHaveBeenCalledWith('https://devops/pr/1')
+    expect(clipboard.writeText).toHaveBeenCalledWith(WEB_URL)
   })
 
-  test('a PR whose web link Azure DevOps never gave us does neither', async () => {
-    usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1, { url: '' }) } })
+  test('a changed organisation URL is reflected without the board being re-synced', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    usePrInboxStore.setState({ adoOrgUrl: 'https://elsewhere.example.com' })
+    usePrInboxStore.getState().openInBrowser()
+    expect(mocked.openExternal).toHaveBeenCalledWith(
+      'https://elsewhere.example.com/proj/_git/repo/pullrequest/1'
+    )
+  })
+
+  test('no configured organisation means no link to hand out at all', async () => {
+    usePrInboxStore.setState({ adoOrgUrl: '' })
     usePrInboxStore.getState().openInBrowser()
     await usePrInboxStore.getState().copyLink()
     expect(mocked.openExternal).not.toHaveBeenCalled()

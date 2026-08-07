@@ -29,7 +29,50 @@ describe('isAllowedExternalUrl', () => {
     ['not a url', false],
     ['', false]
   ])('%s -> %s', (url, allowed) => {
-    expect(isAllowedExternalUrl(url)).toBe(allowed)
+    expect(isAllowedExternalUrl(url, '')).toBe(allowed)
+  })
+})
+
+/**
+ * The Azure DevOps server is per-user configuration, so it cannot be a fixed entry in the list. The
+ * host the user actually pointed the app at is allowed and nothing else is, which keeps a link out
+ * to a pull request working without turning the allowlist into a wildcard.
+ */
+describe('isAllowedExternalUrl - the configured Azure DevOps organisation', () => {
+  const ORG_URL = 'https://devops.example.com/tfs/DefaultCollection'
+
+  test('a pull request on the configured server is allowed', () => {
+    expect(
+      isAllowedExternalUrl(
+        'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/501',
+        ORG_URL
+      )
+    ).toBe(true)
+  })
+
+  test('another Azure DevOps server is still blocked', () => {
+    expect(isAllowedExternalUrl('https://dev.azure.com/acme/SPOT/_git/app/pullrequest/1', ORG_URL)).toBe(
+      false
+    )
+    expect(
+      isAllowedExternalUrl('https://devops.example.com.evil.example/x/_git/app/pullrequest/1', ORG_URL)
+    ).toBe(false)
+  })
+
+  test('no configured organisation blocks every Azure DevOps address', () => {
+    for (const org of ['', '   ', 'not a url']) {
+      expect(
+        isAllowedExternalUrl('https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/1', org)
+      ).toBe(false)
+    }
+  })
+
+  test('the configured organisation does not lower the bar for the fixed entries', () => {
+    // Still https-only, and still no host outside the list.
+    expect(isAllowedExternalUrl('http://devops.example.com/x', ORG_URL)).toBe(false)
+    expect(isAllowedExternalUrl('https://evil.example.com/x', ORG_URL)).toBe(false)
+    expect(isAllowedExternalUrl('https://jira.skoda.vwgroup.com/browse/A-1', ORG_URL)).toBe(true)
+    expect(isAllowedExternalUrl('https://greencode.slack.com/archives/D0', ORG_URL)).toBe(true)
   })
 })
 
@@ -96,7 +139,8 @@ describe('system handlers - reveal', () => {
       revealInFolder,
       restartApp: vi.fn(),
       retryCore: vi.fn(),
-      quitApp: vi.fn()
+      quitApp: vi.fn(),
+      adoOrgUrl: async () => ''
     })
     await h.revealPath(claudeFile)
     expect(revealInFolder).toHaveBeenCalledWith(claudeFile)
@@ -109,7 +153,8 @@ describe('system handlers - reveal', () => {
       revealInFolder,
       restartApp: vi.fn(),
       retryCore: vi.fn(),
-      quitApp: vi.fn()
+      quitApp: vi.fn(),
+      adoOrgUrl: async () => ''
     })
     await expect(h.revealPath('/etc/passwd')).rejects.toThrow(/Blocked reveal path/)
     expect(revealInFolder).not.toHaveBeenCalled()
@@ -119,14 +164,28 @@ describe('system handlers - reveal', () => {
 describe('system handlers', () => {
   test('opens an allowlisted https URL through the injected launcher', async () => {
     const openExternal = vi.fn(async () => {})
-    const h = createSystemHandlers({ openExternal, revealInFolder: vi.fn(), restartApp: vi.fn(), retryCore: vi.fn(), quitApp: vi.fn() })
+    const h = createSystemHandlers({
+      openExternal,
+      revealInFolder: vi.fn(),
+      restartApp: vi.fn(),
+      retryCore: vi.fn(),
+      quitApp: vi.fn(),
+      adoOrgUrl: async () => ''
+    })
     await h.openExternal('https://jira.skoda.vwgroup.com/browse/FID2507-611')
     expect(openExternal).toHaveBeenCalledWith('https://jira.skoda.vwgroup.com/browse/FID2507-611')
   })
 
   test('rejects a disallowed URL without ever calling the launcher', async () => {
     const openExternal = vi.fn(async () => {})
-    const h = createSystemHandlers({ openExternal, revealInFolder: vi.fn(), restartApp: vi.fn(), retryCore: vi.fn(), quitApp: vi.fn() })
+    const h = createSystemHandlers({
+      openExternal,
+      revealInFolder: vi.fn(),
+      restartApp: vi.fn(),
+      retryCore: vi.fn(),
+      quitApp: vi.fn(),
+      adoOrgUrl: async () => ''
+    })
     await expect(h.openExternal('http://jira.skoda.vwgroup.com/x')).rejects.toThrow(/Blocked external URL/)
     await expect(h.openExternal('https://example.com')).rejects.toThrow(/Blocked external URL/)
     expect(openExternal).not.toHaveBeenCalled()
@@ -140,9 +199,63 @@ describe('system handlers', () => {
       revealInFolder: vi.fn(),
       restartApp: vi.fn(),
       retryCore: vi.fn(),
-      quitApp: vi.fn()
+      quitApp: vi.fn(),
+      adoOrgUrl: async () => ''
     })
     await expect(h.openExternal('https://jira.skoda.vwgroup.com/x')).rejects.toThrow(/no browser/)
+  })
+})
+
+/**
+ * The organisation is read per call rather than captured once, so saving a different server in
+ * Settings takes effect immediately and a link to the server the user just left stops working.
+ */
+describe('system handlers - the Azure DevOps organisation is resolved per call', () => {
+  const PR_URL = 'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/501'
+
+  const handlers = (
+    adoOrgUrl: () => Promise<string>,
+    openExternal = vi.fn(async () => {})
+  ): { h: ReturnType<typeof createSystemHandlers>; openExternal: typeof openExternal } => ({
+    h: createSystemHandlers({
+      openExternal,
+      revealInFolder: vi.fn(),
+      restartApp: vi.fn(),
+      retryCore: vi.fn(),
+      quitApp: vi.fn(),
+      adoOrgUrl
+    }),
+    openExternal
+  })
+
+  test('a pull request on the configured server reaches the browser', async () => {
+    const { h, openExternal } = handlers(async () => 'https://devops.example.com/tfs/DefaultCollection')
+    await h.openExternal(PR_URL)
+    expect(openExternal).toHaveBeenCalledWith(PR_URL)
+  })
+
+  test('the same pull request is blocked once the app points elsewhere', async () => {
+    let org = 'https://devops.example.com/tfs/DefaultCollection'
+    const { h, openExternal } = handlers(async () => org)
+    await h.openExternal(PR_URL)
+    org = 'https://dev.azure.com/acme'
+    await expect(h.openExternal(PR_URL)).rejects.toThrow(/Blocked external URL/)
+    expect(openExternal).toHaveBeenCalledTimes(1)
+  })
+
+  test('an unconfigured organisation blocks the link without touching the browser', async () => {
+    const { h, openExternal } = handlers(async () => '')
+    await expect(h.openExternal(PR_URL)).rejects.toThrow(/Blocked external URL/)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  test('an organisation that cannot be read fails closed, and leaves the fixed hosts alone', async () => {
+    const { h, openExternal } = handlers(async () => {
+      throw new Error('core is down')
+    })
+    await expect(h.openExternal(PR_URL)).rejects.toThrow(/Blocked external URL/)
+    await h.openExternal('https://jira.skoda.vwgroup.com/browse/A-1')
+    expect(openExternal).toHaveBeenCalledExactlyOnceWith('https://jira.skoda.vwgroup.com/browse/A-1')
   })
 })
 
@@ -161,7 +274,14 @@ describe('registerSystemHandlers', () => {
     registerSystemHandlers(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ipcMain as any,
-      createSystemHandlers({ openExternal, revealInFolder: vi.fn(), restartApp, retryCore, quitApp })
+      createSystemHandlers({
+        openExternal,
+        revealInFolder: vi.fn(),
+        restartApp,
+        retryCore,
+        quitApp,
+        adoOrgUrl: async () => ''
+      })
     )
 
     expect([...registered.keys()].sort()).toEqual(
