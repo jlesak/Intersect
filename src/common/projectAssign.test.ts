@@ -18,7 +18,6 @@ function project(overrides: Partial<Project> & { id: string }): Project {
     jiraJql: null,
     jiraBoardUrl: null,
     adoRepositories: [],
-    togglProjectId: null,
     ...overrides
   }
 }

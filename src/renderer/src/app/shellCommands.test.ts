@@ -24,8 +24,7 @@ function project(id: string, archived = false): Project {
     repoPaths: [`/repos/${id}`],
     jiraJql: null,
     jiraBoardUrl: null,
-    adoRepositories: [],
-    togglProjectId: null
+    adoRepositories: []
   }
 }
 

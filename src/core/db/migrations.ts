@@ -577,6 +577,15 @@ const MIGRATIONS: Migration[] = [
         UPDATE pr_cache SET last_activity_at = created_at;
       `)
     }
+  },
+  {
+    // Toggl removal: time tracking is native and never synced anywhere, so the per-project Toggl
+    // binding held nothing any code read. Dropping the column removes the setting rather than
+    // leaving a field that suggests a sync that does not exist.
+    version: 24,
+    up(db) {
+      db.exec(`ALTER TABLE projects DROP COLUMN toggl_project_id;`)
+    }
   }
 ]
 

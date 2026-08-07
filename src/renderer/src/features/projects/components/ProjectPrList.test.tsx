@@ -88,8 +88,7 @@ describe('ProjectPrList', () => {
           repoPaths: ['/repos/spot'],
           jiraJql: null,
           jiraBoardUrl: null,
-          adoRepositories: ['spot-backend'],
-          togglProjectId: null
+          adoRepositories: ['spot-backend']
         }
       ]
     })

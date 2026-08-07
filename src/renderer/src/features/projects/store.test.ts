@@ -18,8 +18,7 @@ function project(id: string, sortOrder: number): Project {
     repoPaths: [`/repos/${id}`],
     jiraJql: null,
     jiraBoardUrl: null,
-    adoRepositories: [],
-    togglProjectId: null
+    adoRepositories: []
   }
 }
 
