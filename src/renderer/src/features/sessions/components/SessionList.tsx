@@ -25,9 +25,15 @@ export function SessionList() {
     return [...rows].indexOf(target as HTMLElement)
   }
 
+  /**
+   * Move to a row, clamped to the ends of the list. Clamping here rather than at each caller is
+   * what guarantees a row always holds the list's single Tab stop: a pointer off either end would
+   * leave the whole list unreachable by Tab.
+   */
   const point = (next: number): void => {
-    setPointedAt(next)
-    listRef.current?.querySelectorAll<HTMLElement>('.ix-session-row')[next]?.focus()
+    const target = Math.max(0, Math.min(next, sessions.length - 1))
+    setPointedAt(target)
+    listRef.current?.querySelectorAll<HTMLElement>('.ix-session-row')[target]?.focus()
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
@@ -36,11 +42,11 @@ export function SessionList() {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        point(Math.min(from + 1, sessions.length - 1))
+        point(from + 1)
         break
       case 'ArrowUp':
         e.preventDefault()
-        point(Math.max(from - 1, 0))
+        point(from - 1)
         break
       case 'Home':
         e.preventDefault()
@@ -53,8 +59,10 @@ export function SessionList() {
       case 'Enter':
         e.preventDefault()
         // The modifier picks the session up and carries it into a terminal; plain Enter reads it.
+        // Either way the session opens, because its transcript header is where a resume reports
+        // that it is still working.
+        void useSessionsStore.getState().select(sessions[from].id)
         if (e.metaKey || e.ctrlKey) useSessionsStore.getState().requestResume(sessions[from])
-        else void useSessionsStore.getState().select(sessions[from].id)
         break
       case ' ':
         e.preventDefault()

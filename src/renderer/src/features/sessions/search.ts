@@ -18,9 +18,10 @@ const PROMPT_PENALTY = 5
  * by characters picked from two different turns of the conversation.
  */
 export function scoreSession(query: string, session: SessionSummary): number | null {
-  let best = fuzzyScore(query, session.title)
+  const q = query.trim()
+  let best = fuzzyScore(q, session.title)
   for (const prompt of session.userPrompts) {
-    const score = fuzzyScore(query, prompt)
+    const score = fuzzyScore(q, prompt)
     if (score === null) continue
     const adjusted = score - PROMPT_PENALTY
     if (best === null || adjusted > best) best = adjusted
@@ -39,20 +40,24 @@ export interface PromptMatch {
  * shows why it survived the search. Falls back to the first prompt when the query matches none of
  * them - which happens when the session was kept on its title alone. Null when there are no
  * prompts to show at all.
+ *
+ * The query is trimmed exactly as the filter trims it, so a half-typed `importer ` on the way to a
+ * second word still highlights the word already typed instead of dropping the highlight entirely.
  */
 export function bestPromptMatch(query: string, prompts: readonly string[]): PromptMatch | null {
   if (prompts.length === 0) return null
-  if (query.trim() === '') return { text: prompts[0], indices: [] }
+  const q = query.trim()
+  if (q === '') return { text: prompts[0], indices: [] }
 
-  let bestText: string | null = null
+  let bestText = prompts[0]
   let best: FuzzyMatch | null = null
   for (const prompt of prompts) {
-    const match = fuzzyMatch(query, prompt)
+    const match = fuzzyMatch(q, prompt)
     if (match === null) continue
     if (best === null || match.score > best.score) {
       best = match
       bestText = prompt
     }
   }
-  return best && bestText !== null ? { text: bestText, indices: best.indices } : { text: prompts[0], indices: [] }
+  return { text: bestText, indices: best?.indices ?? [] }
 }

@@ -43,7 +43,10 @@ export function TranscriptViewer() {
   const summary = useSessionsStore((s) => s.all.find((x) => x.id === s.selectedId) ?? null)
   const transcript = useSessionsStore((s) => s.transcript)
   const transcriptStatus = useSessionsStore((s) => s.transcriptStatus)
-  const resuming = useSessionsStore((s) => s.resumingId !== null && s.resumingId === s.selectedId)
+  const resumingThis = useSessionsStore((s) => s.resumingId !== null && s.resumingId === s.selectedId)
+  // Resumes run one at a time, so the action stays blocked while any of them is under way rather
+  // than accepting a click the app layer would then quietly drop.
+  const resumeBusy = useSessionsStore((s) => s.resumingId !== null)
 
   if (!selectedId) {
     return (
@@ -75,11 +78,11 @@ export function TranscriptViewer() {
           <button
             type="button"
             className="ix-btn ix-btn--primary"
-            disabled={resuming}
+            disabled={resumeBusy}
             onClick={() => useSessionsStore.getState().requestResume(summary)}
           >
-            {resuming && <span className="ix-spinner" aria-hidden />}
-            {resuming ? 'Resuming…' : 'Resume'}
+            {resumingThis && <span className="ix-spinner" aria-hidden />}
+            {resumingThis ? 'Resuming…' : 'Resume'}
           </button>
         )}
       </div>

@@ -48,10 +48,14 @@ const SERVICE_BLOCKS = [
 const ANSI = /\u001b\[[0-9;?]*[a-zA-Z]|\u001b\][^\u0007]*\u0007/g
 
 /**
- * Reduce a stored message to what the user or the assistant actually said, dropping the service
- * text the harness wrapped around it and any terminal escape codes. Used for the title fallback,
- * the searchable prompt text and the transcript alike, so a `/model` invocation and the line it
- * printed never stand in for the real prompt.
+ * Reduce a stored user turn to what the user actually typed, dropping the service text the harness
+ * wrapped around it and any terminal escape codes. Used for the title fallback, the searchable
+ * prompt text and the transcript alike, so a `/model` invocation and the line it printed never
+ * stand in for the real prompt.
+ *
+ * Deliberately not applied to assistant turns: the harness never injects these tags there, so a
+ * match in an assistant message is the assistant discussing the tag, and removing it would delete
+ * the answer.
  */
 export function stripServiceNoise(text: string): string {
   let out = text

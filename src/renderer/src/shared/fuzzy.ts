@@ -55,9 +55,18 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   const earliest = scanFrom(q, t, 0)
   if (earliest === null) return null
   const whole = t.indexOf(q)
-  if (whole <= 0) return earliest
-  const contiguous = scanFrom(q, t, whole)
-  return contiguous !== null && contiguous.score > earliest.score ? contiguous : earliest
+  const best =
+    whole <= 0 ? earliest : pickBetter(earliest, scanFrom(q, t, whole))
+
+  // A handful of characters grow when lowercased, which shifts every position after them. The
+  // ranking is unaffected, but positions that no longer address the caller's own text would
+  // highlight the wrong characters, so say nothing rather than something wrong.
+  return t.length === text.length ? best : { score: best.score, indices: [] }
+}
+
+/** The better-scoring of two placements of the same query, preferring the first on a tie. */
+function pickBetter(earliest: FuzzyMatch, other: FuzzyMatch | null): FuzzyMatch {
+  return other !== null && other.score > earliest.score ? other : earliest
 }
 
 /**

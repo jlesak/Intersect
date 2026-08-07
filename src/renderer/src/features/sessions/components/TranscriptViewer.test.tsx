@@ -77,7 +77,7 @@ describe('TranscriptViewer resume action', () => {
     expect(useSessionsStore.getState().pendingResume?.id).toBe('s1')
   })
 
-  test('another session resuming leaves this one actionable', async () => {
+  test('another session resuming blocks this one, since the app layer runs them one at a time', async () => {
     useSessionsStore.setState({
       all: [summary],
       selectedId: 's1',
@@ -88,10 +88,11 @@ describe('TranscriptViewer resume action', () => {
       render(<TranscriptViewer />)
     })
 
-    expect(resumeButton().disabled).toBe(false)
+    // Blocked, but not mislabelled: it is the other session that is resuming, not this one.
+    expect(resumeButton().textContent).toBe('Resume')
     await act(async () => {
       fireEvent.click(resumeButton())
     })
-    expect(useSessionsStore.getState().pendingResume?.id).toBe('s1')
+    expect(useSessionsStore.getState().pendingResume).toBeNull()
   })
 })
