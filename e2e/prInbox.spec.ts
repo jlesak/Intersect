@@ -223,6 +223,28 @@ test('the diff carries its inline threads on a PR the user took straight to File
   await app.close()
 })
 
+test('a thread anchored past the end of the file says its position is a guess', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Extract the notification preferences' }).click()
+  await win.getByTestId('pr-tab-files').click()
+
+  // Monaco clamps an out-of-range anchor to the last line rather than refusing it, so the thread
+  // renders either way and only the badge distinguishes a real position from a clamped one.
+  await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
+  await expect(win.getByTestId('pr-thread')).toContainText('written against an older iteration')
+  await expect(win.getByTestId('pr-thread-stale-anchor')).toBeVisible()
+
+  // The same view, a thread whose line the file does reach: no warning.
+  await win.getByTestId('tree-file').filter({ hasText: 'queue.ts' }).first().click()
+  await expect(win.getByTestId('pr-thread')).toContainText('belongs in config')
+  await expect(win.getByTestId('pr-thread-stale-anchor')).toHaveCount(0)
+
+  await app.close()
+})
+
 test('collapsing a tree directory hides its files and shows the file count', async () => {
   const { app, win } = await launch('radar')
 

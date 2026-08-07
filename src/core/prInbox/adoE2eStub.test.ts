@@ -27,6 +27,7 @@ describe('adoE2eStub', () => {
 
   test('publishing adds a thread that later reads and syncs reflect', async () => {
     const stub = createAdoE2eStub({ INTERSECT_E2E_ADO: 'radar' })
+    const before = (await stub.syncMyPrs()).prs.find((p) => p.prId === 502)!.activeThreadCount
     const threadId = await stub.publishComment({
       repositoryId: 'e2e-repo',
       prId: 502,
@@ -38,7 +39,7 @@ describe('adoE2eStub', () => {
     expect(threads.map((t) => t.threadId)).toContain(threadId)
     // The new unresolved thread shows up in the PR's sync-time count.
     const { prs } = await stub.syncMyPrs()
-    expect(prs.find((p) => p.prId === 502)?.activeThreadCount).toBe(1)
+    expect(prs.find((p) => p.prId === 502)?.activeThreadCount).toBe(before + 1)
   })
 
   test('reply appends to the thread and resolve flips its status', async () => {

@@ -154,6 +154,41 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
           ]
         }
       ]
+    ],
+    [
+      // One thread anchored inside the canned two-line diff and one anchored well past its end, so
+      // the stale-anchor badge has both a case to fire on and a case to stay quiet on.
+      503,
+      [
+        {
+          threadId: 9010,
+          filePath: '/src/app/sync/queue.ts',
+          line: 2,
+          status: 'active',
+          isSystem: false,
+          comments: [
+            {
+              authorName: 'Tereza Nova',
+              body: 'The burst constant belongs in config.',
+              publishedAt: Date.now() - 1_800_000
+            }
+          ]
+        },
+        {
+          threadId: 9011,
+          filePath: '/src/app/sync/rateLimiter.ts',
+          line: 40,
+          status: 'active',
+          isSystem: false,
+          comments: [
+            {
+              authorName: 'Petr Vala',
+              body: 'This branch was written against an older iteration.',
+              publishedAt: Date.now() - 5_400_000
+            }
+          ]
+        }
+      ]
     ]
   ])
   let nextThreadId = 9100
