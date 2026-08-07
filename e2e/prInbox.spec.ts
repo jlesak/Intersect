@@ -147,6 +147,15 @@ test('the conversation leads with the description, laid out as the author typed 
   // can say whether it reached this element.
   expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('pre-wrap')
 
+  // The correlation id in that description is one unbroken run of characters wider than the box.
+  // Nothing may paint outside the border, and the pane it sits in may not have grown a sideways
+  // scroll to fit it.
+  const laidOut = await description.evaluate((el) => ({
+    overflows: el.scrollWidth > el.clientWidth,
+    paneOverflows: el.closest('.ix-overview')!.scrollWidth > el.closest('.ix-overview')!.clientWidth
+  }))
+  expect(laidOut).toEqual({ overflows: false, paneOverflows: false })
+
   // A PR nobody described gets no box rather than an empty one.
   await win.keyboard.press('Escape')
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()

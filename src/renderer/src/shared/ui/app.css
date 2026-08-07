@@ -1436,9 +1436,14 @@
 }
 /* The author's own explanation, shown as the text they typed. Azure DevOps stores it as markdown
    and nothing here renders markup, so the line breaks they used are the only structure that
-   survives - and losing those would run the whole description into one paragraph. */
+   survives - and losing those would run the whole description into one paragraph. A description is
+   also where a pasted id, hash or token lands, and such a run offers no character a line break may
+   fall on - a URL at least breaks at its slashes and ampersands, this does not. Left alone it
+   paints past the border and drags a horizontal scrollbar across the whole pane, so the box is
+   allowed to break inside a word when it has no other choice. */
 .ix-overview__description {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   max-width: 760px;
   margin: 6px 0 12px;
   padding: 10px 12px;

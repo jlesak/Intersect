@@ -26,6 +26,13 @@ const basePr = {
   lastActivityAt: 0
 }
 
+/**
+ * A pasted correlation id, the kind of thing that lands in a real description alongside a stack
+ * trace. It is one run of letters and digits with nothing a line break may fall on, and it is far
+ * wider than the description box - so the layout has to be willing to break inside it.
+ */
+const PASTED_TOKEN = 'a1b2c3d4e5f6'.repeat(16)
+
 function radarPrs(syncCount: number): PullRequest[] {
   const now = Date.now()
   return [
@@ -33,7 +40,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       ...basePr,
       prId: 501,
       title: 'Add rate limiting to the sync pipeline',
-      description: 'Caps the outbound sync at 25 requests a second.\n\n- token bucket per host\n- burst of 5',
+      description: `Caps the outbound sync at 25 requests a second.\n\n- token bucket per host\n- burst of 5\n\nRepro correlation id: ${PASTED_TOKEN}`,
       authorId: 'me',
       authorName: 'Jan Lesak',
       createdAt: now - 20 * 60_000,
