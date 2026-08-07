@@ -24,6 +24,12 @@ async function flipToggle(win: Page, label: string): Promise<void> {
 
 test('Settings opens from the footer rail with every category and the notification defaults', async () => {
   const { app, win } = await launch(userDataDir())
+
+  // Asserted here rather than in the shared opener: every other section reaches the rail through
+  // the same helper, and only Settings is pinned below the daily ones. Without this the section
+  // could drift up into the rail proper and every Settings test would still pass.
+  await expect(win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' })).toBeVisible()
+
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__nav-btn')).toHaveText([
