@@ -1,34 +1,5 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  // A fresh profile has no projects, so terminals live under the virtual Other context.
-  await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
-}
-
-async function addWorkspace(win: Page, app: ElectronApplication, dir: string): Promise<void> {
-  await app.evaluate(({ dialog }, folder) => {
-    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [folder]
-    })
-  }, dir)
-  await win.locator('.ix-add').click()
-  await win.locator('.ix-ws__rename').waitFor()
-  await win.keyboard.press('Enter')
-  await expect(win.locator('.ix-ws--active')).toBeVisible()
-}
+import { type ElectronApplication } from '@playwright/test'
+import { addWorkspace, expect, invokeMenu, launch, tempDir, test, userDataDir } from './harness'
 
 /**
  * Open the palette the way a user does. Cmd+K is owned by the native menu now - macOS resolves
@@ -37,16 +8,12 @@ async function addWorkspace(win: Page, app: ElectronApplication, dir: string): P
  * item exercises every step after the keystroke.
  */
 async function openPalette(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ Menu }) => {
-    Menu.getApplicationMenu()?.getMenuItemById('palette.open')?.click()
-  })
+  await invokeMenu(app, 'palette.open')
 }
 
 test('Cmd+K opens the palette; typing filters and Enter runs the command', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'palettews-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('palettews-'))
 
   // Open the palette and confirm it shows every registered command (workspaces/tabs/terminal +
   // the app-wide shortcut commands + the PR Review Inbox slice's prInbox.sync / prInbox.review +
@@ -76,10 +43,8 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
 })
 
 test('Escape closes the palette without running a command', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'palettews-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('palettews-'))
 
   await openPalette(app)
   await expect(win.locator('.ix-palette')).toBeVisible()
