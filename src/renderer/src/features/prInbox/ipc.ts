@@ -54,3 +54,4 @@ export const onReviewExit = (cb: (exitCode: number) => void): (() => void) =>
   ipc().prInbox.onReviewExit(cb)
 export const onDraftAdded = (cb: (draft: DraftComment) => void): (() => void) =>
   ipc().prInbox.onDraftAdded(cb)
+export const openExternal = (url: string): Promise<void> => ipc().system.openExternal(url)

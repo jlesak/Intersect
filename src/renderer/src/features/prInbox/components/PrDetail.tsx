@@ -118,6 +118,26 @@ export function PrDetail() {
           <span className="ix-pr-ref">{shortRef(pr.targetRefName)}</span>
         </div>
         <div className="ix-row" style={{ gap: 8, marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost"
+            data-testid="pr-open-external"
+            disabled={!pr.url}
+            title={pr.url ? undefined : 'Azure DevOps did not report a web link for this pull request.'}
+            onClick={() => usePrInboxStore.getState().openInBrowser()}
+          >
+            Open in Azure DevOps
+          </button>
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost"
+            data-testid="pr-copy-link"
+            disabled={!pr.url}
+            title={pr.url ? undefined : 'Azure DevOps did not report a web link for this pull request.'}
+            onClick={() => void usePrInboxStore.getState().copyLink()}
+          >
+            Copy PR link
+          </button>
           <PrVoteButtons pr={pr} />
           {!running ? (
             <button

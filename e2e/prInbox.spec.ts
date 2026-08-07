@@ -97,6 +97,29 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
   await app.close()
 })
 
+test('the detail header hands the PR to Azure DevOps and to the clipboard', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+
+  await expect(win.getByTestId('pr-open-external')).toBeEnabled()
+  // Copying writes the real system clipboard, so whatever the developer had in it is put back
+  // below rather than quietly lost to a test run.
+  const before = await app.evaluate(({ clipboard }) => clipboard.readText())
+  await win.getByTestId('pr-copy-link').click()
+
+  // Read back through the main process: this proves the link actually left the app, rather than
+  // only that a button exists.
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('https://devops/pr/501')
+  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), before)
+
+  await app.close()
+})
+
 test('the diff carries its inline threads on a PR the user took straight to Files', async () => {
   const { app, win } = await launch('radar')
 

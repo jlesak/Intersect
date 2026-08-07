@@ -555,6 +555,48 @@ describe('thread actions', () => {
   })
 })
 
+describe('header links to Azure DevOps', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': pr('r', 1, { url: 'https://devops/pr/1' }) },
+      order: ['r:1'],
+      selectedKey: 'r:1'
+    })
+  })
+
+  test('opening hands the PR web link to the system browser bridge', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    usePrInboxStore.getState().openInBrowser()
+    expect(mocked.openExternal).toHaveBeenCalledWith('https://devops/pr/1')
+  })
+
+  test('a browser that refuses to open reports it instead of vanishing', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocked.openExternal.mockRejectedValue(new Error('blocked'))
+    usePrInboxStore.getState().openInBrowser()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not open the pull request'))
+    error.mockRestore()
+  })
+
+  test('copying puts the PR web link on the clipboard', async () => {
+    await usePrInboxStore.getState().copyLink()
+    expect(clipboard.writeText).toHaveBeenCalledWith('https://devops/pr/1')
+  })
+
+  test('a PR whose web link Azure DevOps never gave us does neither', async () => {
+    usePrInboxStore.setState({ prsByKey: { 'r:1': pr('r', 1, { url: '' }) } })
+    usePrInboxStore.getState().openInBrowser()
+    await usePrInboxStore.getState().copyLink()
+    expect(mocked.openExternal).not.toHaveBeenCalled()
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+  })
+})
+
 describe('revealThread', () => {
   test('switches to files tab, opens the file, remembers the line', () => {
     mocked.getFileDiff.mockResolvedValue({

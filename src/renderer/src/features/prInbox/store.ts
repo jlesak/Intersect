@@ -117,6 +117,14 @@ interface PrInboxState {
   openDetail(repositoryId: string, prId: number): Promise<void>
   /** Back to the board (breadcrumb or Esc). */
   goBack(): void
+  /**
+   * Show the selected PR on Azure DevOps itself, for the parts of a review this app does not model
+   * (policies, work items, the full iteration history). Does nothing for a PR whose web link the
+   * server never gave us.
+   */
+  openInBrowser(): void
+  /** Put the selected PR's web link on the clipboard, to paste into a chat or a work item. */
+  copyLink(): Promise<void>
   setTab(tab: 'files' | 'overview'): void
   /** Fetch the selected PR's foreign threads once (idempotent). */
   loadThreads(): Promise<void>
@@ -345,6 +353,22 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => ({
 
   goBack() {
     set({ view: 'board', selectedKey: null, pendingReveal: null })
+  },
+
+  openInBrowser() {
+    const url = selectSelectedPr(get())?.url
+    if (!url) return
+    api.openExternal(url).catch((e) => reportError('Could not open the pull request', e))
+  },
+
+  async copyLink() {
+    const url = selectSelectedPr(get())?.url
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch (e) {
+      reportError('Could not copy the pull request link', e)
+    }
   },
 
   setTab(tab) {
