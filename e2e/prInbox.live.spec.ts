@@ -1,9 +1,4 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { expect, launch, tempDir, test } from './harness'
 
 /**
  * LIVE verification against the real on-prem Azure DevOps (needs VPN + INTERSECT_ADO_IDENTITY). Syncs
@@ -13,16 +8,16 @@ const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 test('live: sync real PRs and render a diff', async () => {
   test.skip(!process.env.INTERSECT_LIVE_E2E, 'live ADO test; run with INTERSECT_LIVE_E2E=1 on VPN')
   test.setTimeout(240_000)
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-live-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
+  // Blanking INTERSECT_E2E is what leaves anything here worth verifying: the core answers every
+  // Azure DevOps call from canned fixtures when it reads exactly '1', and this is the one test that
+  // must reach the real server. Credentials come from the real home directory, which stays as it is.
+  const { app, win } = await launch(tempDir('intersect-live-'), {
     env: {
-      ...process.env,
-      INTERSECT_ADO_IDENTITY: process.env.INTERSECT_ADO_IDENTITY || '6dc11d09-387d-4a25-8699-0dc709e21280'
+      INTERSECT_E2E: '',
+      INTERSECT_ADO_IDENTITY:
+        process.env.INTERSECT_ADO_IDENTITY || '6dc11d09-387d-4a25-8699-0dc709e21280'
     }
   })
-  const win = await app.firstWindow()
-  await win.locator('.ix-wordmark__name').waitFor()
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
 
   // Sync against real ADO.
