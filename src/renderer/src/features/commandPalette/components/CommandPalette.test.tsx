@@ -1,6 +1,10 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
+  __resetCaptureRegistryForTests,
+  registerCapture
+} from '@renderer/shared/registries/captureRegistry'
+import {
   __resetCommandRegistryForTests,
   registerCommand
 } from '@renderer/shared/registries/commandRegistry'
@@ -15,12 +19,14 @@ import { CommandPalette } from './CommandPalette'
 describe('CommandPalette', () => {
   beforeEach(() => {
     __resetCommandRegistryForTests()
-    useCommandPaletteStore.setState({ open: false }, false)
+    __resetCaptureRegistryForTests()
+    useCommandPaletteStore.setState({ open: false, recentIds: [] }, false)
   })
 
   afterEach(() => {
     __resetCommandRegistryForTests()
-    useCommandPaletteStore.setState({ open: false }, false)
+    __resetCaptureRegistryForTests()
+    useCommandPaletteStore.setState({ open: false, recentIds: [] }, false)
   })
 
   const titles = (): (string | null)[] =>
@@ -194,6 +200,89 @@ describe('CommandPalette', () => {
     expect(activeTitle()).toBe('Second')
     await press('Enter')
     expect(ran).toEqual(['second'])
+  })
+
+  describe('quick capture', () => {
+    const captured: string[] = []
+
+    const type = async (value: string): Promise<void> => {
+      const input = document.querySelector('.ix-palette__input')!
+      await act(async () => {
+        fireEvent.change(input, { target: { value } })
+      })
+    }
+
+    beforeEach(() => {
+      captured.length = 0
+      registerCapture({
+        prefix: 'todo:',
+        hint: 'Add a task',
+        preview: (rest) => (rest === '' ? null : `Add task "${rest}"`),
+        run: (rest) => void captured.push(rest)
+      })
+    })
+
+    test('the prefix alone shows the capture hint and lists no commands', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await type('todo:')
+
+      expect(document.querySelector('.ix-palette__capture-hint')?.textContent).toBe('Add a task')
+      expect(titles()).toEqual([])
+    })
+
+    test('Enter on the prefix alone captures nothing and leaves the palette open', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await type('todo:')
+      await press('Enter')
+
+      expect(captured).toEqual([])
+      expect(useCommandPaletteStore.getState().open).toBe(true)
+    })
+
+    test('text after the prefix previews what would happen, and Enter does it', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await type('todo: call the vendor tomorrow')
+
+      expect(titles()).toEqual(['Add task "call the vendor tomorrow"'])
+
+      await press('Enter')
+      expect(captured).toEqual(['call the vendor tomorrow'])
+      expect(useCommandPaletteStore.getState().open).toBe(false)
+    })
+
+    test('a capture query never runs a command that happens to match its text', async () => {
+      const ran: string[] = []
+      await openWith({ id: 'tabs.next', title: 'todo next', handler: () => void ran.push('cmd') })
+      await type('todo: next')
+      await press('Enter')
+
+      expect(ran).toEqual([])
+      expect(captured).toEqual(['next'])
+    })
+
+    test('clicking the previewed capture runs it too', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await type('todo: buy milk')
+      await act(async () => {
+        fireEvent.click(document.querySelector('.ix-palette__capture .ix-palette__item')!)
+      })
+
+      expect(captured).toEqual(['buy milk'])
+    })
+
+    test('the registered prefixes are advertised so the syntax is findable', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      expect(document.querySelector('.ix-palette__prefixes')?.textContent).toContain('todo:')
+    })
+
+    test('backing out of the prefix returns to searching commands', async () => {
+      await openWith({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await type('todo: x')
+      expect(titles()).toEqual(['Add task "x"'])
+
+      await type('next')
+      expect(titles()).toEqual(['Next Tab'])
+    })
   })
 
   test('mounts and settles without a render loop', async () => {

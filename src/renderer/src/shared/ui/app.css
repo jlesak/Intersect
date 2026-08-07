@@ -621,6 +621,20 @@
   color: var(--text-dim);
   font-size: 13px;
 }
+.ix-palette__capture {
+  padding: 6px;
+}
+.ix-palette__capture-hint {
+  display: block;
+  padding: 16px 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.ix-palette__prefixes {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: pre;
+}
 .ix-palette__legend {
   display: flex;
   gap: 16px;

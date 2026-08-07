@@ -86,7 +86,7 @@ const WEEKEND_NAMES: Record<number, string> = { 0: 'Sunday', 6: 'Saturday' }
  * believing their time was lost. The day is never moved to fake a weekday - a worklog that invents
  * dates is worse than one with a gap.
  */
-export function loggedEntryNotice(entry: TimeEntry): string | null {
+export function loggedEntryNotice(entry: Pick<TimeEntry, 'day' | 'durationMs'>): string | null {
   const dayName = WEEKEND_NAMES[dateOfDayKey(entry.day).getDay()]
   if (!dayName) return null
   return `${formatTotal(entry.durationMs)} logged to ${dayName} ${formatDayDate(entry.day)}. The weekday board does not show weekend days.`

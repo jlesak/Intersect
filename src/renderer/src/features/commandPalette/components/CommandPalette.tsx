@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { formatAccelerator, shortcutActionFor } from '@common/shortcuts'
+import { getCaptures, matchCapture } from '@renderer/shared/registries/captureRegistry'
 import {
   getAllCommands,
   isCommandEnabled,
@@ -33,7 +34,15 @@ export function CommandPalette() {
   // Snapshot the registry when the palette opens; command registration happens once at startup, so
   // the set is stable while it is open.
   const [commands, setCommands] = useState<Command[]>([])
-  const results = useMemo(() => filterCommands(query, commands), [query, commands])
+  // A query claimed by a capture prefix stops being a search: the palette is now a one-line form
+  // for that slice, and listing commands underneath would only invite Enter to run the wrong one.
+  const capturing = useMemo(() => matchCapture(query), [query])
+  const capturePreview = capturing?.capture.preview(capturing.rest) ?? null
+
+  const results = useMemo(
+    () => (capturing ? [] : filterCommands(query, commands)),
+    [capturing, query, commands]
+  )
   const sections = useMemo(
     () => paletteSections(results, query, recentIds),
     [results, query, recentIds]
@@ -96,9 +105,21 @@ export function CommandPalette() {
     void command.handler()
   }
 
+  /** Perform the capture the query names, if it has been given enough to act on. */
+  function runCapture(): void {
+    if (!capturing || capturePreview === null) return
+    close()
+    void capturing.capture.run(capturing.rest)
+  }
+
   function onInputKeyDown(e: KeyboardEvent<HTMLInputElement>): void {
     if (e.key === 'Escape') {
       close()
+    } else if (capturing) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        runCapture()
+      }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       setSelected(nextRunnable(selected + 1, 1))
@@ -141,7 +162,22 @@ export function CommandPalette() {
           />
         </div>
 
-        {rows.length === 0 ? (
+        {capturing ? (
+          <div className="ix-palette__capture">
+            {capturePreview === null ? (
+              <span className="ix-palette__capture-hint">{capturing.capture.hint}</span>
+            ) : (
+              <button
+                type="button"
+                className="ix-palette__item ix-palette__item--active"
+                onClick={runCapture}
+              >
+                <span className="ix-palette__title">{capturePreview}</span>
+                <span className="ix-palette__ns">{capturing.capture.prefix}</span>
+              </button>
+            )}
+          </div>
+        ) : rows.length === 0 ? (
           <div className="ix-palette__empty">No commands match "{query.trim()}"</div>
         ) : (
           <div ref={listRef} id="ix-palette-list" className="ix-palette__list" role="listbox">
@@ -185,6 +221,11 @@ export function CommandPalette() {
         )}
 
         <div className="ix-palette__legend">
+          <span className="ix-palette__prefixes">
+            {getCaptures()
+              .map((capture) => capture.prefix)
+              .join('  ')}
+          </span>
           <span>
             <kbd className="ix-kbd">↑</kbd>
             <kbd className="ix-kbd">↓</kbd> navigate
