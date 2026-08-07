@@ -1,48 +1,5 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  // A fresh profile has no projects, so terminals live under the virtual Other context.
-  await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
-}
-
-async function addWorkspace(win: Page, app: ElectronApplication, dir: string): Promise<void> {
-  await app.evaluate(({ dialog }, folder) => {
-    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [folder]
-    })
-  }, dir)
-  await win.locator('.ix-add').click()
-  await win.locator('.ix-ws__rename').waitFor()
-  await win.keyboard.press('Enter')
-  await expect(win.locator('.ix-ws--active')).toBeVisible()
-}
-
-/**
- * Fire a real application-menu item by its command id. Playwright cannot deliver an OS-level
- * accelerator, so activating the item itself is the closest reachable equivalent: everything
- * downstream of the keystroke - the menu wiring, the IPC hop and the renderer's dispatch - runs
- * exactly as it does for a user pressing the key.
- */
-async function invokeMenuItem(app: ElectronApplication, id: string): Promise<void> {
-  await app.evaluate(({ Menu }, itemId) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId)
-    if (!item) throw new Error(`no application menu item with id "${itemId}"`)
-    item.click()
-  }, id)
-}
+import { type ElectronApplication } from '@playwright/test'
+import { addWorkspace, expect, invokeMenu, launch, tempDir, test, userDataDir } from './harness'
 
 /** Every command id the menu exposes, gathered depth-first so submenu items are included. */
 async function menuItemIds(app: ElectronApplication): Promise<string[]> {
@@ -61,8 +18,7 @@ async function menuItemIds(app: ElectronApplication): Promise<string[]> {
 }
 
 test('the application menu exposes every mapped shortcut with its accelerator', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app } = await launch(userDataDir)
+  const { app } = await launch(userDataDir(), { openOther: true })
 
   const ids = await menuItemIds(app)
   for (const id of [
@@ -107,8 +63,7 @@ test('the application menu exposes every mapped shortcut with its accelerator', 
  * means one of the two keys silently does the wrong thing.
  */
 test('no two menu items anywhere claim the same accelerator', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app } = await launch(userDataDir)
+  const { app } = await launch(userDataDir(), { openOther: true })
 
   const accelerators = await app.evaluate(({ Menu }) => {
     const found: string[] = []
@@ -131,10 +86,9 @@ test('no two menu items anywhere claim the same accelerator', async () => {
 })
 
 test('the Command Palette menu item opens and the palette shows its shortcut hint', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
 
-  await invokeMenuItem(app, 'palette.open')
+  await invokeMenu(app, 'palette.open')
   await expect(win.locator('.ix-palette')).toBeVisible()
 
   // The hint proves the palette reads the same shortcut map the menu was built from.
@@ -145,53 +99,48 @@ test('the Command Palette menu item opens and the palette shows its shortcut hin
   await win.locator('.ix-palette__input').fill('tab 4')
   await expect(win.locator('.ix-palette__item')).toHaveCount(0)
 
-  await invokeMenuItem(app, 'palette.open')
+  await invokeMenu(app, 'palette.open')
   await expect(win.locator('.ix-palette')).toHaveCount(0)
 
   await app.close()
 })
 
 test('Toggle Sidebar collapses the shell to its icon rail and back', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
 
   await expect(win.locator('.ix-app--rail')).toHaveCount(0)
-  await invokeMenuItem(app, 'shell.toggleSidebar')
+  await invokeMenu(app, 'shell.toggleSidebar')
   await expect(win.locator('.ix-app--rail')).toHaveCount(1)
-  await invokeMenuItem(app, 'shell.toggleSidebar')
+  await invokeMenu(app, 'shell.toggleSidebar')
   await expect(win.locator('.ix-app--rail')).toHaveCount(0)
 
   await app.close()
 })
 
 test('New Tab opens the last-used preset, and Close Tab closes it', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'shortcutws-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('shortcutws-'))
 
   // Nothing has been opened yet, so the remembered preset is still the Shell default.
-  await invokeMenuItem(app, 'tabs.new')
+  await invokeMenu(app, 'tabs.new')
   await expect(win.locator('.ix-tab')).toHaveCount(1)
   await expect(win.locator('.ix-tab__title')).toHaveText('Shell')
 
-  await invokeMenuItem(app, 'tabs.new')
+  await invokeMenu(app, 'tabs.new')
   await expect(win.locator('.ix-tab')).toHaveCount(2)
 
-  await invokeMenuItem(app, 'tabs.close')
+  await invokeMenu(app, 'tabs.close')
   await expect(win.locator('.ix-tab')).toHaveCount(1)
 
   await app.close()
 })
 
 test('Close Tab is a no-op when no tab is open', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'shortcutws-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('shortcutws-'))
 
   await expect(win.locator('.ix-tab')).toHaveCount(0)
-  await invokeMenuItem(app, 'tabs.close')
+  await invokeMenu(app, 'tabs.close')
   // Still nothing, and the window is still alive - the shell is what must not disappear here.
   await expect(win.locator('.ix-tab')).toHaveCount(0)
   await expect(win.locator('.ix-wordmark__name')).toBeVisible()
@@ -200,12 +149,10 @@ test('Close Tab is a no-op when no tab is open', async () => {
 })
 
 test('New Tab with Preset opens the preset picker', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'shortcutws-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('shortcutws-'))
 
-  await invokeMenuItem(app, 'tabs.newWithPreset')
+  await invokeMenu(app, 'tabs.newWithPreset')
   await expect(win.locator('.ix-presets')).toBeVisible()
   await win.locator('.ix-preset', { hasText: 'Shell' }).click()
   await expect(win.locator('.ix-tab')).toHaveCount(1)
@@ -214,23 +161,21 @@ test('New Tab with Preset opens the preset picker', async () => {
 })
 
 test('Go to Tab jumps by position and Next Tab cycles', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const wsDir = mkdtempSync(join(tmpdir(), 'shortcutws-'))
-  const { app, win } = await launch(userDataDir)
-  await addWorkspace(win, app, wsDir)
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('shortcutws-'))
 
-  for (let n = 0; n < 3; n += 1) await invokeMenuItem(app, 'tabs.new')
+  for (let n = 0; n < 3; n += 1) await invokeMenu(app, 'tabs.new')
   await expect(win.locator('.ix-tab')).toHaveCount(3)
 
-  await invokeMenuItem(app, 'tabs.jump.1')
+  await invokeMenu(app, 'tabs.jump.1')
   await expect(win.locator('.ix-tab').nth(0)).toHaveClass(/ix-tab--active/)
 
   // A position past the end lands on the last tab rather than doing nothing.
-  await invokeMenuItem(app, 'tabs.jump.9')
+  await invokeMenu(app, 'tabs.jump.9')
   await expect(win.locator('.ix-tab').nth(2)).toHaveClass(/ix-tab--active/)
 
   // Next wraps from the last tab back to the first.
-  await invokeMenuItem(app, 'tabs.next')
+  await invokeMenu(app, 'tabs.next')
   await expect(win.locator('.ix-tab').nth(0)).toHaveClass(/ix-tab--active/)
 
   await app.close()

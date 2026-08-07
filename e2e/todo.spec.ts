@@ -1,9 +1,5 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type Locator, type Page } from '@playwright/test'
+import { expect, launch, openRailSection, test, userDataDir } from './harness'
 
 /** The local `yyyy-mm-dd` day key of a Date (mirrors the app's local-calendar due days). */
 function dayKey(d: Date): string {
@@ -17,19 +13,8 @@ function dayFromToday(offset: number): string {
   return dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset))
 }
 
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  return { app, win }
-}
-
 async function openTodo(win: Page): Promise<void> {
-  await win.locator('.ix-rail__btn', { hasText: 'TODO' }).click()
-  await win.locator('.ix-todo').waitFor()
+  await openRailSection(win, 'TODO', '.ix-todo')
 }
 
 // Only the main list's rows sit directly under .ix-todo; the Done drawer's rows are nested in it.
@@ -63,8 +48,7 @@ async function dragRowAbove(win: Page, row: Locator, target: Locator): Promise<v
 }
 
 test('adds tasks with Enter, with optional due dates, and marks overdue ones', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openTodo(win)
 
   // Fresh profile: empty state, no done tasks.
@@ -102,8 +86,7 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
 })
 
 test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openTodo(win)
   await addTask(win, 'draft')
 
@@ -124,8 +107,7 @@ test('inline edit keeps text, description, and optional due date without exposin
 })
 
 test('checking hides a task in the Done drawer and unchecking returns it to the end', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openTodo(win)
 
   await addTask(win, 'alpha')
@@ -160,8 +142,7 @@ test('checking hides a task in the Done drawer and unchecking returns it to the 
 })
 
 test('delete works from the main list and from the Done drawer', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openTodo(win)
 
   await addTask(win, 'keep me')
@@ -187,8 +168,8 @@ test('delete works from the main list and from the Done drawer', async () => {
 })
 
 test('pointer and keyboard reorder persist across renderer reload and app restart', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const first = await launch(userDataDir)
+  const profileDir = userDataDir()
+  const first = await launch(profileDir)
   await openTodo(first.win)
 
   await addTask(first.win, 'first')
@@ -233,7 +214,7 @@ test('pointer and keyboard reorder persist across renderer reload and app restar
   ])
   await first.app.close()
 
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir)
   await openTodo(second.win)
   await expect(openRows(second.win).locator('.ix-todo-item__text')).toHaveText([
     'second',

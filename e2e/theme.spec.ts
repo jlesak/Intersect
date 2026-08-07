@@ -1,19 +1,9 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { expect, launch, test, userDataDir } from './harness'
 
 // Guards the approved design tokens: slate background, cyan accent, 14px base typography.
 test('applies the Design 2.0 slate+cyan theme tokens at runtime', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-theme-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
+  const { app, win } = await launch(userDataDir())
 
   const tokens = await win.evaluate(() => {
     const cs = getComputedStyle(document.documentElement)

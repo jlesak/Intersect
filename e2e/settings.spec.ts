@@ -1,24 +1,17 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  return { app, win }
-}
+import { type Page } from '@playwright/test'
+import {
+  expect,
+  launch,
+  openRailSection,
+  stubFolderPick,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 /** Open the Settings section via its footer rail button (pinned below the daily sections). */
 async function openSettings(win: Page): Promise<void> {
-  await win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' }).click()
-  await win.locator('.ix-settings').waitFor()
+  await openRailSection(win, 'Settings', '.ix-settings')
 }
 
 /** Click a settings toggle by its accessible name (the input itself is visually hidden). */
@@ -30,8 +23,13 @@ async function flipToggle(win: Page, label: string): Promise<void> {
 }
 
 test('Settings opens from the footer rail with every category and the notification defaults', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
+
+  // Asserted here rather than in the shared opener: every other section reaches the rail through
+  // the same helper, and only Settings is pinned below the daily ones. Without this the section
+  // could drift up into the rail proper and every Settings test would still pass.
+  await expect(win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' })).toBeVisible()
+
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__nav-btn')).toHaveText([
@@ -62,8 +60,7 @@ test('Settings opens from the footer rail with every category and the notificati
 })
 
 test('only the active category pane is in the DOM', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
@@ -81,17 +78,11 @@ test('only the active category pane is in the DOM', async () => {
  * the way out - anything else silently discards what the user just typed.
  */
 test('a project name typed but not blurred survives switching category', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const projectDir = mkdtempSync(join(tmpdir(), 'settingsproj-'))
-  const { app, win } = await launch(userDataDir)
+  const projectDir = tempDir('settingsproj-')
+  const { app, win } = await launch(userDataDir())
   await openSettings(win)
 
-  await app.evaluate(({ dialog }, folder) => {
-    ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [folder]
-    })
-  }, projectDir)
+  await stubFolderPick(app, projectDir)
   await win.getByRole('button', { name: 'Nový projekt (vybrat složku)' }).click()
 
   const name = win.locator('input[id^="ix-proj-name-"]')
@@ -106,8 +97,7 @@ test('a project name typed but not blurred survives switching category', async (
 })
 
 test('switching categories never loses the typed ADO values, and the shortcuts table is read-only', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -130,8 +120,7 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
 })
 
 test('test connection reports the authenticated user inline', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { app, win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -148,9 +137,9 @@ test('test connection reports the authenticated user inline', async () => {
 })
 
 test('notification, ADO, PR-review prompt, and font-size changes survive a relaunch', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const profileDir = userDataDir()
   const reviewPrompt = '  Review this pull request in English.\n\nKeep this exact spacing.  \n'
-  const first = await launch(userDataDir)
+  const first = await launch(profileDir)
   await openSettings(first.win)
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
@@ -171,7 +160,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   await first.app.close()
 
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir)
   await openSettings(second.win)
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await expect(second.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()

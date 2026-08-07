@@ -1,22 +1,13 @@
-import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, launch, openRailSection, test, userDataDir } from './harness'
 
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 const EVIDENCE = process.env.EVIDENCE_DIR ?? tmpdir()
 
 test('capture PR Review settings pane (default, edited, reset)', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-shot-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
+  const { app, win } = await launch(userDataDir())
 
-  await win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' }).click()
-  await win.locator('.ix-settings').waitFor()
+  await openRailSection(win, 'Settings', '.ix-settings')
   await win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
 
   // Default built-in prompt is shown.

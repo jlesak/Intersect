@@ -1,10 +1,12 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { connectedAdo } from './harness'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  connectedAdo,
+  expect,
+  launch as launchApp,
+  openRailSection,
+  test,
+  userDataDir
+} from './harness'
 
 /**
  * Launch the app with the stubbed My Work backends in the given modes (see jiraE2eStub / adoE2eStub).
@@ -13,20 +15,19 @@ const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
  * runs only where Azure DevOps is reachable, so a machine without credentials would leave the radar
  * empty and every assertion about it meaningless. Saying so here is what keeps that independent of
  * whose laptop runs the suite.
+ *
+ * The profile directory is returned so a test can relaunch into the same one and assert what the
+ * first run persisted. Defaulting it here rather than at the call site is safe because a default
+ * parameter is evaluated on each call, inside the test, where the harness drains what it creates.
  */
 async function launch(
   env: Record<string, string>,
-  userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-): Promise<{ app: ElectronApplication; win: Page; userDataDir: string }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', ...connectedAdo(), ...env }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
+  profileDir = userDataDir()
+): Promise<{ app: ElectronApplication; win: Page; profileDir: string }> {
+  const { app, win } = await launchApp(profileDir, { env: { ...connectedAdo(), ...env } })
   // Boot lands on Claude Code, not My Work; switch to the section these tests exercise.
-  await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
-  return { app, win, userDataDir }
+  await openRailSection(win, 'My Work', '.ix-mywork')
+  return { app, win, profileDir }
 }
 
 test('with no saved session, My Work offers the login without opening it, and a click loads the board', async () => {
@@ -83,7 +84,7 @@ test('the persisted board renders instantly on the next boot, even when the fres
   await first.app.close()
 
   // Second run in the same profile: the fetch now fails, but the persisted board still shows.
-  const second = await launch({ INTERSECT_E2E_JIRA: 'error' }, first.userDataDir)
+  const second = await launch({ INTERSECT_E2E_JIRA: 'error' }, first.profileDir)
   await expect(second.win.locator('.ix-mw-card2')).toHaveCount(3)
   await expect(second.win.locator('.ix-mywork__subtitle')).toContainText(/Last refreshed|Refreshing/)
   await expect(second.win.locator('.ix-mw-error')).toHaveCount(0)

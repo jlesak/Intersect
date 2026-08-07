@@ -1,10 +1,12 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { unconfiguredAdo } from './harness'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  expect,
+  launch as launchApp,
+  openRailSection,
+  test,
+  unconfiguredAdo,
+  userDataDir
+} from './harness'
 
 /**
  * Launch the app; `ado: 'radar'` boots against the stubbed ADO backend with canned PRs.
@@ -14,39 +16,32 @@ const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
  * do it with - so inheriting the developer's credentials would make a Sync click below the second
  * sync on one laptop and the first on another.
  */
-async function launch(ado?: 'radar'): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: {
-      ...process.env,
-      INTERSECT_E2E: '1',
-      ...unconfiguredAdo(),
-      ...(ado ? { INTERSECT_E2E_ADO: ado } : {})
-    }
+async function launch(
+  ado?: 'radar'
+): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
+  return launchApp(userDataDir(), {
+    env: { ...unconfiguredAdo(), ...(ado ? { INTERSECT_E2E_ADO: ado } : {}) }
   })
-  const win = await app.firstWindow()
-  const errors: string[] = []
-  win.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text())
-  })
-  win.on('pageerror', (e) => errors.push(e.message))
-  await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
-  return { app, win, errors }
+}
+
+/** Open PR Review and wait for the board head, which is up whether or not the board has cards. */
+async function openPrReview(win: Page): Promise<void> {
+  await openRailSection(win, 'PR Review', '.ix-board-head')
 }
 
 test('PR Review section renders the empty board and switches back without errors', async () => {
   const { app, win, errors } = await launch()
 
-  const prRail = win.locator('.ix-rail__btn', { hasText: 'PR Review' })
-  await expect(prRail).toBeVisible()
-  await prRail.click()
+  await expect(win.locator('.ix-rail__btn', { hasText: 'PR Review' })).toBeVisible()
+  await openPrReview(win)
 
   // The board (main area) shows the Sync control and the empty state; the sidebar has no PR list.
   await expect(win.getByTestId('pr-sync')).toBeVisible()
   await expect(win.locator('.ix-empty__hint')).toContainText('Sync to load your pull requests')
 
-  await win.locator('.ix-rail__btn--other').click()
+  // Both empty states render .ix-empty__title, so the wait is on Other becoming the active
+  // destination - the assertion alone cannot tell the board we left from the one we arrived at.
+  await openRailSection(win, 'Other', '.ix-rail__btn--other.ix-rail__btn--active')
   await expect(win.locator('.ix-empty__title')).toBeVisible()
 
   await app.close()
@@ -56,7 +51,7 @@ test('PR Review section renders the empty board and switches back without errors
 test('board shows PRs in action columns after sync, with the rail badge counting my actions', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
 
   // PR 502 (reviewer, no vote) and PR 501 (author, 1 unresolved thread) need my action;
@@ -72,7 +67,7 @@ test('board shows PRs in action columns after sync, with the rail badge counting
 test('opening a card shows the detail with the file tree; Escape returns to the board', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
 
@@ -90,7 +85,7 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
 test('collapsing a tree directory hides its files and shows the file count', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
 
@@ -110,7 +105,7 @@ test('collapsing a tree directory hides its files and shows the file count', asy
 test('overview lists threads, hides system messages, and resolve moves a thread out of Active', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   // PR 501 carries one real active thread plus one system thread (hidden everywhere).
   await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
@@ -131,7 +126,7 @@ test('overview lists threads, hides system messages, and resolve moves a thread 
 test('replying appends to the thread immediately', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
   await win.getByTestId('pr-tab-overview').click()
@@ -149,7 +144,7 @@ test('replying appends to the thread immediately', async () => {
 test('a PR-level comment publishes from the overview composer', async () => {
   const { app, win } = await launch('radar')
 
-  await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
+  await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
   await win.getByTestId('pr-tab-overview').click()
