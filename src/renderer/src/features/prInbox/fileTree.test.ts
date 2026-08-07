@@ -2,10 +2,17 @@ import { describe, expect, test } from 'vitest'
 import type { PrChangeFile } from '@common/domain'
 import { buildFileTree, fileCount } from './fileTree'
 
-const f = (path: string, changeType: PrChangeFile['changeType'] = 'edit'): PrChangeFile => ({
+const f = (
+  path: string,
+  changeType: PrChangeFile['changeType'] = 'edit',
+  added = 0,
+  removed = 0
+): PrChangeFile => ({
   path,
   changeType,
-  originalPath: null
+  originalPath: null,
+  added,
+  removed
 })
 
 describe('buildFileTree', () => {
@@ -35,6 +42,11 @@ describe('buildFileTree', () => {
   test('attaches unresolved comment counts by path', () => {
     const tree = buildFileTree([f('/src/a.ts')], new Map([['/src/a.ts', 2]]))
     expect(tree.dirs[0].files[0].commentCount).toBe(2)
+  })
+
+  test('carries the added and removed line counts through to each file row', () => {
+    const tree = buildFileTree([f('/src/a.ts', 'edit', 12, 3)], new Map())
+    expect(tree.dirs[0].files[0]).toMatchObject({ added: 12, removed: 3 })
   })
 
   test('fileCount counts files recursively', () => {

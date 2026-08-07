@@ -91,10 +91,10 @@ export function createLocalDiffE2eStub(env: NodeJS.ProcessEnv): LocalDiffService
   const changes: PrChangeFile[] =
     mode === 'radar'
       ? [
-          { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null },
-          { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null },
-          { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null },
-          { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null }
+          { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null, added: 42, removed: 9 },
+          { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null, added: 7, removed: 3 },
+          { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null, added: 18, removed: 0 },
+          { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null, added: 61, removed: 2 }
         ]
       : []
   return {

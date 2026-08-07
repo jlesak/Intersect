@@ -1013,6 +1013,13 @@
   min-width: 0;
   overflow: hidden;
 }
+.ix-pr-header__size {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 .ix-pr-ref {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1265,6 +1272,24 @@
   flex: none;
   font-size: 10px;
   color: var(--text-faint);
+}
+.ix-tree__lines {
+  flex: none;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+/* The comment badge already carries the auto margin that pushes the row's tail right, and two
+   auto margins in one flex row would share the slack and strand both in the middle instead. */
+.ix-tree__node:not(:has(.ix-tree__count)) .ix-tree__lines {
+  margin-left: auto;
+}
+.ix-lines-added {
+  color: #8fce9b;
+}
+.ix-lines-removed {
+  color: var(--danger);
 }
 
 /* ---------------- PR review: diff view zones (threads, drafts, composer) ---------------- */

@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
 import { git } from './git'
-import { createLocalDiffService, localChanges, localFileDiff } from './localDiff'
+import { createLocalDiffService, localChanges, localFileDiff, parseNumstat } from './localDiff'
 
 /**
  * A throwaway repo with a base commit, a target branch that diverges with its own change, and a
@@ -25,6 +25,10 @@ async function makeRepo(): Promise<{
   await writeFile(join(dir, 'a.txt'), 'alpha\n')
   await writeFile(join(dir, 'keep.txt'), 'keep\n')
   await writeFile(join(dir, 'gone.txt'), 'gone\n')
+  await mkdir(join(dir, 'nested', 'deep'), { recursive: true })
+  await writeFile(join(dir, 'nested', 'deep', 'old.txt'), 'n1\nn2\nn3\nn4\nn5\n')
+  await mkdir(join(dir, 'pkg', 'a'), { recursive: true })
+  await writeFile(join(dir, 'pkg', 'a', 'mod.txt'), 'p1\np2\np3\np4\n')
   await git(dir, ['add', '-A'])
   await git(dir, ['commit', '-q', '-m', 'base'])
   const base = await git(dir, ['rev-parse', 'HEAD'])
@@ -42,7 +46,14 @@ async function makeRepo(): Promise<{
   await writeFile(join(dir, 'a.txt'), 'alpha edited\n') // edit
   await writeFile(join(dir, 'added.txt'), 'new\n') // add
   await rm(join(dir, 'gone.txt')) // delete
-  await git(dir, ['mv', 'keep.txt', 'renamed.txt']) // rename
+  await git(dir, ['mv', 'keep.txt', 'renamed.txt']) // rename, root level, content untouched
+  // Renames whose counts `--numstat` reports under a brace-compressed path rather than the plain
+  // path `--name-status` gives, both edited so a merge that failed to join would read as 0 / 0.
+  await git(dir, ['mv', 'nested/deep/old.txt', 'nested/deep/new.txt']) // nested/deep/{old => new}
+  await writeFile(join(dir, 'nested', 'deep', 'new.txt'), 'n1\nn2\nn3\nn4\nEDITED\n')
+  await mkdir(join(dir, 'pkg', 'b'), { recursive: true })
+  await git(dir, ['mv', 'pkg/a/mod.txt', 'pkg/b/mod.txt']) // pkg/{a => b}/mod.txt
+  await writeFile(join(dir, 'pkg', 'b', 'mod.txt'), 'p1\np2\np3\np4\np5\np6\n')
   await writeFile(join(dir, 'bin.dat'), Buffer.from([0x68, 0x00, 0x69])) // binary (NUL)
   await writeFile(join(dir, 'big.txt'), 'x'.repeat(600 * 1024)) // over MAX_DIFF_BYTES
   await writeFile(join(dir, 'přílöha.txt'), 'diakritika\n') // non-ASCII path (core.quotePath)
@@ -52,6 +63,74 @@ async function makeRepo(): Promise<{
 
   return { dir, target, source }
 }
+
+/**
+ * Every shape `git diff --numstat -M` was observed to emit for this invocation. The rename forms
+ * are the ones that matter: `--numstat` names a rename by a compressed old-to-new path while
+ * `--name-status` names it by two plain ones, so the key the merge joins on has to be rebuilt.
+ */
+describe('parseNumstat', () => {
+  test('counts an ordinary file under its Azure DevOps-shaped path', () => {
+    expect(parseNumstat('12\t3\tsrc/app/queue.ts\n')).toEqual(
+      new Map([['/src/app/queue.ts', { added: 12, removed: 3 }]])
+    )
+  })
+
+  test('a binary file counts as no lines at all rather than as NaN', () => {
+    // git reports no line counts for a binary file, and a size summary that says NaN is worse
+    // than one that leaves the file out of its arithmetic.
+    expect(parseNumstat('-\t-\tassets/logo.png\n')).toEqual(
+      new Map([['/assets/logo.png', { added: 0, removed: 0 }]])
+    )
+  })
+
+  test('a rename with no common directory is keyed by its new path', () => {
+    expect(parseNumstat('1\t1\told_name.txt => renamed_file.txt\n')).toEqual(
+      new Map([['/renamed_file.txt', { added: 1, removed: 1 }]])
+    )
+  })
+
+  test('a rename inside one directory expands the braces around the file name', () => {
+    expect(parseNumstat('4\t2\ta/b/{one.txt => renamed.txt}\n')).toEqual(
+      new Map([['/a/b/renamed.txt', { added: 4, removed: 2 }]])
+    )
+  })
+
+  test('a rename between directories expands the braces around the directory', () => {
+    expect(parseNumstat('0\t7\ta/{b => c}/two.txt\n')).toEqual(
+      new Map([['/a/c/two.txt', { added: 0, removed: 7 }]])
+    )
+  })
+
+  test('a rename into a directory that did not exist has an empty left side in the braces', () => {
+    expect(parseNumstat('3\t0\t{ => moved}/file.txt\n')).toEqual(
+      new Map([['/moved/file.txt', { added: 3, removed: 0 }]])
+    )
+  })
+
+  test('paths with spaces survive both the plain and the braced rename form', () => {
+    expect(parseNumstat('0\t0\t{dir one => dir two}/sp ace.txt\n')).toEqual(
+      new Map([['/dir two/sp ace.txt', { added: 0, removed: 0 }]])
+    )
+  })
+
+  test('blank lines and trailing whitespace produce no entries', () => {
+    expect(parseNumstat('\n\n  \n')).toEqual(new Map())
+    expect(parseNumstat('')).toEqual(new Map())
+  })
+
+  test('reads a whole multi-file output at once', () => {
+    const raw = '2\t0\tadded.txt\n-\t-\tblob.bin\n0\t0\t{dir one => dir two}/sp ace.txt\n0\t1\tkept.txt\n'
+    expect(parseNumstat(raw)).toEqual(
+      new Map([
+        ['/added.txt', { added: 2, removed: 0 }],
+        ['/blob.bin', { added: 0, removed: 0 }],
+        ['/dir two/sp ace.txt', { added: 0, removed: 0 }],
+        ['/kept.txt', { added: 0, removed: 1 }]
+      ])
+    )
+  })
+})
 
 describe('localChanges', () => {
   let repo: { dir: string; target: string; source: string }
@@ -81,6 +160,44 @@ describe('localChanges', () => {
     const byPath = new Map(changes.map((c) => [c.path, c]))
 
     expect(byPath.get('/přílöha.txt')?.changeType).toBe('add')
+  })
+
+  test('every change carries the lines it added and removed', async () => {
+    const changes = await localChanges(repo.dir, repo.target, repo.source)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+
+    expect(byPath.get('/a.txt')).toMatchObject({ added: 1, removed: 1 })
+    expect(byPath.get('/added.txt')).toMatchObject({ added: 1, removed: 0 })
+    expect(byPath.get('/gone.txt')).toMatchObject({ added: 0, removed: 1 })
+  })
+
+  test('a rename git names differently in the two outputs still gets its counts', async () => {
+    const changes = await localChanges(repo.dir, repo.target, repo.source)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+
+    // Both were edited, so a merge key that did not line up would leave them at 0 / 0 - which is
+    // exactly what a silently failed join looks like.
+    expect(byPath.get('/nested/deep/new.txt')).toMatchObject({
+      changeType: 'rename',
+      added: 1,
+      removed: 1
+    })
+    expect(byPath.get('/pkg/b/mod.txt')).toMatchObject({
+      changeType: 'rename',
+      added: 2,
+      removed: 0
+    })
+  })
+
+  test('a binary file is listed with no lines counted, never with NaN', async () => {
+    const changes = await localChanges(repo.dir, repo.target, repo.source)
+    const bin = changes.find((c) => c.path === '/bin.dat')
+
+    expect(bin).toMatchObject({ added: 0, removed: 0 })
+    expect(Number.isNaN(bin!.added)).toBe(false)
+    // The totals a size summary is built from stay arithmetic.
+    const total = changes.reduce((sum, c) => sum + c.added + c.removed, 0)
+    expect(Number.isFinite(total)).toBe(true)
   })
 })
 

@@ -41,36 +41,80 @@ export function parseNameStatus(raw: string): PrChangeFile[] {
     if (!line.trim()) continue
     const [status, ...paths] = line.split('\t')
     const changeType = changeTypeOf(status)
+    const counted = { added: 0, removed: 0 }
     if (changeType === 'rename') {
       const [originalPath, path] = paths
-      changes.push({ path: `/${path}`, changeType, originalPath: `/${originalPath}` })
+      changes.push({ path: `/${path}`, changeType, originalPath: `/${originalPath}`, ...counted })
     } else {
-      changes.push({ path: `/${paths[0]}`, changeType, originalPath: null })
+      changes.push({ path: `/${paths[0]}`, changeType, originalPath: null, ...counted })
     }
   }
   return changes
 }
 
 /**
- * The PR's changed files, computed locally against the merge base of target and source (three-dot),
- * so target-side changes not part of the PR are excluded - matching the Azure DevOps web diff.
+ * The path a `--numstat` record names on the new side. A rename is spelled as one path rather than
+ * two, with the directories the move left alone lifted out of the braces: `a/b/{one => two}.ts`,
+ * `a/{b => c}/f.ts`, or just `old.ts => new.ts` when nothing at all is shared. Reconstructing the
+ * new side is what lets the counts join the record `--name-status` produced for the same file.
+ */
+function numstatNewPath(spec: string): string {
+  const braced = spec.match(/^(.*)\{(.*) => (.*)\}(.*)$/)
+  if (braced) return `${braced[1]}${braced[3]}${braced[4]}`
+  const arrow = spec.split(' => ')
+  return arrow.length === 2 ? arrow[1] : spec
+}
+
+/**
+ * Line counts from `git diff --numstat -M`, keyed by the same leading-slash path
+ * {@link parseNameStatus} produces. A binary file, which git reports as `-` on both sides, counts
+ * as no lines rather than as a number nothing can be added to.
+ */
+export function parseNumstat(raw: string): Map<string, { added: number; removed: number }> {
+  const counts = new Map<string, { added: number; removed: number }>()
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    const [added, removed, ...rest] = line.split('\t')
+    const spec = rest.join('\t')
+    if (!spec) continue
+    counts.set(`/${numstatNewPath(spec)}`, {
+      added: Number.parseInt(added, 10) || 0,
+      removed: Number.parseInt(removed, 10) || 0
+    })
+  }
+  return counts
+}
+
+/**
+ * The PR's changed files with their line counts, computed locally against the merge base of target
+ * and source (three-dot), so target-side changes not part of the PR are excluded - matching the
+ * Azure DevOps web diff. Git answers the file list and the line counts on separate runs, joined
+ * here by path; a file the count run left out keeps the zeroes it was listed with.
  */
 export async function localChanges(
   repoDir: string,
   targetCommit: string,
   sourceCommit: string
 ): Promise<PrChangeFile[]> {
-  const raw = await git(repoDir, [
+  const diffArgs = (mode: '--name-status' | '--numstat'): string[] => [
     '-c',
     'core.quotePath=false',
     'diff',
     '--merge-base',
-    '--name-status',
+    mode,
     '-M',
     targetCommit,
     sourceCommit
+  ]
+  const [nameStatus, numstat] = await Promise.all([
+    git(repoDir, diffArgs('--name-status')),
+    git(repoDir, diffArgs('--numstat'))
   ])
-  return parseNameStatus(raw)
+  const counts = parseNumstat(numstat)
+  return parseNameStatus(nameStatus).map((change) => ({
+    ...change,
+    ...(counts.get(change.path) ?? {})
+  }))
 }
 
 export interface FileDiffInput {

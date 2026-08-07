@@ -78,6 +78,12 @@ export function FileTree({ changes, threads, activeFilePath, onOpen }: FileTreeP
           </span>
           <span className="ix-tree__label">{file.name}</span>
           {file.commentCount > 0 && <span className="ix-tree__count">💬 {file.commentCount}</span>}
+          {file.added + file.removed > 0 && (
+            <span className="ix-tree__lines">
+              <span className="ix-lines-added">{`+${file.added}`}</span>{' '}
+              <span className="ix-lines-removed">{`-${file.removed}`}</span>
+            </span>
+          )}
         </button>
       ))}
     </>

@@ -99,6 +99,25 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await app.close()
 })
 
+test('the header sizes the change, and every file row carries its own counts', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+
+  // The four canned files total 128 added and 14 removed, and the summary is on the conversation
+  // too - the reviewer never had to open the file list to learn how big the change is.
+  await expect(win.getByTestId('pr-size')).toHaveText('4 files · +128 -14')
+
+  await win.getByTestId('pr-tab-files').click()
+  const rateLimiter = win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first()
+  await expect(rateLimiter).toContainText('+42')
+  await expect(rateLimiter).toContainText('-9')
+
+  await app.close()
+})
+
 test('a freshly opened PR lands on the conversation, not on the files', async () => {
   const { app, win } = await launch('radar')
 

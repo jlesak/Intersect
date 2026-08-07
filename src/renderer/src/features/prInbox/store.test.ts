@@ -55,7 +55,13 @@ const draft = (id: string, over: Partial<DraftComment> = {}): DraftComment => ({
   ...over
 })
 
-const change = (path: string): PrChangeFile => ({ path, changeType: 'edit', originalPath: null })
+const change = (path: string): PrChangeFile => ({
+  path,
+  changeType: 'edit',
+  originalPath: null,
+  added: 1,
+  removed: 1
+})
 const thread = (threadId: number, over: Partial<PrThread> = {}): PrThread => ({
   threadId,
   filePath: 'a.ts',
