@@ -285,6 +285,7 @@ describe('prInboxStore', () => {
     mocked.getChanges.mockResolvedValue([])
     mocked.listDrafts.mockResolvedValue([])
     mocked.getThreads.mockRejectedValue(new Error('TF400813: the token has expired'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await usePrInboxStore.getState().openDetail('repo', 1)
 
@@ -292,6 +293,11 @@ describe('prInboxStore', () => {
     expect(s.threads).toEqual([])
     expect(s.threadsLoaded).toBe(false)
     expect(s.threadsError).toMatch(/TF400813/)
+    // The threads render on the diff as well as in the conversation, and the diff has nowhere to
+    // put the inline state - so the failure is toasted too, for a reader who is on the other tab.
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('Could not load the pull request comments')
+    )
 
     mocked.getThreads.mockResolvedValue([thread(10)])
     await usePrInboxStore.getState().loadThreads()
@@ -300,6 +306,9 @@ describe('prInboxStore', () => {
     expect(s.threads.map((t) => t.threadId)).toEqual([10])
     expect(s.threadsLoaded).toBe(true)
     expect(s.threadsError).toBeNull()
+    // A retry that worked says nothing further.
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
   })
 
   test('reopening the same PR refetches its threads rather than trusting the last visit', async () => {

@@ -443,9 +443,14 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
         set({ threads, threadsLoaded: true, threadsError: null })
       } catch (e) {
         if (seq !== threadsSeq) return
-        // Surfaced inline where the conversation would be, not as a toast: an empty list and a list
-        // that could not be read must not look the same, and the reader needs the retry.
+        // Recorded for the inline surface, where the conversation would have been: an empty list and
+        // a list that could not be read must not look the same, and the reader needs the retry.
         set({ threadsError: message(e) })
+        // Toasted as well, because the threads belong to both tabs. On the diff the failure is
+        // otherwise silent - code with no inline comments and no reason given - which is the same
+        // claim that nobody reviewed this, only quieter. The toast is what reaches a reader who is
+        // not looking at the conversation, and saying it twice to one who is costs nothing.
+        reportError('Could not load the pull request comments', e)
       }
     },
 
