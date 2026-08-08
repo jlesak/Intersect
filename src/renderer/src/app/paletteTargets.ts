@@ -32,12 +32,23 @@ function goToWorkspace(workspace: Workspace): void {
   void useWorkspacesStore.getState().select(workspace.id)
 }
 
+/**
+ * The name of the folder a workspace sits in. A workspace starts out named after its folder but
+ * can be renamed away from it, and a renamed workspace is exactly the one its owner still thinks
+ * of by its directory - so the folder's name stays worth answering to. The rest of the path does
+ * not: nothing on screen shows it, so matching on it would surface a workspace for reasons the
+ * user cannot see.
+ */
+function folderName(folderPath: string): string {
+  return folderPath.split('/').filter(Boolean).pop() ?? ''
+}
+
 function workspaceCommand(workspace: Workspace): Command {
   return {
     id: `workspaces.goto.${workspace.id}`,
     title: `Switch to workspace: ${workspace.name}`,
     group: WORKSPACE_GROUP,
-    keywords: [workspace.folderPath],
+    keywords: [folderName(workspace.folderPath)].filter(Boolean),
     handler: () => goToWorkspace(workspace)
   }
 }

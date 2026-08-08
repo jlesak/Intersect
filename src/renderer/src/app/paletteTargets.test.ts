@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 vi.mock('monaco-editor', () => ({ editor: {} }))
 
 import type { PullRequest, SessionSummary, Workspace } from '@common/domain'
-import { useCommandPaletteStore } from '@renderer/features/commandPalette'
+import { filterCommands, useCommandPaletteStore } from '@renderer/features/commandPalette'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useSessionsStore } from '@renderer/features/sessions'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
@@ -72,6 +72,10 @@ const pr = (prId: number): PullRequest =>
 
 const ids = (query: string): string[] => getProvidedCommands(query).map((c) => c.id)
 
+/** The ids the palette would actually show for a query, provider output ranked by the matcher. */
+const matchedIds = (query: string): string[] =>
+  filterCommands(query, getProvidedCommands(query)).map((c) => c.id)
+
 // The palette-open listener is module-global; without dropping it the previous test's copy keeps
 // firing and every count in this file drifts upward.
 let unwire: (() => void) | undefined
@@ -102,6 +106,17 @@ describe('workspace targets', () => {
     )
     register()
     expect(ids('')).toEqual(['workspaces.goto.a', 'workspaces.goto.b'])
+  })
+
+  test('a workspace answers to its folder’s name and not to the rest of its path', () => {
+    useWorkspacesStore.setState(
+      { byId: { a: workspace('a', { folderPath: '/Users/b/a/sh-things/proj' }) }, order: ['a'] },
+      false
+    )
+    register()
+
+    expect(matchedIds('bash')).toEqual([])
+    expect(matchedIds('proj')).toEqual(['workspaces.goto.a'])
   })
 
   test('running one brings the shell to the workspace’s project, then selects it', () => {

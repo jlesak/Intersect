@@ -10,6 +10,12 @@ export interface Command {
    * Extra words the command should be findable by - the vocabulary a user reaches for when they
    * do not know what the command is called. "New Shell Tab" is what it is called; "bash" is what
    * someone types looking for it.
+   *
+   * A keyword must be a short, deliberate identifier a user would type to mean this command, and
+   * never a long opaque string. The palette matches on subsequences, so every long string is an
+   * accidental-match surface: some short query's letters will happen to appear in order somewhere
+   * inside it, and the command surfaces for a reason nobody can see. A pull request's number,
+   * repository, author, folder name and branch all pass that test. An absolute path does not.
    */
   keywords?: string[]
   /** The heading the palette files the command under. Ungrouped commands sort after grouped ones. */
