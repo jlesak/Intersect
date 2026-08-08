@@ -81,6 +81,71 @@ test('board shows PRs in action columns after sync, with the rail badge counting
   await app.close()
 })
 
+test('typing narrows the board to the one pull request meant, and emptied columns step aside', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+
+  // "xtnotif" is nowhere on the board as a run of characters; only a real subsequence matcher
+  // finds it inside "EXtract The NOTIFication", so a substring search would show nothing at all.
+  await win.getByTestId('pr-filter').fill('xtnotif')
+
+  await expect(win.getByTestId('pr-card')).toHaveCount(1)
+  await expect(win.locator('.ix-board-card__title')).toHaveText(
+    'Extract the notification preferences screen'
+  )
+  await expect(win.getByTestId('pr-filter-count')).toHaveText('1 of 3')
+
+  // The column the survivor is in keeps its width; the one the filter emptied is a strip that
+  // still says which column it is.
+  await expect(win.getByTestId('pr-col-approved')).not.toHaveClass(/ix-board-col--collapsed/)
+  await expect(win.getByTestId('pr-col-action')).toHaveClass(/ix-board-col--collapsed/)
+  await expect(win.getByTestId('pr-col-action')).toContainText('Needs my action')
+  const strip = await win.getByTestId('pr-col-action').boundingBox()
+  const open = await win.getByTestId('pr-col-approved').boundingBox()
+  expect(strip!.width).toBeLessThan(open!.width / 2)
+
+  await app.close()
+})
+
+test('narrowing to one repository keeps only the pull requests that came from it', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+
+  await win.getByTestId('pr-filter-repo').click()
+  await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
+  await win.locator('.ix-msel__item', { hasText: 'intersect-docs' }).click()
+
+  await expect(win.getByTestId('pr-card')).toHaveCount(1)
+  await expect(win.getByTestId('pr-card')).toContainText('intersect-docs')
+  await expect(win.getByTestId('pr-filter-repo')).toHaveText(/1\/2/)
+
+  await app.close()
+})
+
+test('a filter nothing matches says so rather than claiming there is nothing to review', async () => {
+  const { app, win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+
+  await win.getByTestId('pr-filter').fill('zzzz')
+
+  await expect(win.getByTestId('pr-card')).toHaveCount(0)
+  await expect(win.locator('.ix-boardfilter__none')).toHaveText(
+    'No pull requests match this filter.'
+  )
+  await expect(win.locator('.ix-empty__title')).toHaveCount(0)
+
+  await app.close()
+})
+
 test('opening a card shows the detail with the file tree; Escape returns to the board', async () => {
   const { app, win } = await launch('radar')
 

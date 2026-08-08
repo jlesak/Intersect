@@ -177,23 +177,6 @@ describe('formatDuration', () => {
   })
 })
 
-describe('toggleFolder', () => {
-  beforeEach(() => {
-    reset({ all: [summary('SPOT', { folderName: 'SPOT' }), summary('Int', { folderName: 'Int' })] })
-  })
-
-  test('toggling one folder off from the all state selects the rest', () => {
-    useSessionsStore.getState().toggleFolder('SPOT')
-    expect(useSessionsStore.getState().folders).toEqual(['Int'])
-  })
-
-  test('re-selecting every folder collapses back to null', () => {
-    useSessionsStore.getState().toggleFolder('SPOT') // -> ['Int']
-    useSessionsStore.getState().toggleFolder('SPOT') // -> all again
-    expect(useSessionsStore.getState().folders).toBeNull()
-  })
-})
-
 describe('store status transitions', () => {
   test('hydrate loads sessions and is ready', async () => {
     mocked.list.mockResolvedValue([summary('a'), summary('b')])

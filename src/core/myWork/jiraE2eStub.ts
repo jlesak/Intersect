@@ -28,12 +28,26 @@ const remoteIssue = (over: Partial<JiraRemoteIssue> & Pick<JiraRemoteIssue, 'key
   ...over
 })
 
+/**
+ * Four issues over three columns, carrying an assignee, components and - for three of them - an
+ * epic. They deliberately overlap only partly: each epic and each component leaves a different
+ * subset standing, so a filter that quietly matched everything could not pass for one that works.
+ *
+ * Two issues share an epic, so narrowing to it means keeping a group rather than keeping one
+ * arbitrary card, and a third is under no epic at all. That last one is the ordinary shape of a
+ * real board, and the only way to exercise the "(none)" choice and the promise that narrowing by
+ * epic does not carry the un-epic'd issues away with it.
+ */
 const SAMPLE_ISSUES: JiraRemoteIssue[] = [
   remoteIssue({
     key: 'FID2507-1',
     summary: 'Prepare the release notes',
     rawStatus: 'To Do',
     rawPriority: 'Medium',
+    assignee: 'Jan Lesak',
+    epicKey: 'FID2507-90',
+    epicSummary: 'Release',
+    components: ['Docs'],
     updatedAt: Date.now() - 60 * 60_000
   }),
   remoteIssue({
@@ -41,13 +55,30 @@ const SAMPLE_ISSUES: JiraRemoteIssue[] = [
     summary: 'Implement the login flow',
     rawStatus: 'In Progress',
     rawPriority: 'High',
+    assignee: 'Marek Kral',
+    epicKey: 'FID2507-91',
+    epicSummary: 'Platform',
+    components: ['Backend'],
     updatedAt: Date.now() - 30 * 60_000
+  }),
+  remoteIssue({
+    key: 'FID2507-4',
+    summary: 'Add the password reset screen',
+    rawStatus: 'In Progress',
+    rawPriority: 'Medium',
+    assignee: 'Marek Kral',
+    epicKey: 'FID2507-91',
+    epicSummary: 'Platform',
+    components: ['Backend'],
+    updatedAt: Date.now() - 45 * 60_000
   }),
   remoteIssue({
     key: 'FID2507-3',
     summary: 'Verify the board states',
     rawStatus: 'In Review',
     rawPriority: 'Low',
+    assignee: 'Jan Lesak',
+    components: ['Backend', 'Docs'],
     updatedAt: Date.now() - 5 * 60_000
   })
 ]

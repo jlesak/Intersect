@@ -1,8 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PullRequest } from '@common/domain'
 import { formatRelativeTime } from '@renderer/features/myWork'
+import { MultiSelectFilter } from '@renderer/shared/ui/MultiSelectFilter'
 import { useNow } from '@renderer/shared/ui/useNow'
+import { NO_PR_FILTER, type PrBoardFilter, filterPrs, prFilterOptions } from '../boardFilter'
 import { groupBoardColumns, selectPrList, usePrInboxStore } from '../store'
 import { PrCard } from './PrCard'
 
@@ -44,14 +46,21 @@ function SyncChip({ syncedAt, now }: { syncedAt: number | null; now: number }) {
 /** The PR Review landing view: every synced PR as a card in one of three action columns. */
 export function PrBoard() {
   const prs = usePrInboxStore(useShallow(selectPrList))
-  const cols = useMemo(() => groupBoardColumns(prs), [prs])
+  // Kept here rather than in the store: a narrowing is a question about the board in front of you,
+  // not a property of the synced data, and it should be gone by the time you come back to it.
+  const [filter, setFilter] = useState<PrBoardFilter>(NO_PR_FILTER)
+  const options = useMemo(() => prFilterOptions(prs), [prs])
+  const shown = useMemo(() => filterPrs(prs, filter), [prs, filter])
+  const cols = useMemo(() => groupBoardColumns(shown), [shown])
   const syncing = usePrInboxStore((s) => s.syncing)
   const syncedAt = usePrInboxStore((s) => s.syncedAt)
   const syncError = usePrInboxStore((s) => s.syncError)
   // Freshness and every card's age are only true at the moment they are rendered, so the board
   // keeps its own clock rather than freezing at whatever the time was when it mounted.
   const now = useNow(60_000)
-  const empty = COLUMNS.every((c) => cols[c.key].length === 0)
+  // "Nothing to review" is a statement about the synced board, so it survives a filter that
+  // happens to match nothing - that case has its own, quite different, thing to say.
+  const empty = prs.length === 0
 
   return (
     <div className="ix-main">
@@ -83,24 +92,58 @@ export function PrBoard() {
           <p className="ix-empty__hint">Sync to load your pull requests from Azure DevOps.</p>
         </div>
       ) : (
-        <div className="ix-board" data-testid="pr-board">
-          {COLUMNS.map((col) => (
-            <div key={col.key} className="ix-board-col" data-testid={`pr-col-${col.key}`}>
-              <div className="ix-board-col__head">
-                <span className={`ix-eyebrow ix-board-col__label--${col.key}`}>{col.label}</span>
-                <span className="ix-board-col__count">{cols[col.key].length}</span>
+        <>
+          <div className="ix-boardfilter ix-boardfilter--pr">
+            <input
+              className="ix-input ix-boardfilter__search"
+              type="search"
+              aria-label="Filter pull requests"
+              placeholder="Filter by title, number, repository or author…"
+              data-testid="pr-filter"
+              value={filter.query}
+              onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))}
+            />
+            <MultiSelectFilter
+              label="Repository"
+              testId="pr-filter-repo"
+              options={options.repos}
+              selection={filter.repos}
+              onChange={(repos) => setFilter((f) => ({ ...f, repos }))}
+            />
+            {shown.length !== prs.length && (
+              <span className="ix-boardfilter__count" data-testid="pr-filter-count">
+                {shown.length} of {prs.length}
+              </span>
+            )}
+          </div>
+          {/* All three columns collapse when nothing survives, and a row of unlabelled strips looks
+              like a board that failed to load rather than one that found nothing. */}
+          {shown.length === 0 && (
+            <div className="ix-boardfilter__none">No pull requests match this filter.</div>
+          )}
+          <div className="ix-board" data-testid="pr-board">
+            {COLUMNS.map((col) => (
+              <div
+                key={col.key}
+                className={`ix-board-col${cols[col.key].length === 0 ? ' ix-board-col--collapsed' : ''}`}
+                data-testid={`pr-col-${col.key}`}
+              >
+                <div className="ix-board-col__head">
+                  <span className={`ix-eyebrow ix-board-col__label--${col.key}`}>{col.label}</span>
+                  <span className="ix-board-col__count">{cols[col.key].length}</span>
+                </div>
+                {cols[col.key].map((pr: PullRequest) => (
+                  <PrCard
+                    key={`${pr.repositoryId}:${pr.prId}`}
+                    pr={pr}
+                    urgent={col.key === 'action'}
+                    now={now}
+                  />
+                ))}
               </div>
-              {cols[col.key].map((pr: PullRequest) => (
-                <PrCard
-                  key={`${pr.repositoryId}:${pr.prId}`}
-                  pr={pr}
-                  urgent={col.key === 'action'}
-                  now={now}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
