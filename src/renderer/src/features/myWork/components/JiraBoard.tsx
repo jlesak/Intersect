@@ -49,6 +49,7 @@ export function JiraBoard({
         <input
           className="ix-input ix-boardfilter__search"
           type="search"
+          aria-label="Filter issues"
           placeholder="Filter by key, summary or assignee…"
           data-testid="jira-filter"
           value={filter.query}

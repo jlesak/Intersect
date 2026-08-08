@@ -97,6 +97,7 @@ export function PrBoard() {
             <input
               className="ix-input ix-boardfilter__search"
               type="search"
+              aria-label="Filter pull requests"
               placeholder="Filter by title, number, repository or author…"
               data-testid="pr-filter"
               value={filter.query}

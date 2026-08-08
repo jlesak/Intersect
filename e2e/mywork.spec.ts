@@ -175,6 +175,36 @@ test('hiding one epic leaves the issues that are under no epic where they were',
   await app.close()
 })
 
+test('Escape puts the chip popover away and hands focus back to its button', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await win.getByTestId('jira-filter-epic').click()
+  await expect(win.locator('.ix-msel__pop')).toBeVisible()
+
+  await win.keyboard.press('Escape')
+
+  await expect(win.locator('.ix-msel__pop')).toHaveCount(0)
+  await expect(win.getByTestId('jira-filter-epic')).toBeFocused()
+
+  await app.close()
+})
+
+test('tabbing out of an open chip popover puts it away instead of leaving it over the board', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await win.getByTestId('jira-filter-epic').click()
+  await expect(win.locator('.ix-msel__pop')).toBeVisible()
+
+  // Walk forward until focus leaves the control: All, None, each checkbox, then out.
+  for (let i = 0; i < 8; i++) await win.keyboard.press('Tab')
+
+  await expect(win.locator('.ix-msel__pop')).toHaveCount(0)
+
+  await app.close()
+})
+
 test('a filter nothing matches says so rather than showing a board of blank strips', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(3)

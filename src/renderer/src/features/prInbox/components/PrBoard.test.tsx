@@ -284,6 +284,13 @@ describe('PrBoard filtering', () => {
     expect(byTestId('pr-filter-count').textContent).toBe('1 of 3')
   })
 
+  test('the box you type in tells a screen reader what it filters', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+
+    expect(screen.getByRole('searchbox', { name: 'Filter pull requests' })).toBeTruthy()
+  })
+
   test('a pull request is found by the number it is known as', async () => {
     seedBoard(ACROSS_REPOS)
     await mountBoard()

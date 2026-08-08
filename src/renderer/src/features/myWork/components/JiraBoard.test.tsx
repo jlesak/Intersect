@@ -127,6 +127,12 @@ describe('JiraBoard filtering', () => {
     expect(cardKeys()).toEqual(['FID2507-11'])
   })
 
+  test('the box you type in tells a screen reader what it filters', () => {
+    render(<JiraBoard issues={ISSUES} />)
+
+    expect(screen.getByRole('searchbox', { name: 'Filter issues' })).toBeTruthy()
+  })
+
   test('a board whose issues carry no epic offers no epic control to press', () => {
     render(<JiraBoard issues={[issue({ key: 'FID2507-13', summary: 'Tidy the changelog' })]} />)
 

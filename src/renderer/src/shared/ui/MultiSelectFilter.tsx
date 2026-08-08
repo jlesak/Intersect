@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   type FilterOption,
   type Selection,
@@ -28,6 +28,7 @@ export function MultiSelectFilter({
   testId?: string
 }) {
   const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
   if (options.length === 0) return null
 
   // Read against what is actually on offer, so the count on the button and the ticks in the list
@@ -38,10 +39,31 @@ export function MultiSelectFilter({
   const isChecked = (value: string): boolean => chosen === null || chosen.includes(value)
 
   return (
-    <div className="ix-msel">
+    <div
+      className="ix-msel"
+      onKeyDown={(e) => {
+        // Escape belongs to the popover while it is open, and to whatever is behind it otherwise.
+        if (e.key !== 'Escape' || !open) return
+        e.stopPropagation()
+        setOpen(false)
+        trigger.current?.focus()
+      }}
+      onBlur={(e) => {
+        // Focus moving to something outside takes the popover with it, so tabbing past the last
+        // checkbox cannot walk on into a page hidden behind it.
+        //
+        // Focus going nowhere in particular is left alone. Pressing a checkbox's label drops focus
+        // before the label hands it to the checkbox, and closing on that would make every option
+        // in the list unclickable. Clicking away is the backdrop's job in any case.
+        if (e.relatedTarget === null) return
+        if (e.currentTarget.contains(e.relatedTarget)) return
+        setOpen(false)
+      }}
+    >
       <button
         type="button"
         className="ix-msel__btn"
+        ref={trigger}
         aria-expanded={open}
         data-testid={testId}
         onClick={() => setOpen((o) => !o)}
@@ -54,7 +76,7 @@ export function MultiSelectFilter({
       {open && (
         <>
           <div className="ix-msel__backdrop" onMouseDown={() => setOpen(false)} />
-          <div className="ix-msel__pop" role="menu">
+          <div className="ix-msel__pop" role="group" aria-label={label}>
             <div className="ix-msel__head">
               <span className="ix-eyebrow">{label}</span>
               <div className="ix-msel__actions">
