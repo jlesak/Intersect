@@ -104,6 +104,69 @@ test('a loaded board renders all five columns and refresh keeps it current', asy
   await app.close()
 })
 
+test('typing narrows the board to the one issue meant, and the emptied columns step aside', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  // "vbst" is nowhere in the board as a run of characters; only a real subsequence matcher finds
+  // "Verify the Board STates", so a filter falling back to substring search would show nothing.
+  await win.getByTestId('jira-filter').fill('vbst')
+
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-3'])
+  await expect(win.getByTestId('jira-filter-count')).toHaveText('1 of 3')
+
+  // Every column is still a column - the four with nothing left are strips that still say which
+  // column they are, and the one holding the survivor is untouched.
+  await expect(win.locator('.ix-mw-col')).toHaveCount(5)
+  await expect(win.locator('.ix-mw-col--collapsed')).toHaveCount(4)
+  await expect(win.locator('.ix-mw-col--review')).not.toHaveClass(/ix-mw-col--collapsed/)
+  await expect(win.locator('.ix-mw-col--todo .ix-mw-col__name')).toHaveText('To Do')
+  // The strips really are strips: the section is far narrower than a column that holds cards.
+  const strip = await win.locator('.ix-mw-col--todo').boundingBox()
+  const open = await win.locator('.ix-mw-col--review').boundingBox()
+  expect(strip!.width).toBeLessThan(open!.width / 2)
+
+  // The section head counts what the board holds, not what the filter left, so the number does not
+  // move under a narrowing that only this one board knows about.
+  await expect(win.locator('.ix-mw-section__count').first()).toHaveText('3')
+
+  // Clearing the box gives the whole board back.
+  await win.getByTestId('jira-filter').fill('')
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+  await expect(win.locator('.ix-mw-col--collapsed')).toHaveCount(2)
+
+  await app.close()
+})
+
+test('narrowing to one epic keeps only the issues under it', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await win.getByTestId('jira-filter-epic').click()
+  await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
+  await win.locator('.ix-msel__item', { hasText: 'Platform' }).click()
+
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-3'])
+  await expect(win.getByTestId('jira-filter-epic')).toHaveText(/1\/2/)
+
+  // The one issue under the other epic is gone, and its column with it.
+  await expect(win.locator('.ix-mw-col--todo')).toHaveClass(/ix-mw-col--collapsed/)
+
+  await app.close()
+})
+
+test('a filter nothing matches says so rather than showing a board of blank strips', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await win.getByTestId('jira-filter').fill('zzzz')
+
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(0)
+  await expect(win.locator('.ix-boardfilter__none')).toHaveText('No issues match this filter.')
+
+  await app.close()
+})
+
 test('the PR radar groups pull requests and flags new changes after the author pushes', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
   const prSection = win.locator('.ix-mw-section', { hasText: 'Pull requests' })

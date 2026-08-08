@@ -28,12 +28,22 @@ const remoteIssue = (over: Partial<JiraRemoteIssue> & Pick<JiraRemoteIssue, 'key
   ...over
 })
 
+/**
+ * Three issues, one per occupied column, carrying an assignee, an epic and components - the fields
+ * a board is narrowed by. They deliberately overlap only partly: each of the two epics and each of
+ * the two components leaves a different subset standing, so a filter that quietly matched
+ * everything could not pass for one that works.
+ */
 const SAMPLE_ISSUES: JiraRemoteIssue[] = [
   remoteIssue({
     key: 'FID2507-1',
     summary: 'Prepare the release notes',
     rawStatus: 'To Do',
     rawPriority: 'Medium',
+    assignee: 'Jan Lesak',
+    epicKey: 'FID2507-90',
+    epicSummary: 'Release',
+    components: ['Docs'],
     updatedAt: Date.now() - 60 * 60_000
   }),
   remoteIssue({
@@ -41,6 +51,10 @@ const SAMPLE_ISSUES: JiraRemoteIssue[] = [
     summary: 'Implement the login flow',
     rawStatus: 'In Progress',
     rawPriority: 'High',
+    assignee: 'Marek Kral',
+    epicKey: 'FID2507-91',
+    epicSummary: 'Platform',
+    components: ['Backend'],
     updatedAt: Date.now() - 30 * 60_000
   }),
   remoteIssue({
@@ -48,6 +62,10 @@ const SAMPLE_ISSUES: JiraRemoteIssue[] = [
     summary: 'Verify the board states',
     rawStatus: 'In Review',
     rawPriority: 'Low',
+    assignee: 'Jan Lesak',
+    epicKey: 'FID2507-91',
+    epicSummary: 'Platform',
+    components: ['Backend', 'Docs'],
     updatedAt: Date.now() - 5 * 60_000
   })
 ]

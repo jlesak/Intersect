@@ -46,10 +46,10 @@ interface MyWorkState {
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /** The board's issues grouped per column, each column sorted by last activity (newest first). */
-export function groupByColumn(issues: JiraIssue[]): Record<JiraColumn, JiraIssue[]> {
+export function groupByColumn<T extends JiraIssue>(issues: readonly T[]): Record<JiraColumn, T[]> {
   const board = { todo: [], progress: [], waiting: [], review: [], test: [] } as Record<
     JiraColumn,
-    JiraIssue[]
+    T[]
   >
   for (const issue of issues) board[issue.column].push(issue)
   for (const column of JIRA_COLUMNS) board[column].sort((a, b) => b.updatedAt - a.updatedAt)

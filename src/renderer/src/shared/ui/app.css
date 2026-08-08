@@ -1613,11 +1613,13 @@
   margin-left: auto;
 }
 
-/* folder multiselect */
-.ix-sessions-folder {
+/* multiselect filter: the session folder picker and the board chip filters share one look */
+.ix-sessions-folder,
+.ix-msel {
   position: relative;
 }
-.ix-sessions-fbtn {
+.ix-sessions-fbtn,
+.ix-msel__btn {
   height: 30px;
   padding: 0 11px;
   border: 1px solid var(--border-strong);
@@ -1629,19 +1631,23 @@
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.ix-sessions-fbtn:hover {
+.ix-sessions-fbtn:hover,
+.ix-msel__btn:hover {
   background: var(--panel-3);
   color: var(--text);
 }
-.ix-sessions-fbtn__count {
+.ix-sessions-fbtn__count,
+.ix-msel__count {
   color: var(--accent);
 }
-.ix-sessions-folder__backdrop {
+.ix-sessions-folder__backdrop,
+.ix-msel__backdrop {
   position: fixed;
   inset: 0;
   z-index: 200;
 }
-.ix-sessions-folder__pop {
+.ix-sessions-folder__pop,
+.ix-msel__pop {
   position: absolute;
   top: calc(100% + 5px);
   left: 0;
@@ -1657,21 +1663,25 @@
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
   animation: ix-fade calc(var(--dur) - 40ms) var(--ease);
 }
-.ix-sessions-folder__head {
+.ix-sessions-folder__head,
+.ix-msel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 2px 4px 8px;
 }
-.ix-sessions-folder__actions {
+.ix-sessions-folder__actions,
+.ix-msel__actions {
   display: flex;
   gap: 4px;
 }
-.ix-sessions-folder__list {
+.ix-sessions-folder__list,
+.ix-msel__list {
   overflow-y: auto;
   min-height: 0;
 }
-.ix-sessions-folder__item {
+.ix-sessions-folder__item,
+.ix-msel__item {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1681,10 +1691,12 @@
   font-size: 12.5px;
   cursor: pointer;
 }
-.ix-sessions-folder__item:hover {
+.ix-sessions-folder__item:hover,
+.ix-msel__item:hover {
   background: var(--panel-2);
 }
-.ix-sessions-folder__item input {
+.ix-sessions-folder__item input,
+.ix-msel__item input {
   accent-color: var(--accent);
   cursor: pointer;
 }
@@ -2124,17 +2136,52 @@
   text-align: right;
 }
 
+/* ---------------- boards: the narrowing bar above a kanban ---------------- */
+.ix-boardfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  flex: none;
+}
+.ix-boardfilter__search {
+  flex: 1 1 220px;
+  min-width: 150px;
+  height: 30px;
+}
+.ix-boardfilter__count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ix-boardfilter__none {
+  padding-bottom: 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* On the PR board the bar is one of the view's own rows, so it takes the columns' side padding
+   instead of the inline margin it uses inside a My Work section. */
+.ix-boardfilter--pr {
+  padding: 0 18px;
+  margin-bottom: 4px;
+}
+.ix-boardfilter--pr + .ix-boardfilter__none {
+  padding: 0 18px 6px;
+}
+
 /* ---------------- My Work: Jira kanban board ---------------- */
+/* Laid out as a flex row rather than as equal grid tracks, so a column with nothing in it can step
+   out of the way and give its width to the ones that do. */
 .ix-mw-board {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(190px, 1fr);
+  display: flex;
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 4px;
 }
 .ix-mw-col {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 8px;
   min-width: 190px;
@@ -2187,6 +2234,26 @@
 .ix-mw-col--test {
   --col-color: var(--status-test);
 }
+/* An empty column carries no information, so it shrinks to a strip - but it keeps its name, turned
+   on its side, because a board of anonymous strips cannot be read at all. */
+.ix-mw-col--collapsed {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 34px;
+  padding: 10px 6px;
+}
+.ix-mw-col--collapsed .ix-mw-col__head {
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.ix-mw-col--collapsed .ix-mw-col__name {
+  writing-mode: vertical-rl;
+}
+.ix-mw-col--collapsed .ix-mw-col__count {
+  margin-left: 0;
+}
 
 .ix-mw-card2 {
   display: flex;
@@ -2227,12 +2294,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-}
-.ix-mw-col__empty {
-  padding: 10px 4px;
-  font-size: 11px;
-  color: var(--text-faint);
-  text-align: center;
 }
 .ix-mw-col__skel {
   height: 52px;
