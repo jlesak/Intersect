@@ -136,6 +136,7 @@ intersect/
             components/          # TerminalPane, SplitStage, LayoutPicker
             __tests__/
   e2e/                           # Playwright _electron specs
+  tooling/                       # repo tooling outside the app: the E2E build-freshness guard
 ```
 
 **Isolation rule (enforced, not just convention):** ESLint `no-restricted-imports` blocks any

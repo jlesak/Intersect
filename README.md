@@ -43,11 +43,18 @@ Requires Node 20.19+/22.12+ (Node 24 LTS recommended) and macOS with Xcode Comma
 | `npm run build` | Type-check and build main/preload/renderer into `out/` |
 | `npm start` | Preview the built app |
 | `npm test` | Unit + integration tests (Vitest) |
-| `npm run e2e` | End-to-end tests against the built app (Playwright + Electron) |
+| `npm run e2e` | Build, then end-to-end tests against the built app (Playwright + Electron) |
+| `npm run e2e:nobuild` | The same suite against the existing build in `out/` |
 | `npm run typecheck` | Type-check the node and web projects |
 | `npm run lint` | ESLint (enforces slice boundaries + `node-pty` confinement) |
 
-For E2E: `npm run build` first, then `npm run e2e`.
+The E2E suite runs against `out/`, so a run started without a build would report on code you are
+not looking at. Every Playwright entry point - `npm run e2e`, `npm run e2e:nobuild`, and a bare
+`npx playwright test` - therefore refuses to start when `out/main/index.js` is missing or when
+anything under `src/`, `electron.vite.config.ts`, `package.json` or `package-lock.json` is newer
+than the newest build output. The fix it names is `npm run build`. Editing only `e2e/` never trips
+it, so `npm run e2e:nobuild` stays the fast loop while iterating on specs. `E2E_ALLOW_STALE=1` runs
+against the stale build deliberately and leaves a warning in the log saying how stale it is.
 
 ## Architecture
 
@@ -72,6 +79,7 @@ src/
       tabs/          # the selected workspace's terminal view: tabs, layout, active, pane slots
       terminal/      # imperative xterm controller + split stage + panes
 e2e/                 # Playwright _electron specs
+tooling/             # repo tooling outside the app: the E2E build-freshness guard
 ```
 
 ### Extensibility seam
