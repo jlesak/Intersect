@@ -1,5 +1,5 @@
-import { readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { readdirSync, statSync, type Dirent, type Stats } from 'node:fs'
+import { join } from 'node:path'
 
 /**
  * Whether the built app the E2E suite launches still describes the code in the working tree.
@@ -15,15 +15,22 @@ import { join, relative } from 'node:path'
  * does.
  */
 
-/** A file and when it last changed, with the path relative to the repository root. */
+/** A file or directory and when it last changed, with the path relative to the repository root. */
 export interface FileStamp {
   path: string
   mtimeMs: number
 }
 
 export type FreshnessResult =
-  | { state: 'missing'; entry: string }
-  | { state: 'stale'; newestSource: FileStamp; newestBuilt: FileStamp }
+  /** No usable build: the launched entry, or a whole build output, is not there. */
+  | { state: 'missing'; path: string }
+  /**
+   * The working tree has moved on. `oldestBuilt` is the newest file of whichever build output was
+   * refreshed least recently, which is the one the working tree has to beat.
+   */
+  | { state: 'stale'; newestSource: FileStamp; oldestBuilt: FileStamp }
+  /** The filesystem would not answer, so neither can the guard. */
+  | { state: 'unknown'; path: string; reason: string }
   | { state: 'fresh' }
 
 export type GuardAction =
@@ -34,94 +41,186 @@ export type GuardAction =
 /** The built main entry Playwright launches, relative to the repository root. */
 export const APP_ENTRY_RELATIVE_PATH = join('out', 'main', 'index.js')
 
+/**
+ * The three outputs a full build produces, compared one by one rather than as a single tree.
+ *
+ * Development mode builds main and preload but serves the renderer from memory, so an afternoon of
+ * `npm run dev` leaves `out/main` newer than every source file while `out/renderer` still holds
+ * pre-edit markup - which the launched entry loads from disk. Judging by the newest file anywhere
+ * under `out/` calls that fresh, and it is the commonest route back into the original false pass.
+ */
+const BUILT_SUBTREES = [join('out', 'main'), join('out', 'preload'), join('out', 'renderer')]
+
+/** The source tree a build reads. */
+const WATCHED_SOURCE_TREE = 'src'
+
+/**
+ * Repository-root files a build reads. The lockfile stands in for `node_modules`, which is far too
+ * large to walk and changes only when the lockfile does. The compiler configs belong here because
+ * they steer what esbuild emits, not merely what type-checks. The build config is matched on its
+ * whole name so that the scratch copy Vite leaves behind after a crash,
+ * `electron.vite.config.ts.timestamp-<ms>-<rand>.mjs`, is not mistaken for the config itself and
+ * named in a refusal nobody can act on.
+ */
+const WATCHED_ROOT_FILES = [
+  /^electron\.vite\.config\.(ts|mts|cts|js|mjs|cjs)$/,
+  /^package\.json$/,
+  /^package-lock\.json$/,
+  /^tsconfig.*\.json$/,
+  /^\.env/
+]
+
+/**
+ * Test files under `src/` are not build inputs: the bundler follows what the entries import, and
+ * nothing imports a test. Refusing to run E2E because a unit test was edited is the kind of
+ * pointless refusal that teaches people to reach for the bypass by reflex.
+ */
+const TEST_FILE = /\.(test|spec)\./
+const TEST_DIRECTORY = '__tests__'
+
 /** The built main entry inside a given checkout. */
 export function appEntry(repoRoot: string): string {
   return join(repoRoot, APP_ENTRY_RELATIVE_PATH)
 }
 
 /**
- * Everything a build turns into `out/`. The lockfile stands in for `node_modules`, which is far too
- * large to walk and changes only when the lockfile does. The specs are deliberately absent: editing
- * `e2e/` cannot invalidate a build, and treating it as an input would make the guard fire during
- * exactly the workflow it is meant to leave alone.
- */
-const WATCHED_SOURCES = ['src', 'package.json', 'package-lock.json']
-
-/** The build config counts under whichever extension it is written in. */
-const BUILD_CONFIG_PREFIX = 'electron.vite.config.'
-
-const BUILD_OUTPUT = 'out'
-
-/**
  * Compare the working tree against the build it is supposed to have produced.
  *
- * Only files carry a verdict; directory timestamps are ignored, so a source file that was deleted
- * rather than edited will not be noticed. Every other edit bumps a file of its own.
+ * Every build output has to be newer than every watched source input, and a tie counts against the
+ * build: one needless rebuild is cheaper than one run that lies. Directory times count on the
+ * source side, because deleting or renaming a file leaves no other trace - and that is precisely
+ * the `git stash` and revert workflow this guard exists to protect. They deliberately do not count
+ * on the built side, where a stray `.DS_Store` would bump a directory and manufacture the very
+ * false freshness being closed here.
  */
 export function checkBundleFreshness(repoRoot: string): FreshnessResult {
-  if (!statSync(appEntry(repoRoot), { throwIfNoEntry: false })) {
-    return { state: 'missing', entry: APP_ENTRY_RELATIVE_PATH }
+  try {
+    return formVerdict(repoRoot)
+  } catch (failure) {
+    if (failure instanceof WalkFailure) {
+      return { state: 'unknown', path: failure.path, reason: failure.reason }
+    }
+    throw failure
   }
-
-  const newestBuilt = newestFileUnder(repoRoot, BUILD_OUTPUT)
-  const newestSource = [...WATCHED_SOURCES, ...buildConfigsIn(repoRoot)]
-    .map((input) => newestFileUnder(repoRoot, input))
-    .reduce(newerOf, undefined)
-  if (!newestBuilt || !newestSource || newestSource.mtimeMs <= newestBuilt.mtimeMs) {
-    return { state: 'fresh' }
-  }
-  return { state: 'stale', newestSource, newestBuilt }
 }
 
 /**
  * What the suite should do about the verdict, given the raw opt-out value.
  *
  * The opt-out is honoured only for the exact string `1`, so a half-remembered `true` fails safe
- * into the guard rather than out of it. A build that does not exist at all is refused whatever the
- * environment says: there is nothing to deliberately test against.
+ * into the guard rather than out of it. It covers a build known to be stale and a verdict that
+ * could not be formed at all - the latter because an unreadable path is not a staleness finding,
+ * and someone who has legitimately symlinked something into `src/` needs a way through. It never
+ * covers a missing build: there is nothing there to deliberately test against.
  */
 export function resolveGuardAction(
   result: FreshnessResult,
   allowStaleEnvValue: string | undefined
 ): GuardAction {
   if (result.state === 'fresh') return { kind: 'proceed' }
+  const bypassed = allowStaleEnvValue === '1'
+
   if (result.state === 'missing') {
     return {
       kind: 'fail',
       message:
-        `There is no built app to test: ${result.entry} does not exist. ` +
+        `The build in out/ is incomplete: ${result.path} is missing. ` +
         'Run `npm run build` and try again, or run `npm run e2e`, which builds first.'
     }
   }
 
+  if (result.state === 'unknown') {
+    const trouble = `${result.path} - ${result.reason}`
+    return bypassed
+      ? {
+          kind: 'warn',
+          message: `E2E_ALLOW_STALE=1: running without knowing whether the build is current: ${trouble}.`
+        }
+      : {
+          kind: 'fail',
+          message:
+            `The E2E freshness guard cannot tell whether the build is current: ${trouble}. ` +
+            'Fix that path, or set E2E_ALLOW_STALE=1 to run without the check.'
+        }
+  }
+
   const drift =
-    `${stampText(result.newestSource)} is newer than the newest build output, ` +
-    stampText(result.newestBuilt)
-  if (allowStaleEnvValue === '1') {
-    return {
-      kind: 'warn',
-      message:
-        `E2E_ALLOW_STALE=1: running against a stale build on purpose. ${drift}, ` +
-        'so every result below describes the last build, not the working tree.'
-    }
-  }
-  return {
-    kind: 'fail',
-    message:
-      `The build is older than the working tree, so this run would report on code you are not ` +
-      `looking at. ${drift}. Run \`npm run build\` and try again, or run \`npm run e2e\`, which ` +
-      'builds first. To test the stale build deliberately, set E2E_ALLOW_STALE=1.'
-  }
+    `${stampText(result.newestSource)} is at least as new as the oldest build output, ` +
+    stampText(result.oldestBuilt)
+  return bypassed
+    ? {
+        kind: 'warn',
+        message:
+          `E2E_ALLOW_STALE=1: running against a stale build on purpose. ${drift}, ` +
+          'so every result below describes the last build, not the working tree.'
+      }
+    : {
+        kind: 'fail',
+        message:
+          `The build is older than the working tree, so this run would report on code you are not ` +
+          `looking at. ${drift}. Run \`npm run build\` and try again, or run \`npm run e2e\`, ` +
+          'which builds first. To test the stale build deliberately, set E2E_ALLOW_STALE=1.'
+      }
 }
 
-function buildConfigsIn(repoRoot: string): string[] {
-  return readdirSync(repoRoot, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(BUILD_CONFIG_PREFIX))
+function formVerdict(repoRoot: string): FreshnessResult {
+  if (!statOf(repoRoot, APP_ENTRY_RELATIVE_PATH)?.isFile()) {
+    return { state: 'missing', path: APP_ENTRY_RELATIVE_PATH }
+  }
+
+  const built: FileStamp[] = []
+  for (const subtree of BUILT_SUBTREES) {
+    const newest = newestStampUnder(repoRoot, subtree, 'built')
+    if (!newest) return { state: 'missing', path: subtree }
+    built.push(newest)
+  }
+  const oldestBuilt = built.reduce((a, b) => (b.mtimeMs < a.mtimeMs ? b : a))
+
+  const newestSource = watchedSources(repoRoot)
+    .map((input) => newestStampUnder(repoRoot, input, 'source'))
+    .reduce(newerOf, undefined)
+  if (!newestSource) {
+    return { state: 'unknown', path: WATCHED_SOURCE_TREE, reason: 'no watched source input exists' }
+  }
+
+  if (newestSource.mtimeMs < oldestBuilt.mtimeMs) return { state: 'fresh' }
+  return { state: 'stale', newestSource, oldestBuilt }
+}
+
+function watchedSources(repoRoot: string): string[] {
+  const rootFiles = readEntries(repoRoot, '.')
+    .filter((entry) => entry.isFile() && WATCHED_ROOT_FILES.some((name) => name.test(entry.name)))
     .map((entry) => entry.name)
+    .sort()
+  return [WATCHED_SOURCE_TREE, ...rootFiles]
 }
 
-function stampText(stamp: FileStamp): string {
-  return `${stamp.path} (${new Date(stamp.mtimeMs).toISOString()})`
+/**
+ * The most recently modified entry at or below a path. A path that does not exist contributes
+ * nothing: an absent build output is already the caller's `missing` verdict, and an absent watched
+ * input is a checkout shape this guard has no opinion about.
+ */
+function newestStampUnder(
+  repoRoot: string,
+  relativePath: string,
+  mode: 'source' | 'built'
+): FileStamp | undefined {
+  const stats = statOf(repoRoot, relativePath)
+  if (!stats) return undefined
+  const own = { path: relativePath, mtimeMs: stats.mtimeMs }
+  if (stats.isFile()) return own
+  if (!stats.isDirectory()) return undefined
+
+  let newest = mode === 'source' ? own : undefined
+  for (const entry of readEntries(repoRoot, relativePath)) {
+    if (mode === 'source' && isTestArtefact(entry)) continue
+    newest = newerOf(newest, newestStampUnder(repoRoot, join(relativePath, entry.name), mode))
+  }
+  return newest
+}
+
+function isTestArtefact(entry: Dirent): boolean {
+  return entry.isDirectory() ? entry.name === TEST_DIRECTORY : TEST_FILE.test(entry.name)
 }
 
 function newerOf(a: FileStamp | undefined, b: FileStamp | undefined): FileStamp | undefined {
@@ -130,21 +229,42 @@ function newerOf(a: FileStamp | undefined, b: FileStamp | undefined): FileStamp 
   return b.mtimeMs > a.mtimeMs ? b : a
 }
 
-/**
- * The most recently modified file at or below a path inside the repository. A path that does not
- * exist simply contributes nothing: an absent `out/` is already the caller's `missing` verdict, and
- * an absent watched input is a checkout shape this guard has no opinion about.
- */
-function newestFileUnder(repoRoot: string, relativePath: string): FileStamp | undefined {
-  const absolute = join(repoRoot, relativePath)
-  const stats = statSync(absolute, { throwIfNoEntry: false })
-  if (!stats) return undefined
-  if (stats.isFile()) return { path: relative(repoRoot, absolute), mtimeMs: stats.mtimeMs }
-  if (!stats.isDirectory()) return undefined
+function stampText(stamp: FileStamp): string {
+  return `${stamp.path} (${new Date(stamp.mtimeMs).toISOString()})`
+}
 
-  let newest: FileStamp | undefined
-  for (const entry of readdirSync(absolute, { withFileTypes: true })) {
-    newest = newerOf(newest, newestFileUnder(repoRoot, join(relativePath, entry.name)))
+/**
+ * A path the guard needed to read and could not. Symlink loops and unreadable directories would
+ * otherwise surface as a bare filesystem error out of Playwright's global setup, with nothing to
+ * say the guard was even involved.
+ */
+class WalkFailure extends Error {
+  path: string
+  reason: string
+
+  constructor(path: string, reason: string) {
+    super(`${path}: ${reason}`)
+    this.path = path
+    this.reason = reason
   }
-  return newest
+}
+
+function statOf(repoRoot: string, relativePath: string): Stats | undefined {
+  try {
+    return statSync(join(repoRoot, relativePath), { throwIfNoEntry: false })
+  } catch (error) {
+    throw new WalkFailure(relativePath, describeError(error))
+  }
+}
+
+function readEntries(repoRoot: string, relativePath: string): Dirent[] {
+  try {
+    return readdirSync(join(repoRoot, relativePath), { withFileTypes: true })
+  } catch (error) {
+    throw new WalkFailure(relativePath, describeError(error))
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

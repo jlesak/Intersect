@@ -50,11 +50,17 @@ Requires Node 20.19+/22.12+ (Node 24 LTS recommended) and macOS with Xcode Comma
 
 The E2E suite runs against `out/`, so a run started without a build would report on code you are
 not looking at. Every Playwright entry point - `npm run e2e`, `npm run e2e:nobuild`, and a bare
-`npx playwright test` - therefore refuses to start when `out/main/index.js` is missing or when
-anything under `src/`, `electron.vite.config.ts`, `package.json` or `package-lock.json` is newer
-than the newest build output. The fix it names is `npm run build`. Editing only `e2e/` never trips
-it, so `npm run e2e:nobuild` stays the fast loop while iterating on specs. `E2E_ALLOW_STALE=1` runs
-against the stale build deliberately and leaves a warning in the log saying how stale it is.
+`npx playwright test` - therefore refuses to start unless `out/main`, `out/preload` and
+`out/renderer` are all built and all newer than every build input. The three are checked
+separately on purpose: `npm run dev` rebuilds main and preload but serves the renderer from
+memory, so an afternoon in dev mode leaves a recent-looking `out/` with pre-edit markup inside it.
+
+Build inputs are `src/` - excluding `*.test.*`, `*.spec.*` and `__tests__/`, which no bundle entry
+imports - plus `electron.vite.config.*`, `package.json`, `package-lock.json`, the root
+`tsconfig*.json` and any root `.env*`. Editing only `e2e/` never trips the guard, so
+`npm run e2e:nobuild` stays the fast loop while iterating on specs. A refusal names the file that
+beat the build and the fix, `npm run build`. `E2E_ALLOW_STALE=1`, and only that exact value, runs
+anyway and leaves a warning in the log saying how stale the build is.
 
 ## Architecture
 
