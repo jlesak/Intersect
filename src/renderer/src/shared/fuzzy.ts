@@ -4,32 +4,77 @@
  * same wherever it is typed.
  */
 
+/** How well a query matched a text, and which characters of the text it landed on. */
+export interface FuzzyMatch {
+  score: number
+  /** Positions in the original text, ascending - what a caller highlights to explain the hit. */
+  indices: number[]
+}
+
 /**
- * Scores how well `query` matches `text` as a case-insensitive subsequence. Returns null when the
- * query is not a subsequence of the text at all. A higher score is a better match: contiguous
- * runs, matches that begin at a word boundary, and matches that start earlier all score higher.
+ * Take each query character at the earliest position at or after `from` still available to it.
+ * Returns null when the remaining text cannot supply the whole query.
  */
-export function fuzzyScore(query: string, text: string): number | null {
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
+function scanFrom(q: string, t: string, from: number): FuzzyMatch | null {
+  const indices: number[] = []
   let qi = 0
   let score = 0
   let prevMatch = -2
   let firstMatch = -1
 
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+  for (let ti = from; ti < t.length && qi < q.length; ti++) {
     if (t[ti] !== q[qi]) continue
     if (firstMatch === -1) firstMatch = ti
     if (ti === prevMatch + 1) score += 10
     const prevChar = ti > 0 ? t[ti - 1] : ' '
     if (!/[a-z0-9]/.test(prevChar)) score += 8
+    indices.push(ti)
     prevMatch = ti
     qi++
   }
 
   if (qi < q.length) return null
   score += Math.max(0, 20 - firstMatch)
-  return score
+  return { score, indices }
+}
+
+/**
+ * Matches `query` against `text` as a case-insensitive subsequence. Returns null when the query is
+ * not a subsequence of the text at all. A higher score is a better match: contiguous runs, matches
+ * that begin at a word boundary, and matches that start earlier all score higher.
+ *
+ * Two placements are considered - the earliest one, and the one starting where the query appears
+ * whole - and the better wins. Taking only the earliest would let a stray leading character drag a
+ * match away from the word the user actually typed: searching `owner` in `Lock owner` would spend
+ * its `o` on `Lock` and score the text below one that merely mentions the word in passing.
+ */
+export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+
+  const earliest = scanFrom(q, t, 0)
+  if (earliest === null) return null
+  const whole = t.indexOf(q)
+  const best =
+    whole <= 0 ? earliest : pickBetter(earliest, scanFrom(q, t, whole))
+
+  // A handful of characters grow when lowercased, which shifts every position after them. The
+  // ranking is unaffected, but positions that no longer address the caller's own text would
+  // highlight the wrong characters, so say nothing rather than something wrong.
+  return t.length === text.length ? best : { score: best.score, indices: [] }
+}
+
+/** The better-scoring of two placements of the same query, preferring the first on a tie. */
+function pickBetter(earliest: FuzzyMatch, other: FuzzyMatch | null): FuzzyMatch {
+  return other !== null && other.score > earliest.score ? other : earliest
+}
+
+/**
+ * Scores how well `query` matches `text` as a case-insensitive subsequence, or null when it does
+ * not match at all. The ranking half of {@link fuzzyMatch}, for callers with nothing to highlight.
+ */
+export function fuzzyScore(query: string, text: string): number | null {
+  return fuzzyMatch(query, text)?.score ?? null
 }
 
 /**

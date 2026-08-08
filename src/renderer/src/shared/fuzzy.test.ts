@@ -1,5 +1,39 @@
 import { describe, expect, test } from 'vitest'
-import { fuzzyFilter, fuzzyScore } from './fuzzy'
+import { fuzzyFilter, fuzzyMatch, fuzzyScore } from './fuzzy'
+
+describe('fuzzyMatch', () => {
+  test('reports where each query character landed', () => {
+    expect(fuzzyMatch('nsh', 'New Shell Tab')?.indices).toEqual([0, 4, 5])
+  })
+
+  test('reports the same score fuzzyScore does', () => {
+    expect(fuzzyMatch('nsh', 'New Shell Tab')?.score).toBe(fuzzyScore('nsh', 'New Shell Tab'))
+  })
+
+  test('a non-subsequence has no match at all', () => {
+    expect(fuzzyMatch('zzz', 'New Shell Tab')).toBeNull()
+  })
+
+  test('the empty query matches with no highlighted characters', () => {
+    expect(fuzzyMatch('', 'anything')?.indices).toEqual([])
+  })
+
+  test('each query character consumes its own position, left to right', () => {
+    // The second "a" must come after the "n" it follows, not reuse the one before it.
+    expect(fuzzyMatch('ana', 'banana')?.indices).toEqual([1, 2, 3])
+  })
+
+  test('a stray earlier character does not drag the match off the word the user typed', () => {
+    // The leading "o" of "Lock" is available, but spending it there scatters the rest.
+    expect(fuzzyMatch('owner', 'Lock owner')?.indices).toEqual([5, 6, 7, 8, 9])
+  })
+
+  test('the whole-word placement only wins when it actually scores better', () => {
+    // "ab" is contiguous at the end, but the scattered match starts at the very beginning and at
+    // two word boundaries, which is the stronger read of the text.
+    expect(fuzzyMatch('ab', 'a b ab')?.indices).toEqual([0, 2])
+  })
+})
 
 describe('fuzzyScore', () => {
   test('scores a case-insensitive subsequence and rejects a non-subsequence', () => {

@@ -1741,6 +1741,11 @@
 .ix-session-row:hover {
   background: var(--panel-2);
 }
+.ix-session-row:focus-visible {
+  background: var(--panel-2);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .ix-session-row--active {
   background: var(--panel-2);
 }
