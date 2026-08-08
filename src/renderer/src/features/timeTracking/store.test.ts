@@ -237,7 +237,7 @@ describe('the work timer', () => {
     )
     await useTimeTrackingStore.getState().stopTimer()
     expect(toastMocks.push).toHaveBeenCalledWith(
-      '45m logged to Saturday 01.08. The weekday board does not show weekend days.'
+      '45m logged on Saturday 01.08. The weekday board does not show weekend days.'
     )
     expect(toastMocks.reportError).not.toHaveBeenCalled()
   })
