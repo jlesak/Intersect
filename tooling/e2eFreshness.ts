@@ -68,9 +68,11 @@ const WATCHED_SOURCE_TREE = 'src'
  * `electron.vite.config.ts.timestamp-<ms>-<rand>.mjs`, is not mistaken for the config itself and
  * named in a refusal nobody can act on.
  *
- * Known gap: deleting one of these files reads as fresh, because only the repository root directory
- * would record it and stamping the root would put `out/`, `test-results/` and every other artefact
- * directory in the way of a verdict.
+ * Known gap: deleting one of these files, or renaming it - which carries its modification time
+ * across - reads as fresh, because only the repository root directory would record it, and stamping
+ * the root would put `out/`, `test-results/` and every other artefact directory in the way of a
+ * verdict. Renaming is the likelier of the two: an environment file is exactly the kind of thing
+ * that gets shuffled by hand.
  */
 const WATCHED_ROOT_FILES = [
   /^electron\.vite\.config\.(ts|mts|cts|js|mjs|cjs)$/,

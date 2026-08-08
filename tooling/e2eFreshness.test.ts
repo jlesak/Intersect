@@ -363,6 +363,37 @@ describe('checkBundleFreshness', () => {
     })
   })
 
+  /**
+   * The two halves of the guard are otherwise tested apart, with hand-written verdicts standing in
+   * for the walk. That leaves the one thing a developer actually reads unpinned: a plain edit
+   * mislabelled as a directory change reads as a guard malfunction, and a bypass becomes reflex.
+   * These drive the real walk all the way through to the sentence.
+   */
+  describe('the refusal a real walk produces', () => {
+    test('an edited file is reported as itself, not as a directory that gained or lost one', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+
+      const action = resolveGuardAction(checkBundleFreshness(root), undefined)
+
+      expect(action.kind).toBe('fail')
+      if (action.kind === 'proceed') return
+      expect(action.message).toContain('src/renderer/src/App.tsx')
+      expect(action.message).not.toMatch(/added, removed or renamed/)
+    })
+
+    test('a deleted file is reported as its directory changing, since nothing else records it', () => {
+      freshRepo()
+      rmSync(join(root, 'src', 'renderer', 'src', 'App.tsx'))
+
+      const action = resolveGuardAction(checkBundleFreshness(root), undefined)
+
+      expect(action.kind).toBe('fail')
+      if (action.kind === 'proceed') return
+      expect(action.message).toMatch(/added, removed or renamed in src\/renderer\/src/)
+    })
+  })
+
   test('the entry resolves under the repository root it is asked about', () => {
     expect(appEntry(root)).toBe(join(root, 'out', 'main', 'index.js'))
   })
