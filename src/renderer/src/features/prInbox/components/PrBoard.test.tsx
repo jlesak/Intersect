@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
 
@@ -225,5 +225,126 @@ describe('PrBoard', () => {
     })
 
     expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+  })
+})
+
+/**
+ * Two repositories, three distinguishable titles, and one pull request per column - so a chip and
+ * a query each exclude something, and each of them empties a different column.
+ */
+const ACROSS_REPOS = [
+  pr({ prId: 501, title: 'Add rate limiting to the sync pipeline', authorName: 'Jan Lesak' }),
+  pr({
+    prId: 502,
+    title: 'Fix PTY backpressure on large output',
+    authorName: 'Marek Kral',
+    role: 'author',
+    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'noVote', isRequired: true }]
+  }),
+  pr({
+    prId: 503,
+    title: 'Extract the notification preferences screen',
+    authorName: 'Petr Vala',
+    repositoryId: 'repo-2',
+    repositoryName: 'intersect-docs',
+    role: 'author',
+    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'approved', isRequired: true }]
+  })
+]
+
+const cardTitles = (): string[] =>
+  [...document.querySelectorAll('.ix-board-card__title')].map((e) => e.textContent ?? '')
+
+const byTestId = (id: string): HTMLElement =>
+  document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
+
+describe('PrBoard filtering', () => {
+  afterEach(() => {
+    usePrInboxStore.setState({
+      status: 'idle',
+      error: null,
+      syncing: false,
+      prsByKey: {},
+      order: [],
+      syncedAt: null,
+      syncError: null
+    })
+  })
+
+  test('typing letters scattered through a title leaves only that pull request', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+
+    // "xtnotif" is nowhere in the board as a run of characters.
+    await act(async () => {
+      fireEvent.change(byTestId('pr-filter'), { target: { value: 'xtnotif' } })
+    })
+
+    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+    expect(byTestId('pr-filter-count').textContent).toBe('1 of 3')
+  })
+
+  test('a pull request is found by the number it is known as', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+
+    await act(async () => {
+      fireEvent.change(byTestId('pr-filter'), { target: { value: '!502' } })
+    })
+
+    expect(cardTitles()).toEqual(['Fix PTY backpressure on large output'])
+  })
+
+  test('narrowing to one repository drops the pull requests from the others', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+
+    await act(async () => {
+      fireEvent.click(byTestId('pr-filter-repo'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('None'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('intersect-docs'))
+    })
+
+    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+  })
+
+  test('a column the filter emptied collapses but still says which column it is', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+    expect(byTestId('pr-col-action').className).not.toContain('ix-board-col--collapsed')
+
+    await act(async () => {
+      fireEvent.change(byTestId('pr-filter'), { target: { value: 'xtnotif' } })
+    })
+
+    expect(byTestId('pr-col-action').className).toContain('ix-board-col--collapsed')
+    expect(byTestId('pr-col-action').textContent).toContain('Needs my action')
+  })
+
+  test('a filter nothing matches says so, and does not claim there is nothing to review', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+
+    await act(async () => {
+      fireEvent.change(byTestId('pr-filter'), { target: { value: 'zzzz' } })
+    })
+
+    expect(cardTitles()).toEqual([])
+    expect(document.querySelector('.ix-boardfilter__none')?.textContent).toBe(
+      'No pull requests match this filter.'
+    )
+    expect(document.querySelector('.ix-empty__title')).toBeNull()
+  })
+
+  test('a board with nothing synced still says there is nothing to review, with no bar to type in', async () => {
+    seedBoard([])
+    await mountBoard()
+
+    expect(document.querySelector('.ix-empty__title')?.textContent).toBe('Nothing to review')
+    expect(document.querySelector('[data-testid="pr-filter"]')).toBeNull()
   })
 })

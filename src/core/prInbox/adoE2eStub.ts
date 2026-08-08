@@ -15,6 +15,12 @@ import type { LocalDiffService } from './localDiff'
 
 const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projectId: 'SPOT' }
 
+/**
+ * A second repository, so the canned board spans more than one. A board whose pull requests all
+ * come from the same place cannot tell a repository filter that works from one that does nothing.
+ */
+const OTHER_REPO = { repositoryId: 'e2e-repo-2', repositoryName: 'intersect-docs', projectId: 'SPOT' }
+
 const basePr = {
   ...REPO,
   description: '',
@@ -72,6 +78,7 @@ function radarPrs(syncCount: number): PullRequest[] {
     },
     {
       ...basePr,
+      ...OTHER_REPO,
       prId: 503,
       title: 'Extract the notification preferences screen',
       authorId: 'author-petr',
@@ -80,7 +87,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       sourceRefName: 'refs/heads/feature/notif-prefs',
       // The author "pushes" between the first and second sync of an app run.
       sourceCommitId: syncCount <= 1 ? 'source-503-reviewed' : 'source-503-updated',
-      url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo/pullRequests/503',
+      url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo-2/pullRequests/503',
       role: 'reviewer',
       myVote: 'approved',
       myReviewerId: 'me',

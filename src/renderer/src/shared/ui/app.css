@@ -883,9 +883,10 @@
 .ix-mw-loading.ix-board-stale {
   padding: 0 18px 4px;
 }
+/* Laid out as a flex row rather than as three equal tracks, so a column with nothing in it can step
+   out of the way and give its width to the ones that do. */
 .ix-board {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
   gap: 12px;
   padding: 10px 18px 18px;
   overflow-y: auto;
@@ -894,6 +895,7 @@
   min-height: 0;
 }
 .ix-board-col {
+  flex: 1 1 0;
   min-width: 0;
 }
 .ix-board-col__head {
@@ -901,6 +903,22 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 9px;
+}
+/* An empty column shrinks to a strip, keeping its name turned on its side: a board of anonymous
+   strips cannot be read at all. */
+.ix-board-col--collapsed {
+  flex: 0 0 auto;
+  width: 30px;
+}
+.ix-board-col--collapsed .ix-board-col__head {
+  flex-direction: column;
+  gap: 7px;
+}
+.ix-board-col--collapsed .ix-eyebrow {
+  writing-mode: vertical-rl;
+}
+.ix-board-col--collapsed .ix-board-col__count {
+  padding: 2px 0;
 }
 .ix-board-col__label--action {
   color: var(--accent);
@@ -2146,7 +2164,7 @@
   flex: none;
 }
 .ix-boardfilter__search {
-  flex: 1 1 220px;
+  flex: 0 1 380px;
   min-width: 150px;
   height: 30px;
 }
