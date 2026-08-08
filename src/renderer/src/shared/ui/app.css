@@ -1654,11 +1654,6 @@
 .ix-msel__count {
   color: var(--accent);
 }
-.ix-msel__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-}
 .ix-msel__pop {
   position: absolute;
   top: calc(100% + 5px);

@@ -205,6 +205,23 @@ test('tabbing out of an open chip popover puts it away instead of leaving it ove
   await app.close()
 })
 
+test('moving from one chip to the next takes one click, not two', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  await win.getByTestId('jira-filter-epic').click()
+  await expect(win.getByRole('group', { name: 'Epic' })).toBeVisible()
+
+  // One press, landing directly on the other trigger: the open popover goes and the new one opens.
+  // A dismissing shield over the page would eat this click and leave nothing open.
+  await win.getByTestId('jira-filter-component').click()
+
+  await expect(win.locator('.ix-msel__pop')).toHaveCount(1)
+  await expect(win.getByRole('group', { name: 'Component' })).toBeVisible()
+
+  await app.close()
+})
+
 test('a filter nothing matches says so rather than showing a board of blank strips', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(3)

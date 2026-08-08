@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   type FilterOption,
   type Selection,
@@ -29,6 +29,21 @@ export function MultiSelectFilter({
 }) {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
+  const root = useRef<HTMLDivElement>(null)
+
+  // Dismissed by listening for a press elsewhere rather than by covering the page with a shield.
+  // A shield swallows the press that dismisses it, which costs the user a whole click every time
+  // they move from one chip to the next - and two chips side by side is the ordinary case.
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (root.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [open])
+
   if (options.length === 0) return null
 
   // Read against what is actually on offer, so the count on the button and the ticks in the list
@@ -41,6 +56,7 @@ export function MultiSelectFilter({
   return (
     <div
       className="ix-msel"
+      ref={root}
       onKeyDown={(e) => {
         // Escape belongs to the popover while it is open, and to whatever is behind it otherwise.
         if (e.key !== 'Escape' || !open) return
@@ -54,7 +70,7 @@ export function MultiSelectFilter({
         //
         // Focus going nowhere in particular is left alone. Pressing a checkbox's label drops focus
         // before the label hands it to the checkbox, and closing on that would make every option
-        // in the list unclickable. Clicking away is the backdrop's job in any case.
+        // in the list unclickable. A press elsewhere is already handled on its own.
         if (e.relatedTarget === null) return
         if (e.currentTarget.contains(e.relatedTarget)) return
         setOpen(false)
@@ -74,38 +90,31 @@ export function MultiSelectFilter({
         </span>
       </button>
       {open && (
-        <>
-          <div className="ix-msel__backdrop" onMouseDown={() => setOpen(false)} />
-          <div className="ix-msel__pop" role="group" aria-label={label}>
-            <div className="ix-msel__head">
-              <span className="ix-eyebrow">{label}</span>
-              <div className="ix-msel__actions">
-                <button
-                  type="button"
-                  className="ix-btn ix-btn--ghost"
-                  onClick={() => onChange(null)}
-                >
-                  All
-                </button>
-                <button type="button" className="ix-btn ix-btn--ghost" onClick={() => onChange([])}>
-                  None
-                </button>
-              </div>
-            </div>
-            <div className="ix-msel__list">
-              {options.map((option) => (
-                <label key={option.value} className="ix-msel__item">
-                  <input
-                    type="checkbox"
-                    checked={isChecked(option.value)}
-                    onChange={() => onChange(toggleSelection(chosen, option.value, values))}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
+        <div className="ix-msel__pop" role="group" aria-label={label}>
+          <div className="ix-msel__head">
+            <span className="ix-eyebrow">{label}</span>
+            <div className="ix-msel__actions">
+              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => onChange(null)}>
+                All
+              </button>
+              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => onChange([])}>
+                None
+              </button>
             </div>
           </div>
-        </>
+          <div className="ix-msel__list">
+            {options.map((option) => (
+              <label key={option.value} className="ix-msel__item">
+                <input
+                  type="checkbox"
+                  checked={isChecked(option.value)}
+                  onChange={() => onChange(toggleSelection(chosen, option.value, values))}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

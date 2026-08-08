@@ -26,6 +26,34 @@ function opened(): HTMLElement {
 
 const popover = (): Element | null => document.querySelector('.ix-msel__pop')
 
+/** One press of the mouse, in the order a browser delivers it. */
+function realClick(element: Element): void {
+  fireEvent.pointerDown(element)
+  fireEvent.click(element)
+}
+
+/** Two chip controls side by side, as the Jira board shows Epic and Component. */
+function twoChips() {
+  render(
+    <>
+      <MultiSelectFilter
+        label="Epic"
+        options={[{ value: 'e1', label: 'Reporting' }]}
+        selection={null}
+        onChange={vi.fn()}
+        testId="epic"
+      />
+      <MultiSelectFilter
+        label="Component"
+        options={[{ value: 'c1', label: 'Excel' }]}
+        selection={null}
+        onChange={vi.fn()}
+        testId="component"
+      />
+    </>
+  )
+}
+
 describe('MultiSelectFilter', () => {
   test('Escape closes the popover and hands focus back to the control that opened it', () => {
     const button = opened()
@@ -110,6 +138,45 @@ describe('MultiSelectFilter', () => {
     fireEvent.click(screen.getByLabelText('Beta'))
 
     expect(onChange).toHaveBeenCalledWith(['a', 'b'])
+  })
+
+  test('one press on a second chip closes the open one and opens it, not just the first', () => {
+    twoChips()
+    realClick(screen.getByTestId('epic'))
+    expect(screen.getByRole('group', { name: 'Epic' })).toBeTruthy()
+
+    realClick(screen.getByTestId('component'))
+
+    expect(document.querySelectorAll('.ix-msel__pop')).toHaveLength(1)
+    expect(screen.getByRole('group', { name: 'Component' })).toBeTruthy()
+  })
+
+  test('pressing the open chip again closes it rather than reopening it', () => {
+    twoChips()
+    realClick(screen.getByTestId('epic'))
+
+    realClick(screen.getByTestId('epic'))
+
+    expect(popover()).toBeNull()
+  })
+
+  test('pressing anywhere outside puts the popover away', () => {
+    const elsewhere = document.createElement('div')
+    document.body.appendChild(elsewhere)
+    opened()
+
+    fireEvent.pointerDown(elsewhere)
+
+    expect(popover()).toBeNull()
+    elsewhere.remove()
+  })
+
+  test('pressing inside the popover leaves it open', () => {
+    opened()
+
+    fireEvent.pointerDown(screen.getByLabelText('Alpha'))
+
+    expect(popover()).not.toBeNull()
   })
 
   test('the popover is described as what it is - a named group of checkboxes, not a menu', () => {
