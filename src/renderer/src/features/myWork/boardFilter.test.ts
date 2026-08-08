@@ -1,5 +1,6 @@
 import type { JiraIssueSnapshot } from '@common/domain'
 import { describe, expect, test } from 'vitest'
+import { NO_VALUE } from '@renderer/shared/selection'
 import { NO_JIRA_FILTER, filterJiraIssues, jiraFilterOptions } from './boardFilter'
 
 function issue(over: Partial<JiraIssueSnapshot> & Pick<JiraIssueSnapshot, 'key'>): JiraIssueSnapshot {
@@ -84,9 +85,29 @@ describe('filterJiraIssues', () => {
     expect(keys(found)).toEqual(['FID2507-11', 'FID2507-12'])
   })
 
-  test('an epic chip drops the issues under other epics and those under none', () => {
+  test('an epic picked on its own drops the other epics, and the issues under no epic with them', () => {
     const found = filterJiraIssues(ALL, { ...NO_JIRA_FILTER, epics: ['FID2507-91'] })
     expect(keys(found)).toEqual(['FID2507-12'])
+  })
+
+  test('the issues under no epic are reachable as a choice of their own', () => {
+    const found = filterJiraIssues(ALL, { ...NO_JIRA_FILTER, epics: [NO_VALUE] })
+    expect(keys(found)).toEqual(['FID2507-13'])
+  })
+
+  test('a chip choice the board no longer offers stops narrowing rather than emptying the board', () => {
+    // The control that set this is gone from the screen once no issue carries a component.
+    const bare = ALL.map((i) => ({ ...i, components: [] }))
+    expect(keys(filterJiraIssues(bare, { ...NO_JIRA_FILTER, components: ['Excel'] }))).toEqual([
+      'FID2507-11',
+      'FID2507-12',
+      'FID2507-13'
+    ])
+  })
+
+  test('one choice vanishing does not lift the rest of the narrowing', () => {
+    const found = filterJiraIssues(ALL, { ...NO_JIRA_FILTER, components: ['Excel', 'Gone'] })
+    expect(keys(found)).toEqual(['FID2507-11'])
   })
 
   test('choosing nothing in a chip control leaves the board empty rather than unfiltered', () => {
@@ -101,15 +122,24 @@ describe('filterJiraIssues', () => {
 })
 
 describe('jiraFilterOptions', () => {
-  test('offers each component once, whichever issues carry it', () => {
+  test('offers each component once, whichever issues carry it, then the ones carrying none', () => {
     expect(jiraFilterOptions(ALL).components).toEqual([
       { value: 'Backend', label: 'Backend' },
-      { value: 'Excel', label: 'Excel' }
+      { value: 'Excel', label: 'Excel' },
+      { value: NO_VALUE, label: '(none)' }
     ])
   })
 
   test('offers each epic once, named by its summary and listed under that name', () => {
     expect(jiraFilterOptions(ALL).epics).toEqual([
+      { value: 'FID2507-91', label: 'Platform' },
+      { value: 'FID2507-90', label: 'Reporting' },
+      { value: NO_VALUE, label: '(none)' }
+    ])
+  })
+
+  test('a board where every issue has an epic offers no "(none)" to pick', () => {
+    expect(jiraFilterOptions([EXCEL, LOGIN]).epics).toEqual([
       { value: 'FID2507-91', label: 'Platform' },
       { value: 'FID2507-90', label: 'Reporting' }
     ])

@@ -146,11 +146,31 @@ test('narrowing to one epic keeps only the issues under it', async () => {
   await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
   await win.locator('.ix-msel__item', { hasText: 'Platform' }).click()
 
-  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-3'])
-  await expect(win.getByTestId('jira-filter-epic')).toHaveText(/1\/2/)
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2'])
+  await expect(win.getByTestId('jira-filter-epic')).toHaveText(/1\/3/)
 
-  // The one issue under the other epic is gone, and its column with it.
+  // The issue under the other epic is gone, and its column with it.
   await expect(win.locator('.ix-mw-col--todo')).toHaveClass(/ix-mw-col--collapsed/)
+
+  await app.close()
+})
+
+test('hiding one epic leaves the issues that are under no epic where they were', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  await expect(win.locator('.ix-mw-card2')).toHaveCount(3)
+
+  // The gesture is "hide the Release epic". FID2507-3 is under no epic at all and was never asked
+  // about, so it has to stay - on a real board it is the largest group there is.
+  await win.getByTestId('jira-filter-epic').click()
+  await win.locator('.ix-msel__item', { hasText: 'Release' }).click()
+
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-3'])
+  await expect(win.getByTestId('jira-filter-epic')).toHaveText(/2\/3/)
+
+  // And they are reachable on their own: ask for exactly the issues under no epic.
+  await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
+  await win.locator('.ix-msel__item', { hasText: '(none)' }).click()
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-3'])
 
   await app.close()
 })

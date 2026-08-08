@@ -29,10 +29,13 @@ const remoteIssue = (over: Partial<JiraRemoteIssue> & Pick<JiraRemoteIssue, 'key
 })
 
 /**
- * Three issues, one per occupied column, carrying an assignee, an epic and components - the fields
- * a board is narrowed by. They deliberately overlap only partly: each of the two epics and each of
- * the two components leaves a different subset standing, so a filter that quietly matched
- * everything could not pass for one that works.
+ * Three issues, one per occupied column, carrying an assignee, components and - for two of them -
+ * an epic. They deliberately overlap only partly: each epic and each component leaves a different
+ * subset standing, so a filter that quietly matched everything could not pass for one that works.
+ *
+ * One issue is under no epic on purpose. That is the ordinary shape of a real board, and it is the
+ * only way to exercise the "(none)" choice and the promise that narrowing by epic does not carry
+ * the un-epic'd issues away with it.
  */
 const SAMPLE_ISSUES: JiraRemoteIssue[] = [
   remoteIssue({
@@ -63,8 +66,6 @@ const SAMPLE_ISSUES: JiraRemoteIssue[] = [
     rawStatus: 'In Review',
     rawPriority: 'Low',
     assignee: 'Jan Lesak',
-    epicKey: 'FID2507-91',
-    epicSummary: 'Platform',
     components: ['Backend', 'Docs'],
     updatedAt: Date.now() - 5 * 60_000
   })

@@ -136,6 +136,63 @@ describe('JiraBoard filtering', () => {
     expect(screen.getByTestId('jira-filter')).toBeTruthy()
   })
 
+  test('a chip whose choices all vanish stops narrowing instead of trapping an empty board', () => {
+    const { rerender } = render(<JiraBoard issues={ISSUES} />)
+    pickOnly('jira-filter-component')
+    expect(cardKeys()).toEqual(['FID2507-12'])
+
+    // A refresh brings back issues that carry no components at all: the control that set this
+    // narrowing is about to leave the screen, so the narrowing has to leave with it.
+    const componentless = ISSUES.map((issue) => ({ ...issue, components: [] }))
+    rerender(<JiraBoard issues={componentless} />)
+
+    expect(screen.queryByTestId('jira-filter-component')).toBeNull()
+    expect(cardKeys()).toEqual(['FID2507-11', 'FID2507-12'])
+  })
+
+  test('a chip counts only choices it still offers, so it never claims more than it ticks', () => {
+    const { rerender } = render(<JiraBoard issues={ISSUES} />)
+    pickOnly('jira-filter-component', 'Excel')
+    expect(screen.getByTestId('jira-filter-component').textContent).toContain('1/2')
+
+    // The board refreshes to issues carrying only the component that was NOT chosen, so the one
+    // value the chip is holding is no longer among the ones it offers.
+    const onlyBackend = ISSUES.map((issue) => ({ ...issue, components: ['Backend'] }))
+    rerender(<JiraBoard issues={onlyBackend} />)
+
+    expect(screen.getByTestId('jira-filter-component').textContent).toContain('0/1')
+    expect(
+      screen.getAllByRole('checkbox').filter((box) => (box as HTMLInputElement).checked)
+    ).toEqual([])
+    expect(cardKeys()).toEqual([])
+  })
+
+  test('unticking one epic keeps the issues that are under no epic at all', () => {
+    const loose = issue({ key: 'FID2507-13', summary: 'Tidy the changelog', column: 'todo' })
+    render(<JiraBoard issues={[...ISSUES, loose]} />)
+
+    // The gesture is "hide the Reporting epic", not "hide everything that is not Platform".
+    fireEvent.click(screen.getByTestId('jira-filter-epic'))
+    fireEvent.click(screen.getByLabelText('Reporting'))
+
+    expect(cardKeys()).toEqual(['FID2507-13', 'FID2507-12'])
+  })
+
+  test('issues under no epic can be asked for on their own', () => {
+    const loose = issue({ key: 'FID2507-13', summary: 'Tidy the changelog', column: 'todo' })
+    render(<JiraBoard issues={[...ISSUES, loose]} />)
+    pickOnly('jira-filter-epic', '(none)')
+
+    expect(cardKeys()).toEqual(['FID2507-13'])
+  })
+
+  test('a board where every issue has an epic offers no "(none)" to pick', () => {
+    render(<JiraBoard issues={ISSUES} />)
+    fireEvent.click(screen.getByTestId('jira-filter-epic'))
+
+    expect(screen.queryByLabelText('(none)')).toBeNull()
+  })
+
   test('the bar says how much of the board is left once it is narrowed', () => {
     render(<JiraBoard issues={ISSUES} />)
     expect(screen.queryByTestId('jira-filter-count')).toBeNull()

@@ -348,3 +348,51 @@ describe('PrBoard filtering', () => {
     expect(document.querySelector('[data-testid="pr-filter"]')).toBeNull()
   })
 })
+
+describe('PrBoard chip reconciliation', () => {
+  afterEach(() => {
+    usePrInboxStore.setState({
+      status: 'idle',
+      error: null,
+      syncing: false,
+      prsByKey: {},
+      order: [],
+      syncedAt: null,
+      syncError: null
+    })
+  })
+
+  test('a repository that drops out of a sync stops narrowing instead of trapping an empty board', async () => {
+    seedBoard(ACROSS_REPOS)
+    await mountBoard()
+    await act(async () => {
+      fireEvent.click(byTestId('pr-filter-repo'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('None'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('intersect-docs'))
+    })
+    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+
+    // The next sync returns only the other repository's pull requests.
+    await act(async () => {
+      seedBoard(ACROSS_REPOS.filter((p) => p.repositoryId === 'repo-1'))
+    })
+
+    // The board is empty, and the chip says exactly why: nothing it offers is ticked. A count that
+    // still read 1/1 over an unticked list would be the control lying about its own state.
+    expect(cardTitles()).toEqual([])
+    expect(byTestId('pr-filter-repo').textContent).toContain('0/1')
+    expect(screen.getAllByRole('checkbox').filter((b) => (b as HTMLInputElement).checked)).toEqual(
+      []
+    )
+
+    // And the user is not stuck: the control is still there to undo it.
+    await act(async () => {
+      fireEvent.click(screen.getByText('All'))
+    })
+    expect(cardTitles()).toHaveLength(2)
+  })
+})

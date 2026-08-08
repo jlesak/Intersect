@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { type FilterOption, type Selection, toggleSelection } from '../selection'
+import {
+  type FilterOption,
+  type Selection,
+  reconcileSelection,
+  toggleSelection
+} from '../selection'
 
 /**
  * A chip filter over a set of values: a button that opens a checkbox popover, with All and None to
@@ -25,9 +30,12 @@ export function MultiSelectFilter({
   const [open, setOpen] = useState(false)
   if (options.length === 0) return null
 
+  // Read against what is actually on offer, so the count on the button and the ticks in the list
+  // are two views of one thing and can never disagree about a value that has since vanished.
   const values = options.map((option) => option.value)
-  const chosen = selection === null ? options.length : selection.length
-  const isChecked = (value: string): boolean => selection === null || selection.includes(value)
+  const chosen = reconcileSelection(selection, values)
+  const chosenCount = chosen === null ? options.length : chosen.length
+  const isChecked = (value: string): boolean => chosen === null || chosen.includes(value)
 
   return (
     <div className="ix-msel">
@@ -40,7 +48,7 @@ export function MultiSelectFilter({
       >
         {label}{' '}
         <span className="ix-msel__count">
-          {chosen}/{options.length}
+          {chosenCount}/{options.length}
         </span>
       </button>
       {open && (
@@ -68,7 +76,7 @@ export function MultiSelectFilter({
                   <input
                     type="checkbox"
                     checked={isChecked(option.value)}
-                    onChange={() => onChange(toggleSelection(selection, option.value, values))}
+                    onChange={() => onChange(toggleSelection(chosen, option.value, values))}
                   />
                   <span>{option.label}</span>
                 </label>
