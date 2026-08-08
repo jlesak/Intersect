@@ -44,7 +44,7 @@ describe('toggleSelection', () => {
 
 describe('reconcileSelection', () => {
   test('a dimension with nothing to choose between constrains nothing', () => {
-    // The control that set this is no longer on screen, so the constraint has to lift itself.
+    // The control that set this is not drawn at all, so nothing on screen could take it back.
     expect(reconcileSelection(['a'], [])).toBeNull()
     expect(reconcileSelection([], [])).toBeNull()
   })

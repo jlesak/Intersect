@@ -81,15 +81,6 @@ describe('filterPrs', () => {
     expect(ids(filterPrs([NOTIF], { ...NO_PR_FILTER, repos: ['repo-1'] }))).toEqual([])
   })
 
-  test('one repository vanishing does not lift the rest of the narrowing', () => {
-    const found = filterPrs(ALL, { ...NO_PR_FILTER, repos: ['repo-2', 'repo-gone'] })
-    expect(ids(found)).toEqual([503])
-  })
-
-  test('a board with no repositories left to choose between imposes no repository constraint', () => {
-    expect(filterPrs([], { ...NO_PR_FILTER, repos: ['repo-1'] })).toEqual([])
-  })
-
   test('text and the repository chip narrow together', () => {
     const inApp = { query: 'e', repos: ['repo-1'] }
     expect(ids(filterPrs(ALL, inApp))).toEqual([501, 502])

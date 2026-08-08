@@ -27,9 +27,11 @@ export const NO_JIRA_FILTER: JiraBoardFilter = { query: '', epics: null, compone
  * they type would fight the column's own sort, and a score is meaningless across two columns
  * anyway.
  *
- * The chip selections are read against the choices the board can currently offer, so a board that
- * refreshed into different data can never go on hiding everything by a chip that is no longer on
- * screen to be cleared.
+ * The chip selections are read against the choices this board can offer. A dimension no issue on
+ * it carries drops out of the filtering entirely, which is what stops a board that refreshed into
+ * different data from hiding every card by a chip that is no longer drawn. Values that merely
+ * vanished are pruned so that this function's answer never depends on a choice the board cannot
+ * offer - on screen the control prunes for itself, to keep its count honest.
  */
 export function filterJiraIssues(
   issues: readonly JiraIssueSnapshot[],

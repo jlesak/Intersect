@@ -87,6 +87,31 @@ describe('MultiSelectFilter', () => {
     expect(popover()).not.toBeNull()
   })
 
+  test('ticking a value never resurrects one the control no longer offers', () => {
+    // The selection still holds "gone", which this dimension has stopped offering. Toggling from
+    // the raw selection instead of the pruned one would carry it back into the next selection -
+    // invisible today, and quietly narrowing again the moment its option returned.
+    const onChange = vi.fn()
+    render(
+      <MultiSelectFilter
+        label="Epic"
+        options={[
+          { value: 'a', label: 'Alpha' },
+          { value: 'b', label: 'Beta' },
+          { value: 'c', label: 'Gamma' }
+        ]}
+        selection={['a', 'gone']}
+        onChange={onChange}
+        testId="chip"
+      />
+    )
+    fireEvent.click(screen.getByTestId('chip'))
+
+    fireEvent.click(screen.getByLabelText('Beta'))
+
+    expect(onChange).toHaveBeenCalledWith(['a', 'b'])
+  })
+
   test('the popover is described as what it is - a named group of checkboxes, not a menu', () => {
     opened()
 

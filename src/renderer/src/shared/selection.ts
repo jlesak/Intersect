@@ -44,10 +44,14 @@ export function withNoneOption(options: FilterOption[], someLackValue: boolean):
 /**
  * The selection as it still applies to the values currently on offer.
  *
- * A dimension with nothing to choose between constrains nothing: otherwise a value chosen before a
- * refresh that removed it would go on hiding everything, with the control that set it no longer on
- * screen to undo it. Values that merely vanished from a still-populated dimension are dropped, so
- * the chip's count can never claim more than its ticked boxes.
+ * A dimension with nothing to choose between constrains nothing, because the control that set the
+ * choice is not drawn at all and there would be no way to take it back. Values that merely
+ * vanished from a still-populated dimension are dropped, so a chip's count can never claim more
+ * than its ticked boxes.
+ *
+ * This masks the selection as it is read; it never rewrites it. The user's choice is remembered,
+ * so a dimension that empties and later fills again comes back narrowed exactly as they left it,
+ * with the chip back on screen saying so.
  *
  * An explicitly emptied selection is left empty. That is the user ticking None, with the control
  * still in front of them, and it is theirs to undo.

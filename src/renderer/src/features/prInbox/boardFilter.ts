@@ -24,9 +24,11 @@ export const NO_PR_FILTER: PrBoardFilter = { query: '', repos: null }
  * user typed the mark. As on the Jira board, the matcher's ranking only decides what survives:
  * each column keeps its own most-recently-active-first order.
  *
- * The repository selection is read against the repositories the board can currently offer, so a
- * repository that drops out of a sync can never go on hiding everything by a chip that is no
- * longer on screen to be cleared.
+ * The repository selection is read against the repositories this board can offer, so the answer
+ * never depends on a choice the board cannot make. Unlike the Jira board this changes nothing the
+ * user can see: a pull request always came from somewhere, so the dimension is only ever empty
+ * when the board is, and a repository that drops out of a sync simply stops matching. What keeps
+ * the chip's count honest as that happens is the control pruning for itself.
  */
 export function filterPrs(prs: readonly PullRequest[], filter: PrBoardFilter): PullRequest[] {
   const available = prFilterOptions(prs).repos.map((option) => option.value)

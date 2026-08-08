@@ -105,9 +105,20 @@ describe('filterJiraIssues', () => {
     ])
   })
 
-  test('one choice vanishing does not lift the rest of the narrowing', () => {
-    const found = filterJiraIssues(ALL, { ...NO_JIRA_FILTER, components: ['Excel', 'Gone'] })
-    expect(keys(found)).toEqual(['FID2507-11'])
+  test('an epic chosen before a board that has no epics at all stops narrowing', () => {
+    // Every issue would answer "no epic" and be thrown out if the chosen epic still counted.
+    const bare = ALL.map((i) => ({ ...i, epicKey: null, epicSummary: null }))
+    expect(keys(filterJiraIssues(bare, { ...NO_JIRA_FILTER, epics: ['FID2507-90'] }))).toEqual([
+      'FID2507-11',
+      'FID2507-12',
+      'FID2507-13'
+    ])
+  })
+
+  test('a dimension that empties lifts only itself, not the other chip beside it', () => {
+    const noComponents = ALL.map((i) => ({ ...i, components: [] }))
+    const both = { query: '', epics: ['FID2507-90'], components: ['Excel'] }
+    expect(keys(filterJiraIssues(noComponents, both))).toEqual(['FID2507-11'])
   })
 
   test('choosing nothing in a chip control leaves the board empty rather than unfiltered', () => {
