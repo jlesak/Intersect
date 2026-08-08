@@ -175,9 +175,9 @@ test('folder multiselect narrows the list to the checked folders', async () => {
   await expect(win.locator('.ix-session-row')).toHaveCount(2)
 
   // Open the folder popover and uncheck the widget session's folder (proj-a-*).
-  await win.locator('.ix-sessions-fbtn').click()
-  await win.locator('.ix-sessions-folder__pop').waitFor()
-  await win.locator('.ix-sessions-folder__item', { hasText: 'proj-a' }).locator('input').uncheck()
+  await win.getByTestId('sessions-folders').click()
+  await win.locator('.ix-msel__pop').waitFor()
+  await win.locator('.ix-msel__item', { hasText: 'proj-a' }).locator('input').uncheck()
 
   await expect(win.locator('.ix-session-row')).toHaveCount(1)
   await expect(win.locator('.ix-session-row__title')).toHaveText('Fixing the login redirect')

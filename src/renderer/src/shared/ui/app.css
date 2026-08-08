@@ -1631,12 +1631,10 @@
   margin-left: auto;
 }
 
-/* multiselect filter: the session folder picker and the board chip filters share one look */
-.ix-sessions-folder,
+/* multiselect filter: the chip control shared by the session folder picker and the boards */
 .ix-msel {
   position: relative;
 }
-.ix-sessions-fbtn,
 .ix-msel__btn {
   height: 30px;
   padding: 0 11px;
@@ -1649,22 +1647,18 @@
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.ix-sessions-fbtn:hover,
 .ix-msel__btn:hover {
   background: var(--panel-3);
   color: var(--text);
 }
-.ix-sessions-fbtn__count,
 .ix-msel__count {
   color: var(--accent);
 }
-.ix-sessions-folder__backdrop,
 .ix-msel__backdrop {
   position: fixed;
   inset: 0;
   z-index: 200;
 }
-.ix-sessions-folder__pop,
 .ix-msel__pop {
   position: absolute;
   top: calc(100% + 5px);
@@ -1681,24 +1675,20 @@
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
   animation: ix-fade calc(var(--dur) - 40ms) var(--ease);
 }
-.ix-sessions-folder__head,
 .ix-msel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 2px 4px 8px;
 }
-.ix-sessions-folder__actions,
 .ix-msel__actions {
   display: flex;
   gap: 4px;
 }
-.ix-sessions-folder__list,
 .ix-msel__list {
   overflow-y: auto;
   min-height: 0;
 }
-.ix-sessions-folder__item,
 .ix-msel__item {
   display: flex;
   align-items: center;
@@ -1709,11 +1699,9 @@
   font-size: 12.5px;
   cursor: pointer;
 }
-.ix-sessions-folder__item:hover,
 .ix-msel__item:hover {
   background: var(--panel-2);
 }
-.ix-sessions-folder__item input,
 .ix-msel__item input {
   accent-color: var(--accent);
   cursor: pointer;

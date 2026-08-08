@@ -69,7 +69,7 @@ describe('SessionFilters', () => {
 
       expect(logged).toEqual([])
       // The count reads off the derived folder list, so a populated selector is what rendered it.
-      expect(document.querySelector('.ix-sessions-fbtn__count')?.textContent).toBe('3/3')
+      expect(document.querySelector('.ix-msel__count')?.textContent).toBe('3/3')
     } finally {
       consoleError.mockRestore()
     }
@@ -82,10 +82,10 @@ describe('SessionFilters', () => {
       render(<SessionFilters />)
     })
     await act(async () => {
-      document.querySelector<HTMLButtonElement>('.ix-sessions-fbtn')?.click()
+      document.querySelector<HTMLButtonElement>('[data-testid="sessions-folders"]')?.click()
     })
 
-    const names = [...document.querySelectorAll('.ix-sessions-folder__item span')].map(
+    const names = [...document.querySelectorAll('.ix-msel__item span')].map(
       (e) => e.textContent
     )
     expect(names).toEqual(['atlas', 'intersect', 'spot'])

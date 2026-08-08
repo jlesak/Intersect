@@ -38,7 +38,6 @@ interface SessionsState {
   refresh(): Promise<void>
   setQuery(query: string): void
   setRange(from: number | null, to: number | null): void
-  toggleFolder(folderName: string): void
   setFolders(folders: string[] | null): void
   select(id: string): Promise<void>
   requestResume(summary: SessionSummary): void
@@ -138,15 +137,6 @@ export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
 
   setRange(from, to) {
     set({ from, to })
-  },
-
-  toggleFolder(folderName) {
-    const allFolders = selectFolders(get())
-    const current = new Set(get().folders ?? allFolders)
-    if (current.has(folderName)) current.delete(folderName)
-    else current.add(folderName)
-    // Collapse a fully-checked selection back to null (the "all folders" default).
-    set({ folders: current.size === allFolders.length ? null : [...current].sort() })
   },
 
   setFolders(folders) {
