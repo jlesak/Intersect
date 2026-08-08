@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 vi.mock('./ipc')
 vi.mock('./agentRuntimeIpc')
@@ -51,6 +51,41 @@ describe('the time: capture', () => {
     await capture('time: 30m FID-123 sprint review')
     expect(messages()[0]).toContain('30m')
     expect(messages()[0]).toContain('FID-123')
+  })
+
+  // The capture always logs to today, so which branch of the confirmation runs is decided by the
+  // calendar. Both are pinned here rather than left to the day the suite happens to run on.
+  describe.each([
+    ['a weekday', '2026-08-05T10:00:00'],
+    ['a weekend day', '2026-08-08T10:00:00']
+  ])('captured on %s', (_when, now) => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(now))
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    test('the confirmation names the issue the time went to', async () => {
+      mocked.addManual.mockResolvedValue({} as never)
+      await capture('time: 30m FID-123 sprint review')
+      expect(messages()[0]).toContain('30m')
+      expect(messages()[0]).toContain('FID-123')
+    })
+  })
+
+  test('a weekend capture still warns that the board will not show it', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-08T10:00:00'))
+    try {
+      mocked.addManual.mockResolvedValue({} as never)
+      await capture('time: 30m FID-123 sprint review')
+      expect(messages()[0]).toContain('Saturday')
+      expect(messages()[0]).toContain('does not show weekend days')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('a span that could not be written is never confirmed as written', async () => {

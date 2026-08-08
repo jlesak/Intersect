@@ -132,11 +132,17 @@ describe('loggedEntryNotice', () => {
 
   test('names the weekend day, its date and what was logged there', () => {
     expect(loggedEntryNotice(entry({ day: '2026-08-01', durationMs: 45 * 60_000 }))).toBe(
-      '45m logged to Saturday 01.08. The weekday board does not show weekend days.'
+      '45m logged on Saturday 01.08. The weekday board does not show weekend days.'
     )
     expect(loggedEntryNotice(entry({ day: '2026-08-02', durationMs: 90 * 60_000 }))).toBe(
-      '1h 30m logged to Sunday 02.08. The weekday board does not show weekend days.'
+      '1h 30m logged on Sunday 02.08. The weekday board does not show weekend days.'
     )
+  })
+
+  test('names the issue the weekend span went to, so the notice says where the time landed', () => {
+    expect(
+      loggedEntryNotice(entry({ day: '2026-08-01', durationMs: 45 * 60_000, issueKey: 'FID-123' }))
+    ).toBe('45m logged to FID-123 on Saturday 01.08. The weekday board does not show weekend days.')
   })
 })
 

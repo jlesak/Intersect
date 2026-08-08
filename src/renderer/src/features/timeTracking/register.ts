@@ -68,7 +68,7 @@ export function registerTimeTrackingFeature(): void {
       useToastStore
         .getState()
         .push(
-          loggedEntryNotice({ day, durationMs: parsed.durationMs }) ??
+          loggedEntryNotice({ day, durationMs: parsed.durationMs, issueKey: parsed.issueKey }) ??
             `Logged ${formatTotal(parsed.durationMs)}${against}.`
         )
     }
