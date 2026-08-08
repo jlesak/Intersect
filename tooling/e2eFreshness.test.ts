@@ -142,6 +142,27 @@ describe('checkBundleFreshness', () => {
       expect(result.oldestBuilt.mtimeMs).toBe(BUILT_AT * 1000)
     })
 
+    /**
+     * The same dev-mode sequence, with one Finder visit added. A single `.DS_Store` is the newest
+     * thing in `out/renderer` while every real renderer asset is still pre-edit, so judging each
+     * build output by its newest file hands the verdict to the litter. `out/` is gitignored, which
+     * means nothing ever cleans it and nobody ever sees it, and this app only ships on macOS.
+     */
+    test('a stray file dropped into a build output does not vouch for the rest of it', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+      fileAt('out/main/index.js', AFTER_BUILD + 60)
+      fileAt('out/main/chunks/core.js', AFTER_BUILD + 60)
+      fileAt('out/preload/index.js', AFTER_BUILD + 60)
+      fileAt('out/renderer/.DS_Store', AFTER_BUILD + 120)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src/App.tsx')
+      expect(result.oldestBuilt.mtimeMs).toBe(BUILT_AT * 1000)
+    })
+
     test('a source file touched after the build names itself', () => {
       freshRepo()
       fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
@@ -211,15 +232,58 @@ describe('checkBundleFreshness', () => {
       expect(result.newestSource.path).toBe('tsconfig.web.json')
     })
 
-    test('an environment file appearing after the build is stale', () => {
-      freshRepo()
-      fileAt('.env.local', AFTER_BUILD)
+    test.each([['.env'], ['.env.local'], ['.env.production']])(
+      'the environment file %s appearing after the build is stale',
+      (name) => {
+        freshRepo()
+        fileAt(name, AFTER_BUILD)
 
-      const result = checkBundleFreshness(root)
-      expect(result.state).toBe('stale')
-      if (result.state !== 'stale') return
-      expect(result.newestSource.path).toBe('.env.local')
-    })
+        const result = checkBundleFreshness(root)
+        expect(result.state).toBe('stale')
+        if (result.state !== 'stale') return
+        expect(result.newestSource.path).toBe(name)
+      }
+    )
+  })
+
+  /**
+   * The invariant stated directly rather than through examples. Twice now an aggregation ruling has
+   * survived a green gate - first the newest file anywhere under `out/`, then the newest file
+   * within each output - because every case happened to agree with the weaker rule. Pairing each
+   * build file against each source input in turn leaves the weaker rules nowhere to hide: only the
+   * one chosen build file is old and only the one chosen source input is new, so nothing but that
+   * pairing can produce the verdict.
+   */
+  describe('any build file older than any source input is stale, wherever either one sits', () => {
+    const BUILT_FILES = [
+      'out/main/index.js',
+      'out/main/chunks/core.js',
+      'out/preload/index.js',
+      'out/renderer/index.html',
+      'out/renderer/assets/index.js'
+    ]
+    const SOURCE_INPUTS = [
+      'src/renderer/src/App.tsx',
+      'src/main/index.ts',
+      'package.json',
+      'tsconfig.web.json',
+      'electron.vite.config.ts'
+    ]
+
+    for (const builtPath of BUILT_FILES) {
+      test.each(SOURCE_INPUTS)(`${builtPath} older than %s is stale`, (sourcePath) => {
+        freshRepo()
+        for (const other of BUILT_FILES) fileAt(other, AFTER_BUILD + 600)
+        fileAt(builtPath, BUILT_AT)
+        fileAt(sourcePath, AFTER_BUILD)
+
+        const result = checkBundleFreshness(root)
+        expect(result.state).toBe('stale')
+        if (result.state !== 'stale') return
+        expect(result.oldestBuilt.path).toBe(builtPath)
+        expect(result.newestSource.path).toBe(sourcePath)
+      })
+    }
   })
 
   describe('edits a build cannot be affected by', () => {
@@ -265,6 +329,16 @@ describe('checkBundleFreshness', () => {
 
       expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
     })
+
+    test.each([['.envrc'], ['.env.example'], ['.env.sample']])(
+      '%s is not an environment file the build reads',
+      (name) => {
+        freshRepo()
+        fileAt(name, AFTER_BUILD)
+
+        expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+      }
+    )
   })
 
   describe('a verdict that cannot be formed', () => {
@@ -300,13 +374,23 @@ describe('checkBundleFreshness', () => {
  * guard used to.
  */
 describe('resolveGuardAction', () => {
+  const built = { path: 'out/renderer/index.html', mtimeMs: 1_700_000_000_000, kind: 'file' } as const
   const stale = {
     state: 'stale',
-    newestSource: { path: 'src/renderer/src/App.tsx', mtimeMs: 1_700_000_060_000 },
-    oldestBuilt: { path: 'out/renderer/index.html', mtimeMs: 1_700_000_000_000 }
+    newestSource: { path: 'src/renderer/src/App.tsx', mtimeMs: 1_700_000_060_000, kind: 'file' },
+    oldestBuilt: built
+  } as const
+  const staleByDirectory = {
+    state: 'stale',
+    newestSource: { path: 'src/renderer/src', mtimeMs: 1_700_000_060_000, kind: 'directory' },
+    oldestBuilt: built
   } as const
   const missing = { state: 'missing', path: 'out/renderer' } as const
-  const unknown = { state: 'unknown', path: 'src/loop', reason: "ELOOP: too many symbolic links" } as const
+  const unknown = {
+    state: 'unknown',
+    path: 'src/loop',
+    reason: 'ELOOP: too many symbolic links'
+  } as const
   const fresh = { state: 'fresh' } as const
 
   test('a fresh build starts the suite without a word', () => {
@@ -342,7 +426,7 @@ describe('resolveGuardAction', () => {
     if (action.kind === 'proceed') return
     expect(action.message).toContain('src/loop')
     expect(action.message).toContain('ELOOP')
-    expect(action.message).toContain('E2E_ALLOW_STALE')
+    expect(action.message).not.toContain('E2E_ALLOW_STALE')
   })
 
   test('an exact opt-in downgrades a stale build to a warning that admits how stale it is', () => {
@@ -355,12 +439,31 @@ describe('resolveGuardAction', () => {
     expect(action.message).toContain('out/renderer/index.html')
   })
 
-  test('the opt-in also covers an unwalkable tree, the only escape from a verdict nobody can form', () => {
+  /**
+   * A path the guard cannot stat is a path the bundler cannot read either, so there is no build
+   * behind it worth testing on purpose. The opt-in downgrades staleness and nothing else.
+   */
+  test('the opt-in does not cover a verdict nobody could form', () => {
     const action = resolveGuardAction(unknown, '1')
 
-    expect(action.kind).toBe('warn')
+    expect(action.kind).toBe('fail')
     if (action.kind === 'proceed') return
     expect(action.message).toContain('src/loop')
+  })
+
+  /**
+   * The refusal a test-first workflow meets most often, since adding or deleting a co-located test
+   * file registers only on its parent directory. Reporting the directory as though someone had
+   * edited it reads as a guard malfunction, which is how a bypass becomes reflex.
+   */
+  test('a directory that changed says what changing a directory means', () => {
+    const action = resolveGuardAction(staleByDirectory, undefined)
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toMatch(/added, removed or renamed/)
+    expect(action.message).toContain('src/renderer/src')
+    expect(action.message).toContain('npm run build')
   })
 
   test.each([['true'], ['0'], [''], ['yes'], ['1 ']])(

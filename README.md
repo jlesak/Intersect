@@ -51,16 +51,22 @@ Requires Node 20.19+/22.12+ (Node 24 LTS recommended) and macOS with Xcode Comma
 The E2E suite runs against `out/`, so a run started without a build would report on code you are
 not looking at. Every Playwright entry point - `npm run e2e`, `npm run e2e:nobuild`, and a bare
 `npx playwright test` - therefore refuses to start unless `out/main`, `out/preload` and
-`out/renderer` are all built and all newer than every build input. The three are checked
-separately on purpose: `npm run dev` rebuilds main and preload but serves the renderer from
-memory, so an afternoon in dev mode leaves a recent-looking `out/` with pre-edit markup inside it.
+`out/renderer` have all been built and *every file* in them is newer than every build input.
+Nothing weaker holds: `npm run dev` rebuilds main and preload but serves the renderer from memory,
+so after a dev session a single newer file - a `.DS_Store` from opening `out/renderer` in Finder
+will do - would otherwise vouch for a renderer that was never rebuilt.
 
-Build inputs are `src/` - excluding `*.test.*`, `*.spec.*` and `__tests__/`, which no bundle entry
-imports - plus `electron.vite.config.*`, `package.json`, `package-lock.json`, the root
-`tsconfig*.json` and any root `.env*`. Editing only `e2e/` never trips the guard, so
-`npm run e2e:nobuild` stays the fast loop while iterating on specs. A refusal names the file that
-beat the build and the fix, `npm run build`. `E2E_ALLOW_STALE=1`, and only that exact value, runs
-anyway and leaves a warning in the log saying how stale the build is.
+Build inputs are `src/`, `electron.vite.config.*`, `package.json`, `package-lock.json`, the root
+`tsconfig*.json`, and the root `.env` files Vite actually loads. Editing a test file in place
+(`*.test.*`, `*.spec.*`, anything under `__tests__/`) never trips the guard, because no bundle
+entry imports one - but creating, deleting or renaming one does, through its parent directory.
+That is deliberate: the same directory signal is the only thing that catches a deleted or renamed
+production file. Editing only `e2e/` never trips it either, so `npm run e2e:nobuild` stays the fast
+loop while iterating on specs.
+
+A refusal names whatever beat the build, and the fix, `npm run build`. `E2E_ALLOW_STALE=1`, and
+only that exact value, runs against a stale build anyway and says so in the log. It does not
+override a missing build or a check the guard could not complete.
 
 ## Architecture
 
