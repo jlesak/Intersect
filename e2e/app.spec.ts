@@ -51,6 +51,12 @@ test('opens a Claude Code tab rooted in the workspace', async () => {
   await expect(win.locator('.ix-tab')).toHaveCount(1)
   await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
   await expect(win.locator('.xterm')).toBeVisible()
+
+  // Closed here rather than left to the harness, because with a live session this close is the only
+  // thing in the suite that walks the real quit: the confirmation, the suspend, the shutdown. The
+  // harness would kill an app that never got through it, and a quit that stopped working would go
+  // unnoticed.
+  await app.close()
 })
 
 test('splits into two columns and places both terminals', async () => {

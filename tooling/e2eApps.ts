@@ -78,26 +78,31 @@ export function registerApp(app: CloseableApp): void {
   registered.push({ app, proc: app.process() })
 }
 
-/**
- * Close every registered app and forget them all.
- *
- * The register is emptied before anything is closed, so a drain that is somehow interrupted cannot
- * leave entries behind for the next test to close a second time.
- */
+/** Close every registered app. */
 export async function closeRegisteredApps(budget: CloseBudget = {}): Promise<void> {
-  await closeApps(registered.splice(0, registered.length), budget)
+  await drainApps(registered, budget)
 }
 
 /**
- * Close the given apps, one after another, and return only once each one's process is gone.
+ * Close the given apps, one after another, taking each off the list before closing it, and return
+ * only once every one of their processes is gone.
+ *
+ * The list is consumed rather than copied because the drain can itself be cut short - teardown has
+ * a generous budget but not an unlimited one - and an app taken off the list but never reached
+ * would be exactly the abandoned app this module exists to prevent. What is left on the list is
+ * always what still needs closing, so a later drain finishes the job. Closing something twice is
+ * already harmless: an app whose process is gone is skipped.
  *
  * Waiting for the process rather than for the close call is what makes the drain safe to run just
  * before the profile directories are removed: a close can resolve while the process it spoke for is
  * still running, and still holding the directory about to be deleted.
  */
-export async function closeApps(apps: LaunchedApp[], budget: CloseBudget = {}): Promise<void> {
+export async function drainApps(apps: LaunchedApp[], budget: CloseBudget = {}): Promise<void> {
   const { closeMs, exitMs } = { ...DEFAULT_BUDGET, ...budget }
-  for (const launched of apps) await closeOne(launched, closeMs, exitMs)
+  while (apps.length > 0) {
+    const launched = apps.shift()
+    if (launched) await closeOne(launched, closeMs, exitMs)
+  }
 }
 
 async function closeOne(
@@ -114,6 +119,10 @@ async function closeOne(
   await settledWithin(app.close(), closeMs).catch(() => undefined)
   if (await exitedWithin(proc, exitMs)) return
 
+  // Said out loud, because closing an app is not only cleanup: it quits the application, and the
+  // quit runs the real suspend-and-shutdown path. A drain that killed its way through a broken quit
+  // in silence would leave the suite green while nothing shut down properly ever again.
+  console.warn('[e2e] an app did not close on being asked to quit, and had to be killed')
   try {
     proc.kill('SIGKILL')
   } catch {

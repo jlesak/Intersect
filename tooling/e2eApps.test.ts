@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
-  closeApps,
   closeRegisteredApps,
+  drainApps,
   hasExited,
   registerApp,
   type CloseableApp,
@@ -20,6 +20,13 @@ import {
  */
 
 const IMMEDIATE = { closeMs: 5, exitMs: 5 }
+
+/** Silence and record the drain's own reporting, which the kill cases deliberately produce. */
+const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+afterEach(() => {
+  warnings.mockClear()
+})
 
 interface FakeApp {
   app: CloseableApp
@@ -113,12 +120,12 @@ describe('hasExited', () => {
   })
 })
 
-describe('closeApps', () => {
+describe('drainApps', () => {
   test('closes every app it was handed', async () => {
     const first = fakeApp()
     const second = fakeApp()
 
-    await closeApps([first.launched, second.launched], IMMEDIATE)
+    await drainApps([first.launched, second.launched], IMMEDIATE)
 
     expect(first.closeCalls()).toBe(1)
     expect(second.closeCalls()).toBe(1)
@@ -130,7 +137,7 @@ describe('closeApps', () => {
     const byCode = fakeApp({ exited: 'code' })
     const bySignal = fakeApp({ exited: 'signal' })
 
-    await closeApps([byCode.launched, bySignal.launched], IMMEDIATE)
+    await drainApps([byCode.launched, bySignal.launched], IMMEDIATE)
 
     expect(byCode.closeCalls()).toBe(0)
     expect(bySignal.closeCalls()).toBe(0)
@@ -140,18 +147,46 @@ describe('closeApps', () => {
     const refuses = fakeApp({ close: 'rejects' })
     const healthy = fakeApp()
 
-    await closeApps([refuses.launched, healthy.launched], IMMEDIATE)
+    await drainApps([refuses.launched, healthy.launched], IMMEDIATE)
 
     expect(refuses.signalsSent()).toEqual(['SIGKILL'])
     expect(healthy.closeCalls()).toBe(1)
   })
 
-  test('a close that never returns is killed', async () => {
+  test('a close that never returns is killed, and the kill is said out loud', async () => {
+    // Closing an app quits the application, so a close that has to be killed through means the
+    // real shutdown path is broken. Killing quietly would leave that green and merely slow.
     const wedged = fakeApp({ close: 'hangs' })
 
-    await closeApps([wedged.launched], IMMEDIATE)
+    await drainApps([wedged.launched], IMMEDIATE)
 
     expect(wedged.signalsSent()).toEqual(['SIGKILL'])
+    expect(warnings).toHaveBeenCalledTimes(1)
+  })
+
+  test('nothing is killed, and nothing reported, when every app closes as asked', async () => {
+    await drainApps([fakeApp().launched, fakeApp().launched], IMMEDIATE)
+
+    expect(warnings).not.toHaveBeenCalled()
+  })
+
+  test('an app is off the list before it is closed, so a drain cut short loses none of the rest', async () => {
+    // Teardown is generous but not unlimited. Whatever the drain has not reached must stay on the
+    // list, or an app taken off it and never closed is the abandoned app this all exists to prevent.
+    let remainingWhileClosingTheFirst = -1
+    const second = fakeApp()
+    const first = fakeApp()
+    const list = [first.launched, second.launched]
+    const closeFirst = first.app.close.bind(first.app)
+    first.app.close = async (): Promise<void> => {
+      remainingWhileClosingTheFirst = list.length
+      await closeFirst()
+    }
+
+    await drainApps(list, IMMEDIATE)
+
+    expect(remainingWhileClosingTheFirst).toBe(1)
+    expect(list).toEqual([])
   })
 
   test('a close that resolves while the process lives on is killed', async () => {
@@ -159,7 +194,7 @@ describe('closeApps', () => {
     // still holding the very directory about to be deleted.
     const lingering = fakeApp({ exitsOnClose: false })
 
-    await closeApps([lingering.launched], IMMEDIATE)
+    await drainApps([lingering.launched], IMMEDIATE)
 
     expect(lingering.signalsSent()).toEqual(['SIGKILL'])
   })
@@ -168,7 +203,7 @@ describe('closeApps', () => {
     const immortal = fakeApp({ exitsOnClose: false, diesWhenKilled: false })
     const healthy = fakeApp()
 
-    await expect(closeApps([immortal.launched, healthy.launched], IMMEDIATE)).resolves.toBeUndefined()
+    await expect(drainApps([immortal.launched, healthy.launched], IMMEDIATE)).resolves.toBeUndefined()
 
     expect(healthy.closeCalls()).toBe(1)
   })
