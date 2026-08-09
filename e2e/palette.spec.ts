@@ -82,9 +82,14 @@ test('a command is found by a keyword its title never contains', async () => {
   await addWorkspace(win, app, tempDir('palettews-'))
 
   await openPalette(app)
-  // "bash" appears nowhere in "New Shell Tab" - only in the command's own keywords.
+  // "bash" appears nowhere in "New Shell Tab" - only in the command's own keywords. What the
+  // keyword has to buy is the top of the list, since that is the row Enter runs; whether anything
+  // else in the corpus also matches is not this test's business.
   await win.locator('.ix-palette__input').fill('bash')
-  await expect(win.locator('.ix-palette__item')).toHaveCount(1)
+  await expect(win.locator('.ix-palette__title', { hasText: 'New Shell Tab' })).toBeVisible()
+  await expect(win.locator('.ix-palette__item--active .ix-palette__title')).toHaveText(
+    'New Shell Tab'
+  )
   await win.keyboard.press('Enter')
   await expect(win.locator('.ix-tab__title')).toHaveText('Shell')
 
