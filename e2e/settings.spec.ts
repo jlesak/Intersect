@@ -23,7 +23,7 @@ async function flipToggle(win: Page, label: string): Promise<void> {
 }
 
 test('Settings opens from the footer rail with every category and the notification defaults', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
 
   // Asserted here rather than in the shared opener: every other section reaches the rail through
   // the same helper, and only Settings is pinned below the daily ones. Without this the section
@@ -55,12 +55,10 @@ test('Settings opens from the footer rail with every category and the notificati
   await expect(win.getByLabel('Waiting', { exact: true })).toBeChecked()
   await expect(win.getByLabel('Done', { exact: true })).toBeChecked()
   await expect(win.getByLabel('Zvuk', { exact: true })).toBeChecked()
-
-  await app.close()
 })
 
 test('only the active category pane is in the DOM', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
@@ -68,8 +66,6 @@ test('only the active category pane is in the DOM', async () => {
   await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
   await expect(win.locator('#ix-set-review-prompt')).toHaveCount(0)
-
-  await app.close()
 })
 
 /**
@@ -92,12 +88,10 @@ test('a project name typed but not blurred survives switching category', async (
   await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await win.locator('.ix-settings__nav-btn', { hasText: 'Projekty' }).click()
   await expect(name).toHaveValue('Přejmenovaný projekt')
-
-  await app.close()
 })
 
 test('switching categories never loses the typed ADO values, and the shortcuts table is read-only', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -115,12 +109,10 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await expect(win.locator('#ix-set-ado-orgUrl')).toHaveValue('https://devops.example.com/tfs/Col')
   await expect(win.locator('#ix-set-ado-project')).toHaveValue('SPOT')
-
-  await app.close()
 })
 
 test('test connection reports the authenticated user inline', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -132,8 +124,6 @@ test('test connection reports the authenticated user inline', async () => {
   // Editing any field (to a genuinely different value) invalidates the stale outcome.
   await win.locator('#ix-set-ado-project').fill('SomeOtherProject')
   await expect(win.locator('.ix-settings__test-msg--ok')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('notification, ADO, PR-review prompt, and font-size changes survive a relaunch', async () => {
@@ -175,5 +165,4 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await expect(second.win.locator('.ix-set-slider__value')).toHaveText('20px')
-  await second.app.close()
 })

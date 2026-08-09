@@ -61,12 +61,15 @@ test('PR Review section renders the empty board and switches back without errors
   await openRailSection(win, 'Other', '.ix-rail__btn--other.ix-rail__btn--active')
   await expect(win.locator('.ix-empty__title')).toBeVisible()
 
+  // Closed here rather than left to the harness because shutdown is part of what is being read:
+  // `errors` is inspected on the next line, and anything the renderer logs on its way out only
+  // reaches it while the window is still being listened to.
   await app.close()
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])
 })
 
 test('board shows PRs in action columns after sync, with the rail badge counting my actions', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -77,12 +80,10 @@ test('board shows PRs in action columns after sync, with the rail badge counting
   await expect(win.getByTestId('pr-col-approved').getByTestId('pr-card')).toHaveCount(1)
   await expect(win.getByTestId('pr-col-waiting').getByTestId('pr-card')).toHaveCount(0)
   await expect(win.getByTestId('pr-badge')).toHaveText('2')
-
-  await app.close()
 })
 
 test('typing narrows the board to the one pull request meant, and emptied columns step aside', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -106,12 +107,10 @@ test('typing narrows the board to the one pull request meant, and emptied column
   const strip = await win.getByTestId('pr-col-action').boundingBox()
   const open = await win.getByTestId('pr-col-approved').boundingBox()
   expect(strip!.width).toBeLessThan(open!.width / 2)
-
-  await app.close()
 })
 
 test('narrowing to one repository keeps only the pull requests that came from it', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -124,12 +123,10 @@ test('narrowing to one repository keeps only the pull requests that came from it
   await expect(win.getByTestId('pr-card')).toHaveCount(1)
   await expect(win.getByTestId('pr-card')).toContainText('intersect-docs')
   await expect(win.getByTestId('pr-filter-repo')).toHaveText(/1\/2/)
-
-  await app.close()
 })
 
 test('a filter nothing matches says so rather than claiming there is nothing to review', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -142,12 +139,10 @@ test('a filter nothing matches says so rather than claiming there is nothing to 
     'No pull requests match this filter.'
   )
   await expect(win.locator('.ix-empty__title')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('opening a card shows the detail with the file tree; Escape returns to the board', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -160,12 +155,10 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
 
   await win.keyboard.press('Escape')
   await expect(win.getByTestId('pr-board')).toBeVisible()
-
-  await app.close()
 })
 
 test('the header sizes the change, and every file row carries its own counts', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -179,12 +172,10 @@ test('the header sizes the change, and every file row carries its own counts', a
   const rateLimiter = win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first()
   await expect(rateLimiter).toContainText('+42')
   await expect(rateLimiter).toContainText('-9')
-
-  await app.close()
 })
 
 test('a freshly opened PR lands on the conversation, not on the files', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -194,12 +185,10 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
   await expect(win.getByTestId('pr-tab-overview')).toHaveClass(/ix-ptab--active/)
   // The one real thread of PR 501 is there without the user asking for it.
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
-
-  await app.close()
 })
 
 test('the conversation leads with the description, laid out as the author typed it', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -226,8 +215,6 @@ test('the conversation leads with the description, laid out as the author typed 
   await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
   await expect(win.getByTestId('pr-overview')).toBeVisible()
   await expect(win.getByTestId('pr-description')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('the detail header copies the PR web link to the clipboard', async () => {
@@ -246,8 +233,6 @@ test('the detail header copies the PR web link to the clipboard', async () => {
   // only that a button exists.
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(PR_501_WEB_URL)
   await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), before)
-
-  await app.close()
 })
 
 test('Open in Azure DevOps hands the browsable pull-request page to the system browser', async () => {
@@ -262,12 +247,10 @@ test('Open in Azure DevOps hands the browsable pull-request page to the system b
   // The whole chain has to hold for this to arrive: a web address rather than the REST resource the
   // payload carried, and a main-process allowlist that admits the configured Azure DevOps server.
   await expect.poll(opened).toEqual([PR_501_WEB_URL])
-
-  await app.close()
 })
 
 test('a machine with no Azure DevOps organisation offers no link to open', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -277,12 +260,10 @@ test('a machine with no Azure DevOps organisation offers no link to open', async
   // rather than by opening the browser on a broken URL.
   await expect(win.getByTestId('pr-open-external')).toBeDisabled()
   await expect(win.getByTestId('pr-copy-link')).toBeDisabled()
-
-  await app.close()
 })
 
 test('the diff carries its inline threads on a PR the user took straight to Files', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -293,12 +274,10 @@ test('the diff carries its inline threads on a PR the user took straight to File
   // The thread anchored to this file renders as a Monaco view zone under its line, without the
   // conversation ever having been opened.
   await expect(win.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
-
-  await app.close()
 })
 
 test('a thread anchored past the end of the file says its position is a guess', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -315,12 +294,10 @@ test('a thread anchored past the end of the file says its position is a guess', 
   await win.getByTestId('tree-file').filter({ hasText: 'queue.ts' }).first().click()
   await expect(win.getByTestId('pr-thread')).toContainText('belongs in config')
   await expect(win.getByTestId('pr-thread-stale-anchor')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('collapsing a tree directory hides its files and shows the file count', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -336,12 +313,10 @@ test('collapsing a tree directory hides its files and shows the file count', asy
   // Expanding restores the full list.
   await firstDir.click()
   await expect(win.getByTestId('tree-file')).toHaveCount(before)
-
-  await app.close()
 })
 
 test('overview lists threads, hides system messages, and resolving folds a thread away', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -363,12 +338,10 @@ test('overview lists threads, hides system messages, and resolving folds a threa
   await win.getByTestId('pr-resolved-toggle').click()
   await expect(resolved.getByTestId('pr-thread')).toHaveCount(1)
   await expect(resolved.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
-
-  await app.close()
 })
 
 test('replying appends to the thread immediately', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -381,12 +354,10 @@ test('replying appends to the thread immediately', async () => {
   await thread.getByTestId('pr-thread-reply-send').click()
   await expect(thread.locator('.ix-thread__comment')).toHaveCount(2)
   await expect(thread).toContainText('Fixed in the next push.')
-
-  await app.close()
 })
 
 test('a PR-level comment publishes from the overview composer', async () => {
-  const { app, win } = await launch('radar')
+  const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
@@ -400,6 +371,4 @@ test('a PR-level comment publishes from the overview composer', async () => {
 
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
   await expect(win.getByTestId('pr-thread')).toContainText('Please rebase onto main.')
-
-  await app.close()
 })

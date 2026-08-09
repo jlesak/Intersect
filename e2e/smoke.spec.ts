@@ -18,6 +18,9 @@ test('app launches and renders the shell', async () => {
   await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
   await expect(win.locator('.ix-mw-empty-inline')).toBeVisible()
 
+  // Closed here rather than left to the harness because shutdown is part of what is being read:
+  // `errors` is inspected on the next line, and anything the renderer logs on its way out only
+  // reaches it while the window is still being listened to.
   await app.close()
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])
 })

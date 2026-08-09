@@ -3,7 +3,7 @@ import { expect, launch, test, userDataDir } from './harness'
 
 // Guards the approved design tokens: slate background, cyan accent, 14px base typography.
 test('applies the Design 2.0 slate+cyan theme tokens at runtime', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
 
   const tokens = await win.evaluate(() => {
     const cs = getComputedStyle(document.documentElement)
@@ -45,5 +45,4 @@ test('applies the Design 2.0 slate+cyan theme tokens at runtime', async () => {
   expect(tokens.bodyColor).toBe('rgb(237, 241, 247)')
 
   await win.screenshot({ path: join(__dirname, '..', 'e2e-artifacts', 'uat-gh41-theme.png') })
-  await app.close()
 })

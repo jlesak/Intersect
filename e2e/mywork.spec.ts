@@ -31,7 +31,7 @@ async function launch(
 }
 
 test('with no saved session, My Work offers the login without opening it, and a click loads the board', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'auth' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'auth' })
 
   // The auth failure renders the error card with the login action - never an automatic login.
   await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
@@ -48,12 +48,10 @@ test('with no saved session, My Work offers the login without opening it, and a 
   await expect(win.locator('.ix-mw-col--progress .ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-4'])
   await expect(win.locator('.ix-mw-col--review .ix-mw-card2 .ix-mw-key')).toHaveText('FID2507-3')
   await expect(win.locator('.ix-mw-section__count')).toHaveText('4')
-
-  await app.close()
 })
 
 test('an abandoned login returns to the auth error card with the log-in action', async () => {
-  const { app, win } = await launch({
+  const { win } = await launch({
     INTERSECT_E2E_JIRA: 'auth',
     INTERSECT_E2E_JIRA_LOGIN: 'fail'
   })
@@ -63,18 +61,14 @@ test('an abandoned login returns to the auth error card with the log-in action',
   await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
   await expect(win.locator('.ix-mw-error__body')).toContainText('no active Jira SSO session')
   await expect(win.locator('.ix-mw-error button')).toHaveText(/Log in to Jira/)
-
-  await app.close()
 })
 
 test('a generic fetch failure shows the error card with a retry action', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'error' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'error' })
 
   await expect(win.locator('.ix-mw-error__title')).toHaveText('Could not load Jira issues')
   await expect(win.locator('.ix-mw-error__body')).toContainText('Stubbed fetch failure')
   await expect(win.locator('.ix-mw-error button')).toHaveText(/Try again/)
-
-  await app.close()
 })
 
 test('the persisted board renders instantly on the next boot, even when the fresh fetch fails', async () => {
@@ -88,11 +82,10 @@ test('the persisted board renders instantly on the next boot, even when the fres
   await expect(second.win.locator('.ix-mw-card2')).toHaveCount(4)
   await expect(second.win.locator('.ix-mywork__subtitle')).toContainText(/Last refreshed|Refreshing/)
   await expect(second.win.locator('.ix-mw-error')).toHaveCount(0)
-  await second.app.close()
 })
 
 test('a loaded board renders all five columns and refresh keeps it current', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
 
   await expect(win.locator('.ix-mw-col')).toHaveCount(5)
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
@@ -100,12 +93,10 @@ test('a loaded board renders all five columns and refresh keeps it current', asy
 
   await win.locator('.ix-mywork__topbar button', { hasText: 'Refresh' }).click()
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
-
-  await app.close()
 })
 
 test('typing narrows the board to the one issue meant, and the emptied columns step aside', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   // "vbst" is nowhere in the board as a run of characters; only a real subsequence matcher finds
@@ -134,12 +125,10 @@ test('typing narrows the board to the one issue meant, and the emptied columns s
   await win.getByTestId('jira-filter').fill('')
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
   await expect(win.locator('.ix-mw-col--collapsed')).toHaveCount(2)
-
-  await app.close()
 })
 
 test('narrowing to one epic keeps only the issues under it', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   await win.getByTestId('jira-filter-epic').click()
@@ -151,12 +140,10 @@ test('narrowing to one epic keeps only the issues under it', async () => {
 
   // The issue under the other epic is gone, and its column with it.
   await expect(win.locator('.ix-mw-col--todo')).toHaveClass(/ix-mw-col--collapsed/)
-
-  await app.close()
 })
 
 test('hiding one epic leaves the issues that are under no epic where they were', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   // The gesture is "hide the Release epic". FID2507-3 is under no epic at all and was never asked
@@ -171,12 +158,10 @@ test('hiding one epic leaves the issues that are under no epic where they were',
   await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
   await win.locator('.ix-msel__item', { hasText: '(none)' }).click()
   await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-3'])
-
-  await app.close()
 })
 
 test('Escape puts the chip popover away and hands focus back to its button', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   await win.getByTestId('jira-filter-epic').click()
@@ -186,12 +171,10 @@ test('Escape puts the chip popover away and hands focus back to its button', asy
 
   await expect(win.locator('.ix-msel__pop')).toHaveCount(0)
   await expect(win.getByTestId('jira-filter-epic')).toBeFocused()
-
-  await app.close()
 })
 
 test('tabbing out of an open chip popover puts it away instead of leaving it over the board', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   await win.getByTestId('jira-filter-epic').click()
@@ -201,12 +184,10 @@ test('tabbing out of an open chip popover puts it away instead of leaving it ove
   for (let i = 0; i < 8; i++) await win.keyboard.press('Tab')
 
   await expect(win.locator('.ix-msel__pop')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('moving from one chip to the next takes one click, not two', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   await win.getByTestId('jira-filter-epic').click()
@@ -218,24 +199,20 @@ test('moving from one chip to the next takes one click, not two', async () => {
 
   await expect(win.locator('.ix-msel__pop')).toHaveCount(1)
   await expect(win.getByRole('group', { name: 'Component' })).toBeVisible()
-
-  await app.close()
 })
 
 test('a filter nothing matches says so rather than showing a board of blank strips', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
   await win.getByTestId('jira-filter').fill('zzzz')
 
   await expect(win.locator('.ix-mw-card2')).toHaveCount(0)
   await expect(win.locator('.ix-boardfilter__none')).toHaveText('No issues match this filter.')
-
-  await app.close()
 })
 
 test('the PR radar groups pull requests and flags new changes after the author pushes', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
+  const { win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
   const prSection = win.locator('.ix-mw-section', { hasText: 'Pull requests' })
 
   // The app's own refresh at boot seeds the review watermark for the already-approved PR, so only
@@ -264,28 +241,22 @@ test('the PR radar groups pull requests and flags new changes after the author p
     'intersect-app · #501 · Jan Lesak'
   )
   await expect(prSection.locator('.ix-mw-section__count')).toHaveText('3')
-
-  await app.close()
 })
 
 test('clicking a PR row opens it in the PR Inbox section with the PR selected', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
+  const { win } = await launch({ INTERSECT_E2E_ADO: 'radar' })
 
   await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
 
   // The shell switched to the PR Inbox main view and its detail header shows the selected PR.
   await expect(win.locator('.ix-pr-header__title')).toHaveText('Fix PTY backpressure on large output')
   await expect(win.locator('.ix-rail__btn--active')).toContainText('PR Review')
-
-  await app.close()
 })
 
 test('with no pull requests needing attention the radar shows a neutral empty message', async () => {
-  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
 
   await expect(win.locator('.ix-mw-pr-empty')).toHaveText('No pull requests need your attention.')
   // The Jira half is unaffected by the empty PR radar.
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
-
-  await app.close()
 })

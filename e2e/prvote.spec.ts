@@ -24,7 +24,7 @@ async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
 }
 
 test('voting on a reviewed PR activates the clicked button and survives a re-sync', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // Open PR 502 (I review it, no vote yet) from the My Work radar row.
   await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
@@ -53,12 +53,10 @@ test('voting on a reviewed PR activates the clicked button and survives a re-syn
   await expect(
     win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
   ).toHaveCount(1)
-
-  await app.close()
 })
 
 test('switching my vote moves the active state to the newly clicked button', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
   const group = win.locator('.ix-pr-vote-group')
@@ -69,12 +67,10 @@ test('switching my vote moves the active state to the newly clicked button', asy
   await group.getByRole('button', { name: 'Approve+' }).click()
   await expect(group.locator('.ix-pr-vote-btn--active-suggestions')).toHaveCount(1)
   await expect(group.locator('.ix-pr-vote-btn--active-waiting')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('an already-voted PR reflects my standing vote when opened', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // PR 503 comes from the stub with my vote already 'approved'; it sits in the Approved column.
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
@@ -89,12 +85,10 @@ test('an already-voted PR reflects my standing vote when opened', async () => {
   await expect(
     win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
   ).toHaveCount(1)
-
-  await app.close()
 })
 
 test('the vote group is absent on a PR where my reviewer identity is not resolvable', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // PR 501 is authored by me with no reviewer entry of mine - there is nothing to vote with.
   await win.locator('.ix-mw-row', { hasText: 'Add rate limiting to the sync pipeline' }).click()
@@ -102,6 +96,4 @@ test('the vote group is absent on a PR where my reviewer identity is not resolva
   await expect(win.locator('.ix-pr-vote-group')).toHaveCount(0)
   // The rest of the header (the review action) still renders.
   await expect(win.locator('.ix-btn', { hasText: 'Review with Claude Code' })).toBeVisible()
-
-  await app.close()
 })

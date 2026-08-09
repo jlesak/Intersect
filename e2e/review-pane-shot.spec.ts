@@ -5,7 +5,7 @@ import { expect, launch, openRailSection, test, userDataDir } from './harness'
 const EVIDENCE = process.env.EVIDENCE_DIR ?? tmpdir()
 
 test('capture PR Review settings pane (default, edited, reset)', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
 
   await openRailSection(win, 'Settings', '.ix-settings')
   await win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
@@ -24,6 +24,4 @@ test('capture PR Review settings pane (default, edited, reset)', async () => {
   await win.getByRole('button', { name: 'Obnovit výchozí prompt' }).click()
   await expect(win.locator('#ix-set-review-prompt')).toHaveValue(/^Zrecenzuj pull request/)
   await win.screenshot({ path: join(EVIDENCE, 'review-pane-reset.png') })
-
-  await app.close()
 })

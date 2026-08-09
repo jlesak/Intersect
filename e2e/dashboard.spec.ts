@@ -10,7 +10,7 @@ const RUNS_ON_WEEKDAY = ![0, 6].includes(new Date().getDay())
  * a crash on boot - the shell's region boundary would replace the whole main area with .ix-crash.
  */
 test('a fresh profile lands on the Dashboard with all four zones in their empty states', async () => {
-  const { app, win } = await launch(userDataDir(), { env: unconfiguredAdo() })
+  const { win } = await launch(userDataDir(), { env: unconfiguredAdo() })
 
   await expect(win.locator('.ix-dash')).toBeVisible()
   // Nothing was clicked: the shell fell back to the rail's first section owning a main component.
@@ -44,8 +44,6 @@ test('a fresh profile lands on the Dashboard with all four zones in their empty 
 
   // No zone threw: the region boundary never replaced the main area.
   await expect(win.locator('.ix-crash')).toHaveCount(0)
-
-  await app.close()
 })
 
 /**
@@ -53,7 +51,7 @@ test('a fresh profile lands on the Dashboard with all four zones in their empty 
  * begin counting and change what the zone reports, which is the whole reason the zone exists.
  */
 test('the timer starts from the Dashboard and the zone reflects it', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await expect(win.locator('.ix-dash')).toBeVisible()
 
   // Nothing has run yet, so an unconfigured profile logs nothing today.
@@ -77,6 +75,4 @@ test('the timer starts from the Dashboard and the zone reflects it', async () =>
   // Stopping logged the span against today, and the zone re-read the week rather than staying stale.
   if (RUNS_ON_WEEKDAY) await expect(win.locator('.ix-dash-time__total')).not.toHaveText('0m')
   await expect(win.locator('.ix-crash')).toHaveCount(0)
-
-  await app.close()
 })
