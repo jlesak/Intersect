@@ -4503,3 +4503,30 @@
   background: var(--panel-3);
   color: var(--text);
 }
+
+/* --- tab strip overflow ---
+   Always present rather than appearing once the tabs really overflow: chrome that comes and goes
+   moves the controls next to it under the pointer. */
+.ix-tabbar__overflow {
+  flex: none;
+}
+.ix-tabmenu__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-tabmenu__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.ix-tabmenu__dot--working {
+  background: var(--status-working);
+}
+.ix-tabmenu__dot--waiting {
+  background: var(--status-waiting);
+}
+.ix-tabmenu__dot--done {
+  background: var(--status-done);
+}

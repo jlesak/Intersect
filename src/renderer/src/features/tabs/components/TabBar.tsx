@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { PRESET_META, type WorkItemRef } from '@common/domain'
-import { makeSessionId } from '@common/ipc'
+import { makeSessionId, type SessionStatus } from '@common/ipc'
 import { slotCount } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
 import { useWorkItemsStore } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
-import { IconChevronLeft, IconChevronRight, IconClose, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconClose,
+  IconPencil,
+  IconTrash
+} from '@renderer/shared/ui/icons'
 import { selectTabList, useTabsStore } from '../store'
 import { LayoutPicker } from './LayoutPicker'
 import { PresetPicker } from './PresetPicker'
@@ -41,11 +48,28 @@ export function TabBar() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+  const [overflowAt, setOverflowAt] = useState<{ x: number; y: number } | null>(null)
+  const overflowRef = useRef<HTMLButtonElement>(null)
+  const tabRefs = useRef(new Map<string, HTMLDivElement>())
 
   // The popover is the only thing that reads this flag, and the shortcut can raise it while no tab
   // bar is on screen at all. Dropping it on unmount stops the popover appearing unbidden the next
   // time the user returns to a terminal.
   useEffect(() => () => useTabsStore.getState().setPresetPickerOpen(false), [])
+
+  /** Scroll the strip to a tab, which matters once the tabs outgrow the room the strip has. */
+  const revealTab = (id: string): void => {
+    tabRefs.current.get(id)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+
+  // Activation reaches the bar from a click, an accelerator, the palette and the overflow list
+  // alike, and a tab the user switched to is no use while it sits off the end of the strip.
+  useEffect(() => {
+    if (activeTabId) revealTab(activeTabId)
+  }, [activeTabId])
+
+  const statusOf = (tabId: string): SessionStatus | undefined =>
+    workspaceId ? attention[makeSessionId(workspaceId, tabId)]?.status : undefined
 
   const move = (id: string, dir: -1 | 1): void => {
     const ids = tabs.map((t) => t.id)
@@ -103,16 +127,42 @@ export function TabBar() {
     return entries
   }
 
+  /**
+   * Every open tab with its preset badge and its session's attention state, so a tab the strip has
+   * no room for can still be found and its state read.
+   */
+  const overflowEntries = (): MenuEntry[] =>
+    tabs.map((tab) => {
+      const status = statusOf(tab.id)
+      return {
+        label: tab.title,
+        icon: (
+          <span className="ix-tabmenu__mark">
+            <span className="ix-tab__preset">{PRESET_META[tab.preset].badge}</span>
+            {status && <span className={`ix-tabmenu__dot ix-tabmenu__dot--${status}`} />}
+          </span>
+        ),
+        onClick: () => {
+          void store.setActiveTab(tab.id)
+          // Not left to the reveal effect: picking the tab that is already active changes nothing
+          // for the effect to react to, and the user still asked to be shown that tab.
+          revealTab(tab.id)
+        }
+      }
+    })
+
   return (
     <div className="ix-tabbar">
       <div className="ix-tabs">
         {tabs.map((tab) => {
-          const status = workspaceId
-            ? attention[makeSessionId(workspaceId, tab.id)]?.status
-            : undefined
+          const status = statusOf(tab.id)
           return (
           <div
             key={tab.id}
+            ref={(el) => {
+              if (el) tabRefs.current.set(tab.id, el)
+              else tabRefs.current.delete(tab.id)
+            }}
             className={`ix-tab${tab.id === activeTabId ? ' ix-tab--active' : ''}${status ? ` ix-tab--${status}` : ''}`}
             onMouseDown={() => renamingId !== tab.id && void store.setActiveTab(tab.id)}
             onDoubleClick={() => startRename(tab.id, tab.title)}
@@ -160,10 +210,36 @@ export function TabBar() {
         />
       </div>
       <div className="ix-tabbar__tools">
+        <button
+          ref={overflowRef}
+          type="button"
+          className="ix-iconbtn ix-tabbar__overflow"
+          title="All tabs"
+          aria-label="All tabs"
+          onClick={() => {
+            if (overflowAt) {
+              setOverflowAt(null)
+              return
+            }
+            const r = overflowRef.current?.getBoundingClientRect()
+            setOverflowAt({ x: r?.left ?? 0, y: (r?.bottom ?? 0) + 4 })
+          }}
+        >
+          <IconChevronDown />
+        </button>
         <LayoutPicker layout={layout} onChange={(l) => void store.setLayout(l)} />
       </div>
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} entries={menuEntries(menu.id)} onClose={() => setMenu(null)} />
+      )}
+      {overflowAt && (
+        <ContextMenu
+          x={overflowAt.x}
+          y={overflowAt.y}
+          entries={overflowEntries()}
+          anchor={overflowRef.current}
+          onClose={() => setOverflowAt(null)}
+        />
       )}
     </div>
   )
