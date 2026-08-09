@@ -72,6 +72,28 @@ describe('SHORTCUT_ACTIONS', () => {
     })
     expect(map.get('palette.open')).toMatchObject({ accelerator: 'CmdOrCtrl+K', menu: 'view' })
   })
+
+  test('terminal font zoom is mapped to the View menu and stays palette-findable', () => {
+    const map = new Map(SHORTCUT_ACTIONS.map((a) => [a.id, a]))
+    expect(map.get('terminal.fontIncrease')).toMatchObject({
+      label: 'Increase Terminal Font',
+      accelerator: 'CmdOrCtrl+=',
+      menu: 'view'
+    })
+    expect(map.get('terminal.fontDecrease')).toMatchObject({
+      label: 'Decrease Terminal Font',
+      accelerator: 'CmdOrCtrl+-',
+      menu: 'view'
+    })
+    expect(map.get('terminal.fontReset')).toMatchObject({
+      label: 'Reset Terminal Font',
+      accelerator: 'CmdOrCtrl+0',
+      menu: 'view'
+    })
+    for (const id of ['terminal.fontIncrease', 'terminal.fontDecrease', 'terminal.fontReset']) {
+      expect(map.get(id)!.hidden).toBeUndefined()
+    }
+  })
 })
 
 describe('shortcutActionFor', () => {

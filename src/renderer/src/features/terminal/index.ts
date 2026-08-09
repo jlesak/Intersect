@@ -13,3 +13,4 @@ export {
   onSessionStatus,
   reportActiveSession
 } from './ipc'
+export { registerTerminalFeature } from './register'

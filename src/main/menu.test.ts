@@ -78,6 +78,9 @@ describe('appMenuTemplate', () => {
       'shell.toggleSidebar',
       'projects.next',
       'attention.jumpOldestWaiting',
+      'terminal.fontIncrease',
+      'terminal.fontDecrease',
+      'terminal.fontReset',
       'separator',
       'togglefullscreen'
     ])
