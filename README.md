@@ -91,7 +91,7 @@ src/
       tabs/          # the selected workspace's terminal view: tabs, layout, active, pane slots
       terminal/      # imperative xterm controller + split stage + panes
 e2e/                 # Playwright _electron specs
-tooling/             # repo tooling outside the app: the E2E build-freshness guard
+tooling/             # repo tooling outside the app: the E2E build-freshness guard and app register
 ```
 
 ### Extensibility seam

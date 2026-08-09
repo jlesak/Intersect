@@ -8,6 +8,7 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
+import { closeRegisteredApps, registerApp } from '../tooling/e2eApps'
 import { appEntry } from '../tooling/e2eFreshness'
 
 /**
@@ -50,14 +51,20 @@ const tempDirs: string[] = []
  * imported once per worker, so a hook registered at module scope would only ever attach to the
  * first spec file that loaded it and every later file would leak silently.
  *
+ * Both drains live in one fixture body so that their order is stated rather than inferred. Apps go
+ * first: a profile directory removed out from under a process that is still running is a race, and
+ * splitting the two across separate fixtures would leave that order resting on which of them
+ * Playwright happened to set up first.
+ *
  * Because the drain empties the list after each test, `tempDir` must only ever be called from
  * inside a test. A directory taken at module scope or in a `beforeAll` would be removed once the
  * first test finished and every later test in that file would be pointed at nothing.
  */
-export const test = base.extend<{ removeTempDirs: void }>({
-  removeTempDirs: [
+export const test = base.extend<{ cleanUp: void }>({
+  cleanUp: [
     async ({}, use) => {
       await use()
+      await closeRegisteredApps()
       while (tempDirs.length > 0) {
         const dir = tempDirs.pop()
         if (dir) rmSync(dir, { recursive: true, force: true })
@@ -130,6 +137,13 @@ export interface LaunchOptions {
  * life of the window. Collection is unconditional because it has to start before the shell mounts:
  * a spec cannot subscribe after `launch` returns without having already missed everything the app
  * logged while booting, which is the part worth catching.
+ *
+ * Closing is the harness's job, not the spec's: every app is handed to the drain that runs after
+ * the test whatever its outcome, so a failed assertion can no longer leave one running. It is
+ * handed over the instant it exists, because everything between here and the return - waiting for
+ * the window, waiting for the shell, the core health check that exists to throw - can fail on a
+ * broken build, and an app abandoned mid-launch is abandoned just as thoroughly as one abandoned
+ * mid-test.
  */
 export async function launch(
   profileDir: string,
@@ -144,6 +158,7 @@ export async function launch(
       ...opts.env
     }
   })
+  registerApp(app)
   const win = await app.firstWindow()
   const errors: string[] = []
   win.on('console', (m) => {
