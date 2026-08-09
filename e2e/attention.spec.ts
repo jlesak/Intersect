@@ -44,8 +44,6 @@ test('a background session that signals idle turns its tab done, and viewing it 
   // Opening (activating) the tab acknowledges it and clears the status.
   await win.locator('.ix-tab--done').click()
   await expect(win.locator('.ix-tab--done')).toHaveCount(0)
-
-  await app.close()
 })
 
 /**
@@ -71,6 +69,4 @@ test('submitting a prompt in a Claude tab marks it working', async () => {
   await win.keyboard.type('hello\n')
 
   await expect(win.locator('.ix-tab--working')).toHaveCount(1)
-
-  await app.close()
 })

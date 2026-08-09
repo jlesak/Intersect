@@ -19,7 +19,7 @@ import {
  * proves the chip would have said so.
  */
 test('an unconnected board says it never synced and never refreshes itself', async () => {
-  const { app, win } = await launch(userDataDir(), { env: unconfiguredAdo() })
+  const { win } = await launch(userDataDir(), { env: unconfiguredAdo() })
   await openRailSection(win, 'PR Review', '.ix-board-head')
 
   const age = win.getByTestId('pr-sync-age')
@@ -42,8 +42,6 @@ test('an unconnected board says it never synced and never refreshes itself', asy
   await expect(age).toHaveText('Synced just now')
   await expect(win.getByTestId('pr-sync-error')).toHaveCount(0)
   await expect(win.locator('.ix-crash')).toHaveCount(0)
-
-  await app.close()
 })
 
 /**
@@ -52,7 +50,7 @@ test('an unconnected board says it never synced and never refreshes itself', asy
  * itself at all.
  */
 test('a connected board refreshes itself at boot with nobody pressing Sync', async () => {
-  const { app, win } = await launch(userDataDir(), {
+  const { win } = await launch(userDataDir(), {
     env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
   })
 
@@ -65,6 +63,4 @@ test('a connected board refreshes itself at boot with nobody pressing Sync', asy
   await expect(win.getByTestId('pr-sync-error')).toHaveCount(0)
   await expect(win.getByTestId('pr-col-action').getByTestId('pr-card')).toHaveCount(2)
   await expect(win.locator('.ix-crash')).toHaveCount(0)
-
-  await app.close()
 })

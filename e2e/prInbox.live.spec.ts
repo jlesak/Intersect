@@ -11,7 +11,7 @@ test('live: sync real PRs and render a diff', async () => {
   // Blanking INTERSECT_E2E is what leaves anything here worth verifying: the core answers every
   // Azure DevOps call from canned fixtures when it reads exactly '1', and this is the one test that
   // must reach the real server. Credentials come from the real home directory, which stays as it is.
-  const { app, win } = await launch(tempDir('intersect-live-'), {
+  const { win } = await launch(tempDir('intersect-live-'), {
     env: {
       INTERSECT_E2E: '',
       INTERSECT_ADO_IDENTITY:
@@ -39,5 +39,4 @@ test('live: sync real PRs and render a diff', async () => {
   console.log('LIVE: Monaco diff rendered')
 
   await win.screenshot({ path: 'test-results/pr-inbox-live.png' })
-  await app.close()
 })

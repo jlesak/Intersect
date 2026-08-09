@@ -39,8 +39,6 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   await expect(win.locator('.ix-palette')).toHaveCount(0)
   await expect(win.locator('.ix-tab')).toHaveCount(1)
   await expect(win.locator('.ix-tab__title')).toHaveText('Shell')
-
-  await app.close()
 })
 
 test('at rest the list is filed under headings; a command with nothing to act on will not run', async () => {
@@ -73,8 +71,6 @@ test('at rest the list is filed under headings; a command with nothing to act on
   await closeAgain.click()
   await expect(win.locator('.ix-palette')).toHaveCount(0)
   await expect(win.locator('.ix-tab')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('a command is found by a keyword its title never contains', async () => {
@@ -92,8 +88,6 @@ test('a command is found by a keyword its title never contains', async () => {
   )
   await win.keyboard.press('Enter')
   await expect(win.locator('.ix-tab__title')).toHaveText('Shell')
-
-  await app.close()
 })
 
 test('a command you ran leads the list next time, and still does after a relaunch', async () => {
@@ -128,8 +122,6 @@ test('a command you ran leads the list next time, and still does after a relaunc
   await expect(
     relaunched.win.locator('.ix-palette__section').first().locator('.ix-palette__title')
   ).toHaveText(['Toggle Sidebar', 'Layout: Rows'])
-
-  await relaunched.app.close()
 })
 
 test('every open workspace is a palette target that really switches to it', async () => {
@@ -150,8 +142,6 @@ test('every open workspace is a palette target that really switches to it', asyn
   await win.keyboard.press('Enter')
   await expect(win.locator('.ix-palette')).toHaveCount(0)
   await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(target)
-
-  await app.close()
 })
 
 test('Escape closes the palette without running a command', async () => {
@@ -163,6 +153,4 @@ test('Escape closes the palette without running a command', async () => {
   await win.keyboard.press('Escape')
   await expect(win.locator('.ix-palette')).toHaveCount(0)
   await expect(win.locator('.ix-tab')).toHaveCount(0)
-
-  await app.close()
 })

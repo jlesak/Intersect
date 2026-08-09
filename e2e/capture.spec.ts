@@ -37,8 +37,6 @@ test('the palette advertises the capture prefixes and previews before acting', a
   await expect(win.locator('.ix-palette__capture .ix-palette__title')).toHaveText(
     'Add task "call the vendor", due tomorrow'
   )
-
-  await app.close()
 })
 
 test('"todo:" writes a task with the due day its wording named', async () => {
@@ -54,8 +52,6 @@ test('"todo:" writes a task with the due day its wording named', async () => {
   await expect(row).toHaveCount(1)
   await expect(row.locator('.ix-todo-item__text')).toHaveText('call the vendor')
   await expect(row.locator('.ix-todo-item__due')).toHaveText('tomorrow')
-
-  await app.close()
 })
 
 test('"todo:" without a date word writes the whole line as the task', async () => {
@@ -67,8 +63,6 @@ test('"todo:" without a date word writes the whole line as the task', async () =
   const row = win.locator('.ix-todo > .ix-todo__list > .ix-todo-item')
   await expect(row.locator('.ix-todo-item__text')).toHaveText('tomorrow is the deadline')
   await expect(row.locator('.ix-todo-item__due')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('"time:" logs a worklog entry against the issue it named', async () => {
@@ -93,8 +87,6 @@ test('"time:" logs a worklog entry against the issue it named', async () => {
   } else {
     await expect(win.locator('.ix-toast')).toContainText('weekday board')
   }
-
-  await app.close()
 })
 
 test('"time:" with no duration refuses to log anything', async () => {
@@ -109,8 +101,6 @@ test('"time:" with no duration refuses to log anything', async () => {
 
   await openRailSection(win, 'Time Tracking', '.ix-tt')
   await expect(win.locator('.ix-tt-card')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('"1:1:" starts a preparation run for the person named', async () => {
@@ -124,6 +114,4 @@ test('"1:1:" starts a preparation run for the person named', async () => {
   await expect(card).toHaveCount(1)
   await expect(card.locator('.ix-oto-run__type')).toHaveText(/preparation/i)
   await expect(card).toContainText('Tereza N.')
-
-  await app.close()
 })

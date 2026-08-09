@@ -16,7 +16,6 @@ test('creates a workspace via the folder picker with the basename as its name', 
   const { app, win } = await launch(profileDir, { openOther: true })
   await addWorkspace(win, app, wsDir)
   await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(wsDir))
-  await app.close()
 })
 
 test('opens a Shell terminal and streams command output', async () => {
@@ -36,8 +35,6 @@ test('opens a Shell terminal and streams command output', async () => {
   await term.click()
   await win.keyboard.type('echo INTERSECT_E2E_OK\n')
   await expect(win.locator('.xterm-rows')).toContainText('INTERSECT_E2E_OK', { timeout: 20_000 })
-
-  await app.close()
 })
 
 test('opens a Claude Code tab rooted in the workspace', async () => {
@@ -54,8 +51,6 @@ test('opens a Claude Code tab rooted in the workspace', async () => {
   await expect(win.locator('.ix-tab')).toHaveCount(1)
   await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
   await expect(win.locator('.xterm')).toBeVisible()
-
-  await app.close()
 })
 
 test('splits into two columns and places both terminals', async () => {
@@ -79,8 +74,6 @@ test('splits into two columns and places both terminals', async () => {
   // Fill the empty pane with the other tab, then both panes host a terminal.
   await win.locator('.ix-pane--empty .ix-btn').first().click()
   await expect(win.locator('.ix-pane .xterm')).toHaveCount(2)
-
-  await app.close()
 })
 
 test('deletes a workspace after confirming, leaving the folder on disk untouched', async () => {
@@ -97,7 +90,6 @@ test('deletes a workspace after confirming, leaving the folder on disk untouched
 
   await expect(win.locator('.ix-ws')).toHaveCount(0)
   expect(existsSync(wsDir), 'workspace folder must not be deleted from disk').toBe(true)
-  await app.close()
 })
 
 test('restores the selected workspace, its tabs and layout after restart', async () => {
@@ -118,5 +110,4 @@ test('restores the selected workspace, its tabs and layout after restart', async
   await expect(second.win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(wsDir))
   await expect(second.win.locator('.ix-tab')).toHaveCount(1)
   await expect(second.win.locator('.ix-stage--columns')).toBeVisible()
-  await second.app.close()
 })

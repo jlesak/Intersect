@@ -48,7 +48,7 @@ async function dragRowAbove(win: Page, row: Locator, target: Locator): Promise<v
 }
 
 test('adds tasks with Enter, with optional due dates, and marks overdue ones', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openTodo(win)
 
   // Fresh profile: empty state, no done tasks.
@@ -81,12 +81,10 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
     'Check the deploy logs',
     'Update the dependencies'
   ])
-
-  await app.close()
 })
 
 test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openTodo(win)
   await addTask(win, 'draft')
 
@@ -103,11 +101,10 @@ test('inline edit keeps text, description, and optional due date without exposin
   const edited = openRows(win).filter({ hasText: 'edited task' })
   await expect(edited.locator('.ix-todo-item__description')).toHaveText('kept detail')
   await expect(edited.locator('.ix-todo-item__due')).toBeVisible()
-  await app.close()
 })
 
 test('checking hides a task in the Done drawer and unchecking returns it to the end', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openTodo(win)
 
   await addTask(win, 'alpha')
@@ -137,12 +134,10 @@ test('checking hides a task in the Done drawer and unchecking returns it to the 
   await win.locator('.ix-todo__done-link').click()
   await expect(win.locator('.ix-todo__done-drawer')).toHaveCount(0)
   await expect(win.locator('.ix-todo__done-link')).toHaveText('Show done (0)')
-
-  await app.close()
 })
 
 test('delete works from the main list and from the Done drawer', async () => {
-  const { app, win } = await launch(userDataDir())
+  const { win } = await launch(userDataDir())
   await openTodo(win)
 
   await addTask(win, 'keep me')
@@ -163,8 +158,6 @@ test('delete works from the main list and from the Done drawer', async () => {
   await doneVictim.locator('.ix-iconbtn[title="Delete"]').click()
   await expect(doneRows(win)).toHaveCount(0)
   await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText(['keep me'])
-
-  await app.close()
 })
 
 test('pointer and keyboard reorder persist across renderer reload and app restart', async () => {
@@ -221,5 +214,4 @@ test('pointer and keyboard reorder persist across renderer reload and app restar
     'third',
     'first'
   ])
-  await second.app.close()
 })

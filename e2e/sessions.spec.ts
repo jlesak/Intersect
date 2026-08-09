@@ -87,7 +87,7 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
 
@@ -106,8 +106,6 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
   await expect(win.locator('.ix-transcript__body-scroll')).toContainText('assemble widgets')
   await expect(win.locator('.ix-transcript__tool')).toContainText('factory.ts')
-
-  await app.close()
 })
 
 test('arrow keys walk the list from the search box and Enter opens what they land on', async () => {
@@ -115,7 +113,7 @@ test('arrow keys walk the list from the search box and Enter opens what they lan
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
   await expect(win.locator('.ix-session-row')).toHaveCount(2)
@@ -139,8 +137,6 @@ test('arrow keys walk the list from the search box and Enter opens what they lan
   await win.keyboard.press('ArrowUp')
   await win.keyboard.press('Enter')
   await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
-
-  await app.close()
 })
 
 test('a fuzzy query finds a session the letters are only scattered through', async () => {
@@ -148,7 +144,7 @@ test('a fuzzy query finds a session the letters are only scattered through', asy
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
 
@@ -160,8 +156,6 @@ test('a fuzzy query finds a session the letters are only scattered through', asy
   // The matched prompt is shown with the characters that earned the hit marked.
   await expect(win.locator('.ix-session-row__snip')).toContainText('the login redirect loops forever')
   await expect(win.locator('.ix-session-row__mark').first()).toBeVisible()
-
-  await app.close()
 })
 
 test('folder multiselect narrows the list to the checked folders', async () => {
@@ -169,7 +163,7 @@ test('folder multiselect narrows the list to the checked folders', async () => {
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
   await expect(win.locator('.ix-session-row')).toHaveCount(2)
@@ -181,8 +175,6 @@ test('folder multiselect narrows the list to the checked folders', async () => {
 
   await expect(win.locator('.ix-session-row')).toHaveCount(1)
   await expect(win.locator('.ix-session-row__title')).toHaveText('Fixing the login redirect')
-
-  await app.close()
 })
 
 test('resume opens a Claude tab in a workspace for the session folder', async () => {
@@ -207,6 +199,4 @@ test('resume opens a Claude tab in a workspace for the session folder', async ()
 
   // The resume says it finished, naming the session it brought back.
   await expect(win.locator('.ix-toast')).toContainText('Resumed Building the widget factory')
-
-  await app.close()
 })

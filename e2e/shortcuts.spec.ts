@@ -52,8 +52,6 @@ test('the application menu exposes every mapped shortcut with its accelerator', 
   expect(accelerators['tabs.close']).toBe('CmdOrCtrl+W')
   expect(accelerators['palette.open']).toBe('CmdOrCtrl+K')
   expect(accelerators['tabs.next']).toBe('Control+Tab')
-
-  await app.close()
 })
 
 /**
@@ -81,8 +79,6 @@ test('no two menu items anywhere claim the same accelerator', async () => {
   expect(accelerators.length).toBeGreaterThan(10)
   const duplicates = accelerators.filter((a, i) => accelerators.indexOf(a) !== i)
   expect(duplicates).toEqual([])
-
-  await app.close()
 })
 
 test('the Command Palette menu item opens and the palette shows its shortcut hint', async () => {
@@ -101,8 +97,6 @@ test('the Command Palette menu item opens and the palette shows its shortcut hin
 
   await invokeMenu(app, 'palette.open')
   await expect(win.locator('.ix-palette')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('Toggle Sidebar collapses the shell to its icon rail and back', async () => {
@@ -113,8 +107,6 @@ test('Toggle Sidebar collapses the shell to its icon rail and back', async () =>
   await expect(win.locator('.ix-app--rail')).toHaveCount(1)
   await invokeMenu(app, 'shell.toggleSidebar')
   await expect(win.locator('.ix-app--rail')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('New Tab opens the last-used preset, and Close Tab closes it', async () => {
@@ -131,8 +123,6 @@ test('New Tab opens the last-used preset, and Close Tab closes it', async () => 
 
   await invokeMenu(app, 'tabs.close')
   await expect(win.locator('.ix-tab')).toHaveCount(1)
-
-  await app.close()
 })
 
 test('Close Tab is a no-op when no tab is open', async () => {
@@ -144,8 +134,6 @@ test('Close Tab is a no-op when no tab is open', async () => {
   // Still nothing, and the window is still alive - the shell is what must not disappear here.
   await expect(win.locator('.ix-tab')).toHaveCount(0)
   await expect(win.locator('.ix-wordmark__name')).toBeVisible()
-
-  await app.close()
 })
 
 test('New Tab with Preset opens the preset picker', async () => {
@@ -156,8 +144,6 @@ test('New Tab with Preset opens the preset picker', async () => {
   await expect(win.locator('.ix-presets')).toBeVisible()
   await win.locator('.ix-preset', { hasText: 'Shell' }).click()
   await expect(win.locator('.ix-tab')).toHaveCount(1)
-
-  await app.close()
 })
 
 test('Go to Tab jumps by position and Next Tab cycles', async () => {
@@ -177,6 +163,4 @@ test('Go to Tab jumps by position and Next Tab cycles', async () => {
   // Next wraps from the last tab back to the first.
   await invokeMenu(app, 'tabs.next')
   await expect(win.locator('.ix-tab').nth(0)).toHaveClass(/ix-tab--active/)
-
-  await app.close()
 })
