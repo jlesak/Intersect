@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Preset } from '@common/domain'
 import { selectTabList, TabBar, useTabsStore } from '@renderer/features/tabs'
-import { SplitStage } from '@renderer/features/terminal'
+import { installTerminalFindShortcut, SplitStage } from '@renderer/features/terminal'
 import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
 
@@ -29,6 +29,10 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
     if (selectedId) void useTabsStore.getState().hydrate(selectedId)
     else useTabsStore.getState().clear()
   }, [selectedId])
+
+  // Find-in-scrollback is bound only while the terminal area is on screen, so the key can never
+  // be taken away from an editor showing somewhere else in the app.
+  useEffect(() => installTerminalFindShortcut(), [])
 
   if (!selected) {
     return (

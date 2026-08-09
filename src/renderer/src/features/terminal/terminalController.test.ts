@@ -1,3 +1,4 @@
+import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import { beforeAll, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest'
 import type { TerminalAttachResult, TerminalDataEvent } from '@common/ipc'
@@ -15,14 +16,48 @@ const ipcMock = vi.hoisted(() => ({
 }))
 vi.mock('./ipc', () => ipcMock)
 
+// The search addon reaches into xterm's renderer to paint its decorations, which jsdom does not
+// have; the controller's own contract is which call it makes with which options, so one shared
+// stand-in stands for the addon every session loads.
+type Search = (term: string, options?: ISearchOptions) => boolean
+
+const searchMock = vi.hoisted(() => ({
+  findNext: vi.fn<Search>(() => true),
+  findPrevious: vi.fn<Search>(() => true),
+  clearDecorations: vi.fn(),
+  listeners: [] as Array<(event: { resultIndex: number; resultCount: number }) => void>
+}))
+vi.mock('@xterm/addon-search', () => ({
+  SearchAddon: class {
+    findNext = searchMock.findNext
+    findPrevious = searchMock.findPrevious
+    clearDecorations = searchMock.clearDecorations
+    activate(): void {}
+    dispose(): void {}
+    onDidChangeResults(listener: (event: { resultIndex: number; resultCount: number }) => void) {
+      searchMock.listeners.push(listener)
+      return {
+        dispose: () => {
+          searchMock.listeners = searchMock.listeners.filter((l) => l !== listener)
+        }
+      }
+    }
+  }
+}))
+
 import {
+  clearSessionSearch,
   disposeSession,
   ensureSession,
+  findInSession,
   markAllInterrupted,
+  onSessionSearchResults,
   respawnInterrupted,
   setCoreSpawnGate
 } from './terminalController'
+import { useFindStore } from './findStore'
 import { useInterruptedStore } from './interruptedStore'
+import { XTERM_SEARCH_DECORATIONS } from './theme'
 
 // The one live onData listener the controller wires for the renderer's lifetime; captured so
 // tests can inject pushes as if the core sent them.
@@ -47,7 +82,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   writeSpy = vi.spyOn(Terminal.prototype, 'write')
   setCoreSpawnGate(true)
+  searchMock.listeners = []
   useInterruptedStore.setState({ interrupted: {} })
+  useFindStore.setState({ open: {}, query: {}, focusToken: {} })
 })
 
 const written = (): string[] => writeSpy.mock.calls.map((c) => c[0] as string)
@@ -211,6 +248,91 @@ describe('core crash interruption', () => {
     disposeSession('int:gone')
 
     expect(useInterruptedStore.getState().interrupted['int:gone']).toBeUndefined()
+  })
+})
+
+describe('find in scrollback', () => {
+  /** A live session, ready to be searched. */
+  async function searchable(sessionId: string): Promise<void> {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession(sessionId, 'shell', '/repo')
+    vi.clearAllMocks()
+  }
+
+  test('every search carries the decorations, or the addon reports no results at all', async () => {
+    await searchable('find:decorated')
+
+    findInSession('find:decorated', 'needle', 'next')
+    findInSession('find:decorated', 'needle', 'previous')
+
+    expect(searchMock.findNext).toHaveBeenCalledWith('needle', {
+      decorations: XTERM_SEARCH_DECORATIONS,
+      incremental: false
+    })
+    expect(searchMock.findPrevious).toHaveBeenCalledWith('needle', {
+      decorations: XTERM_SEARCH_DECORATIONS,
+      incremental: false
+    })
+  })
+
+  test('typing expands the match under the caret; stepping backwards never does', async () => {
+    await searchable('find:incremental')
+
+    findInSession('find:incremental', 'nee', 'next', true)
+    findInSession('find:incremental', 'nee', 'previous', true)
+
+    expect(searchMock.findNext.mock.calls[0][1]).toMatchObject({ incremental: true })
+    expect(searchMock.findPrevious.mock.calls[0][1]).toMatchObject({ incremental: false })
+  })
+
+  test('an emptied query ends the search instead of running one', async () => {
+    await searchable('find:emptied')
+
+    expect(findInSession('find:emptied', '', 'next', true)).toBe(false)
+    expect(searchMock.findNext).not.toHaveBeenCalled()
+    expect(searchMock.clearDecorations).toHaveBeenCalledTimes(1)
+  })
+
+  test('closing the bar takes the highlights off the terminal', async () => {
+    await searchable('find:closed')
+
+    clearSessionSearch('find:closed')
+
+    expect(searchMock.clearDecorations).toHaveBeenCalledTimes(1)
+  })
+
+  test('a session that is gone answers a search with false and no addon call', async () => {
+    expect(findInSession('find:missing', 'needle', 'next')).toBe(false)
+    expect(searchMock.findNext).not.toHaveBeenCalled()
+  })
+
+  test('the result subscription reports the addon tally and can be dropped again', async () => {
+    await searchable('find:results')
+    const seen: Array<{ resultIndex: number; resultCount: number }> = []
+
+    const off = onSessionSearchResults('find:results', (event) => seen.push(event))
+    searchMock.listeners.forEach((l) => l({ resultIndex: 2, resultCount: 9 }))
+    off()
+    searchMock.listeners.forEach((l) => l({ resultIndex: 3, resultCount: 9 }))
+
+    expect(seen).toEqual([{ resultIndex: 2, resultCount: 9 }])
+  })
+
+  test('subscribing to a session that is gone yields a disposer that does nothing', () => {
+    const off = onSessionSearchResults('find:absent', () => {})
+
+    expect(() => off()).not.toThrow()
+  })
+
+  test('disposing a session leaves no find bar and no query behind', async () => {
+    await searchable('find:disposed')
+    useFindStore.getState().openFind('find:disposed')
+    useFindStore.getState().setQuery('find:disposed', 'needle')
+
+    disposeSession('find:disposed')
+
+    expect(useFindStore.getState().open['find:disposed']).toBeUndefined()
+    expect(useFindStore.getState().query['find:disposed']).toBeUndefined()
   })
 })
 

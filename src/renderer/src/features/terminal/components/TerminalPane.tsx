@@ -5,8 +5,10 @@ import { useSettingsStore } from '@renderer/features/settings'
 import { useTabsStore } from '@renderer/features/tabs'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
 import { ipc } from '@renderer/shared/ipc/client'
+import { useFindStore } from '../findStore'
 import { useInterruptedStore } from '../interruptedStore'
 import { attachSession, detachSession, ensureSession, respawnInterrupted } from '../terminalController'
+import { FindBar } from './FindBar'
 
 /**
  * Hosts one live terminal in a pane. The xterm instance is owned by the controller (kept alive
@@ -34,6 +36,7 @@ export function TerminalPane({
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const interrupted = useInterruptedStore((s) => s.interrupted[sessionId] === true)
+  const finding = useFindStore((s) => s.open[sessionId] === true)
   const autoResume = useSettingsStore((s) => s.autoResume)
   const tabId = parseSessionId(sessionId)?.tabId ?? sessionId
 
@@ -96,7 +99,10 @@ export function TerminalPane({
 
   return (
     <>
-      <div className="ix-pane__host" ref={hostRef} />
+      {/* The session id on the host is how a keystroke anywhere in the app resolves to the
+          terminal it was aimed at, without the key layer knowing about tabs or panes. */}
+      <div className="ix-pane__host" ref={hostRef} data-session-id={sessionId} />
+      {finding && <FindBar sessionId={sessionId} />}
       {restored && shouldSpawn && !interrupted && (
         <div className="ix-pane__restored">
           <span className="ix-faint">Obnoveno po ukončení - toto je nový terminál</span>

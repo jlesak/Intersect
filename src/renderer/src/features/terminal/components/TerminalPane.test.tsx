@@ -10,7 +10,11 @@ const controllerMock = vi.hoisted(() => ({
   ensureSession: vi.fn(() => Promise.resolve()),
   attachSession: vi.fn(),
   detachSession: vi.fn(),
-  respawnInterrupted: vi.fn(() => Promise.resolve())
+  respawnInterrupted: vi.fn(() => Promise.resolve()),
+  findInSession: vi.fn(() => true),
+  clearSessionSearch: vi.fn(),
+  focusSession: vi.fn(),
+  onSessionSearchResults: vi.fn(() => () => {})
 }))
 vi.mock('../terminalController', () => controllerMock)
 
@@ -19,6 +23,7 @@ vi.mock('@renderer/shared/ipc/client', () => ({
   ipc: () => ({ sessions: { clearSuspended } })
 }))
 
+import { useFindStore } from '../findStore'
 import { useInterruptedStore } from '../interruptedStore'
 import { useSettingsStore } from '@renderer/features/settings'
 import { TerminalPane } from './TerminalPane'
@@ -32,6 +37,7 @@ beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   vi.clearAllMocks()
   useInterruptedStore.setState({ interrupted: {} })
+  useFindStore.setState({ open: {}, query: {}, focusToken: {} })
   useSettingsStore.setState({ autoResume: true })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -113,5 +119,24 @@ describe('TerminalPane suspend/resume recovery', () => {
       fresh?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(controllerMock.ensureSession).toHaveBeenCalledWith(SID, 'claude', '/repo', null)
+  })
+})
+
+describe('TerminalPane find bar', () => {
+  test('the pane names the session it hosts, so a keystroke can be aimed at it', async () => {
+    await render(null)
+    expect(host.querySelector('.ix-pane__host')?.getAttribute('data-session-id')).toBe(SID)
+  })
+
+  test('no bar until this very session is asked for one', async () => {
+    useFindStore.setState({ open: { 'ws1:other': true } })
+    await render(null)
+
+    expect(host.querySelector('.ix-find')).toBeNull()
+
+    await act(async () => {
+      useFindStore.getState().openFind(SID)
+    })
+    expect(host.querySelector('.ix-find')).not.toBeNull()
   })
 })

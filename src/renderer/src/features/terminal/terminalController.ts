@@ -1,13 +1,21 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import type { Preset } from '@common/domain'
 import { debounce } from '@common/debounce'
 import { makeSessionId, type TerminalAttachResult } from '@common/ipc'
 import { drainAfterSeq, type BufferedChunk } from './attachBuffer'
 import { createDataRouter } from './dataRouter'
+import { useFindStore } from './findStore'
 import { useInterruptedStore } from './interruptedStore'
 import * as ipc from './ipc'
-import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
+import {
+  XTERM_FONT_FAMILY,
+  XTERM_FONT_SIZE,
+  XTERM_SCROLLBACK,
+  XTERM_SEARCH_DECORATIONS,
+  xtermTheme
+} from './theme'
 
 // A font-size change restyles xterm instantly, but the follow-up refit + PTY winsize resize is
 // coalesced: dragging the settings slider must not fire a refit/resize per step across every open
@@ -22,6 +30,7 @@ const LOW_WATER = 50_000
 interface View {
   term: Terminal
   fit: FitAddon
+  search: SearchAddon
   mount: HTMLDivElement
   observer: ResizeObserver
   opened: boolean
@@ -231,6 +240,8 @@ function buildView(sessionId: string, dims: { cols: number; rows: number } | nul
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  const search = new SearchAddon()
+  term.loadAddon(search)
 
   const mount = document.createElement('div')
   mount.className = 'ix-pane__mount'
@@ -238,6 +249,7 @@ function buildView(sessionId: string, dims: { cols: number; rows: number } | nul
   const view: View = {
     term,
     fit,
+    search,
     mount,
     opened: false,
     outstanding: 0,
@@ -304,6 +316,64 @@ export function detachSession(sessionId: string): void {
   views.get(sessionId)?.mount.remove()
 }
 
+/** Give a session's terminal the keyboard back, so what is typed next reaches the shell. */
+export function focusSession(sessionId: string): void {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return
+  view.term.focus()
+}
+
+/**
+ * Look for a term in one session's scrollback and move the viewport onto the match, wrapping at
+ * either end. An empty term is not a search but the end of one: the highlights come off and the
+ * terminal stays exactly where it is. `incremental` grows the match under the caret as the user
+ * types, which only forward search can do.
+ *
+ * Returns whether a match was reached.
+ */
+export function findInSession(
+  sessionId: string,
+  term: string,
+  direction: 'next' | 'previous',
+  incremental = false
+): boolean {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return false
+  if (term === '') {
+    view.search.clearDecorations()
+    return false
+  }
+  const options = {
+    decorations: XTERM_SEARCH_DECORATIONS,
+    incremental: direction === 'next' && incremental
+  }
+  return direction === 'next'
+    ? view.search.findNext(term, options)
+    : view.search.findPrevious(term, options)
+}
+
+/** Take a session's match highlights off - the search is over, not merely unsuccessful. */
+export function clearSessionSearch(sessionId: string): void {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return
+  view.search.clearDecorations()
+}
+
+/**
+ * Follow how many matches a session's searches find and which one is current. A session that is
+ * already gone answers with a disposer that does nothing, so a bar outliving its terminal by a
+ * render is harmless.
+ */
+export function onSessionSearchResults(
+  sessionId: string,
+  listener: (results: ISearchResultChangeEvent) => void
+): () => void {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return () => {}
+  const subscription = view.search.onDidChangeResults(listener)
+  return () => subscription.dispose()
+}
+
 /** Fully tear down a session: dispose xterm, stop observing, and kill the PTY. */
 export function disposeSession(sessionId: string): void {
   const view = views.get(sessionId)
@@ -319,6 +389,7 @@ export function disposeSession(sessionId: string): void {
   view.term.dispose()
   views.delete(sessionId)
   useInterruptedStore.getState().clear(sessionId)
+  useFindStore.getState().forgetSession(sessionId)
   ipc.kill(sessionId)
 }
 

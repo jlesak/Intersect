@@ -1,4 +1,5 @@
 export { SplitStage } from './components/SplitStage'
+export { installTerminalFindShortcut } from './findShortcut'
 export {
   disposeSession,
   disposeWorkspaceSessions,
