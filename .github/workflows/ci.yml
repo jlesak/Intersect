@@ -61,9 +61,9 @@ jobs:
       # electron-builder.yml sets npmRebuild: false. Nothing here compiles.
       - run: npm ci
 
-      # `npm run e2e` builds first, on purpose - the suite runs against out/, so without a build it
-      # would silently test a stale bundle. Playwright needs no browser download: the target is
-      # Electron's own binary.
+      # `npm run e2e` builds first, on purpose - the suite runs against out/, and the freshness
+      # guard refuses to start against a build older than the checkout. Playwright needs no browser
+      # download: the target is Electron's own binary.
       - run: npm run e2e
 
       # Every failure otherwise reads as a bare timeout. The trace is the only way to see what the

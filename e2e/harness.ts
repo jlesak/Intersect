@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   _electron as electron,
   expect,
@@ -8,6 +8,7 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
+import { appEntry } from '../tooling/e2eFreshness'
 
 /**
  * Shared E2E harness. Every spec drove its own copy of these helpers, so a single navigation
@@ -15,7 +16,11 @@ import {
  * that shape of change lands in one place.
  */
 
-export const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+/**
+ * The built app every spec launches. Taken from the freshness guard so that the file being launched
+ * and the file being checked for staleness cannot drift apart.
+ */
+export const APP_ENTRY = appEntry(resolve(__dirname, '..'))
 
 /**
  * Rail labels in render order on a fresh profile, which has no project pins. Settings is last
