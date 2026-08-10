@@ -276,10 +276,16 @@ input {
   color: var(--text);
   font-size: 12.5px;
   text-align: left;
-  white-space: nowrap;
+  cursor: pointer;
+}
+/* The label carries the elision, not the item: an entry is a flex row, and text-overflow does
+   nothing on a flex container. A tab renamed to a branch name has to cut off somewhere. */
+.ix-menu__label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
+  white-space: nowrap;
 }
 .ix-menu__item:hover {
   background: var(--panel-3);

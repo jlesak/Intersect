@@ -99,7 +99,7 @@ export function ContextMenu({
             }}
           >
             {entry.icon}
-            {entry.label}
+            <span className="ix-menu__label">{entry.label}</span>
           </button>
         )
       )}

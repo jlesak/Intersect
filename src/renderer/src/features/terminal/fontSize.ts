@@ -1,7 +1,12 @@
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '@common/domain'
 
-/** How far one zoom press moves the terminal font - the same granularity the slider offers. */
-export const TERMINAL_FONT_STEP = 0.5
+/**
+ * How far one zoom press moves the terminal font. Deliberately coarser than the settings slider:
+ * the slider is for fine tuning and the key is for zooming, and a press that moved as little as
+ * the slider does would read as a key that did nothing. It stays on the slider's own half-point
+ * grid, so the two never land on sizes the other cannot express.
+ */
+export const TERMINAL_FONT_STEP = 1
 
 /**
  * The size a zoom press lands on, held inside the range the Settings slider offers. Leaning on

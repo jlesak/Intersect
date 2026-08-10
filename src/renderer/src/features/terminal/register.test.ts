@@ -40,12 +40,12 @@ describe('the terminal font zoom commands', () => {
 
   test('increase moves the size the settings slider shows', () => {
     run('terminal.fontIncrease')
-    expect(fontSize()).toBe(13)
+    expect(fontSize()).toBe(13.5)
   })
 
   test('decrease moves the size the settings slider shows', () => {
     run('terminal.fontDecrease')
-    expect(fontSize()).toBe(12)
+    expect(fontSize()).toBe(11.5)
   })
 
   test('reset returns to the size a fresh install starts with', () => {
@@ -64,7 +64,7 @@ describe('the terminal font zoom commands', () => {
 
   test('a single press is written out at once, so the size survives a quit', () => {
     run('terminal.fontIncrease')
-    expect(setTerminalFontSize).toHaveBeenCalledWith(13)
+    expect(setTerminalFontSize).toHaveBeenCalledWith(13.5)
   })
 })
 

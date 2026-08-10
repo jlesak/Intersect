@@ -4,8 +4,8 @@ import { steppedFontSize, TERMINAL_FONT_STEP } from './fontSize'
 
 describe('steppedFontSize', () => {
   test('moves one step in the direction asked for', () => {
-    expect(steppedFontSize(12.5, TERMINAL_FONT_STEP)).toBe(13)
-    expect(steppedFontSize(12.5, -TERMINAL_FONT_STEP)).toBe(12)
+    expect(steppedFontSize(12.5, TERMINAL_FONT_STEP)).toBe(13.5)
+    expect(steppedFontSize(12.5, -TERMINAL_FONT_STEP)).toBe(11.5)
   })
 
   test('stops at the largest size the settings slider offers', () => {
@@ -24,8 +24,9 @@ describe('steppedFontSize', () => {
 
   test('a long walk up and back lands on exactly the size it started from', () => {
     let size = 12.5
-    for (let i = 0; i < 12; i += 1) size = steppedFontSize(size, TERMINAL_FONT_STEP)
-    for (let i = 0; i < 12; i += 1) size = steppedFontSize(size, -TERMINAL_FONT_STEP)
+    // Short of either end, so what is being tested is the arithmetic and not the clamp.
+    for (let i = 0; i < 6; i += 1) size = steppedFontSize(size, TERMINAL_FONT_STEP)
+    for (let i = 0; i < 6; i += 1) size = steppedFontSize(size, -TERMINAL_FONT_STEP)
     expect(size).toBe(12.5)
   })
 })
