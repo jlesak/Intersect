@@ -250,6 +250,12 @@ input {
 .ix-menu {
   position: fixed;
   min-width: 176px;
+  /* A menu can now list one entry per open tab, so it has to survive being taller and wider than
+     the room it has: it scrolls rather than running its last entries off the bottom of the window,
+     and a long tab title elides rather than pushing the menu off the right edge. */
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
   padding: 5px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
@@ -270,6 +276,9 @@ input {
   color: var(--text);
   font-size: 12.5px;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 .ix-menu__item:hover {
