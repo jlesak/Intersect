@@ -120,6 +120,41 @@ describe('the terminal find key', () => {
     expect(useFindStore.getState().open).toEqual({})
   })
 
+  test('Caps Lock does not decide whether the key works', () => {
+    const panes = stage('ws1:a')
+    uninstall = installTerminalFindShortcut()
+    // Caps Lock reports the letter uppercase and leaves shiftKey false, so a case-sensitive guard
+    // would silently drop the key.
+    const event = new KeyboardEvent('keydown', {
+      key: 'F',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+
+    panes.querySelector('textarea')?.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(useFindStore.getState().open).toEqual({ 'ws1:a': true })
+  })
+
+  test('Shift+Cmd+F is a different shortcut and is left alone', () => {
+    const panes = stage('ws1:a')
+    uninstall = installTerminalFindShortcut()
+    const event = new KeyboardEvent('keydown', {
+      key: 'F',
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+
+    panes.querySelector('textarea')?.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(useFindStore.getState().open).toEqual({})
+  })
+
   test('leaving the terminal area takes the key with it', () => {
     const panes = stage('ws1:a')
     installTerminalFindShortcut()()

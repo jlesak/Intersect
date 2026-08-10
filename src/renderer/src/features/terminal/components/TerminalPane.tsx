@@ -100,9 +100,15 @@ export function TerminalPane({
   return (
     <>
       {/* The session id on the host is how a keystroke anywhere in the app resolves to the
-          terminal it was aimed at, without the key layer knowing about tabs or panes. */}
-      <div className="ix-pane__host" ref={hostRef} data-session-id={sessionId} />
-      {finding && <FindBar sessionId={sessionId} />}
+          terminal it was aimed at, without the key layer knowing about tabs or panes. A pane
+          waiting on a recovery decision has no terminal behind it, so it claims no session and a
+          find aimed at the area goes to a pane that can answer. */}
+      <div
+        className="ix-pane__host"
+        ref={hostRef}
+        data-session-id={shouldSpawn ? sessionId : undefined}
+      />
+      {finding && shouldSpawn && <FindBar sessionId={sessionId} />}
       {restored && shouldSpawn && !interrupted && (
         <div className="ix-pane__restored">
           <span className="ix-faint">Obnoveno po ukončení - toto je nový terminál</span>

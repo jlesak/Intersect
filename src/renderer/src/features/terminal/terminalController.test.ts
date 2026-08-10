@@ -46,6 +46,7 @@ vi.mock('@xterm/addon-search', () => ({
 }))
 
 import {
+  attachSession,
   clearSessionSearch,
   disposeSession,
   ensureSession,
@@ -72,6 +73,14 @@ beforeAll(() => {
     unobserve(): void {}
     disconnect(): void {}
   }
+  // Opening an xterm asks the window for its device pixel ratio, which jsdom cannot answer.
+  ;(window as unknown as { matchMedia: unknown }).matchMedia = () => ({
+    matches: false,
+    addListener(): void {},
+    removeListener(): void {},
+    addEventListener(): void {},
+    removeEventListener(): void {}
+  })
   ipcMock.onData.mockImplementation((cb: (event: TerminalDataEvent) => void) => {
     routeData = cb
     return () => {}
@@ -288,9 +297,16 @@ describe('find in scrollback', () => {
   test('an emptied query ends the search instead of running one', async () => {
     await searchable('find:emptied')
 
+    const clearSelection = vi.spyOn(Terminal.prototype, 'clearSelection')
+
     expect(findInSession('find:emptied', '', 'next', true)).toBe(false)
+
     expect(searchMock.findNext).not.toHaveBeenCalled()
     expect(searchMock.clearDecorations).toHaveBeenCalledTimes(1)
+    // The match the search had landed on stops being selected too: a highlight with nothing on
+    // screen to explain it is worse than none.
+    expect(clearSelection).toHaveBeenCalled()
+    clearSelection.mockRestore()
   })
 
   test('closing the bar takes the highlights off the terminal', async () => {
@@ -318,10 +334,39 @@ describe('find in scrollback', () => {
     expect(seen).toEqual([{ resultIndex: 2, resultCount: 9 }])
   })
 
-  test('subscribing to a session that is gone yields a disposer that does nothing', () => {
-    const off = onSessionSearchResults('find:absent', () => {})
+  test('a bar that subscribed before its terminal existed is fed once it does', async () => {
+    const seen: Array<{ resultIndex: number; resultCount: number }> = []
+    // The bar can be raised inside the attach round-trip, before there is any addon to listen to.
+    const off = onSessionSearchResults('find:early', (event) => seen.push(event))
 
+    await searchable('find:early')
+    searchMock.listeners.forEach((l) => l({ resultIndex: 0, resultCount: 4 }))
+
+    expect(seen).toEqual([{ resultIndex: 0, resultCount: 4 }])
     expect(() => off()).not.toThrow()
+  })
+
+  test('a pane coming back does not take the keyboard from a find bar left open in it', async () => {
+    await searchable('find:refocus')
+    const focus = vi.spyOn(Terminal.prototype, 'focus')
+    useFindStore.getState().openFind('find:refocus')
+
+    attachSession('find:refocus', document.createElement('div'))
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    expect(focus).not.toHaveBeenCalled()
+    focus.mockRestore()
+  })
+
+  test('a pane coming back with no find bar open takes the keyboard as it always has', async () => {
+    await searchable('find:refocus-plain')
+    const focus = vi.spyOn(Terminal.prototype, 'focus')
+
+    attachSession('find:refocus-plain', document.createElement('div'))
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    expect(focus).toHaveBeenCalled()
+    focus.mockRestore()
   })
 
   test('disposing a session leaves no find bar and no query behind', async () => {

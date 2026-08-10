@@ -50,6 +50,19 @@ export function FindBar({ sessionId }: { sessionId: string }) {
     [sessionId]
   )
 
+  // A bar that comes back - re-opened over the query it kept, or re-mounted because its pane was
+  // detached and attached again - has no tally of its own and no highlights left on the terminal
+  // to go with the query it is showing. Searching again is what stops it claiming there are no
+  // matches for a query that has them. Incremental, so a match still under the caret is kept
+  // rather than stepped past: coming back to a search must not move the user off it.
+  useEffect(() => {
+    const opening = useFindStore.getState().query[sessionId] ?? ''
+    if (opening !== '') findInSession(sessionId, opening, 'next', true)
+    // Deliberately mount-only, reading the query imperatively: re-running on every keystroke is
+    // what typing already does, and re-running when the bar is merely re-focused would walk the
+    // user off the match they came back to.
+  }, [sessionId])
+
   const close = (): void => {
     clearSessionSearch(sessionId)
     useFindStore.getState().closeFind(sessionId)

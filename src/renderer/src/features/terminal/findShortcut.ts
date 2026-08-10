@@ -33,7 +33,9 @@ export function resolveFindSession(target: EventTarget | null): string | null {
  */
 export function installTerminalFindShortcut(): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== 'f') return
+    // Caps Lock reports the letter uppercase without setting shiftKey, and it must not decide
+    // whether a shortcut works.
+    if (event.key.toLowerCase() !== 'f') return
     if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
     if (!isTerminalFindTarget(event.target)) return
     const sessionId = resolveFindSession(event.target)

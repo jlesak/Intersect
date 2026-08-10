@@ -88,11 +88,28 @@ describe('FindBar', () => {
     useFindStore.setState({ query: { [SID]: 'err' } })
     render(<FindBar sessionId={SID} />)
 
+    controllerMock.findInSession.mockClear()
     fireEvent.keyDown(input(), { key: 'Enter' })
     fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true })
 
     expect(controllerMock.findInSession).toHaveBeenNthCalledWith(1, SID, 'err', 'next')
     expect(controllerMock.findInSession).toHaveBeenNthCalledWith(2, SID, 'err', 'previous')
+  })
+
+  test('a bar that comes back searches the query it kept instead of claiming no matches', () => {
+    useFindStore.setState({ query: { [SID]: 'err' } })
+
+    render(<FindBar sessionId={SID} />)
+
+    // Incremental, so a match the terminal is already standing on is kept rather than stepped
+    // past: coming back to a search must not move the user off it.
+    expect(controllerMock.findInSession).toHaveBeenCalledWith(SID, 'err', 'next', true)
+  })
+
+  test('a bar opened with no query searches for nothing', () => {
+    render(<FindBar sessionId={SID} />)
+
+    expect(controllerMock.findInSession).not.toHaveBeenCalled()
   })
 
   test('the bar shows how many matches the terminal found and where it stands', () => {

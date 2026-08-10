@@ -139,4 +139,15 @@ describe('TerminalPane find bar', () => {
     })
     expect(host.querySelector('.ix-find')).not.toBeNull()
   })
+
+  test('a pane waiting on a recovery decision claims no session and offers no bar', async () => {
+    useFindStore.setState({ open: { [SID]: true } })
+
+    // Nothing has spawned here: the pane is showing the "session could not be resumed" choices,
+    // so there is no terminal for a search to run against.
+    await render('resume-failed')
+
+    expect(host.querySelector('.ix-pane__host')?.getAttribute('data-session-id')).toBeNull()
+    expect(host.querySelector('.ix-find')).toBeNull()
+  })
 })
