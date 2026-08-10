@@ -4445,3 +4445,88 @@
 .ix-dash-sync__setup:hover {
   color: var(--accent-hover);
 }
+
+/* --- terminal find bar ---
+   An overlay in the pane's top-right corner rather than a row above the terminal: a row would
+   resize the xterm and push a new winsize to the shell every time the bar opened or closed. */
+.ix-find {
+  position: absolute;
+  top: 7px;
+  right: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+.ix-find__input {
+  width: 190px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  user-select: text;
+}
+.ix-find__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ix-find__count {
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ix-find__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ix-find__btn:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+/* --- tab strip overflow ---
+   Always present rather than appearing once the tabs really overflow: chrome that comes and goes
+   moves the controls next to it under the pointer. */
+.ix-tabbar__overflow {
+  flex: none;
+}
+.ix-tabmenu__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-tabmenu__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.ix-tabmenu__dot--working {
+  background: var(--status-working);
+}
+.ix-tabmenu__dot--waiting {
+  background: var(--status-waiting);
+}
+.ix-tabmenu__dot--done {
+  background: var(--status-done);
+}

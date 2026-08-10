@@ -250,6 +250,12 @@ input {
 .ix-menu {
   position: fixed;
   min-width: 176px;
+  /* A menu can now list one entry per open tab, so it has to survive being taller and wider than
+     the room it has: it scrolls rather than running its last entries off the bottom of the window,
+     and a long tab title elides rather than pushing the menu off the right edge. */
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
   padding: 5px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
@@ -271,6 +277,15 @@ input {
   font-size: 12.5px;
   text-align: left;
   cursor: pointer;
+}
+/* The label carries the elision, not the item: an entry is a flex row, and text-overflow does
+   nothing on a flex container. A tab renamed to a branch name has to cut off somewhere. */
+.ix-menu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ix-menu__item:hover {
   background: var(--panel-3);

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { SHORTCUT_ACTIONS } from '@common/shortcuts'
 import { registerCommandPaletteFeature } from '@renderer/features/commandPalette'
 import { registerTabsFeature } from '@renderer/features/tabs'
+import { registerTerminalFeature } from '@renderer/features/terminal'
 import {
   __resetCommandRegistryForTests,
   getCommand
@@ -18,6 +19,7 @@ describe('shortcut commands', () => {
     __resetCommandRegistryForTests()
     registerCommandPaletteFeature()
     registerTabsFeature()
+    registerTerminalFeature()
     registerShellCommands()
   })
 

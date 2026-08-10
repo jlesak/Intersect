@@ -6,6 +6,7 @@ import { registerPrInboxFeature } from '@renderer/features/prInbox'
 import { registerSessionsFeature } from '@renderer/features/sessions'
 import { registerSettingsFeature } from '@renderer/features/settings'
 import { registerTabsFeature } from '@renderer/features/tabs'
+import { registerTerminalFeature } from '@renderer/features/terminal'
 import { registerTimeTrackingFeature } from '@renderer/features/timeTracking'
 import { registerTodoFeature } from '@renderer/features/todo'
 import { registerWorkItemsFeature } from '@renderer/features/workItems'
@@ -24,6 +25,7 @@ export function registerFeatures(): void {
   registerOneOnOneFeature()
   registerWorkspacesFeature()
   registerTabsFeature()
+  registerTerminalFeature()
   registerWorkItemsFeature()
   registerPrInboxFeature()
   registerSessionsFeature()

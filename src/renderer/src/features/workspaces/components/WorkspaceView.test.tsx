@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Tab, Workspace } from '@common/domain'
 import { useAttentionStore } from '@renderer/features/attention'
 import { useTabsStore } from '@renderer/features/tabs'
@@ -10,10 +10,13 @@ import { WorkspaceView } from './WorkspaceView'
 // neither layout nor a preload bridge to drive them. The stage has its own suite; here a marker
 // stands in for it, and the terminal slice's remaining entry points are inert, so what this mount
 // exercises is the terminal area's own subscription to the tab list.
+const uninstallFind = vi.hoisted(() => vi.fn())
+const installTerminalFindShortcut = vi.hoisted(() => vi.fn(() => uninstallFind))
 vi.mock('@renderer/features/terminal', () => ({
   SplitStage: ({ tabs }: { tabs: Tab[] }) => (
     <div data-testid="split-stage" data-tab-count={tabs.length} />
   ),
+  installTerminalFindShortcut,
   disposeSession: () => {},
   disposeWorkspaceSessions: () => {}
 }))
@@ -68,6 +71,10 @@ function stubBridge(tabs: Tab[] = TABS): void {
  * loop, so only a real root exercises how the area subscribes to the tab list.
  */
 describe('WorkspaceView', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   afterEach(() => {
     delete (window as { intersect?: unknown }).intersect
     useWorkspacesStore.setState({
@@ -113,6 +120,21 @@ describe('WorkspaceView', () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  test('the terminal find key lives exactly as long as the terminal area does', async () => {
+    stubBridge()
+    seedSelection()
+    const view = render(<WorkspaceView projectScope="p1" />)
+    await act(async () => {})
+    expect(installTerminalFindShortcut).toHaveBeenCalledTimes(1)
+    expect(uninstallFind).not.toHaveBeenCalled()
+
+    await act(async () => {
+      view.unmount()
+    })
+
+    expect(uninstallFind).toHaveBeenCalledTimes(1)
   })
 
   test('a hydrated workspace with no tabs offers the terminal starters', async () => {

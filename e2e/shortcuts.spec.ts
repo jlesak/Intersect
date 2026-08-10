@@ -29,7 +29,10 @@ test('the application menu exposes every mapped shortcut with its accelerator', 
     'palette.open',
     'shell.toggleSidebar',
     'projects.next',
-    'attention.jumpOldestWaiting'
+    'attention.jumpOldestWaiting',
+    'terminal.fontIncrease',
+    'terminal.fontDecrease',
+    'terminal.fontReset'
   ]) {
     expect(ids, `menu is missing ${id}`).toContain(id)
   }
@@ -52,6 +55,9 @@ test('the application menu exposes every mapped shortcut with its accelerator', 
   expect(accelerators['tabs.close']).toBe('CmdOrCtrl+W')
   expect(accelerators['palette.open']).toBe('CmdOrCtrl+K')
   expect(accelerators['tabs.next']).toBe('Control+Tab')
+  expect(accelerators['terminal.fontIncrease']).toBe('CmdOrCtrl+=')
+  expect(accelerators['terminal.fontDecrease']).toBe('CmdOrCtrl+-')
+  expect(accelerators['terminal.fontReset']).toBe('CmdOrCtrl+0')
 })
 
 /**
@@ -90,6 +96,10 @@ test('the Command Palette menu item opens and the palette shows its shortcut hin
   // The hint proves the palette reads the same shortcut map the menu was built from.
   await win.locator('.ix-palette__input').fill('toggle sidebar')
   await expect(win.locator('.ix-palette__item--active .ix-kbd')).toHaveText('⌘B')
+
+  // Terminal zoom is a keyboard habit, but it has to be discoverable without one.
+  await win.locator('.ix-palette__input').fill('increase terminal font')
+  await expect(win.locator('.ix-palette__item--active .ix-kbd')).toHaveText('⌘=')
 
   // The nine positional tab jumps are mapped but deliberately hidden from the palette.
   await win.locator('.ix-palette__input').fill('tab 4')

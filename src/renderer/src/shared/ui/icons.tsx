@@ -79,6 +79,12 @@ export const IconChevronRight = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconChevronDown = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 6L8 10.5 12.5 6" />
+  </svg>
+)
+
 export const IconShell = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M4 5.5L6.5 8 4 10.5M8 10.5h4" />

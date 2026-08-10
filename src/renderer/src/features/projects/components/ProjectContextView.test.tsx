@@ -14,6 +14,7 @@ vi.mock('@renderer/features/terminal', () => ({
   SplitStage: ({ tabs }: { tabs: Tab[] }) => (
     <div data-testid="split-stage" data-tab-count={tabs.length} />
   ),
+  installTerminalFindShortcut: () => () => {},
   disposeSession: () => {},
   disposeWorkspaceSessions: () => {}
 }))

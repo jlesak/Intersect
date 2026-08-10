@@ -16,14 +16,15 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   await addWorkspace(win, app, tempDir('palettews-'))
 
   // Open the palette and confirm it shows every registered command (workspaces/tabs/terminal +
-  // the app-wide shortcut commands + the PR Review Inbox slice's prInbox.sync / prInbox.review +
-  // the Sessions slice's sessions.refresh + the My Work slice's myWork.refresh + the Time
-  // Tracking slice's timeTracking.refresh), plus the one workspace this test just added as a
-  // switch-to target. The nine positional tab jumps and the palette's own open command are mapped
-  // but deliberately not listed here.
+  // the terminal slice's three font-zoom commands and its find command + the app-wide shortcut
+  // commands + the PR Review Inbox slice's prInbox.sync / prInbox.review + the Sessions slice's
+  // sessions.refresh + the My Work slice's myWork.refresh + the Time Tracking slice's
+  // timeTracking.refresh), plus the one workspace this test just added as a switch-to target. The
+  // nine positional tab jumps and the palette's own open command are mapped but deliberately not
+  // listed here.
   await openPalette(app)
   await expect(win.locator('.ix-palette')).toBeVisible()
-  await expect(win.locator('.ix-palette__item')).toHaveCount(23)
+  await expect(win.locator('.ix-palette__item')).toHaveCount(27)
 
   // The two deliberate exclusions, asserted by name so the count above cannot mask a regression:
   // the nine positional tab jumps, and the palette's own open command.
@@ -50,6 +51,7 @@ test('at rest the list is filed under headings; a command with nothing to act on
     'Navigate',
     'Refresh',
     'Tabs & Layout',
+    'Terminal',
     'Workspaces',
     'Other'
   ])

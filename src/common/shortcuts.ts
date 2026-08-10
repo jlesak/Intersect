@@ -66,6 +66,24 @@ export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
     accelerator: 'CmdOrCtrl+Shift+A',
     menu: 'view'
   },
+  {
+    id: 'terminal.fontIncrease',
+    label: 'Increase Terminal Font',
+    accelerator: 'CmdOrCtrl+=',
+    menu: 'view'
+  },
+  {
+    id: 'terminal.fontDecrease',
+    label: 'Decrease Terminal Font',
+    accelerator: 'CmdOrCtrl+-',
+    menu: 'view'
+  },
+  {
+    id: 'terminal.fontReset',
+    label: 'Reset Terminal Font',
+    accelerator: 'CmdOrCtrl+0',
+    menu: 'view'
+  },
   { id: 'tabs.next', label: 'Next Tab', accelerator: 'Control+Tab', menu: 'window' },
   ...TAB_JUMPS
 ]
