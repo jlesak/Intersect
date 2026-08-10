@@ -1,5 +1,7 @@
 import { useSettingsStore } from '@renderer/features/settings'
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
+import { useFindStore } from './findStore'
+import { resolveFindSession } from './findShortcut'
 import { steppedFontSize, TERMINAL_FONT_STEP } from './fontSize'
 import { XTERM_FONT_SIZE } from './theme'
 
@@ -27,6 +29,20 @@ function zoom(delta: number): void {
  * truth, and the chosen size outlives the session.
  */
 export function registerTerminalFeature(): void {
+  registerCommand({
+    id: 'terminal.find',
+    title: 'Find in Terminal',
+    group: TERMINAL_GROUP,
+    keywords: ['search', 'scrollback', 'grep', 'output'],
+    // The key that reaches this is bound by the terminal area itself rather than by the menu, so
+    // this entry is where a user finds out it exists at all - and the way in when the keyboard is
+    // somewhere the terminal area does not listen.
+    enabled: () => resolveFindSession(null) !== null,
+    handler: () => {
+      const sessionId = resolveFindSession(null)
+      if (sessionId) useFindStore.getState().openFind(sessionId)
+    }
+  })
   registerCommand({
     id: 'terminal.fontIncrease',
     title: 'Increase Terminal Font',

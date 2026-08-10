@@ -13,6 +13,7 @@ import {
   __resetCommandRegistryForTests,
   getCommand
 } from '@renderer/shared/registries/commandRegistry'
+import { useFindStore } from './findStore'
 import { registerTerminalFeature } from './register'
 
 const run = (id: string): void => {
@@ -25,6 +26,8 @@ beforeEach(() => {
   __resetCommandRegistryForTests()
   vi.clearAllMocks()
   useSettingsStore.setState({ terminalFontSize: 12.5 })
+  useFindStore.setState({ open: {}, query: {}, focusToken: {} })
+  document.body.innerHTML = ''
   registerTerminalFeature()
 })
 
@@ -62,5 +65,32 @@ describe('the terminal font zoom commands', () => {
   test('a single press is written out at once, so the size survives a quit', () => {
     run('terminal.fontIncrease')
     expect(setTerminalFontSize).toHaveBeenCalledWith(13)
+  })
+})
+
+describe('the find command', () => {
+  /** A stage holding one terminal pane, as the split stage renders it. */
+  function stage(sessionId: string): void {
+    document.body.innerHTML = `<div class="ix-stage"><div class="ix-pane"><div class="ix-pane__host" data-session-id="${sessionId}"></div></div></div>`
+  }
+
+  test('it is how a user finds out the key exists at all, filed with the other terminal commands', () => {
+    expect(getCommand('terminal.find')?.group).toBe('Terminal')
+  })
+
+  test('running it opens the bar on the terminal that is on screen', () => {
+    stage('ws1:tab7')
+
+    run('terminal.find')
+
+    expect(useFindStore.getState().open['ws1:tab7']).toBe(true)
+  })
+
+  test('with no terminal on screen it stays listed but will not run', () => {
+    document.body.innerHTML = ''
+
+    expect(getCommand('terminal.find')?.enabled?.()).toBe(false)
+    expect(() => run('terminal.find')).not.toThrow()
+    expect(useFindStore.getState().open).toEqual({})
   })
 })
