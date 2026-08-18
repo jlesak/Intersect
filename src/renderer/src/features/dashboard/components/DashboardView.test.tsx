@@ -87,8 +87,8 @@ const workspace = (id: string, name: string): Workspace => ({
 })
 
 const USAGE: ClaudeUsage = {
-  fiveHour: { usedPercent: 42, resetsAt: Math.floor(NOW / 1000) + 3_600 },
-  sevenDay: { usedPercent: 95, resetsAt: Math.floor(NOW / 1000) + 86_400 },
+  fiveHour: { usedPercent: 42.4, resetsAt: Math.floor(NOW / 1000) + 3_600 },
+  sevenDay: { usedPercent: 94.6, resetsAt: Math.floor(NOW / 1000) + 86_400 },
   capturedAt: NOW - 60_000
 }
 

@@ -3,6 +3,7 @@ import { formatRelativeTime } from '@renderer/features/myWork'
 import {
   formatCapturedAt,
   formatFiveHourReset,
+  formatUsagePercent,
   formatWeeklyReset,
   usageMeterColor
 } from '@renderer/features/usage'
@@ -24,7 +25,9 @@ function Meter({
     <div className="ix-dash-meter">
       <div className="ix-dash-meter__head">
         <span className="ix-dash-meter__label">{label}</span>
-        <span className="ix-dash-meter__pct">{window ? `${window.usedPercent}%` : '-'}</span>
+        <span className="ix-dash-meter__pct">
+          {window ? formatUsagePercent(window.usedPercent) : '-'}
+        </span>
       </div>
       <div className="ix-dash-meter__track">
         <div

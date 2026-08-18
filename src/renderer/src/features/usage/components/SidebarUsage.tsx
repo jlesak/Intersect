@@ -1,5 +1,11 @@
 import type { ClaudeUsageWindow } from '@common/domain'
-import { formatCapturedAt, formatFiveHourReset, formatWeeklyReset, usageMeterColor } from '../format'
+import {
+  formatCapturedAt,
+  formatFiveHourReset,
+  formatUsagePercent,
+  formatWeeklyReset,
+  usageMeterColor
+} from '../format'
 import { useUsageStore } from '../store'
 
 /** One usage row: label, meter bar, used percent, and reset time. A null window shows a dash. */
@@ -17,7 +23,7 @@ function UsageRow({
     <div className="ix-usage__row">
       <div className="ix-usage__row-head">
         <span>{label}</span>
-        <span className="ix-usage__pct">{window ? `${window.usedPercent}%` : '-'}</span>
+        <span className="ix-usage__pct">{window ? formatUsagePercent(window.usedPercent) : '-'}</span>
       </div>
       <div className="ix-usage__meter">
         <div
