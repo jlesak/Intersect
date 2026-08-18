@@ -4,7 +4,24 @@ import { describe, expect, test, vi } from 'vitest'
 // the anchor arithmetic is exercised here; that it reaches a real model is the end-to-end suite's.
 vi.mock('monaco-editor', () => ({ editor: {} }))
 
-import { anchorPastEndOfFile } from './DiffViewer'
+import type { DraftComment } from '@common/domain'
+import { anchorPastEndOfFile, splitDraftsBySide } from './DiffViewer'
+
+const draft = (id: string, side: DraftComment['side'], filePath = '/src/example.ts'): DraftComment => ({
+  id,
+  prId: 1,
+  repositoryId: 'repo',
+  filePath,
+  line: 1,
+  side,
+  body: 'Review this line.',
+  status: 'pending',
+  source: 'claude',
+  reviewSessionId: null,
+  sourceCommitId: 'source-sha',
+  publishedThreadId: null,
+  createdAt: 0
+})
 
 /**
  * Azure DevOps records a comment against the iteration it was written on, while this diff is
@@ -38,5 +55,20 @@ describe('anchorPastEndOfFile', () => {
   test('a file whose side of the diff is empty holds a single line', () => {
     expect(anchorPastEndOfFile('', 1)).toBe(false)
     expect(anchorPastEndOfFile('', 2)).toBe(true)
+  })
+})
+
+describe('splitDraftsBySide', () => {
+  test('places each draft on the code side it was anchored to', () => {
+    const drafts = [
+      draft('left', 'left', 'src/example.ts'),
+      draft('right', 'right'),
+      draft('other', 'right', '/other.ts')
+    ]
+
+    expect(splitDraftsBySide(drafts, '/src/example.ts')).toMatchObject({
+      original: [{ id: 'left' }],
+      modified: [{ id: 'right' }]
+    })
   })
 })

@@ -52,6 +52,7 @@ import type {
   TodoLists,
   TodoTask,
   TodoTaskPatch,
+  UnfinishedDraftReview,
   NewWorkItemRef,
   WorkItemCandidateGroup,
   WorkItemRef,
@@ -216,6 +217,8 @@ export interface IpcApi {
       status: 'active' | 'fixed'
     ): Promise<PrThread[]>
     listDrafts(repositoryId: string, prId: number): Promise<DraftComment[]>
+    /** Durable aggregate used to mark every PR whose local draft decisions are unfinished. */
+    listUnfinishedDraftReviews(): Promise<UnfinishedDraftReview[]>
     addManualDraft(input: NewManualDraft): Promise<DraftComment>
     editDraft(id: string, body: string): Promise<DraftComment>
     discardDraft(id: string): Promise<void>
@@ -566,6 +569,7 @@ export const Channel = {
   prInboxReplyToThread: 'prInbox:replyToThread',
   prInboxSetThreadStatus: 'prInbox:setThreadStatus',
   prInboxListDrafts: 'prInbox:listDrafts',
+  prInboxListUnfinishedDraftReviews: 'prInbox:listUnfinishedDraftReviews',
   prInboxAddManualDraft: 'prInbox:addManualDraft',
   prInboxEditDraft: 'prInbox:editDraft',
   prInboxDiscardDraft: 'prInbox:discardDraft',

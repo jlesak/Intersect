@@ -19,6 +19,11 @@ export function formatCapturedAt(capturedAtMs: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Whole percentage for display; the unrounded value remains available to size the meter. */
+export function formatUsagePercent(usedPercent: number): string {
+  return `${Math.round(usedPercent)}%`
+}
+
 /** Meter fill color: calm below 70% used, the accent hue through 90%, danger above it. */
 export function usageMeterColor(usedPercent: number): string {
   if (usedPercent > 90) return 'var(--danger)'

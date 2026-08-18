@@ -55,6 +55,8 @@ export function PrBoard() {
   const syncing = usePrInboxStore((s) => s.syncing)
   const syncedAt = usePrInboxStore((s) => s.syncedAt)
   const syncError = usePrInboxStore((s) => s.syncError)
+  const unfinishedStatus = usePrInboxStore((s) => s.unfinishedReviewsStatus)
+  const unfinishedError = usePrInboxStore((s) => s.unfinishedReviewsError)
   // Freshness and every card's age are only true at the moment they are rendered, so the board
   // keeps its own clock rather than freezing at whatever the time was when it mounted.
   const now = useNow(60_000)
@@ -83,6 +85,16 @@ export function PrBoard() {
       {syncError !== null && (
         <div className="ix-mw-loading ix-mw-stale ix-board-stale" data-testid="pr-sync-error">
           Could not refresh: {syncError}
+        </div>
+      )}
+      {unfinishedStatus === 'loading' && (
+        <div className="ix-mw-loading ix-board-stale" data-testid="pr-draft-reviews-loading">
+          Loading unfinished reviews…
+        </div>
+      )}
+      {unfinishedStatus === 'error' && (
+        <div className="ix-mw-loading ix-mw-stale ix-board-stale" data-testid="pr-draft-reviews-error">
+          Could not load unfinished reviews: {unfinishedError}
         </div>
       )}
       {empty ? (

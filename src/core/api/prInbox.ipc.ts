@@ -5,6 +5,7 @@ import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import type { AdoIdentity } from '../prInbox/adoMapping'
+import { normalizeAdoPath } from '../prInbox/adoPath'
 import type { AdoService } from '../prInbox/adoService'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
@@ -192,9 +193,18 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return d.drafts.listByPr(repositoryId, prId)
     },
 
+    async listUnfinishedDraftReviews() {
+      return d.drafts.listUnfinishedReviews()
+    },
+
     async addManualDraft(input) {
       // Enforce the publishable-side invariant here, not only in the UI (ADO anchors right-side only).
-      return d.drafts.create({ ...input, side: 'right' }, 'manual')
+      const pr = mustGetPr(input.repositoryId, input.prId)
+      return d.drafts.create(
+        { ...input, filePath: normalizeAdoPath(input.filePath), side: 'right' },
+        'manual',
+        pr.sourceCommitId
+      )
     },
 
     async editDraft(id, body) {
@@ -217,8 +227,15 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       }
       // Reject comments anchored to a file that is not part of the PR (e.g. a hallucinated path).
       const draftPr = mustGetPr(draft.repositoryId, draft.prId)
+      if (!draft.sourceCommitId || draft.sourceCommitId !== draftPr.sourceCommitId) {
+        throw new Error(
+          'This draft is stale because the pull request changed after its line anchor was created. Discard it or run another review.'
+        )
+      }
       const changes = await d.localDiff.getChanges(draftPr, d.workspaceFolders())
-      if (!changes.some((c) => c.path === draft.filePath)) {
+      const draftPath = normalizeAdoPath(draft.filePath)
+      const changedFile = changes.find((c) => normalizeAdoPath(c.path) === draftPath)
+      if (!changedFile) {
         throw new Error(`Draft anchors to "${draft.filePath}", which is not changed in this PR.`)
       }
       // Atomic claim so a double-approve cannot post the same comment twice.
@@ -230,7 +247,9 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
         threadId = await d.ado.publishComment({
           repositoryId: draft.repositoryId,
           prId: draft.prId,
-          filePath: draft.filePath,
+          // Publish the exact path returned by the validated diff. This also repairs legacy drafts
+          // saved before draft paths were normalized to Azure DevOps' leading-slash convention.
+          filePath: changedFile.path,
           line: draft.line,
           body: draft.body
         })
@@ -307,6 +326,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
     [Channel.prInboxReplyToThread]: h.replyToThread,
     [Channel.prInboxSetThreadStatus]: h.setThreadStatus,
     [Channel.prInboxListDrafts]: h.listDrafts,
+    [Channel.prInboxListUnfinishedDraftReviews]: h.listUnfinishedDraftReviews,
     [Channel.prInboxAddManualDraft]: h.addManualDraft,
     [Channel.prInboxEditDraft]: h.editDraft,
     [Channel.prInboxDiscardDraft]: h.discardDraft,

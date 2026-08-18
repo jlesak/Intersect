@@ -594,6 +594,15 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE pr_cache ADD COLUMN description TEXT NOT NULL DEFAULT '';`)
     }
+  },
+  {
+    // Persist the immutable PR source commit each draft was anchored to. Existing rows cannot be
+    // proved safe against the current diff, so they deliberately migrate as NULL and are surfaced
+    // as stale instead of being silently publishable.
+    version: 26,
+    up(db) {
+      db.exec(`ALTER TABLE draft_comment ADD COLUMN source_commit_id TEXT;`)
+    }
   }
 ]
 

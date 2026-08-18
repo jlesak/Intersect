@@ -106,7 +106,8 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         const ctx: DraftContext = {
           prId: pr.prId,
           repositoryId: pr.repositoryId,
-          reviewSessionId: session.id
+          reviewSessionId: session.id,
+          sourceCommitId: pr.sourceCommitId
         }
         const sid = session.id
         socketServer = (d.createSocketServer ?? createServer)((conn) => {

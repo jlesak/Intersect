@@ -1427,7 +1427,7 @@
 .ix-thread__reply .ix-btn {
   height: 28px;
 }
-.ix-zone-draft {
+.ix-pr-draft.ix-pr-draft--inline {
   margin: 6px 12px 8px 26px;
   max-width: 640px;
   padding: 8px 12px;
@@ -1435,6 +1435,12 @@
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
   font-family: var(--font-ui);
+}
+.ix-pr-draft--inline .ix-pr-draft__meta {
+  gap: 7px;
+}
+.ix-pr-draft--inline .ix-pr-draft__body {
+  font-size: 12.5px;
 }
 .ix-composer {
   margin: 6px 12px 8px 26px;
@@ -1523,12 +1529,7 @@
   max-width: 760px;
 }
 
-/* ---------------- PR review inbox: drafts ---------------- */
-.ix-pr-drafts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+/* ---------------- PR review inbox: draft cards ---------------- */
 .ix-pr-draft {
   display: flex;
   flex-direction: column;
@@ -1572,6 +1573,22 @@
   font-size: 12.5px;
   color: var(--text);
   white-space: pre-wrap;
+}
+.ix-pr-draft__stale {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--status-waiting);
+  background: var(--status-waiting-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.ix-pr-drafts--recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
 }
 .ix-pr-draft__edit {
   height: auto;

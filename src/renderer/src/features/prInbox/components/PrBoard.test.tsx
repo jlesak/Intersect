@@ -74,7 +74,9 @@ function seedBoard(prs: PullRequest[] = SEEDED): void {
     error: null,
     syncing: false,
     prsByKey: Object.fromEntries(prs.map((p) => [prKey(p.repositoryId, p.prId), p])),
-    order: prs.map((p) => prKey(p.repositoryId, p.prId))
+    order: prs.map((p) => prKey(p.repositoryId, p.prId)),
+    unfinishedReviewsStatus: 'ready',
+    unfinishedReviewsError: null
   })
 }
 
@@ -116,7 +118,10 @@ describe('PrBoard', () => {
       prsByKey: {},
       order: [],
       syncedAt: null,
-      syncError: null
+      syncError: null,
+      unfinishedReviews: {},
+      unfinishedReviewsStatus: 'idle',
+      unfinishedReviewsError: null
     })
   })
 
@@ -212,6 +217,21 @@ describe('PrBoard', () => {
     await mountBoard()
 
     expect(document.querySelector('[data-testid="pr-sync-error"]')).toBeNull()
+  })
+
+  test('admits when unfinished review counts could not be loaded', async () => {
+    seedBoard()
+    usePrInboxStore.setState({
+      unfinishedReviewsStatus: 'error',
+      unfinishedReviewsError: 'draft database unavailable'
+    })
+
+    await mountBoard()
+
+    expect(document.querySelector('[data-testid="pr-draft-reviews-error"]')?.textContent).toContain(
+      'draft database unavailable'
+    )
+    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
   })
 
   test('a PR arriving from a sync re-renders the subscribed board', async () => {

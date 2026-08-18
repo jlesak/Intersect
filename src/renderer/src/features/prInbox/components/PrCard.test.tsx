@@ -65,7 +65,7 @@ const chips = (): string[] =>
  */
 describe('PrCard', () => {
   afterEach(() => {
-    usePrInboxStore.setState({ reviewPrKey: null })
+    usePrInboxStore.setState({ reviewPrKey: null, unfinishedReviews: {} })
   })
 
   test('dates the card by its last activity, not by when it was opened', async () => {
@@ -131,5 +131,15 @@ describe('PrCard', () => {
 
     expect(chips()).toContain('no vote yet')
     expect(chips()).toContain('3 unresolved')
+  })
+
+  test('surfaces the remaining persisted draft count independently of a live review', async () => {
+    usePrInboxStore.setState({ unfinishedReviews: { 'repo-1:7': 2 }, reviewPrKey: null })
+
+    await mountCard(pr())
+
+    expect(document.querySelector('[data-testid="pr-card-unfinished-review"]')?.textContent).toContain(
+      '2 drafts to review'
+    )
   })
 })

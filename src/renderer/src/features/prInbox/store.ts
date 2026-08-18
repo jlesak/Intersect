@@ -4,7 +4,8 @@ import type {
   PrChangeFile,
   PrThread,
   PrVote,
-  PullRequest
+  PullRequest,
+  UnfinishedDraftReview
 } from '@common/domain'
 import { prWebUrl } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
@@ -89,6 +90,13 @@ interface PrInboxState {
    */
   threadsError: string | null
   drafts: DraftComment[]
+  /** Load state for this selected PR's actionable drafts; empty and failed are never conflated. */
+  draftsStatus: Status
+  draftsError: string | null
+  /** Durable remaining-draft counts for every PR, hydrated independently of the selected detail. */
+  unfinishedReviews: Record<string, number>
+  unfinishedReviewsStatus: Status
+  unfinishedReviewsError: string | null
   /**
    * In-progress inline reply/composer text keyed by a stable id (`reply:${threadId}` or
    * `composer:${path}:${line}`). Lifted out of the Monaco view-zone portals so recreating the
@@ -165,6 +173,10 @@ interface PrInboxState {
   revealThread(path: string, line: number | null): void
   clearReveal(): void
   openFile(path: string): Promise<void>
+  /** Re-read this PR's actionable drafts; also the explicit retry after a load failure. */
+  loadDrafts(): Promise<void>
+  /** Open the persisted human decision workflow without starting Claude again. */
+  continueReview(): Promise<void>
   editDraft(id: string, body: string): Promise<void>
   discardDraft(id: string): Promise<void>
   publishDraft(id: string): Promise<void>
@@ -192,6 +204,11 @@ export function selectSelectedPr(state: PrInboxState): PullRequest | undefined {
 /** The drafts of the selected PR. */
 export function selectDrafts(state: PrInboxState): DraftComment[] {
   return state.drafts
+}
+
+/** Whether a persisted line anchor can still be trusted against the selected PR's current diff. */
+export function isDraftStale(draft: DraftComment, sourceCommitId: string): boolean {
+  return !draft.sourceCommitId || draft.sourceCommitId !== sourceCommitId
 }
 
 /**
@@ -273,6 +290,27 @@ const indexPrs = (prs: PullRequest[]): { prsByKey: Record<string, PullRequest>; 
   return { prsByKey, order }
 }
 
+const indexUnfinishedReviews = (
+  reviews: UnfinishedDraftReview[]
+): Record<string, number> =>
+  Object.fromEntries(
+    reviews.map((review) => [
+      prKey(review.repositoryId, review.prId),
+      review.remainingDraftCount
+    ])
+  )
+
+function withUnfinishedCount(
+  counts: Record<string, number>,
+  key: string,
+  count: number
+): Record<string, number> {
+  const next = { ...counts }
+  if (count > 0) next[key] = count
+  else delete next[key]
+  return next
+}
+
 export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
   // Answers can land out of order, and the selected PR is not enough to tell them apart: leaving a
   // PR and reopening it issues a second fetch under the very same key. Only the latest may land.
@@ -301,6 +339,11 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     threadsLoaded: false,
     threadsError: null,
     drafts: [],
+    draftsStatus: 'idle',
+    draftsError: null,
+    unfinishedReviews: {},
+    unfinishedReviewsStatus: 'idle',
+    unfinishedReviewsError: null,
     commentDrafts: {},
     review: { status: 'idle' },
     reviewView: 'terminal',
@@ -308,20 +351,39 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     reviewOutput: '',
 
     async hydrate() {
-      set({ status: 'loading', error: null })
-      // Both reads start together, since neither waits on the other.
+      set({
+        status: 'loading',
+        error: null,
+        unfinishedReviewsStatus: 'loading',
+        unfinishedReviewsError: null
+      })
+      // All reads start together, since none waits on another. The unfinished-review aggregate has
+      // its own error state so its failure cannot erase a readable cached PR board or claim zero.
       const stamp = readSyncedAt(set)
-      let board: Partial<PrInboxState>
-      try {
-        board = { status: 'ready', ...indexPrs(await api.list()) }
-      } catch (e) {
-        board = { status: 'error', error: message(e) }
-      }
+      const [boardR, unfinishedR] = await Promise.allSettled([
+        api.list(),
+        api.listUnfinishedDraftReviews()
+      ])
+      const board: Partial<PrInboxState> =
+        boardR.status === 'fulfilled'
+          ? { status: 'ready', ...indexPrs(boardR.value) }
+          : { status: 'error', error: message(boardR.reason) }
+      const unfinished: Partial<PrInboxState> =
+        unfinishedR.status === 'fulfilled'
+          ? {
+              unfinishedReviews: indexUnfinishedReviews(unfinishedR.value),
+              unfinishedReviewsStatus: 'ready',
+              unfinishedReviewsError: null
+            }
+          : {
+              unfinishedReviewsStatus: 'error',
+              unfinishedReviewsError: message(unfinishedR.reason)
+            }
       // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
       // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
       // board that has never synced at all, however fresh the cache actually is.
       await stamp
-      set(board)
+      set({ ...board, ...unfinished })
     },
 
     async sync(opts) {
@@ -370,6 +432,8 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
         threadsLoaded: false,
         threadsError: null,
         drafts: [],
+        draftsStatus: 'loading',
+        draftsError: null,
         commentDrafts: {}
       })
       // The changed files and the drafts are all this needs; the threads are the caller's to fetch.
@@ -383,7 +447,19 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       const next: Partial<PrInboxState> = {}
       if (changesR.status === 'fulfilled') next.changes = changesR.value
       else next.changesError = message(changesR.reason)
-      if (draftsR.status === 'fulfilled') next.drafts = draftsR.value
+      if (draftsR.status === 'fulfilled') {
+        next.drafts = draftsR.value
+        next.draftsStatus = 'ready'
+        next.draftsError = null
+        next.unfinishedReviews = withUnfinishedCount(
+          get().unfinishedReviews,
+          key,
+          draftsR.value.length
+        )
+      } else {
+        next.draftsStatus = 'error'
+        next.draftsError = message(draftsR.reason)
+      }
       set(next)
       // A missing local clone surfaces inline in the Files view (changesError); only a drafts failure
       // needs the toast here.
@@ -536,6 +612,39 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       }
     },
 
+    async loadDrafts() {
+      const pr = selectSelectedPr(get())
+      const key = get().selectedKey
+      if (!pr || !key) return
+      set({ draftsStatus: 'loading', draftsError: null })
+      try {
+        const drafts = await api.listDrafts(pr.repositoryId, pr.prId)
+        if (get().selectedKey !== key) return
+        set((s) => ({
+          drafts,
+          draftsStatus: 'ready',
+          draftsError: null,
+          unfinishedReviews: withUnfinishedCount(s.unfinishedReviews, key, drafts.length)
+        }))
+      } catch (e) {
+        if (get().selectedKey !== key) return
+        set({ draftsStatus: 'error', draftsError: message(e) })
+        reportError('Could not load the unfinished review', e)
+      }
+    },
+
+    async continueReview() {
+      if (get().draftsStatus !== 'ready') await get().loadDrafts()
+      const { drafts, changes, draftsStatus } = get()
+      if (draftsStatus !== 'ready' || drafts.length === 0) return
+      set({ activeTab: 'files' })
+      const canonical = (path: string): string => `/${path.trim().replace(/^\/+/, '')}`
+      const anchored = changes.find((change) =>
+        drafts.some((draft) => canonical(draft.filePath) === canonical(change.path))
+      )
+      if (anchored) await get().openFile(anchored.path)
+    },
+
     async editDraft(id, body) {
       try {
         const draft = await api.editDraft(id, body)
@@ -548,7 +657,15 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     async discardDraft(id) {
       try {
         await api.discardDraft(id)
-        set((s) => ({ drafts: s.drafts.filter((d) => d.id !== id) }))
+        set((s) => {
+          const drafts = s.drafts.filter((d) => d.id !== id)
+          return {
+            drafts,
+            unfinishedReviews: s.selectedKey
+              ? withUnfinishedCount(s.unfinishedReviews, s.selectedKey, drafts.length)
+              : s.unfinishedReviews
+          }
+        })
       } catch (e) {
         reportError('Could not discard the comment', e)
       }
@@ -556,8 +673,16 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
 
     async publishDraft(id) {
       try {
-        const draft = await api.publishDraft(id)
-        set((s) => ({ drafts: s.drafts.map((d) => (d.id === id ? draft : d)) }))
+        await api.publishDraft(id)
+        set((s) => {
+          const drafts = s.drafts.filter((d) => d.id !== id)
+          return {
+            drafts,
+            unfinishedReviews: s.selectedKey
+              ? withUnfinishedCount(s.unfinishedReviews, s.selectedKey, drafts.length)
+              : s.unfinishedReviews
+          }
+        })
       } catch (e) {
         reportError('Could not publish the comment to Azure DevOps', e)
       }
@@ -621,8 +746,16 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       // the selected PR's drafts so it appears without a manual refresh.
       const offDraft = api.onDraftAdded((draft) => {
         const pr = selectSelectedPr(get())
-        if (!pr || pr.repositoryId !== draft.repositoryId || pr.prId !== draft.prId) return
-        set((s) => ({ drafts: upsertDraft(s.drafts, draft) }))
+        const key = prKey(draft.repositoryId, draft.prId)
+        const selected = pr?.repositoryId === draft.repositoryId && pr.prId === draft.prId
+        set((s) => {
+          const drafts = selected ? upsertDraft(s.drafts, draft) : s.drafts
+          const count = selected ? drafts.length : (s.unfinishedReviews[key] ?? 0) + 1
+          return {
+            drafts,
+            unfinishedReviews: withUnfinishedCount(s.unfinishedReviews, key, count)
+          }
+        })
       })
       // Buffer review PTY output here (subscribe runs once at module scope, before any review is
       // started) so nothing emitted before the terminal mounts - including the initial banner - is lost.

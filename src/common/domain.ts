@@ -406,8 +406,21 @@ export interface DraftComment {
   status: DraftStatus
   source: DraftSource
   reviewSessionId: string | null
+  /**
+   * Immutable PR source commit whose diff supplied this anchor. Null only for drafts created before
+   * the field existed (or when Azure DevOps supplied no commit); null is treated as stale, never as
+   * permission to publish against whatever diff happens to be current.
+   */
+  sourceCommitId: string | null
   publishedThreadId: number | null
   createdAt: number
+}
+
+/** One PR with actionable local draft decisions still waiting for the user. */
+export interface UnfinishedDraftReview {
+  repositoryId: string
+  prId: number
+  remainingDraftCount: number
 }
 
 /** The fields a caller supplies to create a manual draft; the rest are set by the repo. */

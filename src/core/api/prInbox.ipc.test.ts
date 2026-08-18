@@ -100,7 +100,7 @@ function makeReview(over: Partial<ReviewManager> = {}): ReviewManager {
 function makeLocalDiff(over: Partial<LocalDiffService> = {}): LocalDiffService {
   return {
     getChanges: vi.fn(
-      async (): Promise<PrChangeFile[]> => [{ path: 'src/a.ts', changeType: 'edit', originalPath: null, added: 3, removed: 1 }]
+      async (): Promise<PrChangeFile[]> => [{ path: '/src/a.ts', changeType: 'edit', originalPath: null, added: 3, removed: 1 }]
     ),
     getFileDiff: vi.fn(
       async (): Promise<FileDiff> => ({
@@ -309,8 +309,14 @@ describe('prInbox handlers', () => {
 
   test('addManualDraft then listDrafts round-trips', async () => {
     const { h } = handlers()
+    prCache.replaceAll([pr()])
     await h.addManualDraft({ prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'right', body: 'x' })
-    expect(await h.listDrafts('repo-a', 100)).toHaveLength(1)
+    expect(await h.listDrafts('repo-a', 100)).toEqual([
+      expect.objectContaining({ filePath: '/src/a.ts', sourceCommitId: 'src-sha' })
+    ])
+    expect(await h.listUnfinishedDraftReviews()).toEqual([
+      { repositoryId: 'repo-a', prId: 100, remainingDraftCount: 1 }
+    ])
   })
 
   test('publishDraft posts to ADO and marks the draft published with the thread id', async () => {
@@ -319,8 +325,23 @@ describe('prInbox handlers', () => {
     const d = await h.addManualDraft({ prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'right', body: 'x' })
     const published = await h.publishDraft(d.id)
     expect(ado.calls.publishComment).toHaveLength(1)
+    expect(ado.calls.publishComment[0]).toMatchObject({ filePath: '/src/a.ts' })
     expect(published.status).toBe('published')
     expect(published.publishedThreadId).toBe(5555)
+  })
+
+  test('publishDraft repairs a legacy draft path without the leading slash', async () => {
+    const { h, ado } = handlers()
+    prCache.replaceAll([pr()])
+    const d = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'right', body: 'x' },
+      'claude',
+      'src-sha'
+    )
+
+    await h.publishDraft(d.id)
+
+    expect(ado.calls.publishComment[0]).toMatchObject({ filePath: '/src/a.ts' })
   })
 
   test('publishDraft refuses a left-side draft (e.g. one recorded by the review session)', async () => {
@@ -329,13 +350,15 @@ describe('prInbox handlers', () => {
     // addManualDraft forces right-side, so create a left-side draft directly (as the draft socket could).
     const d = drafts.create(
       { prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'left', body: 'x' },
-      'claude'
+      'claude',
+      'src-sha'
     )
     await expect(h.publishDraft(d.id)).rejects.toThrow(/right-side/i)
   })
 
   test('addManualDraft forces right-side even if left is requested', async () => {
     const { h } = handlers()
+    prCache.replaceAll([pr()])
     const d = await h.addManualDraft({ prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'left', body: 'x' })
     expect(d.side).toBe('right')
   })
@@ -371,9 +394,26 @@ describe('prInbox handlers', () => {
 
   test('discardDraft hides the draft from the list', async () => {
     const { h } = handlers()
+    prCache.replaceAll([pr()])
     const d = await h.addManualDraft({ prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'right', body: 'x' })
     await h.discardDraft(d.id)
     expect(await h.listDrafts('repo-a', 100)).toEqual([])
+    expect(await h.listUnfinishedDraftReviews()).toEqual([])
+  })
+
+  test('publishDraft rejects an anchor from an older PR source commit before reaching ADO', async () => {
+    const { h, ado, localDiff } = handlers()
+    prCache.replaceAll([pr({ sourceCommitId: 'new-sha' })])
+    const d = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: '/src/a.ts', line: 3, side: 'right', body: 'x' },
+      'claude',
+      'old-sha'
+    )
+
+    await expect(h.publishDraft(d.id)).rejects.toThrow(/stale|changed/i)
+    expect(localDiff.getChanges).not.toHaveBeenCalled()
+    expect(ado.calls.publishComment).toEqual([])
+    expect(drafts.get(d.id)?.status).toBe('pending')
   })
 
   test('castVote sends the vote for my cached reviewer entry and returns the updated PR', async () => {

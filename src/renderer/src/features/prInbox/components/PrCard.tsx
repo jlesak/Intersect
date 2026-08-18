@@ -41,7 +41,9 @@ function VoteChip({ reviewer }: { reviewer: PrReviewer }) {
 export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; now: number }) {
   const reason = boardReason(pr)
   const stated = reasonAlreadyStates(pr)
-  const reviewing = usePrInboxStore((s) => s.reviewPrKey === prKey(pr.repositoryId, pr.prId))
+  const key = prKey(pr.repositoryId, pr.prId)
+  const reviewing = usePrInboxStore((s) => s.reviewPrKey === key)
+  const remainingDrafts = usePrInboxStore((s) => s.unfinishedReviews[key] ?? 0)
   const open = (): void => void usePrInboxStore.getState().openDetail(pr.repositoryId, pr.prId)
   return (
     <div
@@ -66,6 +68,11 @@ export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; 
         {reviewing && (
           <span className="ix-chip ix-chip--review" data-testid="pr-card-reviewing">
             ● reviewing
+          </span>
+        )}
+        {remainingDrafts > 0 && (
+          <span className="ix-chip ix-chip--review" data-testid="pr-card-unfinished-review">
+            {remainingDrafts} {remainingDrafts === 1 ? 'draft' : 'drafts'} to review
           </span>
         )}
         {reason && <span className={`ix-chip${urgent ? ' ix-chip--accent' : ''}`}>{reason}</span>}
