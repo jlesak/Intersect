@@ -105,6 +105,12 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   await win.locator('.ix-session-row', { hasText: 'Building the widget factory' }).click()
   await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
   await expect(win.locator('.ix-transcript__body-scroll')).toContainText('assemble widgets')
+
+  // Tool-only records stay available without dominating the transcript: the batch starts collapsed
+  // and reveals its individual calls only when requested.
+  await expect(win.locator('.ix-transcript__tool-toggle')).toContainText('1 tool call')
+  await expect(win.locator('.ix-transcript__tool')).toHaveCount(0)
+  await win.locator('.ix-transcript__tool-toggle').click()
   await expect(win.locator('.ix-transcript__tool')).toContainText('factory.ts')
 })
 
