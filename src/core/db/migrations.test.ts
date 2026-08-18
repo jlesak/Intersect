@@ -595,4 +595,22 @@ describe('migrations', () => {
       { p: 'p1', path: '/repos/spot' }
     ])
   })
+
+  test('drafts gain a nullable source commit so legacy anchors fail closed', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 25)
+    db.prepare(
+      `INSERT INTO draft_comment
+         (id, pr_id, repository_id, file_path, line, side, body, status, source,
+          review_session_id, published_thread_id, created_at)
+       VALUES ('legacy', 1, 'r', '/a.ts', 3, 'right', 'body', 'pending', 'claude', NULL, NULL, 1)`
+    ).run()
+
+    runMigrations(db)
+
+    expect(
+      (db.prepare('SELECT source_commit_id AS sha FROM draft_comment').get() as { sha: string | null })
+        .sha
+    ).toBeNull()
+  })
 })

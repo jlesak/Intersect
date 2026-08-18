@@ -1,5 +1,6 @@
 import type { CommentSide, DraftComment } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
+import { normalizeAdoPath } from './adoPath'
 
 /**
  * The context main holds for the single active review session. Draft messages arriving over the
@@ -10,6 +11,7 @@ export interface DraftContext {
   prId: number
   repositoryId: string
   reviewSessionId: string
+  sourceCommitId: string
 }
 
 /** The payload the draft MCP server sends over the socket for each record_draft_comment call. */
@@ -43,7 +45,7 @@ export function handleDraftMessage(
   ctx: DraftContext,
   payload: DraftPayload
 ): DraftComment {
-  const filePath = payload.filePath.trim()
+  const filePath = normalizeAdoPath(payload.filePath)
   if (!filePath) throw new Error('Draft comment is missing a file path')
   const body = payload.body.trim()
   if (!body) throw new Error('Draft comment is empty')
@@ -54,6 +56,7 @@ export function handleDraftMessage(
   return repo.create(
     { prId: ctx.prId, repositoryId: ctx.repositoryId, filePath, line, side, body },
     'claude',
+    ctx.sourceCommitId,
     ctx.reviewSessionId
   )
 }

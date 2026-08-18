@@ -50,6 +50,7 @@ const draft = (id: string, over: Partial<DraftComment> = {}): DraftComment => ({
   status: 'pending',
   source: 'manual',
   reviewSessionId: null,
+  sourceCommitId: 'src',
   publishedThreadId: null,
   createdAt: 0,
   ...over
@@ -94,6 +95,11 @@ beforeEach(() => {
       threadsLoaded: false,
       threadsError: null,
       drafts: [],
+      draftsStatus: 'idle',
+      draftsError: null,
+      unfinishedReviews: {},
+      unfinishedReviewsStatus: 'idle',
+      unfinishedReviewsError: null,
       commentDrafts: {},
       review: { status: 'idle' },
       reviewView: 'terminal',
@@ -106,6 +112,7 @@ beforeEach(() => {
     false
   )
   vi.clearAllMocks()
+  mocked.listUnfinishedDraftReviews.mockResolvedValue([])
 })
 
 describe('prInboxStore', () => {
@@ -170,6 +177,30 @@ describe('prInboxStore', () => {
     await usePrInboxStore.getState().hydrate()
     expect(usePrInboxStore.getState().status).toBe('error')
     expect(usePrInboxStore.getState().error).toMatch(/cache gone/)
+  })
+
+  test('hydrate restores unfinished review counts independently of opening a PR', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    mocked.listUnfinishedDraftReviews.mockResolvedValue([
+      { repositoryId: 'repo', prId: 1, remainingDraftCount: 2 }
+    ])
+
+    await usePrInboxStore.getState().hydrate()
+
+    expect(usePrInboxStore.getState().unfinishedReviews).toEqual({ 'repo:1': 2 })
+    expect(usePrInboxStore.getState().unfinishedReviewsStatus).toBe('ready')
+  })
+
+  test('an unfinished-review load failure is not represented as zero drafts', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    mocked.listUnfinishedDraftReviews.mockRejectedValue(new Error('draft database unavailable'))
+
+    await usePrInboxStore.getState().hydrate()
+
+    const state = usePrInboxStore.getState()
+    expect(state.status).toBe('ready')
+    expect(state.unfinishedReviewsStatus).toBe('error')
+    expect(state.unfinishedReviewsError).toContain('draft database unavailable')
   })
 
   test('sync populates the list and clears the syncing flag', async () => {
@@ -237,6 +268,59 @@ describe('prInboxStore', () => {
     // fetching.
     expect(mocked.getThreads).not.toHaveBeenCalled()
     expect(mocked.getChanges).toHaveBeenCalledWith('repo', 1)
+    expect(s.draftsStatus).toBe('ready')
+    expect(s.unfinishedReviews).toEqual({ 'repo:1': 1 })
+  })
+
+  test('a draft load failure is explicit and retryable, never an empty successful review', async () => {
+    usePrInboxStore.setState({
+      prsByKey: { [prKey('repo', 1)]: pr('repo', 1) },
+      order: [prKey('repo', 1)],
+      unfinishedReviews: { 'repo:1': 2 }
+    })
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockRejectedValue(new Error('SQLite busy'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await usePrInboxStore.getState().select('repo', 1)
+
+    expect(usePrInboxStore.getState().draftsStatus).toBe('error')
+    expect(usePrInboxStore.getState().draftsError).toContain('SQLite busy')
+    expect(usePrInboxStore.getState().unfinishedReviews).toEqual({ 'repo:1': 2 })
+
+    mocked.listDrafts.mockResolvedValue([draft('d1'), draft('d2')])
+    await usePrInboxStore.getState().loadDrafts()
+    expect(usePrInboxStore.getState().draftsStatus).toBe('ready')
+    expect(usePrInboxStore.getState().drafts.map((d) => d.id)).toEqual(['d1', 'd2'])
+    error.mockRestore()
+  })
+
+  test('continueReview opens the persisted draft on Files without starting Claude', async () => {
+    const key = prKey('repo', 1)
+    usePrInboxStore.setState({
+      prsByKey: { [key]: pr('repo', 1) },
+      order: [key],
+      selectedKey: key,
+      drafts: [draft('d1', { filePath: 'src/a.ts' })],
+      draftsStatus: 'ready',
+      unfinishedReviews: { [key]: 1 },
+      changes: [change('/src/a.ts')],
+      activeTab: 'overview'
+    })
+    mocked.getFileDiff.mockResolvedValue({
+      path: '/src/a.ts',
+      original: 'old',
+      modified: 'new',
+      language: 'typescript',
+      binary: false,
+      tooLarge: false
+    })
+
+    await usePrInboxStore.getState().continueReview()
+
+    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().activeFilePath).toBe('/src/a.ts')
+    expect(mocked.startReview).not.toHaveBeenCalled()
   })
 
   test('opening a PR fetches its threads, and switching tabs does not refetch them', async () => {
@@ -424,14 +508,33 @@ describe('prInboxStore', () => {
     expect(mocked.castVote).not.toHaveBeenCalled()
   })
 
-  test('publishDraft calls the IPC and replaces the draft with the published row', async () => {
-    usePrInboxStore.setState({ drafts: [draft('d1', { status: 'pending' })] })
+  test('publishDraft removes completed work and clears the unfinished indicator', async () => {
+    usePrInboxStore.setState({
+      selectedKey: 'repo:1',
+      drafts: [draft('d1', { status: 'pending' })],
+      unfinishedReviews: { 'repo:1': 1 }
+    })
     mocked.publishDraft.mockResolvedValue(draft('d1', { status: 'published', publishedThreadId: 42 }))
     await usePrInboxStore.getState().publishDraft('d1')
-    const d = usePrInboxStore.getState().drafts.find((x) => x.id === 'd1')
     expect(mocked.publishDraft).toHaveBeenCalledWith('d1')
-    expect(d?.status).toBe('published')
-    expect(d?.publishedThreadId).toBe(42)
+    expect(usePrInboxStore.getState().drafts).toEqual([])
+    expect(usePrInboxStore.getState().unfinishedReviews).toEqual({})
+  })
+
+  test('a pushed draft updates the board count even while no PR detail is selected', () => {
+    let push: ((value: DraftComment) => void) | undefined
+    mocked.onDraftAdded.mockImplementation((cb) => {
+      push = cb
+      return () => {}
+    })
+    mocked.onReviewData.mockReturnValue(() => {})
+    mocked.onReviewExit.mockReturnValue(() => {})
+    const off = usePrInboxStore.getState().subscribe()
+
+    push?.(draft('d1'))
+
+    expect(usePrInboxStore.getState().unfinishedReviews).toEqual({ 'repo:1': 1 })
+    off()
   })
 })
 

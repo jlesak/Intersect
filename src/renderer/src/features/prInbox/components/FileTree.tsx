@@ -1,11 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import type { PrChangeFile, PrThread } from '@common/domain'
+import type { DraftComment, PrChangeFile, PrThread } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
 import { buildFileTree, fileCount, type TreeDir } from '../fileTree'
 
 interface FileTreeProps {
   changes: PrChangeFile[]
   threads: PrThread[]
+  drafts: DraftComment[]
   activeFilePath: string | null
   onOpen(path: string): void
 }
@@ -17,8 +18,14 @@ const TYPE_LETTER: Record<PrChangeFile['changeType'], string> = {
   rename: 'R'
 }
 
+/** Match the core's slash-prefixed Azure DevOps path convention without importing main-process code. */
+function canonicalDiffPath(filePath: string): string {
+  const relative = filePath.trim().replace(/^\/+/, '')
+  return relative ? `/${relative}` : ''
+}
+
 /** Collapsible changed-files tree; everything starts expanded, a click on a directory toggles it. */
-export function FileTree({ changes, threads, activeFilePath, onOpen }: FileTreeProps) {
+export function FileTree({ changes, threads, drafts, activeFilePath, onOpen }: FileTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const tree = useMemo(() => {
     const counts = new Map<string, number>()
@@ -27,8 +34,14 @@ export function FileTree({ changes, threads, activeFilePath, onOpen }: FileTreeP
         counts.set(t.filePath, (counts.get(t.filePath) ?? 0) + 1)
       }
     }
+    // Drafts are review findings too. Counting them on the file lets the reviewer navigate to
+    // their inline anchors after the detached draft list has gone away.
+    for (const draft of drafts) {
+      const path = canonicalDiffPath(draft.filePath)
+      counts.set(path, (counts.get(path) ?? 0) + 1)
+    }
     return buildFileTree(changes, counts)
-  }, [changes, threads])
+  }, [changes, threads, drafts])
 
   const toggle = (path: string): void =>
     setCollapsed((prev) => {

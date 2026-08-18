@@ -4,7 +4,12 @@ import { createDraftCommentRepo, type DraftCommentRepo } from '../db/draftCommen
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import { handleDraftMessage, parseDraftPayload, type DraftContext } from './draftMessage'
 
-const ctx: DraftContext = { prId: 42, repositoryId: 'repo-a', reviewSessionId: 'session-1' }
+const ctx: DraftContext = {
+  prId: 42,
+  repositoryId: 'repo-a',
+  reviewSessionId: 'session-1',
+  sourceCommitId: 'source-sha'
+}
 
 describe('parseDraftPayload', () => {
   test('parses a well-formed line', () => {
@@ -36,6 +41,8 @@ describe('handleDraftMessage', () => {
     expect(d.prId).toBe(42)
     expect(d.repositoryId).toBe('repo-a')
     expect(d.reviewSessionId).toBe('session-1')
+    expect(d.sourceCommitId).toBe('source-sha')
+    expect(d.filePath).toBe('/src/a.ts')
     expect(d.source).toBe('claude')
     expect(repo.listByPr('repo-a', 42)).toHaveLength(1)
   })
@@ -43,6 +50,17 @@ describe('handleDraftMessage', () => {
   test('coerces an unknown side to right', () => {
     const d = handleDraftMessage(repo, ctx, { sessionId: 's', filePath: 'a.ts', line: 1, side: 'weird', body: 'b' })
     expect(d.side).toBe('right')
+  })
+
+  test('keeps exactly one leading slash on an Azure DevOps path', () => {
+    const d = handleDraftMessage(repo, ctx, {
+      sessionId: 's',
+      filePath: '  ///src/a.ts  ',
+      line: 1,
+      side: 'right',
+      body: 'b'
+    })
+    expect(d.filePath).toBe('/src/a.ts')
   })
 
   test('keeps an explicit left side', () => {

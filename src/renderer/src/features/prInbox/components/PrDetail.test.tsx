@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { PrChangeFile, PullRequest } from '@common/domain'
+import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 
 // The detail reaches the Monaco diff through its imports, and monaco cannot initialise under jsdom.
 vi.mock('monaco-editor', () => ({ editor: {} }))
@@ -46,7 +46,11 @@ const seed = async (
     selectedKey: 'repo-1:1',
     view: 'detail',
     activeTab: 'overview',
-    adoOrgUrl
+    adoOrgUrl,
+    drafts: [],
+    draftsStatus: 'ready',
+    draftsError: null,
+    unfinishedReviews: {}
   })
   await act(async () => {
     render(<PrDetail />)
@@ -83,6 +87,72 @@ describe('PrDetail header links', () => {
   })
 })
 
+const draft = (over: Partial<DraftComment> = {}): DraftComment => ({
+  id: 'draft-1',
+  prId: 1,
+  repositoryId: 'repo-1',
+  filePath: '/src/old.ts',
+  line: 4,
+  side: 'right',
+  body: 'Keep the edited body.',
+  status: 'pending',
+  source: 'claude',
+  reviewSessionId: 'review-1',
+  sourceCommitId: 'a',
+  publishedThreadId: null,
+  createdAt: 1,
+  ...over
+})
+
+describe('PrDetail unfinished review actions', () => {
+  afterEach(() => {
+    usePrInboxStore.setState({
+      selectedKey: null,
+      view: 'board',
+      drafts: [],
+      draftsStatus: 'idle',
+      draftsError: null,
+      unfinishedReviews: {}
+    })
+  })
+
+  test('offers continuation instead of a fresh Claude run when drafts remain', async () => {
+    await seed()
+    await act(async () => {
+      usePrInboxStore.setState({
+        drafts: [draft()],
+        unfinishedReviews: { 'repo-1:1': 1 },
+        draftsStatus: 'ready'
+      })
+    })
+
+    expect(button('pr-continue-review').textContent).toContain('1')
+    expect(document.body.textContent).not.toContain('Review with Claude Code')
+
+    await act(async () => {
+      fireEvent.click(button('pr-continue-review'))
+    })
+    expect(usePrInboxStore.getState().activeTab).toBe('files')
+  })
+
+  test('a failed draft read offers retry and never presents zero-work fresh start', async () => {
+    await seed()
+    await act(async () => {
+      usePrInboxStore.setState({
+        draftsStatus: 'error',
+        draftsError: 'SQLite busy',
+        unfinishedReviews: { 'repo-1:1': 2 }
+      })
+    })
+
+    expect(button('pr-drafts-retry-action')).toBeTruthy()
+    expect(document.querySelector('[data-testid="pr-drafts-error"]')?.textContent).toContain(
+      'SQLite busy'
+    )
+    expect(document.body.textContent).not.toContain('Review with Claude Code')
+  })
+})
+
 const change = (
   path: string,
   added: number,
@@ -107,7 +177,10 @@ const seedChanges = async (changes: PrChangeFile[]): Promise<void> => {
     changes,
     changesError: null,
     threads: [],
-    threadsLoaded: true
+    threadsLoaded: true,
+    drafts: [],
+    draftsStatus: 'ready',
+    draftsError: null
   })
   await act(async () => {
     render(<PrDetail />)
@@ -156,5 +229,25 @@ describe('PrDetail change size', () => {
     const logo = rows.find((r) => r.includes('logo.png'))!
     expect(logo).not.toContain('+0')
     expect(logo).not.toContain('-0')
+  })
+
+  test('a draft from an older source commit remains visible but cannot be approved', async () => {
+    await seedChanges([change('/src/current.ts', 1, 1)])
+    await act(async () => {
+      usePrInboxStore.setState({
+        drafts: [draft({ sourceCommitId: 'old-sha', filePath: '/src/gone.ts' })],
+        unfinishedReviews: { 'repo-1:1': 1 }
+      })
+      fireEvent.click(button('pr-tab-files'))
+    })
+
+    expect(document.querySelector('[data-testid="pr-detached-drafts"]')?.textContent).toContain(
+      'Keep the edited body.'
+    )
+    expect(document.querySelector('[data-testid="pr-draft-stale-source"]')).toBeTruthy()
+    const approve = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (candidate) => candidate.textContent === 'Stale'
+    )
+    expect(approve?.disabled).toBe(true)
   })
 })

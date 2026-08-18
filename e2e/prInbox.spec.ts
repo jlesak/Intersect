@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { type ElectronApplication, type Page } from '@playwright/test'
 import {
   connectedAdo,
@@ -44,6 +46,32 @@ async function launchConnected(): Promise<{
 /** Open PR Review and wait for the board head, which is up whether or not the board has cards. */
 async function openPrReview(win: Page): Promise<void> {
   await openRailSection(win, 'PR Review', '.ix-board-head')
+}
+
+/** Seed one persisted Claude draft after the cache has a real PR to attach it to. */
+function seedDraft(profileDir: string): void {
+  const db = new DatabaseSync(join(profileDir, 'intersect.db'))
+  try {
+    db.prepare(
+      `INSERT INTO draft_comment
+         (id, pr_id, repository_id, file_path, line, side, body, status, source,
+          review_session_id, source_commit_id, published_thread_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'claude', ?, ?, NULL, ?)`
+    ).run(
+      'persisted-review-draft',
+      502,
+      'e2e-repo',
+      '/src/app/sync/rateLimiter.ts',
+      2,
+      'right',
+      'Seeded review finding.',
+      'review-session-before-quit',
+      'source-502',
+      Date.now()
+    )
+  } finally {
+    db.close()
+  }
 }
 
 test('PR Review section renders the empty board and switches back without errors', async () => {
@@ -155,6 +183,63 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
 
   await win.keyboard.press('Escape')
   await expect(win.getByTestId('pr-board')).toBeVisible()
+})
+
+test('an unfinished draft review survives navigation and relaunch, then clears after discard', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await expect(first.win.getByTestId('pr-card')).toHaveCount(3)
+  await first.app.close()
+
+  seedDraft(profileDir)
+
+  const second = await launchApp(profileDir, { env })
+  await openPrReview(second.win)
+  const card = second.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' })
+  await expect(card.getByTestId('pr-card-unfinished-review')).toHaveText('1 draft to review')
+
+  // Leaving the section and returning keeps the durable board signal.
+  await openRailSection(second.win, 'TODO', '.ix-todo')
+  await openPrReview(second.win)
+  await expect(
+    second.win
+      .getByTestId('pr-card')
+      .filter({ hasText: 'Fix PTY backpressure' })
+      .getByTestId('pr-card-unfinished-review')
+  ).toHaveText('1 draft to review')
+
+  await second.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await expect(second.win.getByTestId('pr-continue-review')).toContainText('1')
+  await second.win.getByTestId('pr-continue-review').click()
+  await expect(second.win.getByTestId('pr-tab-files')).toHaveClass(/ix-ptab--active/)
+  const draft = second.win.getByTestId('pr-draft')
+  await expect(draft).toContainText('Seeded review finding.')
+  await draft.getByTestId('pr-draft-edit').click()
+  await draft.locator('.ix-pr-draft__edit').fill('Edited review finding survives restart.')
+  await draft.getByTestId('pr-draft-save').click()
+  await expect(draft).toContainText('Edited review finding survives restart.')
+  await second.app.close()
+
+  const third = await launchApp(profileDir, { env })
+  await openPrReview(third.win)
+  const restoredCard = third.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' })
+  await expect(restoredCard.getByTestId('pr-card-unfinished-review')).toHaveText('1 draft to review')
+  await restoredCard.click()
+  await third.win.getByTestId('pr-continue-review').click()
+  const restoredDraft = third.win.getByTestId('pr-draft')
+  await expect(restoredDraft).toContainText('Edited review finding survives restart.')
+
+  await restoredDraft.getByTestId('pr-draft-discard').click()
+  await third.win.getByTestId('pr-back').click()
+  await expect(
+    third.win
+      .getByTestId('pr-card')
+      .filter({ hasText: 'Fix PTY backpressure' })
+      .getByTestId('pr-card-unfinished-review')
+  ).toHaveCount(0)
 })
 
 test('the header sizes the change, and every file row carries its own counts', async () => {

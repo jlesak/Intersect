@@ -19,6 +19,18 @@ interface ListResult {
   hasMoreResults?: boolean
 }
 
+interface RepositoryRef {
+  id?: string
+  name?: string
+}
+
+/**
+ * Azure DevOps' Git REST API returns collection responses as `{ count, value }`. The default MCP
+ * server currently unwraps that to an array, but configured server implementations are allowed to
+ * pass the REST payload through unchanged, so tolerate both representations at this boundary.
+ */
+type ListRepositoriesResult = RepositoryRef[] | { value?: RepositoryRef[] }
+
 export interface AdoServiceDeps {
   client: AdoClient
   /**
@@ -80,6 +92,12 @@ export interface AdoService {
 }
 
 export function createAdoService(d: AdoServiceDeps): AdoService {
+  function repositoriesFrom(result: ListRepositoriesResult): RepositoryRef[] {
+    if (Array.isArray(result)) return result
+    if (Array.isArray(result.value)) return result.value
+    throw new Error('Azure DevOps list_repositories returned no repository list')
+  }
+
   /** Page through list_pull_requests, applying an optional identity filter, collecting all pages. */
   async function listAll(
     repositoryId: string,
@@ -140,10 +158,11 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
   return {
     async syncMyPrs() {
       const identity = await d.resolveIdentity()
-      const repos = await d.client.callTool<Array<{ id?: string; name?: string }>>(
+      const result = await d.client.callTool<ListRepositoriesResult>(
         'list_repositories',
         { projectId: d.projectId() }
       )
+      const repos = repositoriesFrom(result)
       const settled = await Promise.allSettled(
         repos.map(async (r) => ({
           name: r.name ?? r.id ?? '?',
@@ -302,4 +321,3 @@ function toThread(raw: RawThread): PrThread {
     }))
   }
 }
-

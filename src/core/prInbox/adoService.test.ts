@@ -166,6 +166,23 @@ const listHandlers = {
 }
 
 describe('syncMyPrs thread enrichment', () => {
+  test('accepts the Azure DevOps collection envelope for repositories', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          list_repositories: { count: 1, value: [{ id: 'repo-1', name: 'repo' }] },
+          list_pull_requests: (args) => ({ value: args.reviewerId ? [rawPr] : [] }),
+          get_pull_request_comments: { value: [] }
+        })
+      )
+    )
+
+    const { prs } = await svc.syncMyPrs()
+
+    expect(prs).toHaveLength(1)
+    expect(prs[0]).toMatchObject({ repositoryId: 'repo-1', repositoryName: 'repo' })
+  })
+
   test('counts unresolved non-system threads per PR', async () => {
     const svc = createAdoService(
       deps(

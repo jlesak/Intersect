@@ -52,7 +52,10 @@ describe('ProjectPrList', () => {
   /** The bridge call the panel makes on mount, so a client render can reach a ready state. */
   function stubBridge(prs: PullRequest[]): void {
     ;(window as { intersect?: unknown }).intersect = {
-      prInbox: { list: () => Promise.resolve(prs) }
+      prInbox: {
+        list: () => Promise.resolve(prs),
+        listUnfinishedDraftReviews: () => Promise.resolve([])
+      }
     }
   }
 

@@ -8,7 +8,17 @@ import { usePrInboxStore } from '../store'
  * irreversible action, so it goes through an explicit confirm). Edit rewrites the body in place;
  * Discard drops it. A published draft is frozen - only its status shows.
  */
-export function DraftCard({ draft }: { draft: DraftComment }) {
+interface DraftCardProps {
+  draft: DraftComment
+  /** The card is mounted as a Monaco view zone directly under its anchored line. */
+  inline?: boolean
+  /** The anchored side no longer reaches the recorded line, so Monaco had to clamp placement. */
+  positionOutdated?: boolean
+  /** The PR head no longer matches the immutable diff snapshot that supplied this anchor. */
+  stale?: boolean
+}
+
+export function DraftCard({ draft, inline = false, positionOutdated = false, stale = false }: DraftCardProps) {
   const [editing, setEditing] = useState(false)
   const [body, setBody] = useState(draft.body)
   const [confirming, setConfirming] = useState(false)
@@ -24,7 +34,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
   }
 
   return (
-    <div className="ix-pr-draft">
+    <div className={`ix-pr-draft${inline ? ' ix-pr-draft--inline' : ''}`} data-testid="pr-draft">
       <div className="ix-pr-draft__meta">
         <span className={`ix-pr-draft__badge ix-pr-draft__badge--${draft.source}`}>
           {draft.source === 'claude' ? 'Claude' : 'Manual'}
@@ -34,6 +44,21 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
         </span>
         <span className="ix-pr-draft__status">{draft.status}</span>
       </div>
+      {positionOutdated && (
+        <span
+          className="ix-chip ix-chip--warn"
+          data-testid="pr-draft-stale-anchor"
+          title={`Written against line ${draft.line} of an earlier version of this file, which no longer reaches that line.`}
+        >
+          Position approximate
+        </span>
+      )}
+      {stale && (
+        <div className="ix-pr-draft__stale" data-testid="pr-draft-stale-source">
+          This PR changed after the draft was created. Publishing is blocked; discard it or run
+          another Claude review.
+        </div>
+      )}
 
       {editing ? (
         <textarea
@@ -61,7 +86,12 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
             }}>
               Cancel
             </button>
-            <button type="button" className="ix-btn ix-btn--primary" onClick={commitEdit}>
+            <button
+              type="button"
+              className="ix-btn ix-btn--primary"
+              data-testid="pr-draft-save"
+              onClick={commitEdit}
+            >
               Save
             </button>
           </>
@@ -70,14 +100,16 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
             <button
               type="button"
               className="ix-btn ix-btn--primary"
-              disabled={published || inFlight || publishing}
+              disabled={published || inFlight || publishing || stale}
+              title={stale ? 'This draft is anchored to an older PR source commit.' : undefined}
               onClick={() => setConfirming(true)}
             >
-              {published ? 'Published' : 'Approve'}
+              {published ? 'Published' : stale ? 'Stale' : 'Approve'}
             </button>
             <button
               type="button"
               className="ix-btn ix-btn--ghost"
+              data-testid="pr-draft-edit"
               disabled={published || inFlight}
               onClick={() => setEditing(true)}
             >
@@ -86,6 +118,7 @@ export function DraftCard({ draft }: { draft: DraftComment }) {
             <button
               type="button"
               className="ix-btn ix-btn--danger"
+              data-testid="pr-draft-discard"
               disabled={published || inFlight}
               onClick={() => void usePrInboxStore.getState().discardDraft(draft.id)}
             >
