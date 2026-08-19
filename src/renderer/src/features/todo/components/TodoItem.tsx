@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
 import type { TodoTask, TodoTaskPatch } from '@common/domain'
 import { dayKeyOf } from '@common/week'
 import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
+import { RowActions } from '@renderer/shared/ui/RowActions'
 import { formatDueDay, isOverdue } from '../due'
 
 export interface TodoItemDrag {
@@ -17,7 +18,12 @@ export interface TodoItemDrag {
   onDragEnd(): void
 }
 
-/** One TODO row, including inline editing and accessible manual-order controls for open tasks. */
+/**
+ * One TODO row, including inline editing and accessible manual-order controls for open tasks.
+ *
+ * An open row is a tab stop whose Enter opens the same inline editor a click opens, and the bar it
+ * reveals carries the session launch, so the row can be worked entirely from the keyboard.
+ */
 export function TodoItem({
   task,
   done,
@@ -27,6 +33,7 @@ export function TodoItem({
   onStartEdit,
   onCancelEdit,
   onSave,
+  onStartSession,
   onContextMenu,
   focused,
   rowRef,
@@ -40,6 +47,8 @@ export function TodoItem({
   onStartEdit?(): void
   onCancelEdit?(): void
   onSave?(patch: TodoTaskPatch): void
+  /** Starts a Claude session on this task. Given for open tasks; a done one has no work left. */
+  onStartSession?(): void
   /** Lets the embedding list attach a per-row menu (e.g. session launch) at the pointer. */
   onContextMenu?(x: number, y: number): void
   /** Marks the row the user was sent here to look at, so it stands out on arrival. */
@@ -121,8 +130,21 @@ export function TodoItem({
         drag?.dragging ? ' ix-todo-item--dragging' : ''
       }${focused ? ' ix-todo-item--focused' : ''}`}
       role="listitem"
+      tabIndex={done ? undefined : 0}
       draggable={drag?.draggable ?? false}
       onClick={!done ? onStartEdit : undefined}
+      onKeyDown={
+        done
+          ? undefined
+          : (e) => {
+              // A press on one of the row's own buttons belongs to that button.
+              if (e.target !== e.currentTarget) return
+              // A task lives only in this list, so there is nothing for Cmd+Enter to open.
+              if (e.key !== 'Enter' || e.metaKey || e.ctrlKey) return
+              e.preventDefault()
+              onStartEdit?.()
+            }
+      }
       onContextMenu={
         onContextMenu
           ? (e) => {
@@ -193,6 +215,9 @@ export function TodoItem({
         )}
       </span>
       <span className="ix-todo-item__actions">
+        {onStartSession && !done && (
+          <RowActions primary={{ label: 'Start session', onClick: onStartSession }} />
+        )}
         {!done && (
           <button
             type="button"

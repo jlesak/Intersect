@@ -188,3 +188,17 @@ export const IconSettings = (p: SVGProps<SVGSVGElement>) => (
     <path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4" />
   </svg>
 )
+
+export const IconPlay = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M5.5 3.5 12.5 8l-7 4.5z" />
+  </svg>
+)
+
+export const IconMore = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="3.6" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="12.4" cy="8" r="1.1" fill="currentColor" stroke="none" />
+  </svg>
+)

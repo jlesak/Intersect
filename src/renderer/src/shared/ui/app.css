@@ -2119,6 +2119,18 @@
 .ix-mw-row:hover {
   background: var(--panel-2);
 }
+/* Inside a card that clips its overflow, so the ring sits within the row rather than around it. */
+.ix-mw-row:focus-visible {
+  background: var(--panel-2);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+/* Focus-within rather than focus-visible: the bar has to be there for whoever reached the row,
+   including a focus the app moved rather than the keyboard. */
+.ix-mw-row:hover .ix-rowactions,
+.ix-mw-row:focus-within .ix-rowactions {
+  opacity: 1;
+}
 .ix-mw-avatar {
   flex: none;
   width: 20px;
@@ -2343,6 +2355,7 @@
 }
 
 .ix-mw-card2 {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2357,9 +2370,24 @@
   font: inherit;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.ix-mw-card2:hover {
+.ix-mw-card2:hover,
+.ix-mw-card2:focus-visible {
   background: var(--panel-3);
   border-color: var(--border-strong);
+}
+/* The bar floats over the card's bottom line instead of taking a line of its own, so a card is
+   the same height whether or not the pointer is on it. */
+.ix-mw-card2 > .ix-rowactions {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  max-width: calc(100% - 8px);
+  background: var(--panel-3);
+  border-radius: var(--radius-sm);
+}
+.ix-mw-card2:hover > .ix-rowactions,
+.ix-mw-card2:focus-within > .ix-rowactions {
+  opacity: 1;
 }
 .ix-mw-card2__top {
   display: flex;
@@ -2815,8 +2843,16 @@
   background: var(--panel-2);
   cursor: pointer;
 }
-.ix-todo-item:hover .ix-todo-item__actions {
+.ix-todo-item:hover .ix-todo-item__actions,
+.ix-todo-item:focus-within .ix-todo-item__actions {
   opacity: 1;
+}
+.ix-todo-item:hover .ix-rowactions,
+.ix-todo-item:focus-within .ix-rowactions {
+  opacity: 1;
+}
+.ix-todo-item:focus-visible {
+  background: var(--panel-2);
 }
 .ix-todo-item--dragging {
   opacity: 0.45;
