@@ -379,6 +379,19 @@ describe('prInbox handlers', () => {
     expect(ado.calls.publishComment).toHaveLength(1)
   })
 
+  test('publishDraft keeps a draft published when the write returned no thread id', async () => {
+    // The comment is live on the pull request even though its thread id could not be read back.
+    // Reverting to pending here would re-post it as a duplicate on the next approve.
+    const ado = makeAdo({ publishComment: vi.fn(async () => null) })
+    const { h } = handlers({ ado })
+    prCache.replaceAll([pr()])
+    const d = await h.addManualDraft({ prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 3, side: 'right', body: 'x' })
+    const published = await h.publishDraft(d.id)
+    expect(published.status).toBe('published')
+    expect(published.publishedThreadId).toBeNull()
+    expect(await h.listDrafts('repo-a', 100)).toEqual([])
+  })
+
   test('publishDraft reverts the draft to pending when the ADO write fails', async () => {
     const ado = makeAdo({
       publishComment: vi.fn(async () => {

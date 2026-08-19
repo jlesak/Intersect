@@ -242,7 +242,7 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       if (!d.drafts.claimForPublish(id)) {
         throw new Error('This draft is already published or is being published.')
       }
-      let threadId: number
+      let threadId: number | null
       try {
         threadId = await d.ado.publishComment({
           repositoryId: draft.repositoryId,
@@ -258,14 +258,16 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
         d.drafts.setStatus(id, 'pending')
         throw err
       }
-      // The comment IS live on the PR now. Record the thread id; if this bookkeeping write fails we
-      // must NOT revert to pending (that would re-post a duplicate on retry) - leave it claimed.
+      // The comment IS live on the PR now, including when the thread id came back unreadable (null).
+      // Record it as published; if this bookkeeping write fails we must NOT revert to pending (that
+      // would re-post a duplicate on retry) - leave it claimed.
       try {
         return d.drafts.setStatus(id, 'published', threadId)
       } catch (dbErr) {
-        console.error(`Published draft ${id} as ADO thread ${threadId} but failed to record it locally`, dbErr)
+        const where = threadId === null ? 'in an unidentified thread' : `as thread ${threadId}`
+        console.error(`Published draft ${id} ${where} but failed to record it locally`, dbErr)
         throw new Error(
-          `Comment posted to the PR (thread ${threadId}) but local state could not be updated. Do not re-publish this draft.`
+          `Comment posted to the PR (${where}) but local state could not be updated. Do not re-publish this draft.`
         )
       }
     },

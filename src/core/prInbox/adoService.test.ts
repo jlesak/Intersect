@@ -127,7 +127,7 @@ describe('thread mutations', () => {
         fakeClient({
           add_pull_request_comment: (args) => {
             calls.push(args)
-            return { id: 6 }
+            return { comment: { id: 1 }, thread: { id: 6 } }
           }
         })
       )
@@ -142,6 +142,54 @@ describe('thread mutations', () => {
     expect(threadId).toBe(6)
     expect(calls[0]).not.toHaveProperty('filePath')
     expect(calls[0]).not.toHaveProperty('lineNumber')
+  })
+
+  test('publishComment reads the thread id out of the wrapped {comment, thread} result', async () => {
+    // The real MCP server answers a new-thread write with the created comment next to the created
+    // thread, so the id lives one level down. Reading the top level found nothing and threw after
+    // the comment was already live on the pull request.
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          add_pull_request_comment: () => ({
+            comment: { id: 1, content: 'x', commentType: 'text' },
+            thread: {
+              id: 12345,
+              status: 'active',
+              threadContext: { filePath: '/src/a.cs', rightFileStart: { line: 4 } },
+              comments: [{ id: 1, content: 'x', commentType: 'text' }]
+            }
+          })
+        })
+      )
+    )
+    const threadId = await svc.publishComment({
+      repositoryId: 'repo',
+      prId: 7,
+      filePath: '/src/a.cs',
+      line: 4,
+      body: 'x'
+    })
+    expect(threadId).toBe(12345)
+  })
+
+  test('publishComment falls back to a flat thread payload', async () => {
+    const svc = createAdoService(
+      deps(fakeClient({ add_pull_request_comment: () => ({ id: 6, status: 'active' }) }))
+    )
+    expect(
+      await svc.publishComment({ repositoryId: 'repo', prId: 7, filePath: null, line: null, body: 'x' })
+    ).toBe(6)
+  })
+
+  test('publishComment returns null instead of throwing when the write carried no thread id', async () => {
+    // The write already reached Azure DevOps, so an unreadable id must not look like a failed post.
+    const svc = createAdoService(
+      deps(fakeClient({ add_pull_request_comment: () => ({ comment: { id: 1 } }) }))
+    )
+    expect(
+      await svc.publishComment({ repositoryId: 'repo', prId: 7, filePath: null, line: null, body: 'x' })
+    ).toBeNull()
   })
 })
 
