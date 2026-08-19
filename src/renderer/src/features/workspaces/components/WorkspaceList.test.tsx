@@ -6,10 +6,6 @@ import { useProjectsStore } from '@renderer/features/projects'
 import { useWorkspacesStore } from '../store'
 import { WorkspaceList } from './WorkspaceList'
 
-// The projects barrel reaches the project context view, whose panels transitively import monaco.
-// The sidebar renders no editor, so an inert stand-in is enough to import the barrel's store.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 function workspace(id: string, over: Partial<Workspace> = {}): Workspace {
   return {
     id,

@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom, and the
-// session jump reaches the workspaces/tabs slices - both stand in here so the test is about routing.
-vi.mock('monaco-editor', () => ({ editor: {} }))
 const navigateMock = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('./attentionWiring', () => ({ navigateToSession: navigateMock }))
 

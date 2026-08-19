@@ -1,11 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import type { JiraIssueSnapshot } from '@common/domain'
-
-// The board reaches the My Work store, which reaches the PR inbox barrel and through it monaco -
-// and monaco cannot initialise under jsdom.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 import { JiraBoard } from './JiraBoard'
 
 function issue(

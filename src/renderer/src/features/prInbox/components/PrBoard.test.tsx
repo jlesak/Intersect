@@ -1,11 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
-
-// The board reads the shared relative-time formatter through the My Work barrel, which transitively
-// reaches monaco - and monaco cannot initialise under jsdom.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 import { prKey, usePrInboxStore } from '../store'
 import { PrBoard } from './PrBoard'
 

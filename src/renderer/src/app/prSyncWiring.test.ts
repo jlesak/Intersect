@@ -1,9 +1,4 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. The sync
-// action itself is stubbed here, so no editor is ever needed.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 import type { AdoFallback, AdoSettings } from '@common/domain'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useSettingsStore } from '@renderer/features/settings'

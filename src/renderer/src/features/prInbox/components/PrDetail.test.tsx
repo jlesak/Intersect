@@ -2,7 +2,9 @@ import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 
-// The detail reaches the Monaco diff through its imports, and monaco cannot initialise under jsdom.
+// The Files tab renders the diff viewer, and the chunk behind its lazy boundary brings Monaco,
+// which cannot initialise under jsdom. Held here so a run that does let that chunk load stays
+// about the detail rather than about the editor.
 vi.mock('monaco-editor', () => ({ editor: {} }))
 
 import { usePrInboxStore } from '../store'
