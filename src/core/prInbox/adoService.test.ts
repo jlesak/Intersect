@@ -191,6 +191,31 @@ describe('thread mutations', () => {
       await svc.publishComment({ repositoryId: 'repo', prId: 7, filePath: null, line: null, body: 'x' })
     ).toBeNull()
   })
+
+  test('publishComment rejects when the server answered with a plain-text rejection', async () => {
+    // The Azure DevOps MCP server reports every rejection as unflagged text, which reaches the
+    // service as a bare string once JSON.parse fails on it. Resolving here would record a draft as
+    // published that was never posted, and no surface lists or retries a published draft.
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          add_pull_request_comment: () => 'TF401019: The pull request is abandoned.'
+        })
+      )
+    )
+    await expect(
+      svc.publishComment({ repositoryId: 'repo', prId: 7, filePath: null, line: null, body: 'x' })
+    ).rejects.toThrow(/abandoned/)
+  })
+
+  test('publishComment rejects when the server answered with an empty body', async () => {
+    // An empty content array reaches the service as undefined, which carries no evidence that
+    // anything was created.
+    const svc = createAdoService(deps(fakeClient({ add_pull_request_comment: () => undefined })))
+    await expect(
+      svc.publishComment({ repositoryId: 'repo', prId: 7, filePath: null, line: null, body: 'x' })
+    ).rejects.toThrow()
+  })
 })
 
 const CREATED = '2026-07-01T10:00:00.000Z'
