@@ -596,6 +596,87 @@ describe('migrations', () => {
     ])
   })
 
+  test('every tab joins a group, keeps its visible tab, and gets a dense order per group', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the pre-tab-group schema version.
+    runMigrations(db, 26)
+    const addWorkspace = db.prepare(
+      'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
+    )
+    const addTab = db.prepare(
+      'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
+    )
+
+    // A grid workspace: one tab in each of the four panes, two tabs in no pane at all, and an
+    // active tab that is one of the unplaced ones.
+    addWorkspace.run('grid-ws', 'Grid', '/g', 'grid', 'loose-b', 0, 1)
+    addTab.run('pane-0', 'grid-ws', 'P0', 'shell', 0, 40, 1)
+    addTab.run('pane-1', 'grid-ws', 'P1', 'shell', 1, 10, 1)
+    addTab.run('pane-2', 'grid-ws', 'P2', 'shell', 2, 30, 1)
+    addTab.run('pane-3', 'grid-ws', 'P3', 'shell', 3, 20, 1)
+    addTab.run('loose-a', 'grid-ws', 'LA', 'shell', null, 50, 1)
+    addTab.run('loose-b', 'grid-ws', 'LB', 'shell', null, 60, 1)
+
+    // A single-layout workspace, where no tab carries a slot at all.
+    addWorkspace.run('single-ws', 'Single', '/s', 'single', 'solo-active', 1, 1)
+    addTab.run('solo-active', 'single-ws', 'SA', 'shell', null, 5, 1)
+    addTab.run('solo-other', 'single-ws', 'SO', 'shell', null, 9, 1)
+
+    runMigrations(db)
+
+    const rows = db
+      .prepare('SELECT id, workspace_id, pane_slot, sort_order, last_active_at FROM tabs')
+      .all() as unknown as {
+      id: string
+      workspace_id: string
+      pane_slot: number | null
+      sort_order: number
+      last_active_at: number | null
+    }[]
+    const byId = new Map(rows.map((r) => [r.id, r]))
+
+    // The unplaced concept is gone: every tab belongs to a group.
+    expect(rows.every((r) => r.pane_slot !== null)).toBe(true)
+    expect(byId.get('loose-a')?.pane_slot).toBe(0)
+    expect(byId.get('loose-b')?.pane_slot).toBe(0)
+    expect([0, 1, 2, 3].map((s) => byId.get(`pane-${s}`)?.pane_slot)).toEqual([0, 1, 2, 3])
+
+    // The tabs that held a pane, plus each workspace's active tab, stay visible.
+    const stamped = rows.filter((r) => r.last_active_at !== null).map((r) => r.id)
+    expect(stamped.sort()).toEqual(
+      ['loose-b', 'pane-0', 'pane-1', 'pane-2', 'pane-3', 'solo-active'].sort()
+    )
+    // Nothing that was neither placed nor active is claimed to have been activated.
+    expect(byId.get('loose-a')?.last_active_at).toBeNull()
+    expect(byId.get('solo-other')?.last_active_at).toBeNull()
+
+    // The workspace's active tab outranks everything else in the group it joins, so the tab that
+    // holds focus after the upgrade is the tab its pane renders. loose-b was active and unplaced,
+    // and it lands in group 0 next to the tab that held pane 0.
+    expect(byId.get('loose-b')!.last_active_at!).toBeGreaterThan(
+      byId.get('pane-0')!.last_active_at!
+    )
+
+    // sort_order is 0..n-1 inside every (workspace, group), in the pre-migration order.
+    const groups = new Map<string, { id: string; sort_order: number }[]>()
+    for (const r of rows) {
+      const key = `${r.workspace_id} ${r.pane_slot}`
+      groups.set(key, [...(groups.get(key) ?? []), r])
+    }
+    for (const [key, group] of groups) {
+      const orders = group.map((r) => r.sort_order).sort((a, b) => a - b)
+      expect(orders, key).toEqual(group.map((_, i) => i))
+    }
+    // Group 0 of the grid workspace holds pane-0 first (it was already there) then the two tabs
+    // that joined it, in the order they had before.
+    expect(
+      rows
+        .filter((r) => r.workspace_id === 'grid-ws' && r.pane_slot === 0)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((r) => r.id)
+    ).toEqual(['pane-0', 'loose-a', 'loose-b'])
+  })
+
   test('drafts gain a nullable source commit so legacy anchors fail closed', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db, 25)

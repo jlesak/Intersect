@@ -24,7 +24,15 @@ test('Cmd+K opens the palette; typing filters and Enter runs the command', async
   // listed here.
   await openPalette(app)
   await expect(win.locator('.ix-palette')).toBeVisible()
-  await expect(win.locator('.ix-palette__item')).toHaveCount(27)
+  await expect(win.locator('.ix-palette__item')).toHaveCount(29)
+
+  // Two of that count are the pane-move commands that came with per-pane tab groups. They are
+  // listed while disabled here (nothing is open to move, and single has nowhere to move it to),
+  // so name them: the count alone would not say whether they registered.
+  await expect(win.locator('.ix-palette__title', { hasText: 'Move Tab to Next Pane' })).toHaveCount(1)
+  await expect(
+    win.locator('.ix-palette__title', { hasText: 'Move Tab to Previous Pane' })
+  ).toHaveCount(1)
 
   // The two deliberate exclusions, asserted by name so the count above cannot mask a regression:
   // the nine positional tab jumps, and the palette's own open command.

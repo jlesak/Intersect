@@ -4,24 +4,49 @@ import { installTerminalFindShortcut, isTerminalFindTarget, resolveFindSession }
 
 let uninstall: (() => void) | null = null
 
-/** A stage with one terminal pane per session id, in the order given. */
+/**
+ * A stage with one terminal pane per session id, in the order given. Every pane carries its own
+ * tab strip above the terminal, the way the split stage draws it: the strip lives inside the
+ * stage and holds focusable elements, so it raises keystrokes just as the terminal does.
+ */
 function stage(...sessionIds: string[]): HTMLElement {
   const stage = document.createElement('div')
   stage.className = 'ix-stage'
   for (const sessionId of sessionIds) {
     const pane = document.createElement('div')
     pane.className = 'ix-pane'
+    const bar = document.createElement('div')
+    bar.className = 'ix-tabbar'
+    const tab = document.createElement('div')
+    tab.className = 'ix-tab'
+    tab.tabIndex = 0
+    const rename = document.createElement('input')
+    rename.className = 'ix-tab__rename'
+    tab.appendChild(rename)
+    bar.appendChild(tab)
+    const body = document.createElement('div')
+    body.className = 'ix-pane__body'
     const host = document.createElement('div')
     host.className = 'ix-pane__host'
     host.dataset.sessionId = sessionId
     // xterm takes the keystroke on a helper textarea deep inside the host.
     host.appendChild(document.createElement('textarea'))
-    pane.appendChild(host)
+    body.appendChild(host)
+    pane.appendChild(bar)
+    pane.appendChild(body)
     stage.appendChild(pane)
   }
   document.body.appendChild(stage)
   return stage
 }
+
+/** One pane's tab, counted in the order the stage lays its panes out. */
+const tabIn = (panes: HTMLElement, index: number): HTMLElement =>
+  panes.querySelectorAll<HTMLElement>('.ix-tab')[index]
+
+/** One pane's rename field, counted the same way. */
+const renameIn = (panes: HTMLElement, index: number): HTMLElement =>
+  panes.querySelectorAll<HTMLElement>('.ix-tab__rename')[index]
 
 /** Cmd+F as the browser delivers it, from whatever currently holds focus. */
 function pressFind(target: EventTarget): boolean {
@@ -60,6 +85,14 @@ describe('isTerminalFindTarget', () => {
 
     expect(isTerminalFindTarget(elsewhere)).toBe(false)
   })
+
+  // The strip sits inside the stage, so a rename field is now an ordinary text field standing in
+  // the terminal area, and Cmd+F belongs to the field for as long as it is up.
+  test('rejects the rename field of a tab, which stands inside the terminal area', () => {
+    const panes = stage('ws1:a')
+
+    expect(isTerminalFindTarget(renameIn(panes, 0))).toBe(false)
+  })
 })
 
 describe('resolveFindSession', () => {
@@ -68,6 +101,14 @@ describe('resolveFindSession', () => {
     const second = panes.querySelectorAll('textarea')[1]
 
     expect(resolveFindSession(second)).toBe('ws1:b')
+  })
+
+  // A tab strip carries no session id of its own, so the pane around it is what says which
+  // terminal the user was looking at.
+  test('answers with the pane whose tab strip raised the keystroke', () => {
+    const panes = stage('ws1:a', 'ws1:b')
+
+    expect(resolveFindSession(tabIn(panes, 1))).toBe('ws1:b')
   })
 
   test('falls back to the first pane on screen when nothing is focused', () => {
@@ -90,6 +131,27 @@ describe('the terminal find key', () => {
 
     expect(prevented).toBe(true)
     expect(useFindStore.getState().open).toEqual({ 'ws1:b': true })
+  })
+
+  test('Cmd+F from a pane tab strip opens the bar of that same pane', () => {
+    const panes = stage('ws1:a', 'ws1:b')
+    uninstall = installTerminalFindShortcut()
+
+    const prevented = pressFind(tabIn(panes, 1))
+
+    expect(prevented).toBe(true)
+    expect(useFindStore.getState().open).toEqual({ 'ws1:b': true })
+  })
+
+  // Taking the key here would blur the field, and blurring commits the rename.
+  test('Cmd+F while a tab is being renamed belongs to the rename field', () => {
+    const panes = stage('ws1:a')
+    uninstall = installTerminalFindShortcut()
+
+    const prevented = pressFind(renameIn(panes, 0))
+
+    expect(prevented).toBe(false)
+    expect(useFindStore.getState().open).toEqual({})
   })
 
   test('Cmd+F inside an editor outside the terminal area opens nothing', () => {

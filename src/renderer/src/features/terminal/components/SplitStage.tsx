@@ -1,9 +1,18 @@
 import { useEffect } from 'react'
 import { Group, Panel, Separator, type Layout as PanelLayout } from 'react-resizable-panels'
-import type { Layout, Tab } from '@common/domain'
+import { useShallow } from 'zustand/react/shallow'
+import type { Layout, Preset, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
 import { slotCount } from '@common/layout'
 import type { PairShares } from '@common/terminalLayoutShares'
+import {
+  openTabInGroup,
+  paneDropHandlers,
+  PaneTabBar,
+  selectGroupVisibleTab,
+  useTabsStore
+} from '@renderer/features/tabs'
+import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { useLayoutRatiosStore } from '../layoutRatios'
 import { TerminalPane } from './TerminalPane'
 
@@ -13,9 +22,6 @@ export interface SplitStageProps {
   /** The project the workspace belongs to ('other' = the virtual bucket); keys the pane shares. */
   projectKey: string
   layout: Layout
-  activeTabId: string | null
-  tabs: Tab[]
-  onAssign: (tabId: string, slot: number) => void
 }
 
 /** Every pane keeps at least this share of its group, so no terminal collapses to uselessness. */
@@ -28,18 +34,21 @@ const paneStyle = { overflow: 'hidden' } as const
 /**
  * Arranges the workspace's terminals into the chosen split layout, with draggable pane
  * dividers whose shares persist per project and layout (through the terminal slice's own
- * ratio store). Pane content is fully controlled - it renders the tabs it is given.
+ * ratio store). Every pane is a tab group: its own bar names the terminal underneath it, and the
+ * tab the group shows is the one it activated most recently.
  */
-export function SplitStage({
-  workspaceId,
-  cwd,
-  projectKey,
-  layout,
-  activeTabId,
-  tabs,
-  onAssign
-}: SplitStageProps) {
+export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageProps) {
   const loaded = useLayoutRatiosStore((s) => s.loaded && s.projectKey === projectKey)
+  // One selector for every group, because the number of groups changes with the layout and a
+  // hook per slot would reorder the hook list underneath React the moment it did.
+  const paneTabs = useTabsStore(
+    useShallow((s): (Tab | null)[] =>
+      Array.from({ length: slotCount(layout) }, (_, slot) => selectGroupVisibleTab(s, slot))
+    )
+  )
+  // Which pane a tab drag would land in, so that pane can say so. Read here rather than in the
+  // pane, because the hover can be over either a pane's body or the tab strip above it.
+  const dropSlot = useTabsStore((s) => s.dropSlot)
 
   // The persisted shares must be in place before a resizable group mounts (the panel library
   // reads default sizes only at mount), so hydration starts with the project switch and the
@@ -51,27 +60,39 @@ export function SplitStage({
   // Leaving a layout or project must not drop a pending share write mid-debounce.
   useEffect(() => () => useLayoutRatiosStore.getState().flush(), [projectKey, layout])
 
-  const n = slotCount(layout)
-  const paneTabs: (Tab | null)[] =
-    layout === 'single'
-      ? [tabs.find((t) => t.id === activeTabId) ?? tabs[0] ?? null]
-      : Array.from({ length: n }, (_, slot) => tabs.find((t) => t.paneSlot === slot) ?? null)
-
-  const unplaced = tabs.filter((t) => t.paneSlot === null)
-
-  const paneClass = (slot: number): string => `ix-pane${paneTabs[slot] ? '' : ' ix-pane--empty'}`
+  const paneClass = (slot: number): string => `ix-pane${dropSlot === slot ? ' ix-pane--drop' : ''}`
   const paneContent = (slot: number): React.ReactNode => {
     const tab = paneTabs[slot]
-    return tab ? (
-      <TerminalPane
-        sessionId={makeSessionId(workspaceId, tab.id)}
-        preset={tab.preset}
-        cwd={cwd}
-        resumeSessionId={tab.resumeSessionId}
-        sessionStatus={tab.sessionStatus}
-      />
-    ) : (
-      <EmptyPane unplaced={unplaced} onAssign={(id) => onAssign(id, slot)} />
+    // Working in a pane is what moves focus between groups, so both a press and a keystroke
+    // inside the body claim it. Capture rather than bubble, and without preventDefault, so xterm
+    // receives the very same event and keeps the keyboard.
+    const claimFocus = (): void => {
+      if (tab && tab.id !== useTabsStore.getState().activeTabId) {
+        void useTabsStore.getState().setActiveTab(tab.id)
+      }
+    }
+    return (
+      <>
+        <PaneTabBar slot={slot} />
+        <div
+          className="ix-pane__body"
+          onMouseDownCapture={claimFocus}
+          onKeyDownCapture={claimFocus}
+          {...paneDropHandlers(slot)}
+        >
+          {tab ? (
+            <TerminalPane
+              sessionId={makeSessionId(workspaceId, tab.id)}
+              preset={tab.preset}
+              cwd={cwd}
+              resumeSessionId={tab.resumeSessionId}
+              sessionStatus={tab.sessionStatus}
+            />
+          ) : (
+            <EmptyPane slot={slot} />
+          )}
+        </div>
+      </>
     )
   }
 
@@ -199,21 +220,24 @@ function GridStage({ paneClass, paneContent }: StagePaneProps) {
   )
 }
 
-function EmptyPane({ unplaced, onAssign }: { unplaced: Tab[]; onAssign: (id: string) => void }) {
+/**
+ * A group with no tabs. Every tab now belongs to exactly one group, so there is nothing to place
+ * here from elsewhere - the pane offers the same two starters the "+" above it does, opening them
+ * straight into this group.
+ */
+function EmptyPane({ slot }: { slot: number }) {
+  const open = (preset: Preset): void => void openTabInGroup(slot, preset)
   return (
-    <>
+    <div className="ix-pane__empty">
       <span className="ix-eyebrow">Empty pane</span>
-      {unplaced.length > 0 ? (
-        <div className="ix-col" style={{ gap: 6 }}>
-          {unplaced.map((t) => (
-            <button key={t.id} type="button" className="ix-btn ix-btn--ghost" onClick={() => onAssign(t.id)}>
-              Place “{t.title}” here
-            </button>
-          ))}
-        </div>
-      ) : (
-        <span className="ix-faint">Every tab is already placed</span>
-      )}
-    </>
+      <div className="ix-row" style={{ gap: 8 }}>
+        <button type="button" className="ix-btn ix-btn--ghost" onClick={() => open('shell')}>
+          <IconShell /> Shell
+        </button>
+        <button type="button" className="ix-btn ix-btn--ghost" onClick={() => open('claude')}>
+          <IconClaude /> Claude Code
+        </button>
+      </div>
+    </div>
   )
 }
