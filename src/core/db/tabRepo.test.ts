@@ -18,13 +18,27 @@ describe('tabRepo', () => {
     wsId = workspaces.create('/a').id
   })
 
-  test('create defaults the title from the preset and starts unplaced', () => {
+  /** The workspace's tabs as `id@slot:order`, read back from the database. */
+  const placements = (): string[] =>
+    tabs.listByWorkspace(wsId).map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)
+
+  test('create defaults the title from the preset and lands in group 0', () => {
     const shell = tabs.create(wsId, 'shell')
     expect(shell.title).toBe('Shell')
     expect(shell.preset).toBe('shell')
-    expect(shell.paneSlot).toBeNull()
+    expect(shell.paneSlot).toBe(0)
+    expect(shell.lastActiveAt).toBeNull()
     expect(shell.workspaceId).toBe(wsId)
     expect(tabs.create(wsId, 'claude').title).toBe('Claude')
+  })
+
+  test('create appends at the end of the group it is given, numbering each group from 0', () => {
+    const a = tabs.create(wsId, 'shell', undefined, null, 1)
+    const b = tabs.create(wsId, 'shell', undefined, null, 1)
+    const c = tabs.create(wsId, 'shell', undefined, null, 0)
+    expect([a.paneSlot, a.sortOrder]).toEqual([1, 0])
+    expect([b.paneSlot, b.sortOrder]).toEqual([1, 1])
+    expect([c.paneSlot, c.sortOrder]).toEqual([0, 0])
   })
 
   test('create defaults to no resume session, and round-trips one when given', () => {
@@ -46,11 +60,19 @@ describe('tabRepo', () => {
     expect(() => tabs.setResumeSessionId('nope', 'x')).not.toThrow()
   })
 
-  test('listByWorkspace returns tabs ordered by sortOrder', () => {
-    tabs.create(wsId, 'shell')
-    tabs.create(wsId, 'claude')
-    tabs.create(wsId, 'shell')
-    expect(tabs.listByWorkspace(wsId).map((t) => t.sortOrder)).toEqual([0, 1, 2])
+  test('listByWorkspace returns tabs ordered by group, then by position inside the group', () => {
+    const a = tabs.create(wsId, 'shell', undefined, null, 1)
+    const b = tabs.create(wsId, 'claude', undefined, null, 0)
+    const c = tabs.create(wsId, 'shell', undefined, null, 1)
+    const d = tabs.create(wsId, 'shell', undefined, null, 0)
+    expect(tabs.listByWorkspace(wsId).map((t) => t.id)).toEqual([b.id, d.id, a.id, c.id])
+  })
+
+  test('a tab whose slot was never written reads as group 0', () => {
+    const t = tabs.create(wsId, 'shell')
+    db.prepare('UPDATE tabs SET pane_slot = NULL WHERE id = ?').run(t.id)
+    expect(tabs.getById(t.id)?.paneSlot).toBe(0)
+    expect(tabs.listByWorkspace(wsId)[0].paneSlot).toBe(0)
   })
 
   test('listByWorkspace is scoped to one workspace', () => {
@@ -67,52 +89,136 @@ describe('tabRepo', () => {
     expect(tabs.getById(t.id)?.title).toBe('build')
   })
 
-  test('remove deletes the tab', () => {
-    const t = tabs.create(wsId, 'shell')
-    tabs.remove(t.id)
-    expect(tabs.getById(t.id)).toBeUndefined()
-  })
-
-  test('reorder rewrites sortOrder to match the given order and persists it', () => {
-    const a = tabs.create(wsId, 'shell')
-    const b = tabs.create(wsId, 'claude')
-    const c = tabs.create(wsId, 'shell')
-    const reordered = tabs.reorder(wsId, [c.id, a.id, b.id])
-    expect(reordered.map((t) => t.id)).toEqual([c.id, a.id, b.id])
-    expect(reordered.map((t) => t.sortOrder)).toEqual([0, 1, 2])
-    expect(tabs.listByWorkspace(wsId).map((t) => t.id)).toEqual([c.id, a.id, b.id])
-  })
-
-  test('setPaneSlot assigns and clears a pane slot', () => {
-    const t = tabs.create(wsId, 'shell')
-    expect(tabs.setPaneSlot(t.id, 2).paneSlot).toBe(2)
-    expect(tabs.setPaneSlot(t.id, null).paneSlot).toBeNull()
-  })
-
-  test('setPaneSlots batch-updates assignments in one transaction', () => {
-    const a = tabs.create(wsId, 'shell')
-    const b = tabs.create(wsId, 'claude')
-    tabs.setPaneSlots([
-      { id: a.id, paneSlot: 0 },
-      { id: b.id, paneSlot: 1 }
-    ])
-    const list = tabs.listByWorkspace(wsId)
-    expect(list.find((t) => t.id === a.id)?.paneSlot).toBe(0)
-    expect(list.find((t) => t.id === b.id)?.paneSlot).toBe(1)
-  })
-
-  test('clearPaneSlot frees the slot for all workspace tabs except the given one', () => {
+  test('remove deletes the tab and closes the gap in its group', () => {
     const a = tabs.create(wsId, 'shell')
     const b = tabs.create(wsId, 'shell')
-    tabs.setPaneSlot(a.id, 0)
-    tabs.setPaneSlot(b.id, 0)
-    tabs.clearPaneSlot(wsId, 0, b.id)
-    expect(tabs.getById(a.id)?.paneSlot).toBeNull()
-    expect(tabs.getById(b.id)?.paneSlot).toBe(0)
+    const c = tabs.create(wsId, 'shell')
+    const other = tabs.create(wsId, 'shell', undefined, null, 1)
+    tabs.remove(b.id)
+    expect(tabs.getById(b.id)).toBeUndefined()
+    expect(placements()).toEqual([`${a.id}@0:0`, `${c.id}@0:1`, `${other.id}@1:0`])
+  })
+
+  test('remove of an unknown tab is a silent no-op', () => {
+    const a = tabs.create(wsId, 'shell')
+    expect(() => tabs.remove('nope')).not.toThrow()
+    expect(tabs.listByWorkspace(wsId).map((t) => t.id)).toEqual([a.id])
   })
 
   test('rename throws for a missing tab', () => {
     expect(() => tabs.rename('missing', 'x')).toThrow(/not found/i)
+  })
+
+  describe('moveToGroup', () => {
+    test('moves a tab into another group at the given index and renumbers both', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      const c = tabs.create(wsId, 'shell')
+      const x = tabs.create(wsId, 'shell', undefined, null, 1)
+      const y = tabs.create(wsId, 'shell', undefined, null, 1)
+
+      const after = tabs.moveToGroup(b.id, 1, 1)
+      expect(after.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)).toEqual([
+        `${a.id}@0:0`,
+        `${c.id}@0:1`,
+        `${x.id}@1:0`,
+        `${b.id}@1:1`,
+        `${y.id}@1:2`
+      ])
+      expect(placements()).toEqual(after.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`))
+    })
+
+    test('a move inside the same group is a plain reorder', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      const c = tabs.create(wsId, 'shell')
+      tabs.moveToGroup(c.id, 0, 0)
+      expect(placements()).toEqual([`${c.id}@0:0`, `${a.id}@0:1`, `${b.id}@0:2`])
+      tabs.moveToGroup(c.id, 0, 2)
+      expect(placements()).toEqual([`${a.id}@0:0`, `${b.id}@0:1`, `${c.id}@0:2`])
+    })
+
+    test('an index past the end appends, and a negative index goes first', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      tabs.moveToGroup(a.id, 0, 99)
+      expect(placements()).toEqual([`${b.id}@0:0`, `${a.id}@0:1`])
+      tabs.moveToGroup(a.id, 0, -5)
+      expect(placements()).toEqual([`${a.id}@0:0`, `${b.id}@0:1`])
+    })
+
+    test('moving into an empty group leaves the source dense', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      const c = tabs.create(wsId, 'shell')
+      tabs.moveToGroup(a.id, 3, 0)
+      expect(placements()).toEqual([`${b.id}@0:0`, `${c.id}@0:1`, `${a.id}@3:0`])
+    })
+
+    test('leaves other workspaces alone', () => {
+      const other = workspaces.create('/b').id
+      const mine = tabs.create(wsId, 'shell')
+      const theirs = tabs.create(other, 'shell')
+      tabs.moveToGroup(mine.id, 1, 0)
+      expect(tabs.getById(theirs.id)?.paneSlot).toBe(0)
+      expect(tabs.listByWorkspace(other)).toHaveLength(1)
+    })
+
+    test('throws for a missing tab and writes nothing', () => {
+      const a = tabs.create(wsId, 'shell')
+      expect(() => tabs.moveToGroup('missing', 1, 0)).toThrow(/not found/i)
+      expect(placements()).toEqual([`${a.id}@0:0`])
+    })
+  })
+
+  describe('regroup', () => {
+    test('merging two columns into single appends the right column after the left', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      const x = tabs.create(wsId, 'shell', undefined, null, 1)
+      const out = tabs.regroup(wsId, 'columns', 'single')
+      expect(out.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)).toEqual([
+        `${a.id}@0:0`,
+        `${b.id}@0:1`,
+        `${x.id}@0:2`
+      ])
+      expect(placements()).toEqual([`${a.id}@0:0`, `${b.id}@0:1`, `${x.id}@0:2`])
+    })
+
+    test('growing rows into the grid moves the bottom row to the bottom-left pane', () => {
+      const top = tabs.create(wsId, 'shell')
+      const bottom = tabs.create(wsId, 'shell', undefined, null, 1)
+      tabs.regroup(wsId, 'rows', 'grid')
+      expect(placements()).toEqual([`${top.id}@0:0`, `${bottom.id}@2:0`])
+    })
+
+    test('is scoped to one workspace', () => {
+      const other = workspaces.create('/b').id
+      tabs.create(wsId, 'shell', undefined, null, 1)
+      const theirs = tabs.create(other, 'shell', undefined, null, 1)
+      tabs.regroup(wsId, 'columns', 'single')
+      expect(tabs.getById(theirs.id)?.paneSlot).toBe(1)
+    })
+  })
+
+  describe('touchActive', () => {
+    test('stamps the activation time and leaves the other tabs untouched', () => {
+      const a = tabs.create(wsId, 'shell')
+      const b = tabs.create(wsId, 'shell')
+      expect(tabs.touchActive(a.id, 1700).lastActiveAt).toBe(1700)
+      expect(tabs.getById(a.id)?.lastActiveAt).toBe(1700)
+      expect(tabs.getById(b.id)?.lastActiveAt).toBeNull()
+    })
+
+    test('a later activation replaces the earlier stamp', () => {
+      const a = tabs.create(wsId, 'shell')
+      tabs.touchActive(a.id, 1700)
+      expect(tabs.touchActive(a.id, 2400).lastActiveAt).toBe(2400)
+    })
+
+    test('throws for a missing tab', () => {
+      expect(() => tabs.touchActive('missing', 1)).toThrow(/not found/i)
+    })
   })
 
   describe('suspend/resume lifecycle', () => {

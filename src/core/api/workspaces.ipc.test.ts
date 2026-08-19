@@ -62,21 +62,55 @@ describe('workspace handlers', () => {
     expect((await ws.getState()).selectedWorkspaceId).toBeNull()
   })
 
-  test('setLayout persists the layout and seeds slot 0 with the active tab', async () => {
+  test('setLayout persists the layout and returns it with the regrouped tabs', async () => {
     const a = await ws.create('/a')
     const t1 = ctx.tabs.create(a.id, 'shell')
-    ctx.workspaces.setActiveTab(a.id, t1.id)
-    const updated = await ws.setLayout(a.id, 'columns')
-    expect(updated.layout).toBe('columns')
-    expect(ctx.tabs.getById(t1.id)?.paneSlot).toBe(0)
+    const { workspace, tabs } = await ws.setLayout(a.id, 'columns')
+    expect(workspace.layout).toBe('columns')
+    expect(ctx.workspaces.getById(a.id)?.layout).toBe('columns')
+    // Growing leaves every tab where it was; the new group starts empty.
+    expect(tabs.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)).toEqual([`${t1.id}@0:0`])
   })
 
-  test('setLayout to single clears pane slots', async () => {
+  test('setLayout merges the groups that disappear into the ones that survive', async () => {
     const a = await ws.create('/a')
-    const t1 = ctx.tabs.create(a.id, 'shell')
-    ctx.tabs.setPaneSlot(t1.id, 0)
-    await ws.setLayout(a.id, 'single')
-    expect(ctx.tabs.getById(t1.id)?.paneSlot).toBeNull()
+    ctx.workspaces.setLayout(a.id, 'grid')
+    const p0 = ctx.tabs.create(a.id, 'shell', undefined, null, 0)
+    const p1 = ctx.tabs.create(a.id, 'shell', undefined, null, 1)
+    const p2 = ctx.tabs.create(a.id, 'shell', undefined, null, 2)
+    const p3 = ctx.tabs.create(a.id, 'shell', undefined, null, 3)
+
+    // The left column stays left, so grid slot 2 folds in behind slot 0.
+    const columns = await ws.setLayout(a.id, 'columns')
+    expect(columns.tabs.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)).toEqual([
+      `${p0.id}@0:0`,
+      `${p2.id}@0:1`,
+      `${p1.id}@1:0`,
+      `${p3.id}@1:1`
+    ])
+
+    // Collapsing again merges everything into the one remaining group; nothing is lost.
+    const single = await ws.setLayout(a.id, 'single')
+    expect(single.tabs.map((t) => `${t.id}@${t.paneSlot}:${t.sortOrder}`)).toEqual([
+      `${p0.id}@0:0`,
+      `${p2.id}@0:1`,
+      `${p1.id}@0:2`,
+      `${p3.id}@0:3`
+    ])
+  })
+
+  test('setLayout reads the layout it is leaving, so a merge is positional both ways', async () => {
+    const a = await ws.create('/a')
+    ctx.workspaces.setLayout(a.id, 'rows')
+    const top = ctx.tabs.create(a.id, 'shell', undefined, null, 0)
+    const bottom = ctx.tabs.create(a.id, 'shell', undefined, null, 1)
+    // Two rows growing into the grid put the bottom row in the bottom-left pane, which is slot 2.
+    const { tabs } = await ws.setLayout(a.id, 'grid')
+    expect(tabs.map((t) => `${t.id}@${t.paneSlot}`)).toEqual([`${top.id}@0`, `${bottom.id}@2`])
+  })
+
+  test('setLayout on an unknown workspace throws', async () => {
+    await expect(ws.setLayout('ghost', 'columns')).rejects.toThrow(/not found/i)
   })
 
   test('setActive persists the selected workspace', async () => {

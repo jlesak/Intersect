@@ -1,12 +1,13 @@
 import type { Layout, Tab } from './domain'
 
-/** A tab's pane placement under the current layout: a slot index, or null (tab-bar only). */
-export interface PaneAssignment {
+/** A tab's group placement: which pane group it belongs to and its position inside that group. */
+export interface GroupAssignment {
   id: string
-  paneSlot: number | null
+  paneSlot: number
+  sortOrder: number
 }
 
-/** Number of visible panes a layout has. */
+/** Number of visible panes - and therefore tab groups - a layout has. */
 export function slotCount(layout: Layout): number {
   if (layout === 'grid') return 4
   if (layout === 'columns' || layout === 'rows') return 2
@@ -14,40 +15,73 @@ export function slotCount(layout: Layout): number {
 }
 
 /**
- * The single authoritative transform from (tabs, layout, activeTab) to pane placements.
- * Run both when the layout changes (persisted) and at load (before render) so the DB and the
- * view never disagree. Rules:
- * - single: every tab is unplaced (the one pane renders the active tab directly).
- * - multi-pane: keep each tab's in-range, non-duplicate slot; clear the rest; and if nothing is
- *   placed yet, seed slot 0 with the active tab so a freshly-split workspace is not all-empty.
- *   The active tab is only seeded when it currently has no slot, so it can never render twice.
+ * Which group's tab bar carries the workspace tools (layout picker, all-tabs overflow). It is the
+ * top-right group of each layout, so the tools sit in the stage's top-right corner whatever the
+ * split, the way VS Code anchors its editor-group actions.
  */
-export function reconcilePanes(
-  tabs: Tab[],
-  layout: Layout,
-  activeTabId: string | null
-): PaneAssignment[] {
-  const n = slotCount(layout)
+export function toolsSlot(layout: Layout): number {
+  return layout === 'columns' || layout === 'grid' ? 1 : 0
+}
 
-  if (n === 1) {
-    return tabs.map((t) => ({ id: t.id, paneSlot: null }))
+/**
+ * Where each group of `from` lands in `to` when the layout changes. Shrinking merges the groups
+ * that disappear into the surviving one that holds their screen position, so no tab is ever
+ * hidden or lost: the left column stays left, the top row stays top, and everything collapses
+ * into group 0 under `single`. Growing keeps every group where it is and leaves the new groups
+ * empty for the user to fill.
+ */
+export function remapSlots(from: Layout, to: Layout): number[] {
+  const source = slotCount(from)
+  const target = slotCount(to)
+  if (target === 1) return Array.from({ length: source }, () => 0)
+  if (from === 'grid' && to === 'columns') return [0, 1, 0, 1]
+  if (from === 'grid' && to === 'rows') return [0, 0, 1, 1]
+  // Growing two rows into the grid is the one case where the group indices themselves move: the
+  // bottom pane is grid slot 2, so an identity map would throw it up to the top right.
+  if (from === 'rows' && to === 'grid') return [0, 2]
+  // Everything else keeps its index, which is already the same screen position: two columns become
+  // the grid's top row, and columns and rows map onto each other one for one. Anything beyond the
+  // target's range clamps into the last group rather than vanishing.
+  return Array.from({ length: source }, (_, slot) => Math.min(slot, target - 1))
+}
+
+/**
+ * The single authoritative transform from (tabs, from-layout, to-layout) to group placements.
+ * It runs on the one event that can put a tab in a group its layout does not have - the layout
+ * change - and the result is persisted there and then, so what the renderer loads is already
+ * reconciled and load-time rendering has nothing left to decide.
+ *
+ * Tabs keep their relative order throughout: inside a target group, the tabs that were already
+ * there come first (lowest source slot wins), then the merged-in ones, and `sortOrder` is
+ * renumbered from 0 across the result so a group's bar order is exactly its `sortOrder` order.
+ */
+export function regroupTabs(tabs: Tab[], from: Layout, to: Layout): GroupAssignment[] {
+  const map = remapSlots(from, to)
+  const target = slotCount(to)
+  const groups: Tab[][] = Array.from({ length: target }, () => [])
+
+  // Sorting by (source slot, sortOrder) is what makes a merge an append: every tab of the
+  // surviving group is seen before any tab of the group being folded into it.
+  const ordered = [...tabs].sort((a, b) => a.paneSlot - b.paneSlot || a.sortOrder - b.sortOrder)
+  for (const tab of ordered) {
+    const slot = map[tab.paneSlot] ?? Math.min(Math.max(tab.paneSlot, 0), target - 1)
+    groups[slot].push(tab)
   }
 
-  const used = new Set<number>()
-  const result: PaneAssignment[] = tabs.map((t) => {
-    const slot = t.paneSlot
-    if (slot == null || slot < 0 || slot >= n || used.has(slot)) {
-      return { id: t.id, paneSlot: null }
-    }
-    used.add(slot)
-    return { id: t.id, paneSlot: slot }
-  })
+  return groups.flatMap((group, slot) =>
+    group.map((tab, index) => ({ id: tab.id, paneSlot: slot, sortOrder: index }))
+  )
+}
 
-  const anyPlaced = result.some((r) => r.paneSlot !== null)
-  if (!anyPlaced && activeTabId !== null) {
-    const target = result.find((r) => r.id === activeTabId)
-    if (target) target.paneSlot = 0
+/**
+ * The tab a group currently shows: the one activated most recently, falling back to the first in
+ * bar order for a group nobody has touched yet. Undefined only when the group is empty.
+ */
+export function visibleTabOf(groupTabs: Tab[]): Tab | undefined {
+  let best: Tab | undefined
+  for (const tab of groupTabs) {
+    if (tab.lastActiveAt === null) continue
+    if (!best || tab.lastActiveAt > (best.lastActiveAt ?? -1)) best = tab
   }
-
-  return result
+  return best ?? [...groupTabs].sort((a, b) => a.sortOrder - b.sortOrder)[0]
 }

@@ -1,8 +1,10 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TodoTask } from '@common/domain'
 
 vi.mock('../ipc')
+vi.mock('@renderer/features/workItems', () => ({ launchFromTodoTask: vi.fn() }))
+import { launchFromTodoTask } from '@renderer/features/workItems'
 import * as api from '../ipc'
 import { useTodoStore } from '../store'
 import { TodoView } from './TodoView'
@@ -105,5 +107,83 @@ describe('TodoView', () => {
 
     expect(document.querySelectorAll('.ix-todo-item--focused')).toHaveLength(0)
     expect(useTodoStore.getState().pendingFocusId).toBeNull()
+  })
+})
+
+/** What a TODO row offers once it is hovered or focused, and what the keyboard can reach. */
+describe('TodoView row actions', () => {
+  const launch = vi.mocked(launchFromTodoTask)
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    launch.mockReset()
+    const done = [task('z', { doneAt: 1000 })]
+    mocked.list.mockResolvedValue({ open: OPEN, done })
+    useTodoStore.setState({
+      status: 'ready',
+      error: null,
+      open: OPEN,
+      done,
+      showDone: true,
+      pendingFocusId: null
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    useTodoStore.setState({ status: 'idle', open: [], done: [], showDone: false })
+  })
+
+  const mount = async (): Promise<void> => {
+    await act(async () => {
+      render(<TodoView />)
+    })
+  }
+
+  test('an open task offers the session launch, and pressing it launches that task', async () => {
+    await mount()
+
+    fireEvent.click(within(rowOf('Task b') as HTMLElement).getByRole('button', { name: 'Start session' }))
+
+    expect(launch).toHaveBeenCalledTimes(1)
+    expect(launch.mock.calls[0][0].id).toBe('b')
+  })
+
+  test('a done task offers no session launch, because there is no work left to start', async () => {
+    await mount()
+
+    expect(within(rowOf('Task z') as HTMLElement).queryByRole('button', { name: 'Start session' })).toBeNull()
+  })
+
+  test('pressing the launch never also opens the row’s inline editor', async () => {
+    await mount()
+
+    fireEvent.click(within(rowOf('Task b') as HTMLElement).getByRole('button', { name: 'Start session' }))
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
+  })
+
+  test('Enter on a focused row opens its inline editor, as clicking it does', async () => {
+    await mount()
+
+    fireEvent.keyDown(rowOf('Task b') as HTMLElement, { key: 'Enter' })
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+    expect(screen.getByDisplayValue('Task b')).toBeTruthy()
+  })
+
+  test('Cmd+Enter does nothing, because a task has no home outside this list', async () => {
+    await mount()
+
+    fireEvent.keyDown(rowOf('Task b') as HTMLElement, { key: 'Enter', metaKey: true })
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  test('every open row is a tab stop, so the launch is reachable without a mouse', async () => {
+    await mount()
+
+    expect((rowOf('Task b') as HTMLElement).tabIndex).toBe(0)
   })
 })

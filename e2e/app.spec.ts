@@ -59,7 +59,7 @@ test('opens a Claude Code tab rooted in the workspace', async () => {
   await app.close()
 })
 
-test('splits into two columns and places both terminals', async () => {
+test('splits into two columns and sends one of the tabs into the second pane', async () => {
   const profileDir = userDataDir()
   const wsDir = tempDir('splitws-')
   const { app, win } = await launch(profileDir, { openOther: true })
@@ -73,12 +73,25 @@ test('splits into two columns and places both terminals', async () => {
   await open()
   await expect(win.locator('.ix-tab')).toHaveCount(2)
 
+  // Splitting keeps both tabs in the group they were opened in, leaving the second pane empty.
   await win.locator('.ix-layout[title="Two columns"]').click()
   await expect(win.locator('.ix-stage--columns')).toBeVisible()
   await expect(win.locator('.ix-pane')).toHaveCount(2)
+  await expect(win.locator('.ix-pane').nth(0).locator('.ix-tab')).toHaveCount(2)
+  await expect(win.locator('.ix-pane').nth(1).locator('.ix-pane__empty')).toBeVisible()
 
-  // Fill the empty pane with the other tab, then both panes host a terminal.
-  await win.locator('.ix-pane--empty .ix-btn').first().click()
+  // Sending one across fills the empty pane with that very tab, rather than a third terminal.
+  const sent = win.locator('.ix-pane').nth(0).locator('.ix-tab').nth(1)
+  const sentId = await sent.getAttribute('data-tab-id')
+  await sent.click({ button: 'right' })
+  await win.locator('.ix-menu__item', { hasText: 'Open in pane 2' }).click()
+
+  await expect(win.locator('.ix-pane').nth(0).locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-pane').nth(1).locator(`.ix-tab[data-tab-id="${sentId}"]`)).toHaveCount(1)
+  await expect(win.locator('.ix-pane').nth(1).locator('.ix-pane__host')).toHaveAttribute(
+    'data-session-id',
+    new RegExp(`:${sentId}$`)
+  )
   await expect(win.locator('.ix-pane .xterm')).toHaveCount(2)
 })
 

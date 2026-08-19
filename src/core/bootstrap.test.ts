@@ -128,7 +128,7 @@ describe('createCoreRuntime', () => {
     const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'test-ws'])) as {
       id: string
     }
-    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', null])) as {
+    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', 0, null])) as {
       id: string
     }
     const sessionId = `${ws.id}:${tab.id}`
@@ -199,7 +199,7 @@ describe('createCoreRuntime', () => {
   test('shutdown kills live PTYs, closes the DB, and is idempotent', async () => {
     const rt = boot()
     const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
-    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', null])) as {
+    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', 0, null])) as {
       id: string
     }
     await rt.handleRequest(Channel.terminalSpawn, [`${ws.id}:${tab.id}`, 'shell', dir, 80, 24, null])
@@ -223,7 +223,7 @@ describe('createCoreRuntime', () => {
   test('a session status change surfaces the dock badge as a native push', async () => {
     const rt = boot()
     const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
-    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'claude', null])) as {
+    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'claude', 0, null])) as {
       id: string
     }
     const sessionId = `${ws.id}:${tab.id}`
@@ -302,7 +302,7 @@ describe('createCoreRuntime', () => {
   describe('terminal reattach', () => {
     const spawnShellTab = async (rt: CoreRuntime): Promise<string> => {
       const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
-      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', null])) as {
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', 0, null])) as {
         id: string
       }
       const sessionId = `${ws.id}:${tab.id}`
@@ -431,7 +431,7 @@ describe('createCoreRuntime', () => {
       resumeSessionId: string | null
     ): Promise<{ tabId: string }> => {
       const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
-      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, preset, resumeSessionId])) as {
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, preset, 0, resumeSessionId])) as {
         id: string
       }
       await rt.handleRequest(Channel.terminalSpawn, [
@@ -532,7 +532,7 @@ describe('createCoreRuntime', () => {
       rt: CoreRuntime
     ): Promise<{ sessionId: string; wsId: string; tabId: string }> => {
       const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
-      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'claude', null])) as {
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'claude', 0, null])) as {
         id: string
       }
       const sessionId = `${ws.id}:${tab.id}`
@@ -545,7 +545,7 @@ describe('createCoreRuntime', () => {
       const { sessionId, wsId } = await spawnClaudeTab(rt)
       expect(fake.envs[0].INTERSECT_INSTANCE_ID).toBe(sessionId)
 
-      const shellTab = (await rt.handleRequest(Channel.tabsCreate, [wsId, 'shell', null])) as {
+      const shellTab = (await rt.handleRequest(Channel.tabsCreate, [wsId, 'shell', 0, null])) as {
         id: string
       }
       await rt.handleRequest(Channel.terminalSpawn, [

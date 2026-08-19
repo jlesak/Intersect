@@ -22,18 +22,19 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
       return d.tabs.listByWorkspace(workspaceId)
     },
 
-    async create(workspaceId, preset, resumeSessionId, primaryWorkItem) {
-      // Tab and primary work item land in one transaction, so a card launch can never leave a
-      // session without its ref (or a ref without its session). The item also supplies the
-      // default title; renaming later never touches the ref.
-      const tab = tx(d.db, () => {
+    async create(workspaceId, preset, paneSlot, resumeSessionId, primaryWorkItem) {
+      // Tab, primary work item and focus land in one transaction, so a card launch can never
+      // leave a session without its ref (or a ref without its session). The item also supplies
+      // the default title; renaming later never touches the ref. The activation stamp is what
+      // makes the brand-new tab the one its pane shows, rather than whichever tab of that group
+      // was last looked at.
+      return tx(d.db, () => {
         const title = primaryWorkItem ? workItemTabTitle(primaryWorkItem) : undefined
-        const created = d.tabs.create(workspaceId, preset, title, resumeSessionId)
+        const created = d.tabs.create(workspaceId, preset, title, resumeSessionId, paneSlot)
         if (primaryWorkItem) d.workItems.set(created.id, primaryWorkItem)
-        return created
+        d.workspaces.setActiveTab(workspaceId, created.id)
+        return d.tabs.touchActive(created.id, Date.now())
       })
-      d.workspaces.setActiveTab(workspaceId, tab.id)
-      return tab
     },
 
     async rename(id, title) {
@@ -54,23 +55,26 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
       })
     },
 
-    async reorder(workspaceId, orderedIds) {
-      return tx(d.db, () => d.tabs.reorder(workspaceId, orderedIds))
-    },
-
-    async assignToPane(id, slot) {
-      // Atomically enforce one-tab-per-slot: evict any other tab holding the slot, then assign.
+    async moveTab(id, slot, index) {
       return tx(d.db, () => {
-        if (slot !== null) {
-          const tab = d.tabs.getById(id)
-          if (tab) d.tabs.clearPaneSlot(tab.workspaceId, slot, id)
-        }
-        return d.tabs.setPaneSlot(id, slot)
+        const before = d.tabs.getById(id)
+        const tabs = d.tabs.moveToGroup(id, slot, index)
+        // A tab sent to another pane is a tab the user asked that pane to show, so it takes the
+        // group it joins - both for a drop and for the "Open in pane N" entry that says as much.
+        // A reorder inside one group is only a change of position and leaves the shown tab alone.
+        if (!before || before.paneSlot === slot) return tabs
+        d.tabs.touchActive(id, Date.now())
+        return d.tabs.listByWorkspace(before.workspaceId)
       })
     },
 
     async setActive(workspaceId, tabId) {
-      d.workspaces.setActiveTab(workspaceId, tabId)
+      // Focus is two facts written together: the workspace's active tab (which group has focus)
+      // and the tab's activation stamp (which tab that group shows).
+      return tx(d.db, () => {
+        d.workspaces.setActiveTab(workspaceId, tabId)
+        return d.tabs.touchActive(tabId, Date.now())
+      })
     }
   }
 }
@@ -81,8 +85,7 @@ export function tabsWireRoutes(h: IpcApi['tabs']): WireRoutes {
     [Channel.tabsCreate]: h.create,
     [Channel.tabsRename]: h.rename,
     [Channel.tabsRemove]: h.remove,
-    [Channel.tabsReorder]: h.reorder,
-    [Channel.tabsAssignToPane]: h.assignToPane,
+    [Channel.tabsMoveTab]: h.moveTab,
     [Channel.tabsSetActive]: h.setActive
   }
 }

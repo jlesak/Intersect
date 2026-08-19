@@ -1,5 +1,14 @@
 import { type Locator, type Page } from '@playwright/test'
-import { expect, launch, openRailSection, test, userDataDir } from './harness'
+import {
+  addWorkspace,
+  expect,
+  launch,
+  openRailSection,
+  stubQuitConfirm,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 /** The local `yyyy-mm-dd` day key of a Date (mirrors the app's local-calendar due days). */
 function dayKey(d: Date): string {
@@ -214,4 +223,25 @@ test('pointer and keyboard reorder persist across renderer reload and app restar
     'third',
     'first'
   ])
+})
+
+test('a row starts a Claude session on the task without opening its editor', async () => {
+  const profileDir = userDataDir()
+  const wsDir = tempDir('todo-ws-')
+  const { app, win } = await launch(profileDir, { openOther: true })
+  await addWorkspace(win, app, wsDir)
+  await stubQuitConfirm(app)
+  await openTodo(win)
+  await addTask(win, 'Draft the migration plan')
+
+  const row = openRows(win).first()
+  await row.hover()
+  await row.getByRole('button', { name: 'Start session' }).click()
+
+  // The tab and its terminal exist whether or not `claude` is installed on this machine.
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-tab__workitem')).toHaveText('TODO')
+
+  // A live session makes quitting prompt; this close walks the real teardown with it answered.
+  await app.close()
 })

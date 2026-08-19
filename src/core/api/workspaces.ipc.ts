@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
-import { reconcilePanes } from '@common/layout'
 import { SELECTED_WORKSPACE_KEY, type AppStateRepo } from '../db/appStateRepo'
 import type { ProjectRepo } from '../db/projectRepo'
 import type { TabRepo } from '../db/tabRepo'
@@ -58,10 +57,12 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
 
     async setLayout(id, layout) {
       return tx(d.db, () => {
-        const ws = d.workspaces.setLayout(id, layout)
-        const assignments = reconcilePanes(d.tabs.listByWorkspace(id), layout, ws.activeTabId)
-        d.tabs.setPaneSlots(assignments)
-        return ws
+        // The merge is positional, so it needs the layout being left behind. Reading it before
+        // the write is the only chance to know it.
+        const previous = d.workspaces.getById(id)
+        if (!previous) throw new Error(`Workspace not found: ${id}`)
+        const workspace = d.workspaces.setLayout(id, layout)
+        return { workspace, tabs: d.tabs.regroup(id, previous.layout, layout) }
       })
     },
 

@@ -8,17 +8,28 @@ import { useFindStore } from './findStore'
  */
 export function isTerminalFindTarget(target: EventTarget | null): boolean {
   if (target === document.body) return true
-  return target instanceof Element && target.closest('.ix-stage') !== null
+  if (!(target instanceof Element)) return false
+  // A tab's rename field stands inside the stage, and every key belongs to it while it is up:
+  // taking this one would blur the field, and a blur is what commits the rename.
+  if (target.closest('.ix-tab__rename') !== null) return false
+  return target.closest('.ix-stage') !== null
 }
 
 /**
  * The terminal a find request is about: the pane the keystroke came from, or - with nothing
  * focused - the first pane actually on screen. Resolution is DOM-first because in a split layout
  * the active tab may hold no pane at all.
+ *
+ * A pane is more than its terminal: its tab strip carries no session id, so a keystroke raised on
+ * a tab is answered by the terminal of the pane that tab belongs to. Only a keystroke from outside
+ * every pane, or from a pane with no terminal behind it, reaches the first pane on screen.
  */
 export function resolveFindSession(target: EventTarget | null): string | null {
-  const owner = target instanceof Element ? target.closest('[data-session-id]') : null
-  const pane = owner ?? document.querySelector('.ix-stage [data-session-id]')
+  const element = target instanceof Element ? target : null
+  const pane =
+    element?.closest('[data-session-id]') ??
+    element?.closest('.ix-pane')?.querySelector('[data-session-id]') ??
+    document.querySelector('.ix-stage [data-session-id]')
   return pane?.getAttribute('data-session-id') ?? null
 }
 
