@@ -167,11 +167,13 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
       reportError('Could not open a terminal', e)
       return null
     }
-    set((s) => ({ ...indexTabs([...selectTabList(s), created]), lastPreset: preset }))
-    // A fresh tab carries no activation stamp, so its group would go on showing whatever it
-    // showed before. Going through setActiveTab is the one path that both moves focus and writes
-    // the stamp the visible-tab rule reads, so the pane switches to the terminal just opened.
-    await get().setActiveTab(created.id)
+    // Main creates, stamps and focuses in one transaction, so the created tab already carries the
+    // activation stamp its group reads to decide what to show. Mirroring it locally is enough.
+    set((s) => ({
+      ...indexTabs([...selectTabList(s), created]),
+      activeTabId: created.id,
+      lastPreset: preset
+    }))
     return created
   },
 

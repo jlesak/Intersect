@@ -112,7 +112,9 @@ describe('tabsStore', () => {
       [...group(0, ['a']), ...group(1, ['b'])],
       workspace({ layout: 'columns', activeTabId: 'b' })
     )
-    mocked.create.mockResolvedValue(tab('c', { paneSlot: 1, sortOrder: 1 }))
+    // Main creates, stamps and focuses in one transaction, so the tab comes back already carrying
+    // the activation stamp that decides what its group shows.
+    mocked.create.mockResolvedValue(tab('c', { paneSlot: 1, sortOrder: 1, lastActiveAt: ++stamp }))
 
     const created = await useTabsStore.getState().createTab('shell')
 
