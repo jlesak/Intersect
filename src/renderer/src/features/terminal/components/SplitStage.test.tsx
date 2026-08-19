@@ -4,17 +4,28 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Tab } from '@common/domain'
 import { equalShares } from '@common/terminalLayoutShares'
+import { useTabsStore } from '@renderer/features/tabs'
 import { useLayoutRatiosStore } from '../layoutRatios'
 import * as ipc from '../ipc'
 import { SplitStage, type SplitStageProps } from './SplitStage'
 
-// The stage's structure is under test, not the terminal controller; a marker div stands in
-// for the live xterm host.
+// The stage's structure is under test, so the terminal controller and the tab bar both stand in as
+// marker divs. The bar has its own suite; here all that matters is that every pane gets one, and
+// which group it was told to show.
 vi.mock('./TerminalPane', async () => {
   const { createElement } = await import('react')
   return {
     TerminalPane: ({ sessionId }: { sessionId: string }) =>
       createElement('div', { className: 'test-terminal', 'data-session-id': sessionId })
+  }
+})
+
+vi.mock('@renderer/features/tabs/components/PaneTabBar', async () => {
+  const { createElement } = await import('react')
+  return {
+    PaneTabBar: ({ slot }: { slot: number }) =>
+      createElement('div', { className: 'test-tabbar', 'data-slot': String(slot) }),
+    openTabInGroup: vi.fn(async () => {})
   }
 })
 
@@ -26,7 +37,7 @@ vi.mock('../ipc', () => ({
 const getLayouts = vi.mocked(ipc.getTerminalLayouts)
 const setLayout = vi.mocked(ipc.setTerminalLayout)
 
-function tab(id: string, paneSlot: number | null): Tab {
+function tab(id: string, paneSlot: number): Tab {
   return {
     id,
     workspaceId: 'ws1',
@@ -34,11 +45,23 @@ function tab(id: string, paneSlot: number | null): Tab {
     preset: 'shell',
     paneSlot,
     sortOrder: 0,
+    lastActiveAt: null,
     resumeSessionId: null,
     sessionStatus: null,
     suspendReason: null,
     suspendedAt: null
   }
+}
+
+/** The stage reads which tab each group shows straight off the tabs store, so tests seed it. */
+function seedTabs(tabs: Tab[]): void {
+  useTabsStore.setState({
+    status: 'ready',
+    workspaceId: 'ws1',
+    byId: Object.fromEntries(tabs.map((t) => [t.id, t])),
+    order: tabs.map((t) => t.id),
+    activeTabId: tabs[0]?.id ?? null
+  })
 }
 
 function stage(props: Partial<SplitStageProps> = {}): React.ReactElement {
@@ -47,9 +70,6 @@ function stage(props: Partial<SplitStageProps> = {}): React.ReactElement {
     cwd: '/repo',
     projectKey: 'p1',
     layout: 'columns',
-    activeTabId: 't1',
-    tabs: [tab('t1', 0), tab('t2', 1)],
-    onAssign: () => {},
     ...props
   })
 }
@@ -90,6 +110,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 500 })
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 500 })
   useLayoutRatiosStore.setState(initial, true)
+  seedTabs([tab('t1', 0), tab('t2', 1)])
   getLayouts.mockClear()
   getLayouts.mockResolvedValue({})
   setLayout.mockClear()
@@ -101,6 +122,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  useTabsStore.getState().clear()
   if (offsetDescriptors.width) {
     Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetDescriptors.width)
   }
@@ -148,8 +170,8 @@ describe('SplitStage structure', () => {
 
   test('grid nests a row group per column half, slots keeping their positions', async () => {
     seedLoaded()
-    const tabs = [tab('t1', 0), tab('t2', 1), tab('t3', 2), tab('t4', 3)]
-    await render(stage({ layout: 'grid', tabs }))
+    seedTabs([tab('t1', 0), tab('t2', 1), tab('t3', 2), tab('t4', 3)])
+    await render(stage({ layout: 'grid' }))
     expect(host.querySelectorAll('[role="separator"]')).toHaveLength(3)
     // Left half holds slots 0 and 2 (top/bottom), right half slots 1 and 3.
     const left = host.querySelector('[data-panel][id="left"]')
@@ -160,12 +182,40 @@ describe('SplitStage structure', () => {
     expect(right?.querySelector('[id="slot-3"] .test-terminal')?.getAttribute('data-session-id')).toBe('ws1:t4')
   })
 
-  test('an unfilled slot renders the empty-pane placement UI inside its panel', async () => {
+  test('every pane carries its own tab bar, above the terminal it names', async () => {
     seedLoaded()
-    await render(stage({ layout: 'columns', tabs: [tab('t1', 0), tab('t2', null)] }))
+    await render(stage({ layout: 'columns' }))
+    const bars = [...host.querySelectorAll('.test-tabbar')]
+    expect(bars.map((b) => b.getAttribute('data-slot'))).toEqual(['0', '1'])
+    // The bar comes first inside the pane, so the tab name sits directly over its terminal.
+    const pane = host.querySelector('[id="slot-0"] .ix-pane')!
+    expect([...pane.children].map((c) => c.className)).toEqual(['test-tabbar', 'ix-pane__body'])
+    expect(pane.querySelector('.ix-pane__body .test-terminal')).toBeTruthy()
+  })
+
+  test('a group with no tabs keeps its bar and offers the two terminal starters', async () => {
+    seedLoaded()
+    seedTabs([tab('t1', 0)])
+    await render(stage({ layout: 'columns' }))
     const empty = host.querySelector('.ix-pane--empty')
     expect(empty).toBeTruthy()
-    expect(empty?.textContent).toContain('Place “t2” here')
+    expect(empty?.querySelector('.test-tabbar')).toBeTruthy()
+    expect(empty?.querySelector('.test-terminal')).toBeNull()
+    const starters = [...empty!.querySelectorAll('.ix-pane__empty .ix-btn')].map((b) => b.textContent)
+    expect(starters.map((t) => t?.trim())).toEqual(['Shell', 'Claude Code'])
+  })
+
+  test('a group shows the tab it activated most recently', async () => {
+    seedLoaded()
+    seedTabs([
+      tab('t1', 0),
+      { ...tab('t2', 0), sortOrder: 1, lastActiveAt: 500 },
+      tab('t3', 1)
+    ])
+    await render(stage({ layout: 'columns' }))
+    expect(
+      host.querySelector('[id="slot-0"] .test-terminal')?.getAttribute('data-session-id')
+    ).toBe('ws1:t2')
   })
 
   test('before the project shares load, the stage falls back to the static equal grid', async () => {

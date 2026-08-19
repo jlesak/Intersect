@@ -2,19 +2,20 @@ import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Tab, Workspace } from '@common/domain'
 import { useAttentionStore } from '@renderer/features/attention'
-import { useTabsStore } from '@renderer/features/tabs'
+import { selectTabList, useTabsStore } from '@renderer/features/tabs'
 import { useWorkspacesStore } from '../store'
 import { WorkspaceView } from './WorkspaceView'
 
 // The split stage owns live xterm instances inside a measured resizable layout, and jsdom provides
-// neither layout nor a preload bridge to drive them. The stage has its own suite; here a marker
-// stands in for it, and the terminal slice's remaining entry points are inert, so what this mount
-// exercises is the terminal area's own subscription to the tab list.
+// neither layout nor a preload bridge to drive them. The stage has its own suite - including the
+// per-pane tab bars it now renders; here a marker stands in for it, and the terminal slice's
+// remaining entry points are inert, so what this mount exercises is the terminal area's own
+// subscription to the tab list.
 const uninstallFind = vi.hoisted(() => vi.fn())
 const installTerminalFindShortcut = vi.hoisted(() => vi.fn(() => uninstallFind))
 vi.mock('@renderer/features/terminal', () => ({
-  SplitStage: ({ tabs }: { tabs: Tab[] }) => (
-    <div data-testid="split-stage" data-tab-count={tabs.length} />
+  SplitStage: ({ layout }: { layout: string }) => (
+    <div data-testid="split-stage" data-layout={layout} />
   ),
   installTerminalFindShortcut,
   disposeSession: () => {},
@@ -40,8 +41,9 @@ function tab(id: string, over: Partial<Tab> = {}): Tab {
     workspaceId: WORKSPACE_ID,
     title: id,
     preset: 'shell',
-    paneSlot: null,
+    paneSlot: 0,
     sortOrder: 0,
+    lastActiveAt: null,
     resumeSessionId: null,
     sessionStatus: null,
     suspendReason: null,
@@ -112,11 +114,12 @@ describe('WorkspaceView', () => {
       })
 
       expect(logged).toEqual([])
-      // Hydration filled the tab list, so both the bar and the stage read a populated selector.
-      const titles = [...document.querySelectorAll('.ix-tab__title')].map((e) => e.textContent)
-      expect(titles).toEqual(['shell', 'claude'])
+      // Hydration filled the tab list, and the area handed the stage the workspace's layout. The
+      // tab bars themselves now live inside the stage, one per pane.
+      expect(selectTabList(useTabsStore.getState()).map((t) => t.title)).toEqual(['shell', 'claude'])
+      expect(document.querySelector('.ix-tabbar')).toBeNull()
       const stage = document.querySelector('[data-testid="split-stage"]')
-      expect(stage?.getAttribute('data-tab-count')).toBe('2')
+      expect(stage?.getAttribute('data-layout')).toBe('columns')
     } finally {
       consoleError.mockRestore()
     }
@@ -137,7 +140,7 @@ describe('WorkspaceView', () => {
     expect(uninstallFind).toHaveBeenCalledTimes(1)
   })
 
-  test('a hydrated workspace with no tabs offers the terminal starters', async () => {
+  test('a workspace with no tabs at all offers the terminal starters in place of the stage', async () => {
     stubBridge([])
     seedSelection()
 

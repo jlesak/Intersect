@@ -5,5 +5,5 @@ export {
   selectGroupVisibleTab,
   selectFocusedSlot
 } from './store'
-export { PaneTabBar } from './components/PaneTabBar'
+export { PaneTabBar, openTabInGroup } from './components/PaneTabBar'
 export { registerTabsFeature } from './register'

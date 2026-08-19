@@ -1,15 +1,16 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Preset } from '@common/domain'
-import { selectTabList, TabBar, useTabsStore } from '@renderer/features/tabs'
+import { selectTabList, useTabsStore } from '@renderer/features/tabs'
 import { installTerminalFindShortcut, SplitStage } from '@renderer/features/terminal'
 import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
 
 /**
- * The terminal area of a project context: tab bar over the split stage. `projectScope` narrows it
- * to one project's workspaces (null = the Other bucket): a selection outside the scope renders as
- * empty instead of leaking another project's terminals; omit the prop for the unscoped area.
+ * The terminal area of a project context: the split stage, each of whose panes carries its own
+ * tab bar. `projectScope` narrows it to one project's workspaces (null = the Other bucket): a
+ * selection outside the scope renders as empty instead of leaking another project's terminals;
+ * omit the prop for the unscoped area.
  */
 export function WorkspaceView({ projectScope }: { projectScope?: string | null }) {
   let selected = useWorkspacesStore(selectSelectedWorkspace)
@@ -20,7 +21,6 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
 
   const tabsStatus = useTabsStore((s) => s.status)
   const layout = useTabsStore((s) => s.layout)
-  const activeTabId = useTabsStore((s) => s.activeTabId)
   const workspaceId = useTabsStore((s) => s.workspaceId)
   const tabs = useTabsStore(useShallow(selectTabList))
 
@@ -46,23 +46,19 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
 
   const ready = tabsStatus === 'ready' && workspaceId === selected.id
 
+  // Every tab now lives in a group, so the only workspace-wide empty state left is a workspace
+  // with nothing open at all; anything less is a pane's own empty state, under its own tab bar.
+  if (ready && tabs.length === 0) {
+    return <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
+  }
+
   return (
-    <>
-      <TabBar />
-      {ready && tabs.length === 0 ? (
-        <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
-      ) : (
-        <SplitStage
-          workspaceId={selected.id}
-          cwd={selected.folderPath}
-          projectKey={selected.projectId ?? 'other'}
-          layout={layout}
-          activeTabId={activeTabId}
-          tabs={tabs}
-          onAssign={(tabId, slot) => void useTabsStore.getState().assignToPane(tabId, slot)}
-        />
-      )}
-    </>
+    <SplitStage
+      workspaceId={selected.id}
+      cwd={selected.folderPath}
+      projectKey={selected.projectId ?? 'other'}
+      layout={layout}
+    />
   )
 }
 
