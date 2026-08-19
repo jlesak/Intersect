@@ -73,8 +73,14 @@ export function SettingsView() {
 
         <div className="ix-settings__body">
           {/* Keyed by category so switching away from a pane that failed mounts the next one
-              clean, leaving the user a way out instead of a dead settings region. */}
-          <ErrorBoundary key={category} scope="region">
+              clean, leaving the user a way out instead of a dead settings region. That way out is
+              the category nav beside this boundary, which the crash never reaches, so the recovery
+              line names it rather than the sidebar further out. */}
+          <ErrorBoundary
+            key={category}
+            scope="region"
+            recovery="The rest of Settings is unaffected. Pick another category in the list on the left, or retry this one."
+          >
             <div className="ix-settings__pane ix-settings__pane--active">
               <Pane />
             </div>

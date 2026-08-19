@@ -9,18 +9,20 @@ import { rendererLogger } from '../logging/logger'
 export const RENDERER_CRASH_LOG_MESSAGE = 'error boundary caught a failure'
 
 /**
- * How far the failure reaches.
+ * How far the failure reaches, and what the surface may offer as a way on.
  *
- * `window` is the last resort around the whole tree - nothing outside it survived, so rebuilding
- * the renderer is all that is left to offer. `region` contains the failure to the main content
- * area, leaving the sidebar and overlays alive so the user can simply navigate elsewhere.
+ * `window` is the last resort around the whole tree: nothing outside it survived, so rebuilding
+ * the renderer is all that is left to offer. `region` contains the failure to one content area,
+ * whether that area is the shell's main slot or a pane nested well inside one, leaving everything
+ * around it alive so the user can navigate elsewhere.
+ *
+ * A region boundary can be mounted anywhere and from the inside can see none of what surrounds it,
+ * so `recovery` is the caller's to supply: one sentence naming the navigation still live beside
+ * this particular boundary. Leaving it out falls back to a line that holds at any mount point.
  */
-export type ErrorBoundaryScope = 'window' | 'region'
-
-interface ErrorBoundaryProps {
-  scope: ErrorBoundaryScope
-  children: ReactNode
-}
+type ErrorBoundaryProps =
+  | { scope: 'window'; children: ReactNode }
+  | { scope: 'region'; recovery?: string; children: ReactNode }
 
 interface ErrorBoundaryState {
   /**
@@ -69,10 +71,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children
     const reason = crashReason(this.state.error)
-    return this.props.scope === 'window' ? (
+    const props = this.props
+    return props.scope === 'window' ? (
       <WindowCrash reason={reason} onRetry={this.retry} />
     ) : (
-      <RegionCrash reason={reason} onRetry={this.retry} />
+      <RegionCrash reason={reason} recovery={props.recovery} onRetry={this.retry} />
     )
   }
 }
@@ -110,18 +113,33 @@ function WindowCrash({ reason, onRetry }: { reason: string; onRetry: () => void 
 }
 
 /**
- * The contained failure surface for the main region: it keeps the shell's own layout slot so the
- * sidebar and overlays stay usable, and says plainly that switching context is a way out.
+ * The recovery line a region boundary falls back on when its caller named nothing. It has to hold
+ * wherever a boundary is mounted, so it points at no navigation of its own: a caller who forgets
+ * the prop then costs the user some vagueness, and can never send them somewhere that is not there.
  */
-function RegionCrash({ reason, onRetry }: { reason: string; onRetry: () => void }) {
+const DEFAULT_REGION_RECOVERY =
+  'The failure stopped at this view, so everything around it is still working. Retry it, or come back to it later.'
+
+/**
+ * The contained failure surface for one region. It fills the slot it was mounted into and centres
+ * the card there, so it reads the same whether it stands in for the shell's whole main area or for
+ * a single pane nested inside one. Everything around it stays usable, and the recovery line says
+ * which piece of that surviving navigation to reach for.
+ */
+function RegionCrash({
+  reason,
+  recovery = DEFAULT_REGION_RECOVERY,
+  onRetry
+}: {
+  reason: string
+  recovery?: string
+  onRetry: () => void
+}) {
   return (
-    <div className="ix-main ix-crash ix-crash--region" role="alert">
+    <div className="ix-crash ix-crash--region" role="alert">
       <div className="ix-crash__card">
         <h1>This view could not render</h1>
-        <p>
-          The rest of the app is unaffected - pick another project or section in the sidebar, or
-          retry this one.
-        </p>
+        <p>{recovery}</p>
         {reason && <p className="ix-crash__reason">{reason}</p>}
         <div className="ix-crash__actions">
           <button type="button" className="ix-btn ix-btn--primary" onClick={onRetry}>

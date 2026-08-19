@@ -50,6 +50,10 @@ describe('App shell containment of a crashing main region', () => {
       const railLabels = [...document.querySelectorAll('.ix-rail__label')].map((e) => e.textContent)
       expect(railLabels).toContain('Healthy')
       expect(railLabels).toContain('Broken')
+      // And the fallback points at that sidebar by name, because here it is what survived.
+      expect(document.querySelector('.ix-crash__card')?.textContent).toContain(
+        'Pick another project or section in the sidebar'
+      )
     } finally {
       consoleError.mockRestore()
     }

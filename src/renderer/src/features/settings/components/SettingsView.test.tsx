@@ -144,6 +144,12 @@ describe('SettingsView', () => {
       expect(document.querySelector('.ix-crash--region')).toBeTruthy()
       expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(8)
 
+      // Those eight buttons are the way out of a crashed pane, so the fallback names them. The
+      // sidebar would send the user out of Settings altogether, which is a longer way round.
+      const card = document.querySelector('.ix-crash__card')?.textContent ?? ''
+      expect(card).toContain('Pick another category in the list on the left')
+      expect(card).not.toContain('sidebar')
+
       // The failing pane is still rigged to throw, so reaching another category proves the crash
       // was left behind with it rather than sticking to the whole settings region.
       await selectCategory('Vzhled')

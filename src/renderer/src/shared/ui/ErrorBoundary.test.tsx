@@ -52,9 +52,38 @@ describe('ErrorBoundary', () => {
 
     const fallback = document.querySelector('.ix-crash--region')
     expect(fallback).toBeTruthy()
-    // It keeps the shell's main slot so the surrounding layout is unaffected.
-    expect(fallback?.classList.contains('ix-main')).toBe(true)
+    // The variant sizes itself from whatever slot it lands in, so it must not also claim the
+    // shell's own main slot: one of those nested inside another is what left the card stranded
+    // unsized at the top of a settings pane.
+    expect(fallback?.classList.contains('ix-main')).toBe(false)
     expect(fallback?.querySelector('.ix-crash__reason')?.textContent).toBe('boom')
+  })
+
+  test('a region crash with no recovery line offers one that holds at any mount point', () => {
+    render(
+      <ErrorBoundary scope="region">
+        <AlwaysFails />
+      </ErrorBoundary>
+    )
+
+    const card = document.querySelector('.ix-crash__card')?.textContent ?? ''
+    expect(card).toContain('everything around it is still working')
+    // A boundary cannot see what surrounds it. Left to itself it names no navigation at all, so
+    // that a caller who passes nothing gets a line that stays true wherever it is mounted.
+    expect(card).not.toContain('sidebar')
+    expect(card).not.toContain('category')
+  })
+
+  test('a caller-supplied recovery line replaces the default one', () => {
+    render(
+      <ErrorBoundary scope="region" recovery="Pick another tab in the strip above.">
+        <AlwaysFails />
+      </ErrorBoundary>
+    )
+
+    const card = document.querySelector('.ix-crash__card')?.textContent ?? ''
+    expect(card).toContain('Pick another tab in the strip above.')
+    expect(card).not.toContain('everything around it is still working')
   })
 
   test('the caught error and its component stack are logged under the greppable message', () => {
