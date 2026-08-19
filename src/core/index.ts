@@ -70,7 +70,8 @@ parentPort.on('message', (event) => {
       emitPush: (channel, payload) => rpc.push(channel, payload),
       spawn: nodePtySpawn,
       ensureSpawnHelper: ensureSpawnHelperExecutable,
-      applyLoginShellPath
+      applyLoginShellPath,
+      logger
     })
     rpc.push(CORE_READY_PUSH, null)
     logger.info('core ready')

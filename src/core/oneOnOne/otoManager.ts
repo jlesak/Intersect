@@ -4,6 +4,7 @@ import { chmod, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OtoRun, OtoRunType } from '@common/domain'
+import type { Logger } from '@common/logging/logger'
 import type { OtoRunRepo } from '../db/otoRunRepo'
 import type { PtyProcess, SpawnFn } from '../pty/sessionManager'
 import { parseOtoReport, type OtoReportPayload } from './otoReport'
@@ -23,6 +24,11 @@ export interface OtoManagerDeps {
   prepTimeoutMs?: number
   /** Override for tests: the user settings file whose env block is scanned for secrets. */
   userSettingsPath?: string
+  /**
+   * Diagnostic surface for a run whose outcome could not be recorded. Optional so tests can
+   * construct the manager without one; production always supplies it.
+   */
+  logger?: Logger
 }
 
 /** The request the IPC layer hands to start(), already validated and enriched. */
@@ -300,7 +306,9 @@ export function createOtoManager(d: OtoManagerDeps): OtoManager {
       })
       void runSession(run, req)
         .then((outcome) => land(run.id, outcome))
-        .catch((err) => console.error('[intersect] 1:1 run bookkeeping failed:', err))
+        .catch((err) =>
+          d.logger?.error('1:1 run bookkeeping failed', { data: { runId: run.id }, err })
+        )
       return run
     },
 

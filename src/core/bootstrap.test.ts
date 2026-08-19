@@ -9,6 +9,7 @@ import { Channel } from '@common/ipc'
 import type { PtyProcess, SpawnFn } from './pty/sessionManager'
 import { buildMarker, PERMISSION_TOKEN, STOP_TOKEN } from './pty/attentionMarkers'
 import { readListenerSidecar } from './hooks/listenerSidecar'
+import { createLogger } from '@common/logging/logger'
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
 
 /** A recording PTY fake: enough surface for the session manager, no native module. */
@@ -70,7 +71,8 @@ describe('createCoreRuntime', () => {
       emitPush: (channel, payload) => pushes.push({ channel, payload }),
       spawn: fake.spawn,
       ensureSpawnHelper: () => {},
-      applyLoginShellPath: () => Promise.resolve()
+      applyLoginShellPath: () => Promise.resolve(),
+      logger: createLogger({ sink: { write: () => {} }, level: 'error', proc: 'core' })
     })
     return runtime
   }

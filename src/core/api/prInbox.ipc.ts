@@ -1,6 +1,7 @@
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
+import type { Logger } from '@common/logging/logger'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
@@ -39,7 +40,12 @@ export interface PrInboxHandlerDeps {
    * resolution may throw when the identity is not configured.
    */
   resolveIdentity?: () => Promise<AdoIdentity>
-  /** Warn surface for partial sync failures (defaults to console.warn). */
+  /**
+   * Diagnostic surface for the slice. Optional so tests can construct the handlers without one;
+   * production always supplies it.
+   */
+  logger?: Logger
+  /** Warn surface for partial sync failures (defaults to the injected logger). */
   warn?: (message: string) => void
 }
 
@@ -80,7 +86,7 @@ export function applyMyVote(reviewers: PrReviewer[], myReviewerId: string, vote:
 }
 
 export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
-  const warn = d.warn ?? ((m: string) => console.warn(m))
+  const warn = d.warn ?? ((m: string) => d.logger?.warn(m))
 
   const prCacheKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
 
@@ -265,7 +271,10 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
         return d.drafts.setStatus(id, 'published', threadId)
       } catch (dbErr) {
         const where = threadId === null ? 'in an unidentified thread' : `as thread ${threadId}`
-        console.error(`Published draft ${id} ${where} but failed to record it locally`, dbErr)
+        d.logger?.error('published draft could not be recorded locally', {
+          data: { draftId: id, threadId },
+          err: dbErr
+        })
         throw new Error(
           `Comment posted to the PR (${where}) but local state could not be updated. Do not re-publish this draft.`
         )

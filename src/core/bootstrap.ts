@@ -14,6 +14,8 @@ import {
   type WireRoutes
 } from '@common/coreBridge'
 import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
+import { withHttpLogging } from '@common/logging/httpLogging'
+import type { Logger } from '@common/logging/logger'
 import type { TerminationReason } from '@common/domain'
 import { openDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
@@ -128,6 +130,11 @@ export interface CoreRuntimeDeps {
   spawn: SpawnFn
   ensureSpawnHelper: () => void
   applyLoginShellPath: () => Promise<void>
+  /**
+   * The core's logger. Every subsystem here takes a scoped child of it, so a record names the
+   * part of the app it came from without any call site formatting a tag of its own.
+   */
+  logger: Logger
 }
 
 export interface CoreRuntime {
@@ -190,6 +197,15 @@ function safeDefaultProject(env: NodeJS.ProcessEnv, saved: AdoSettings | null): 
 export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const { userDataDir, execPath, env, emitPush } = deps
   const isE2e = env.INTERSECT_E2E === '1'
+
+  // The subsystems this composition root reports on directly, each with its own scope so the log
+  // groups by subsystem. Services that report on themselves take their own child further down.
+  const lifecycleLog = deps.logger.child('lifecycle')
+  const ptyLog = deps.logger.child('pty')
+  const agentRuntimeLog = deps.logger.child('agentRuntime')
+  // The one decorated fetch every outbound HTTP caller in the core shares, so no request reaches
+  // the network without leaving a record of its method, URL, status and duration.
+  const loggedFetch = withHttpLogging(globalThis.fetch.bind(globalThis), deps.logger.child('http'))
 
   deps.ensureSpawnHelper()
   // Launched from Finder/Dock, the process inherits only the bare /usr/bin:/bin PATH, so the
@@ -267,7 +283,11 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const notifier = createSessionNotifier({
     detect: (sessionId, chunk) => {
       const alert = detector.push(sessionId, chunk)
-      if (alert) console.log(`[lifecycle] ${sessionId}: '${alert.kind}' alert (source: marker)`)
+      if (alert) {
+        lifecycleLog.info('attention alert raised', {
+          data: { sessionId, kind: alert.kind, source: 'marker' }
+        })
+      }
       return alert
     },
     isWindowFocused: () => windowFocused,
@@ -327,7 +347,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     },
     alert: (sessionId, status, message, risk) => notifier.onAlert(sessionId, status, message, risk),
     markWorking: (sessionId) => notifier.onInput(sessionId),
-    log: (message) => console.log(message)
+    log: (message) => lifecycleLog.info(message)
   })
 
   // The authenticated localhost listener the hook helper posts to. Its failure to start is
@@ -355,16 +375,16 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         })
       })
       .catch((err) => {
-        console.warn('[lifecycle] hook listener failed to start; marker fallback active:', err)
+        lifecycleLog.warn('hook listener failed to start, marker fallback active', { err })
       })
   } catch (err) {
-    console.warn('[lifecycle] hook listener setup failed; marker fallback active:', err)
+    lifecycleLog.warn('hook listener setup failed, marker fallback active', { err })
   }
 
   // Headless snapshot pipeline: every PTY chunk is numbered and parsed into a per-session
   // headless xterm before fanout, so a reloaded renderer reattaches to the live PTY with its
   // screen, colors, and recent scrollback intact - no respawn, no lost or doubled output.
-  const snapshots = createTerminalSnapshots()
+  const snapshots = createTerminalSnapshots(ptyLog)
   const terminalStream = createTerminalStream({
     snapshots,
     // The complete fanout for one chunk: the renderer push, then the marker detector - but
@@ -374,7 +394,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       emitPush(Channel.terminalData, event)
       if (!lifecycle.isHookHealthy(event.sessionId)) notifier.onChunk(event.sessionId, event.data)
     },
-    log: (message) => console.log(message)
+    log: (message) => ptyLog.info(message)
   })
 
   const sessions = createSessionManager({
@@ -390,7 +410,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         try {
           agentRuntimeRef.current?.recomputeSession(event.sessionId)
         } catch (err) {
-          console.warn('[agentRuntime] recompute on exit failed:', err)
+          agentRuntimeLog.warn('recompute on session exit failed', {
+            data: { sessionId: event.sessionId },
+            err
+          })
         }
         notifier.forget(event.sessionId)
         detector.forget(event.sessionId)
@@ -466,7 +489,12 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   const prReviewWatermarks = createPrReviewWatermarkRepo(db, repoDeps)
   const reviewSessions = createReviewSessionRepo(db, repoDeps)
 
-  const adoClient = createAdoClient(() => resolveAdoServerConfig(env, settings.getSavedAdo()))
+  const adoLog = deps.logger.child('ado')
+  const adoClient = createAdoClient(
+    () => resolveAdoServerConfig(env, settings.getSavedAdo()),
+    undefined,
+    deps.logger.child('mcp')
+  )
   const debouncedAdoTeardown = debounce(() => void adoClient.close(), 500)
   // E2E runs swap the ADO service for a canned one, so sync (and through it the My Work PR
   // radar) runs the real cache/watermark path without a live server.
@@ -486,7 +514,11 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       priorThreadCount: (repositoryId, prId) =>
         prCache.get(repositoryId, prId)?.activeThreadCount ?? 0,
       priorActivityAt: (repositoryId, prId) => prCache.get(repositoryId, prId)?.lastActivityAt ?? 0,
-      resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
+      resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo()),
+      // The vote is the one Azure DevOps write that bypasses the MCP child, so it needs the
+      // decorated fetch handed to it rather than falling back to the bare global.
+      voteOptions: { fetchFn: loggedFetch },
+      logger: adoLog
     })
 
   const worktrees = createWorktreeManager(userDataDir)
@@ -520,7 +552,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     workspaceFolders,
     review,
     atomically: (fn) => tx(db, fn),
-    resolveIdentity
+    resolveIdentity,
+    logger: adoLog
   })
   void review.pruneOnBoot().catch(() => {})
 
@@ -557,7 +590,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   })
   agentRuntimeRef.current = agentRuntime
   void agentRuntime.recomputeAll().catch((err) => {
-    console.warn('[agentRuntime] boot recompute failed:', err)
+    agentRuntimeLog.warn('boot recompute failed', { err })
   })
   const agentRuntimeHandlers = createAgentRuntimeHandlers({ service: agentRuntime })
 
@@ -590,7 +623,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         })
       : null
   const jiraClient = createJiraClient({
-    fetch: globalThis.fetch.bind(globalThis),
+    fetch: loggedFetch,
     now: () => Date.now(),
     readSession: () => readStorageStateSession()
   })
@@ -608,7 +641,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     repo: jiraCache,
     getProject: (id) => projects.getById(id),
     now: () => Date.now(),
-    onChanged: (sourceKey) => emitPush(Channel.myWorkChanged, { sourceKey })
+    onChanged: (sourceKey) => emitPush(Channel.myWorkChanged, { sourceKey }),
+    logger: deps.logger.child('jira')
   })
   const myWorkHandlers = createMyWorkHandlers({
     engine: jiraEngine,
@@ -656,7 +690,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     // E2E runs answer with a canned identity so the button never hits the network.
     testConnection: isE2e
       ? () => Promise.resolve({ ok: true as const, displayName: 'E2E User' })
-      : (ado) => testAdoConnection(ado),
+      : (ado) => testAdoConnection(ado, { fetchFn: loggedFetch }),
     // The MCP child keeps the credentials it was spawned with, so saving new ones must drop
     // it; the next PR-sync call reconnects with the fresh config instead of the stale
     // PAT/org. Debounced because the form persists per keystroke.
@@ -696,7 +730,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         onRunChanged: onOtoRunChanged,
         spawn: deps.spawn,
         claudePath: resolveClaudePath(env),
-        reportServerPath: join(__dirname, 'otoReportServer.js')
+        reportServerPath: join(__dirname, 'otoReportServer.js'),
+        logger: deps.logger.child('oneOnOne')
       })
   const oneOnOneHandlers = createOneOnOneHandlers({
     runs: otoRuns,
@@ -771,7 +806,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         })
       }
     } catch (err) {
-      console.warn('[lifecycle] suspend-on-quit marking failed:', err)
+      lifecycleLog.warn('suspend-on-quit marking failed', { err })
     }
     sessions.killAll()
     terminalStream.disposeAll()

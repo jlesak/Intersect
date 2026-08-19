@@ -1,5 +1,6 @@
 import type { PrThread, PrVote, PullRequest } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
+import type { Logger } from '@common/logging/logger'
 import type { AdoClient } from './adoClient'
 import {
   mapPullRequest,
@@ -55,6 +56,11 @@ export interface AdoServiceDeps {
   resolveVoteCredentials: () => { orgUrl: string; pat: string }
   /** Injected in tests to fake the vote HTTP round-trip. */
   voteOptions?: CastVoteOptions
+  /**
+   * Diagnostic surface for the two partial outcomes a sync tolerates. Optional so tests can
+   * construct the service without one; production always supplies it.
+   */
+  logger?: Logger
 }
 
 export interface SyncResult {
@@ -202,7 +208,10 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
             const count = threads.filter((t) => !t.isSystem && isThreadUnresolved(t)).length
             return { ...pr, activeThreadCount: count, lastActivityAt: lastActivity(pr, threads) }
           } catch (err) {
-            console.warn(`Thread fetch failed for PR ${pr.prId} in ${pr.repositoryName}`, err)
+            d.logger?.warn('pull request thread fetch failed', {
+              data: { prId: pr.prId, repository: pr.repositoryName },
+              err
+            })
             return {
               ...pr,
               activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId),
@@ -235,7 +244,9 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         // The comment is already live on the pull request at this point, so this is bookkeeping
         // loss rather than a failed write. Reporting it as a failure would send the caller into a
         // retry that posts a duplicate.
-        console.warn('Azure DevOps published the comment but returned no thread id', res)
+        d.logger?.warn('published comment came back without a thread id', {
+          data: { prId: input.prId, repositoryId: input.repositoryId }
+        })
         return null
       }
       return threadId
