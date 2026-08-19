@@ -219,26 +219,45 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     },
 
     async publishComment(input) {
-      const res = await d.client.callTool<AddCommentResult>('add_pull_request_comment', {
-        pullRequestId: input.prId,
-        repositoryId: input.repositoryId,
-        projectId: d.projectId(),
-        content: input.body,
-        ...(input.filePath !== null ? { filePath: input.filePath } : {}),
-        ...(input.line !== null ? { lineNumber: input.line } : {}),
-        status: 'active'
-      })
+      // Widened past the success shape on purpose: the client hands back a bare string for a body
+      // it could not parse and undefined for an empty one, and both reach this call in practice.
+      const res: AddCommentResult | string | undefined = await d.client.callTool<AddCommentResult>(
+        'add_pull_request_comment',
+        {
+          pullRequestId: input.prId,
+          repositoryId: input.repositoryId,
+          projectId: d.projectId(),
+          content: input.body,
+          ...(input.filePath !== null ? { filePath: input.filePath } : {}),
+          ...(input.line !== null ? { lineNumber: input.line } : {}),
+          status: 'active'
+        }
+      )
+
+      // Azure DevOps reports a rejected write as plain text carrying no error flag, so a refusal
+      // arrives here as a string and an empty body as undefined. Both mean the comment never
+      // reached the pull request, and rejecting is what returns the draft to pending so the author
+      // sees the reason and can retry.
+      if (typeof res !== 'object' || res === null) {
+        throw new Error(`Azure DevOps rejected the comment: ${res || 'the response was empty'}`)
+      }
+
       // Creating a thread answers with the created comment beside the created thread, so the id
       // lives under `thread`. The flat fallbacks cover a server that hands back the thread itself.
-      const threadId = res?.thread?.id ?? res?.id ?? res?.threadId
-      if (typeof threadId !== 'number') {
-        // The comment is already live on the pull request at this point, so this is bookkeeping
-        // loss rather than a failed write. Reporting it as a failure would send the caller into a
-        // retry that posts a duplicate.
-        console.warn('Azure DevOps published the comment but returned no thread id', res)
-        return null
+      const threadId = res.thread?.id ?? res.id ?? res.threadId
+      if (typeof threadId === 'number') return threadId
+
+      // An object carrying neither half of a creation is an answer to something other than the
+      // write succeeding, so it gets the same treatment as a refusal.
+      if (!res.thread && !res.comment) {
+        throw new Error('Azure DevOps returned no created thread for the comment')
       }
-      return threadId
+
+      // The comment IS live on the pull request at this point, so this is bookkeeping loss over a
+      // failed write. Reporting it as a failure would send the caller into a retry that posts a
+      // duplicate.
+      console.warn('Azure DevOps published the comment but returned no thread id', res)
+      return null
     },
 
     async replyToThread(input) {
