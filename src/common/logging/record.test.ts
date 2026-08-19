@@ -1673,10 +1673,25 @@ describe('no shape stalls the serializer', () => {
    */
   const FLOOR_MS = 1
 
+  /**
+   * How many readings each size is measured over. A reading can only be inflated by whatever else the
+   * machine is doing and never pushed below the real cost, so the lowest of several is the closest
+   * estimate of the work itself. One reading each was enough to describe an idle machine and turned
+   * a loaded one into a coin toss.
+   */
+  const SAMPLES = 3
+
   const elapsed = (record: LogRecord): number => {
     const startedAt = performance.now()
     serialize(record)
     return performance.now() - startedAt
+  }
+
+  /** The lowest of SAMPLES readings, each taken over its own freshly built record. */
+  const fastest = (build: (size: number) => LogRecord, size: number): number => {
+    let best = Infinity
+    for (let i = 0; i < SAMPLES; i += 1) best = Math.min(best, elapsed(build(size)))
+    return best
   }
 
   for (const [name, build] of Object.entries(growth)) {
@@ -1687,7 +1702,7 @@ describe('no shape stalls the serializer', () => {
       let small = 0
       while (size <= 320000) {
         elapsed(build(size))
-        small = elapsed(build(size))
+        small = fastest(build, size)
         if (small >= FLOOR_MS) break
         size *= 2
       }
@@ -1698,7 +1713,7 @@ describe('no shape stalls the serializer', () => {
         expect(elapsed(build(size)), `${name} became measurable`).toBeLessThan(FLOOR_MS)
         return
       }
-      const large = elapsed(build(size * 4))
+      const large = fastest(build, size * 4)
       // Four times the input. Linear would be about 4, quadratic about 16; 10 leaves room for noise
       // while still failing on genuinely quadratic growth.
       expect(large / small, `${name} grew ${(large / small).toFixed(1)}x`).toBeLessThan(10)
