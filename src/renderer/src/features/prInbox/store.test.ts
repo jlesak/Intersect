@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/domain'
+import { captureRendererLog } from '@renderer/shared/logging/testLog'
 
 vi.mock('./ipc')
 import * as api from './ipc'
@@ -75,6 +76,12 @@ const thread = (threadId: number, over: Partial<PrThread> = {}): PrThread => ({
 
 const mocked = vi.mocked(api)
 
+/** Every record the store shipped during the current test. */
+let logged: Array<Record<string, unknown>> = []
+
+/** Whether the log carries one record under the given message. */
+const loggedOnce = (msg: string): boolean => logged.filter((r) => r.msg === msg).length === 1
+
 beforeEach(() => {
   usePrInboxStore.setState(
     {
@@ -113,6 +120,7 @@ beforeEach(() => {
   )
   vi.clearAllMocks()
   mocked.listUnfinishedDraftReviews.mockResolvedValue([])
+  logged = captureRendererLog()
 })
 
 describe('prInboxStore', () => {
@@ -213,16 +221,13 @@ describe('prInboxStore', () => {
   })
 
   test('a quiet sync failure warns without toasting and clears the syncing flag', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mocked.sync.mockRejectedValue(new Error('ADO not configured'))
     await usePrInboxStore.getState().sync({ quiet: true })
     expect(usePrInboxStore.getState().syncing).toBe(false)
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(loggedOnce('background PR sync failed')).toBe(true)
   })
 
   test('a quiet sync failure records why, and keeps the cached board', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     usePrInboxStore.setState({
       status: 'ready',
       prsByKey: { [prKey('repo', 5)]: pr('repo', 5) },
@@ -234,16 +239,13 @@ describe('prInboxStore', () => {
     expect(s.syncError).toMatch(/ENOTFOUND/)
     expect(s.order).toEqual([prKey('repo', 5)])
     expect(s.status).toBe('ready')
-    warn.mockRestore()
   })
 
   test('a loud sync failure records why as well as toasting', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocked.sync.mockRejectedValue(new Error('ADO returned 401'))
     await usePrInboxStore.getState().sync()
     expect(usePrInboxStore.getState().syncError).toMatch(/401/)
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not sync pull requests'))
-    error.mockRestore()
+    expect(loggedOnce('Could not sync pull requests')).toBe(true)
   })
 
   test('a successful sync clears an earlier failure', async () => {
@@ -280,7 +282,6 @@ describe('prInboxStore', () => {
     })
     mocked.getChanges.mockResolvedValue([])
     mocked.listDrafts.mockRejectedValue(new Error('SQLite busy'))
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await usePrInboxStore.getState().select('repo', 1)
 
@@ -292,7 +293,6 @@ describe('prInboxStore', () => {
     await usePrInboxStore.getState().loadDrafts()
     expect(usePrInboxStore.getState().draftsStatus).toBe('ready')
     expect(usePrInboxStore.getState().drafts.map((d) => d.id)).toEqual(['d1', 'd2'])
-    error.mockRestore()
   })
 
   test('continueReview opens the persisted draft on Files without starting Claude', async () => {
@@ -376,7 +376,6 @@ describe('prInboxStore', () => {
     mocked.getChanges.mockResolvedValue([])
     mocked.listDrafts.mockResolvedValue([])
     mocked.getThreads.mockRejectedValue(new Error('TF400813: the token has expired'))
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await usePrInboxStore.getState().openDetail('repo', 1)
 
@@ -386,9 +385,7 @@ describe('prInboxStore', () => {
     expect(s.threadsError).toMatch(/TF400813/)
     // The threads render on the diff as well as in the conversation, and the diff has nowhere to
     // put the inline state - so the failure is toasted too, for a reader who is on the other tab.
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('Could not load the pull request comments')
-    )
+    expect(loggedOnce('Could not load the pull request comments')).toBe(true)
 
     mocked.getThreads.mockResolvedValue([thread(10)])
     await usePrInboxStore.getState().loadThreads()
@@ -398,8 +395,7 @@ describe('prInboxStore', () => {
     expect(s.threadsLoaded).toBe(true)
     expect(s.threadsError).toBeNull()
     // A retry that worked says nothing further.
-    expect(error).toHaveBeenCalledOnce()
-    error.mockRestore()
+    expect(loggedOnce('Could not load the pull request comments')).toBe(true)
   })
 
   test('reopening the same PR refetches its threads rather than trusting the last visit', async () => {
@@ -489,7 +485,6 @@ describe('prInboxStore', () => {
   })
 
   test('a failed castVote reports the error and leaves the PR state unchanged', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const key = prKey('repo', 1)
     usePrInboxStore.setState({
       prsByKey: { [key]: pr('repo', 1, { myVote: 'noVote', myReviewerId: 'me' }) },
@@ -499,8 +494,7 @@ describe('prInboxStore', () => {
     mocked.castVote.mockRejectedValue(new Error('ADO down'))
     await usePrInboxStore.getState().castVote('approved')
     expect(usePrInboxStore.getState().prsByKey[key].myVote).toBe('noVote')
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not cast vote'))
-    error.mockRestore()
+    expect(loggedOnce('Could not cast vote')).toBe(true)
   })
 
   test('castVote without a selected PR is a no-op', async () => {
@@ -719,13 +713,11 @@ describe('thread actions', () => {
   })
 
   test('replyToThread signals failure without clobbering threads', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     usePrInboxStore.setState({ threads: [thread(1)] })
     mocked.replyToThread.mockRejectedValue(new Error('boom'))
     const ok = await usePrInboxStore.getState().replyToThread(42, 'ok')
     expect(ok).toBe(false)
     expect(usePrInboxStore.getState().threads.map((t) => t.threadId)).toEqual([1])
-    error.mockRestore()
   })
 
   test('setThreadStatus refreshes threads and signals success', async () => {
@@ -737,11 +729,9 @@ describe('thread actions', () => {
   })
 
   test('setThreadStatus signals failure', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocked.setThreadStatus.mockRejectedValue(new Error('boom'))
     const ok = await usePrInboxStore.getState().setThreadStatus(42, 'fixed')
     expect(ok).toBe(false)
-    error.mockRestore()
   })
 
   test('addComment publishes, refreshes threads and signals success', async () => {
@@ -759,11 +749,9 @@ describe('thread actions', () => {
   })
 
   test('addComment signals failure so the composer can keep the typed text', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocked.addComment.mockRejectedValue(new Error('boom'))
     const ok = await usePrInboxStore.getState().addComment('/a.cs', 3, 'new comment')
     expect(ok).toBe(false)
-    error.mockRestore()
   })
 })
 
@@ -791,12 +779,10 @@ describe('header links to Azure DevOps', () => {
   })
 
   test('a browser that refuses to open reports it instead of vanishing', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocked.openExternal.mockRejectedValue(new Error('blocked'))
     usePrInboxStore.getState().openInBrowser()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('Could not open the pull request'))
-    error.mockRestore()
+    expect(loggedOnce('Could not open the pull request')).toBe(true)
   })
 
   test('copying puts the browsable page on the clipboard', async () => {

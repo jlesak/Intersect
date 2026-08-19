@@ -2,6 +2,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
+import { createLogger } from '@common/logging/logger'
+import { fakeSink, readRecords } from '@common/logging/testSink'
 import { createJiraLogin, type LoginProcess } from './jiraLogin'
 
 interface FakeProcess extends LoginProcess {
@@ -35,6 +37,35 @@ async function existingPaths(): Promise<{ pythonPath: string; scriptPath: string
 }
 
 describe('createJiraLogin', () => {
+  /**
+   * The login window is a child process like any other, and its failures - a window the user
+   * closed, a python that never started - reach the UI as one sentence and nothing else. The record
+   * is what makes the outcome reconstructable afterwards.
+   */
+  test('records the login child starting and exiting', async () => {
+    const proc = fakeProcess()
+    const spawn = vi.fn(() => proc)
+    const sink = fakeSink()
+    const login = createJiraLogin({
+      ...(await existingPaths()),
+      spawn,
+      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'jira' })
+    })
+
+    const result = login.login()
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalled())
+    proc.exit(1)
+    await result
+
+    const records = readRecords(sink)
+    expect(records[0]).toMatchObject({ level: 'info', scope: 'jira', msg: 'child process spawned' })
+    expect(records[1]).toMatchObject({
+      level: 'warn',
+      msg: 'child process exited',
+      data: { exitCode: 1 }
+    })
+  })
+
   test('resolves ok when the login script exits 0', async () => {
     const proc = fakeProcess()
     const spawn = vi.fn(() => proc)

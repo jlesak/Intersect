@@ -1,3 +1,4 @@
+import { rendererLogger } from '../logging/logger'
 import { createStore } from '../store/createStore'
 
 export interface Toast {
@@ -25,9 +26,9 @@ export const useToastStore = createStore<ToastState>()((set) => ({
   }
 }))
 
-/** Surface a failed operation to the user (and the console) instead of letting it vanish. */
+/** Surface a failed operation to the user (and the log) instead of letting it vanish. */
 export function reportError(message: string, error: unknown): void {
   const detail = error instanceof Error ? error.message : String(error)
-  console.error(`[intersect] ${message}${detail ? `: ${detail}` : ''}`)
+  rendererLogger().child('renderer').error(message, { err: error })
   useToastStore.getState().push(detail ? `${message}: ${detail}` : message)
 }

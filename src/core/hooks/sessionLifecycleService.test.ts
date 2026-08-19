@@ -258,11 +258,26 @@ describe('sessionLifecycleService', () => {
     it('logs finished for exit 0 and crashed for a nonzero exit', () => {
       const h = startedHarness()
       h.service.onPtyExit(SID, 0)
-      expect(h.log.mock.calls.some(([m]) => m.includes('-> finished'))).toBe(true)
+      expect(h.log.mock.calls.some(([, d]) => d?.next === 'finished')).toBe(true)
 
       const h2 = startedHarness()
       h2.service.onPtyExit(SID, 137)
-      expect(h2.log.mock.calls.some(([m]) => m.includes('-> crashed'))).toBe(true)
+      expect(h2.log.mock.calls.some(([, d]) => d?.next === 'crashed')).toBe(true)
+    })
+
+    /**
+     * A state change is the most frequent thing this service records, and the file is read by
+     * grouping on the message. A message built from the ids and states of one event puts every
+     * occurrence in its own group and leaves the values as substrings nothing can filter on.
+     */
+    it('reports a state change with a constant message and the values as fields', () => {
+      const h = startedHarness()
+      h.service.onPtyExit(SID, 137)
+      const change = h.log.mock.calls.find(([, d]) => d?.next === 'crashed')
+      expect(change?.[0]).toBe('session state changed')
+      expect(change?.[1]).toMatchObject({ sessionId: SID, source: 'pty', event: 'ptyExit' })
+      // Nothing formats a subsystem tag of its own: the record carries a scope for that.
+      expect(h.log.mock.calls.every(([m]) => !m.includes('['))).toBe(true)
     })
 
     it('exit for an untracked session is a safe no-op', () => {

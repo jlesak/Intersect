@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest'
-import { ErrorBoundary, RENDERER_CRASH_LOG_PREFIX } from './ErrorBoundary'
+import { captureRendererLog } from '../logging/testLog'
+import { ErrorBoundary, RENDERER_CRASH_LOG_MESSAGE } from './ErrorBoundary'
 
 /**
  * A child that throws until the cause is cleared. The flag lives outside the component because a
@@ -25,10 +26,14 @@ function ThrowsNull(): never {
 describe('ErrorBoundary', () => {
   let consoleError: MockInstance
   let logged: unknown[][]
+  let records: Array<Record<string, unknown>>
 
   beforeEach(() => {
     childFails = true
     logged = []
+    records = captureRendererLog()
+    // React reports every caught render failure on the console itself. That output is not the
+    // boundary's own diagnostic, and it is captured here only to keep it out of the test run.
     consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       logged.push(args)
     })
@@ -52,21 +57,20 @@ describe('ErrorBoundary', () => {
     expect(fallback?.querySelector('.ix-crash__reason')?.textContent).toBe('boom')
   })
 
-  test('the caught error and its component stack are logged under the greppable prefix', () => {
+  test('the caught error and its component stack are logged under the greppable message', () => {
     render(
       <ErrorBoundary scope="region">
         <AlwaysFails />
       </ErrorBoundary>
     )
 
-    const entry = logged.find(
-      (args) => typeof args[0] === 'string' && args[0].startsWith(RENDERER_CRASH_LOG_PREFIX)
-    )
+    const entry = records.find((r) => r.msg === RENDERER_CRASH_LOG_MESSAGE)
     expect(entry).toBeTruthy()
-    expect(entry?.[0]).toContain('(region)')
-    expect(entry?.[0]).toContain('boom')
-    expect(entry?.[1]).toBeInstanceOf(Error)
-    expect(String(entry?.[2])).toContain('AlwaysFails')
+    expect(entry?.level).toBe('error')
+    const data = entry?.data as { scope: string; componentStack: string }
+    expect(data.scope).toBe('region')
+    expect(String(data.componentStack)).toContain('AlwaysFails')
+    expect((entry?.err as { message: string }).message).toBe('boom')
   })
 
   test('retrying re-mounts the subtree and recovers a child that no longer throws', () => {
@@ -130,10 +134,7 @@ describe('ErrorBoundary', () => {
     expect(document.querySelector('.ix-crash__card h1')?.textContent).toBe(
       'This view could not render'
     )
-    const entry = logged.find(
-      (args) => typeof args[0] === 'string' && args[0].startsWith(RENDERER_CRASH_LOG_PREFIX)
-    )
-    expect(entry).toBeTruthy()
+    expect(records.find((r) => r.msg === RENDERER_CRASH_LOG_MESSAGE)).toBeTruthy()
   })
 
   test('a healthy subtree renders untouched and logs nothing', () => {
@@ -145,6 +146,7 @@ describe('ErrorBoundary', () => {
 
     expect(document.querySelector('.ix-probe')?.textContent).toBe('healthy')
     expect(document.querySelector('.ix-crash')).toBeNull()
+    expect(records).toEqual([])
     expect(logged).toEqual([])
   })
 })

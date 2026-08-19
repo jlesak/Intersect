@@ -4,6 +4,7 @@ import {
   type JiraSyncError,
   type Project
 } from '@common/domain'
+import type { Logger } from '@common/logging/logger'
 import type { JiraCacheRepo } from '../db/jiraCacheRepo'
 import { parseJiraBoardUrl, type JiraFetchResult, type ParsedBoardUrl } from './jiraClient'
 import { JIRA_GLOBAL_JQL, toSnapshots } from './jiraMapping'
@@ -29,6 +30,11 @@ export interface JiraSyncEngineDeps {
   /** A source's background refresh finished (success or failure); the renderer refetches. */
   onChanged(sourceKey: string): void
   staleMs?: number
+  /**
+   * Diagnostic surface for a fetch that succeeded with a caveat. Optional so tests can construct
+   * the engine without one; production always supplies it.
+   */
+  logger?: Logger
 }
 
 /**
@@ -87,7 +93,11 @@ export function createJiraSyncEngine(deps: JiraSyncEngineDeps): JiraSyncEngine {
   /** Land one fetch outcome in the read model. */
   function land(sourceKey: string, result: JiraFetchResult): void {
     if (result.ok) {
-      if (result.warning) console.warn(`[jira] ${sourceKey}: ${result.warning}`)
+      if (result.warning) {
+        deps.logger?.warn('jira fetch returned a warning', {
+          data: { sourceKey, warning: result.warning }
+        })
+      }
       deps.repo.putSuccess(sourceKey, toSnapshots(result.issues, deps.now()), deps.now(), result.partial)
     } else {
       deps.repo.putError(sourceKey, { kind: result.kind, message: result.message })

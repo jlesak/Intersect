@@ -8,6 +8,10 @@
  * thrown errors, so both hops of the renderer -> main -> core chain lose the same amount.
  */
 
+import { UNLOGGED_CHANNELS } from './logging/channel'
+import type { Logger } from './logging/logger'
+import { summarizeArgs } from './logging/record'
+
 /** The minimal port surface shared by MessagePortMain (main) and process.parentPort (core). */
 export interface RpcPort {
   postMessage(data: unknown): void
@@ -39,6 +43,17 @@ interface WirePush {
 type RequestHandler = (channel: string, args: unknown[]) => Promise<unknown>
 type PushHandler = (channel: string, payload: unknown) => void
 
+/**
+ * Optional observability for one end of the bridge. Instrumenting the transport rather than each
+ * call site means a single seam records everything the renderer asked for and everything the core
+ * answered.
+ */
+export interface PortRpcOptions {
+  logger?: Logger
+  /** Channels whose traffic is too high-frequency to record; defaults to the terminal fast path. */
+  unloggedChannels?: ReadonlySet<string>
+}
+
 let nextId = 0
 
 export class PortRpc {
@@ -50,7 +65,15 @@ export class PortRpc {
   private pushHandlers: PushHandler[] = []
   private disposedWith: Error | null = null
 
-  constructor(private port: RpcPort) {
+  private readonly logger: Logger | null
+  private readonly unlogged: ReadonlySet<string>
+
+  constructor(
+    private port: RpcPort,
+    options: PortRpcOptions = {}
+  ) {
+    this.logger = options.logger ?? null
+    this.unlogged = options.unloggedChannels ?? UNLOGGED_CHANNELS
     port.on('message', (msg) => this.handle(msg.data))
     port.start?.()
   }
@@ -131,7 +154,7 @@ export class PortRpc {
         try {
           handler(msg.push, msg.payload)
         } catch (err) {
-          console.error('[portRpc] push subscriber threw:', err)
+          this.logger?.error('rpc push subscriber threw', { data: { channel: msg.push }, err })
         }
       }
       return
@@ -145,15 +168,39 @@ export class PortRpc {
         try {
           await handler?.(msg.channel, args)
         } catch (err) {
-          console.error(`[portRpc] notification handler failed for ${msg.channel}:`, err)
+          this.logger?.error('rpc notification failed', {
+            data: { channel: msg.channel, args: summarizeArgs(args) },
+            err
+          })
         }
         return
       }
+      const startedAt = Date.now()
+      const loggable = this.logger !== null && !this.unlogged.has(msg.channel)
       let response: WireResponse
       try {
         if (!handler) throw new Error(`no request handler for ${msg.channel}`)
         response = { id: msg.id, ok: true, value: await handler(msg.channel, args), response: true }
+        if (loggable) {
+          this.logger?.debug('rpc served', {
+            data: {
+              channel: msg.channel,
+              args: summarizeArgs(args),
+              durationMs: Date.now() - startedAt
+            }
+          })
+        }
       } catch (err) {
+        if (loggable) {
+          this.logger?.error('rpc failed', {
+            data: {
+              channel: msg.channel,
+              args: summarizeArgs(args),
+              durationMs: Date.now() - startedAt
+            },
+            err
+          })
+        }
         // A throwing handler must still answer, otherwise the caller's invoke hangs forever.
         response = {
           id: msg.id,

@@ -17,7 +17,12 @@ export interface SessionLifecycleDeps {
   storeClaudeSessionId(sessionId: string, claudeSessionId: string): void
   alert(sessionId: string, status: SessionStatus, message?: string, risk?: PermissionRisk): void
   markWorking(sessionId: string): void
-  log(message: string): void
+  /**
+   * One event, named by a sentence that stays the same for every occurrence, with the values that
+   * differ carried beside it. The file is read by grouping on the message, so a message built out
+   * of ids and states would put each occurrence in a group of its own.
+   */
+  log(msg: string, data?: Record<string, unknown>): void
 }
 
 export interface SessionLifecycleService {
@@ -90,9 +95,13 @@ export function createSessionLifecycleService(deps: SessionLifecycleDeps): Sessi
       // already drops stale pending/acked alerts.
     }
     if (result.state !== previous) {
-      deps.log(
-        `[lifecycle] ${sessionId}: ${previous} -> ${result.state} (source: ${source}, event: ${event.kind})`
-      )
+      deps.log('session state changed', {
+        sessionId,
+        previous,
+        next: result.state,
+        source,
+        event: event.kind
+      })
     }
     return result.state
   }
@@ -117,18 +126,23 @@ export function createSessionLifecycleService(deps: SessionLifecycleDeps): Sessi
 
       const session = sessions.get(instanceId)
       if (!session) {
-        deps.log(`[lifecycle] ${instanceId}: ${eventName} for unmanaged instance (diagnostic only)`)
+        deps.log('hook event for an unmanaged instance', {
+          sessionId: instanceId,
+          event: eventName
+        })
         return
       }
       if (typeof body !== 'object' || body === null) {
-        deps.log(`[lifecycle] ${instanceId}: ${eventName} with non-JSON payload (diagnostic only)`)
+        deps.log('hook event with a non-JSON payload', { sessionId: instanceId, event: eventName })
         return
       }
       const payload = body as Record<string, unknown>
       if (!hookCwdMatches(session.cwd, payload.cwd)) {
-        deps.log(
-          `[lifecycle] ${instanceId}: ${eventName} from nested cwd ${String(payload.cwd)} (diagnostic only)`
-        )
+        deps.log('hook event from a nested working directory', {
+          sessionId: instanceId,
+          event: eventName,
+          cwd: String(payload.cwd)
+        })
         return
       }
 
@@ -138,7 +152,7 @@ export function createSessionLifecycleService(deps: SessionLifecycleDeps): Sessi
         case 'SessionStart': {
           const claudeSessionId = stringField(payload, 'session_id')
           if (!claudeSessionId) {
-            deps.log(`[lifecycle] ${instanceId}: SessionStart without session_id`)
+            deps.log('hook SessionStart without a session id', { sessionId: instanceId })
             return
           }
           apply(instanceId, session, { kind: 'sessionStart', claudeSessionId }, 'hook')

@@ -3,11 +3,14 @@ import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { JiraLoginResult } from '@common/domain'
+import type { Logger } from '@common/logging/logger'
 
 /**
  * Minimal surface of a spawned login process; injectable so tests never launch a real browser.
  */
 export interface LoginProcess {
+  /** Absent until the child is actually running, which a failed spawn never reaches. */
+  readonly pid?: number
   on(event: 'exit', cb: (code: number | null) => void): void
   on(event: 'error', cb: (err: Error) => void): void
   kill(): void
@@ -17,6 +20,8 @@ export type LoginSpawnFn = (file: string, args: string[]) => LoginProcess
 
 export interface JiraLoginDeps {
   spawn?: LoginSpawnFn
+  /** Scoped logger; without one the login child's start and exit go unrecorded. */
+  logger?: Logger
   /** Overrides for tests; default to the jira skill's venv python and login script. */
   pythonPath?: string
   scriptPath?: string
@@ -80,14 +85,21 @@ export function createJiraLogin(d: JiraLoginDeps = {}): JiraLogin {
         return
       }
       live = proc
+      const child = { command: pythonPath, pid: proc.pid ?? null }
+      d.logger?.info('child process spawned', { data: child })
       proc.on('error', (err) => finish({ ok: false, message: err.message }))
-      proc.on('exit', (code) =>
+      proc.on('exit', (code) => {
+        // A login that ended any way other than cleanly is the case worth reading back: the user
+        // only ever sees one sentence about it, and the exit code is what separates a closed window
+        // from a python that could not run at all.
+        if (code === 0) d.logger?.info('child process exited', { data: { ...child, exitCode: code } })
+        else d.logger?.warn('child process exited', { data: { ...child, exitCode: code } })
         finish(
           code === 0
             ? { ok: true }
             : { ok: false, message: 'The Jira login was not completed (window closed or timed out).' }
         )
-      )
+      })
       timer = setTimeout(() => {
         try {
           proc.kill()

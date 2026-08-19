@@ -419,6 +419,14 @@ export interface IpcApi {
      */
     onInvoked(cb: (id: string) => void): () => void
   }
+  log: {
+    /**
+     * Hand one already-serialised log record to Electron main, which owns the file. Fire-and-forget
+     * by design: the renderer is sandboxed and cannot write the file itself, and a diagnostic must
+     * never make the UI wait on I/O.
+     */
+    write(record: unknown): void
+  }
 }
 
 export interface TerminalDataEvent {

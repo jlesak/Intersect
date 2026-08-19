@@ -9,6 +9,7 @@ import type {
 } from '@common/domain'
 import { prWebUrl } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
+import { rendererLogger } from '@renderer/shared/logging/logger'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
@@ -395,7 +396,8 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       } catch (e) {
         // The cached board is left as it is: a refresh that failed still leaves data worth acting on.
         set({ syncError: message(e) })
-        if (opts?.quiet) console.warn('Background PR sync failed', e)
+        if (opts?.quiet)
+          rendererLogger().child('renderer').warn('background PR sync failed', { err: e })
         else reportError('Could not sync pull requests', e)
       } finally {
         set({ syncing: false })
