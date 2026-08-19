@@ -12,7 +12,7 @@ import {
 } from './harness'
 
 async function openOneOnOne(win: Page): Promise<void> {
-  await openRailSection(win, 'People', '.ix-oto')
+  await openRailSection(win, '1:1', '.ix-oto')
 }
 
 /** A real .vtt fixture on disk, so the main-side existence/extension validation passes. */
@@ -33,22 +33,20 @@ async function stubVttDialog(app: ElectronApplication, vttPath: string): Promise
   }, vttPath)
 }
 
-test('the 1:1 section sits under People between Other and TODO, and starts empty', async () => {
+test('the 1:1 section sits between Other and TODO, and starts empty', async () => {
   const profileDir = userDataDir()
-  const { app, win } = await launch(profileDir)
+  const { win } = await launch(profileDir)
 
   await expect(win.locator('.ix-rail__label')).toHaveText([...RAIL_LABELS])
 
   await openOneOnOne(win)
   await expect(win.locator('.ix-empty__title')).toHaveText('No runs yet.')
   await expect(win.locator('.ix-oto-run')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('the form opens from New and the VTT field follows the workflow type', async () => {
   const profileDir = userDataDir()
-  const { app, win } = await launch(profileDir)
+  const { win } = await launch(profileDir)
   await openOneOnOne(win)
 
   // No form until New is clicked.
@@ -67,8 +65,6 @@ test('the form opens from New and the VTT field follows the workflow type', asyn
   await win.locator('.ix-oto-form__actions .ix-btn--ghost', { hasText: 'Cancel' }).click()
   await expect(win.locator('.ix-oto-form')).toHaveCount(0)
   await expect(win.locator('.ix-oto-run')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('a process run goes running -> done and shows the Notion link and Slack confirmation', async () => {
@@ -96,13 +92,11 @@ test('a process run goes running -> done and shows the Notion link and Slack con
   await expect(card.locator('.ix-oto-run__status--done')).toHaveText(/Done/)
   await expect(card.locator('.ix-oto-run__link', { hasText: 'Notion note' })).toHaveCount(1)
   await expect(card.locator('.ix-oto-run__link', { hasText: 'Slack summary created' })).toHaveCount(1)
-
-  await app.close()
 })
 
 test('a prepare run renders the briefing markdown on the card', async () => {
   const profileDir = userDataDir()
-  const { app, win } = await launch(profileDir)
+  const { win } = await launch(profileDir)
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -120,8 +114,6 @@ test('a prepare run renders the briefing markdown on the card', async () => {
   await expect(markdown.locator('h2', { hasText: 'TODO mentions' })).toHaveCount(1)
   await expect(markdown.locator('h2', { hasText: 'Slack activity' })).toHaveCount(1)
   await expect(markdown.locator('li', { hasText: 'Ask Tereza N. about the rate limit fix' })).toHaveCount(1)
-
-  await app.close()
 })
 
 test('the run history persists across a relaunch', async () => {
@@ -144,7 +136,6 @@ test('the run history persists across a relaunch', async () => {
   await expect(card.locator('.ix-oto-run__person')).toHaveText('Tereza N.')
   await expect(card.locator('.ix-oto-run__status--done')).toHaveText(/Done/)
   await expect(card.locator('.ix-oto-prep-body .ix-markdown h2').first()).toHaveText('Previous 1:1')
-  await second.app.close()
 })
 
 test('a run interrupted by an app restart is reconciled to failed on boot', async () => {
@@ -164,12 +155,11 @@ test('a run interrupted by an app restart is reconciled to failed on boot', asyn
   await expect(second.win.locator('.ix-oto-run__status--failed')).toHaveText(
     /Failed: Interrupted by app restart/
   )
-  await second.app.close()
 })
 
 test('failed mode shows the error on the card', async () => {
   const profileDir = userDataDir()
-  const { app, win } = await launch(profileDir, { env: { INTERSECT_E2E_OTO: 'failed' } })
+  const { win } = await launch(profileDir, { env: { INTERSECT_E2E_OTO: 'failed' } })
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -181,13 +171,11 @@ test('failed mode shows the error on the card', async () => {
     /Failed: Stubbed workflow failure/
   )
   await expect(win.locator('.ix-oto-run__link')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('an empty person is rejected inline and no run starts', async () => {
   const profileDir = userDataDir()
-  const { app, win } = await launch(profileDir)
+  const { win } = await launch(profileDir)
   await openOneOnOne(win)
 
   await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
@@ -197,6 +185,4 @@ test('an empty person is rejected inline and no run starts', async () => {
   await expect(win.locator('.ix-oto-form__error')).toHaveText(/Person must not be empty/)
   await expect(win.locator('.ix-oto-form')).toHaveCount(1)
   await expect(win.locator('.ix-oto-run')).toHaveCount(0)
-
-  await app.close()
 })

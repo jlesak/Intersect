@@ -9,7 +9,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/common/**/*",
-    "e2e/**/*"
+    "e2e/**/*",
+    "tooling/**/*"
   ],
   "compilerOptions": {
     "composite": true,

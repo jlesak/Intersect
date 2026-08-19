@@ -5,6 +5,7 @@ import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import type { AdoIdentity } from '../prInbox/adoMapping'
+import { normalizeAdoPath } from '../prInbox/adoPath'
 import type { AdoService } from '../prInbox/adoService'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
@@ -149,6 +150,10 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return listDecorated()
     },
 
+    async getSyncedAt() {
+      return d.prCache.getSyncedAt()
+    },
+
     async getChanges(repositoryId, prId) {
       const pr = mustGetPr(repositoryId, prId)
       return d.localDiff.getChanges(pr, d.workspaceFolders())
@@ -188,9 +193,18 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return d.drafts.listByPr(repositoryId, prId)
     },
 
+    async listUnfinishedDraftReviews() {
+      return d.drafts.listUnfinishedReviews()
+    },
+
     async addManualDraft(input) {
       // Enforce the publishable-side invariant here, not only in the UI (ADO anchors right-side only).
-      return d.drafts.create({ ...input, side: 'right' }, 'manual')
+      const pr = mustGetPr(input.repositoryId, input.prId)
+      return d.drafts.create(
+        { ...input, filePath: normalizeAdoPath(input.filePath), side: 'right' },
+        'manual',
+        pr.sourceCommitId
+      )
     },
 
     async editDraft(id, body) {
@@ -213,20 +227,29 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       }
       // Reject comments anchored to a file that is not part of the PR (e.g. a hallucinated path).
       const draftPr = mustGetPr(draft.repositoryId, draft.prId)
+      if (!draft.sourceCommitId || draft.sourceCommitId !== draftPr.sourceCommitId) {
+        throw new Error(
+          'This draft is stale because the pull request changed after its line anchor was created. Discard it or run another review.'
+        )
+      }
       const changes = await d.localDiff.getChanges(draftPr, d.workspaceFolders())
-      if (!changes.some((c) => c.path === draft.filePath)) {
+      const draftPath = normalizeAdoPath(draft.filePath)
+      const changedFile = changes.find((c) => normalizeAdoPath(c.path) === draftPath)
+      if (!changedFile) {
         throw new Error(`Draft anchors to "${draft.filePath}", which is not changed in this PR.`)
       }
       // Atomic claim so a double-approve cannot post the same comment twice.
       if (!d.drafts.claimForPublish(id)) {
         throw new Error('This draft is already published or is being published.')
       }
-      let threadId: number
+      let threadId: number | null
       try {
         threadId = await d.ado.publishComment({
           repositoryId: draft.repositoryId,
           prId: draft.prId,
-          filePath: draft.filePath,
+          // Publish the exact path returned by the validated diff. This also repairs legacy drafts
+          // saved before draft paths were normalized to Azure DevOps' leading-slash convention.
+          filePath: changedFile.path,
           line: draft.line,
           body: draft.body
         })
@@ -235,14 +258,16 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
         d.drafts.setStatus(id, 'pending')
         throw err
       }
-      // The comment IS live on the PR now. Record the thread id; if this bookkeeping write fails we
-      // must NOT revert to pending (that would re-post a duplicate on retry) - leave it claimed.
+      // The comment IS live on the PR now, including when the thread id came back unreadable (null).
+      // Record it as published; if this bookkeeping write fails we must NOT revert to pending (that
+      // would re-post a duplicate on retry) - leave it claimed.
       try {
         return d.drafts.setStatus(id, 'published', threadId)
       } catch (dbErr) {
-        console.error(`Published draft ${id} as ADO thread ${threadId} but failed to record it locally`, dbErr)
+        const where = threadId === null ? 'in an unidentified thread' : `as thread ${threadId}`
+        console.error(`Published draft ${id} ${where} but failed to record it locally`, dbErr)
         throw new Error(
-          `Comment posted to the PR (thread ${threadId}) but local state could not be updated. Do not re-publish this draft.`
+          `Comment posted to the PR (${where}) but local state could not be updated. Do not re-publish this draft.`
         )
       }
     },
@@ -295,6 +320,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
   return {
     [Channel.prInboxSync]: h.sync,
     [Channel.prInboxList]: h.list,
+    [Channel.prInboxGetSyncedAt]: h.getSyncedAt,
     [Channel.prInboxGetChanges]: h.getChanges,
     [Channel.prInboxGetFileDiff]: h.getFileDiff,
     [Channel.prInboxGetThreads]: h.getThreads,
@@ -302,6 +328,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
     [Channel.prInboxReplyToThread]: h.replyToThread,
     [Channel.prInboxSetThreadStatus]: h.setThreadStatus,
     [Channel.prInboxListDrafts]: h.listDrafts,
+    [Channel.prInboxListUnfinishedDraftReviews]: h.listUnfinishedDraftReviews,
     [Channel.prInboxAddManualDraft]: h.addManualDraft,
     [Channel.prInboxEditDraft]: h.editDraft,
     [Channel.prInboxDiscardDraft]: h.discardDraft,

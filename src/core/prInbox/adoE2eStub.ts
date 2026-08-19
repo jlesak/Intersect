@@ -15,14 +15,29 @@ import type { LocalDiffService } from './localDiff'
 
 const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projectId: 'SPOT' }
 
+/**
+ * A second repository, so the canned board spans more than one. A board whose pull requests all
+ * come from the same place cannot tell a repository filter that works from one that does nothing.
+ */
+const OTHER_REPO = { repositoryId: 'e2e-repo-2', repositoryName: 'intersect-docs', projectId: 'SPOT' }
+
 const basePr = {
   ...REPO,
+  description: '',
   status: 'active',
   targetRefName: 'refs/heads/main',
   targetCommitId: 'target-1',
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 0
 }
+
+/**
+ * A pasted correlation id, the kind of thing that lands in a real description alongside a stack
+ * trace. It is one run of letters and digits with nothing a line break may fall on, and it is far
+ * wider than the description box - so the layout has to be willing to break inside it.
+ */
+const PASTED_TOKEN = 'a1b2c3d4e5f6'.repeat(16)
 
 function radarPrs(syncCount: number): PullRequest[] {
   const now = Date.now()
@@ -31,12 +46,13 @@ function radarPrs(syncCount: number): PullRequest[] {
       ...basePr,
       prId: 501,
       title: 'Add rate limiting to the sync pipeline',
+      description: `Caps the outbound sync at 25 requests a second.\n\n- token bucket per host\n- burst of 5\n\nRepro correlation id: ${PASTED_TOKEN}`,
       authorId: 'me',
       authorName: 'Jan Lesak',
       createdAt: now - 20 * 60_000,
       sourceRefName: 'refs/heads/feature/rate-limit',
       sourceCommitId: 'source-501',
-      url: 'https://devops/pr/501',
+      url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo/pullRequests/501',
       role: 'author',
       myVote: null,
       myReviewerId: null,
@@ -54,7 +70,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       createdAt: now - 60 * 60_000,
       sourceRefName: 'refs/heads/fix/pty-backpressure',
       sourceCommitId: 'source-502',
-      url: 'https://devops/pr/502',
+      url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo/pullRequests/502',
       role: 'reviewer',
       myVote: 'noVote',
       myReviewerId: 'me',
@@ -62,6 +78,7 @@ function radarPrs(syncCount: number): PullRequest[] {
     },
     {
       ...basePr,
+      ...OTHER_REPO,
       prId: 503,
       title: 'Extract the notification preferences screen',
       authorId: 'author-petr',
@@ -70,7 +87,7 @@ function radarPrs(syncCount: number): PullRequest[] {
       sourceRefName: 'refs/heads/feature/notif-prefs',
       // The author "pushes" between the first and second sync of an app run.
       sourceCommitId: syncCount <= 1 ? 'source-503-reviewed' : 'source-503-updated',
-      url: 'https://devops/pr/503',
+      url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo-2/pullRequests/503',
       role: 'reviewer',
       myVote: 'approved',
       myReviewerId: 'me',
@@ -88,10 +105,10 @@ export function createLocalDiffE2eStub(env: NodeJS.ProcessEnv): LocalDiffService
   const changes: PrChangeFile[] =
     mode === 'radar'
       ? [
-          { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null },
-          { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null },
-          { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null },
-          { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null }
+          { path: '/src/app/sync/rateLimiter.ts', changeType: 'edit', originalPath: null, added: 42, removed: 9 },
+          { path: '/src/app/sync/queue.ts', changeType: 'edit', originalPath: null, added: 7, removed: 3 },
+          { path: '/src/app/config/limits.ts', changeType: 'add', originalPath: null, added: 18, removed: 0 },
+          { path: '/tests/sync/rateLimiter.test.ts', changeType: 'edit', originalPath: null, added: 61, removed: 2 }
         ]
       : []
   return {
@@ -151,6 +168,41 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
           ]
         }
       ]
+    ],
+    [
+      // One thread anchored inside the canned two-line diff and one anchored well past its end, so
+      // the stale-anchor badge has both a case to fire on and a case to stay quiet on.
+      503,
+      [
+        {
+          threadId: 9010,
+          filePath: '/src/app/sync/queue.ts',
+          line: 2,
+          status: 'active',
+          isSystem: false,
+          comments: [
+            {
+              authorName: 'Tereza Nova',
+              body: 'The burst constant belongs in config.',
+              publishedAt: Date.now() - 1_800_000
+            }
+          ]
+        },
+        {
+          threadId: 9011,
+          filePath: '/src/app/sync/rateLimiter.ts',
+          line: 40,
+          status: 'active',
+          isSystem: false,
+          comments: [
+            {
+              authorName: 'Petr Vala',
+              body: 'This branch was written against an older iteration.',
+              publishedAt: Date.now() - 5_400_000
+            }
+          ]
+        }
+      ]
     ]
   ])
   let nextThreadId = 9100
@@ -176,11 +228,21 @@ export function createAdoE2eStub(env: NodeJS.ProcessEnv): AdoService {
     }))
   }
 
+  /** Mirrors the real sync: the newest comment on any thread dates the PR, creation is the floor. */
+  function applyActivity(prs: PullRequest[]): PullRequest[] {
+    return prs.map((pr) => {
+      const published = (threadsByPr.get(pr.prId) ?? []).flatMap((t) =>
+        t.comments.map((c) => c.publishedAt)
+      )
+      return { ...pr, lastActivityAt: Math.max(pr.createdAt, ...published) }
+    })
+  }
+
   return {
     async syncMyPrs(): Promise<SyncResult> {
       syncCount += 1
       return {
-        prs: mode === 'radar' ? applyThreadCounts(applyVotes(radarPrs(syncCount))) : [],
+        prs: mode === 'radar' ? applyActivity(applyThreadCounts(applyVotes(radarPrs(syncCount)))) : [],
         failedRepos: []
       }
     },

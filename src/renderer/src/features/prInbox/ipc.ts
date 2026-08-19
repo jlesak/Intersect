@@ -6,13 +6,15 @@ import type {
   PrThread,
   PrVote,
   PullRequest,
-  ReviewSession
+  ReviewSession,
+  UnfinishedDraftReview
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin, mockable seam between the PR-inbox store and the preload bridge.
 export const sync = (): Promise<PullRequest[]> => ipc().prInbox.sync()
 export const list = (): Promise<PullRequest[]> => ipc().prInbox.list()
+export const getSyncedAt = (): Promise<number | null> => ipc().prInbox.getSyncedAt()
 export const getChanges = (repositoryId: string, prId: number): Promise<PrChangeFile[]> =>
   ipc().prInbox.getChanges(repositoryId, prId)
 export const getFileDiff = (repositoryId: string, prId: number, filePath: string): Promise<FileDiff> =>
@@ -35,6 +37,8 @@ export const setThreadStatus = (
 ): Promise<PrThread[]> => ipc().prInbox.setThreadStatus(repositoryId, prId, threadId, status)
 export const listDrafts = (repositoryId: string, prId: number): Promise<DraftComment[]> =>
   ipc().prInbox.listDrafts(repositoryId, prId)
+export const listUnfinishedDraftReviews = (): Promise<UnfinishedDraftReview[]> =>
+  ipc().prInbox.listUnfinishedDraftReviews()
 export const editDraft = (id: string, body: string): Promise<DraftComment> =>
   ipc().prInbox.editDraft(id, body)
 export const discardDraft = (id: string): Promise<void> => ipc().prInbox.discardDraft(id)
@@ -53,3 +57,4 @@ export const onReviewExit = (cb: (exitCode: number) => void): (() => void) =>
   ipc().prInbox.onReviewExit(cb)
 export const onDraftAdded = (cb: (draft: DraftComment) => void): (() => void) =>
   ipc().prInbox.onDraftAdded(cb)
+export const openExternal = (url: string): Promise<void> => ipc().system.openExternal(url)

@@ -8,6 +8,7 @@ const pr = (prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'intersect-app',
   projectId: 'SPOT',
   title: `PR ${prId}`,
+  description: '',
   authorId: 'u1',
   authorName: 'Author',
   createdAt: 1000,
@@ -23,6 +24,7 @@ const pr = (prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   reviewers: [],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 1000,
   ...over
 })
 

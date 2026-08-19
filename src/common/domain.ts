@@ -151,8 +151,8 @@ export interface BootState {
 /**
  * The umbrella entity binding repositories and external tools into one durable work context.
  * A project owns one or more repository-folder bindings (`repoPaths`, canonical absolute paths
- * in binding order - the first is the original/primary folder) plus optional Jira, Azure DevOps
- * and Toggl bindings. Sessions, PRs, issues and time attach to a project automatically through
+ * in binding order - the first is the original/primary folder) plus optional Jira and Azure DevOps
+ * bindings. Sessions, PRs, issues and time attach to a project automatically through
  * these bindings; anything unmatched falls into a virtual "Other" bucket that is never persisted
  * as a project. Deleting or archiving a project is app-state only and never touches the
  * filesystem or any remote resource.
@@ -170,8 +170,6 @@ export interface Project {
   jiraBoardUrl: string | null
   /** Azure DevOps repository names whose PRs belong to this project. */
   adoRepositories: string[]
-  /** Toggl project id time is booked against, or null. */
-  togglProjectId: number | null
 }
 
 /** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
@@ -180,7 +178,6 @@ export interface ProjectPatch {
   jiraJql?: string | null
   jiraBoardUrl?: string | null
   adoRepositories?: string[]
-  togglProjectId?: number | null
 }
 
 /** External content kinds that can carry a manual project-assignment override. */
@@ -329,6 +326,12 @@ export interface PullRequest {
   repositoryName: string
   projectId: string
   title: string
+  /**
+   * What the author wrote to explain the change, as they typed it. Empty when they wrote nothing.
+   * Azure DevOps stores it as markdown, and Intersect shows it as the text it is - the wording and
+   * the line breaks are the point, the formatting is not.
+   */
+  description: string
   authorId: string
   authorName: string
   createdAt: number
@@ -339,6 +342,11 @@ export interface PullRequest {
   sourceCommitId: string
   /** Target/base commit id for the diff's original side. */
   targetCommitId: string
+  /**
+   * The REST resource the server addressed this pull request by, which Azure DevOps documents as
+   * internal: it answers JSON and is not a page. The address a person opens or pastes is composed
+   * from the configured organisation plus project, repository and id (see `prWebUrl`).
+   */
   url: string
   role: PrRole
   /** My own vote when I am among the reviewers; null otherwise (e.g. a PR I only authored). */
@@ -360,6 +368,12 @@ export interface PullRequest {
    * "needs my action" board signal; 0 when the thread fetch for this PR failed.
    */
   activeThreadCount: number
+  /**
+   * When anything last happened on this pull request - a comment, a push, a vote change - so a
+   * review queue can be ordered by what needs attention rather than by how old each pull request
+   * is. Never earlier than the pull request's own creation.
+   */
+  lastActivityAt: number
 }
 
 /** Which side of the diff a comment anchors to. Publishing supports 'right' only (ADO server). */
@@ -392,8 +406,21 @@ export interface DraftComment {
   status: DraftStatus
   source: DraftSource
   reviewSessionId: string | null
+  /**
+   * Immutable PR source commit whose diff supplied this anchor. Null only for drafts created before
+   * the field existed (or when Azure DevOps supplied no commit); null is treated as stale, never as
+   * permission to publish against whatever diff happens to be current.
+   */
+  sourceCommitId: string | null
   publishedThreadId: number | null
   createdAt: number
+}
+
+/** One PR with actionable local draft decisions still waiting for the user. */
+export interface UnfinishedDraftReview {
+  repositoryId: string
+  prId: number
+  remainingDraftCount: number
 }
 
 /** The fields a caller supplies to create a manual draft; the rest are set by the repo. */
@@ -421,6 +448,13 @@ export interface PrChangeFile {
   path: string
   changeType: 'add' | 'edit' | 'delete' | 'rename'
   originalPath: string | null
+  /**
+   * Lines the file gained and lost, as git counts them, so a reviewer can weigh a change before
+   * opening it. Both are 0 for a binary file: git counts no lines in one, and a size summary that
+   * cannot be added up is worse than one that leaves such a file out of its arithmetic.
+   */
+  added: number
+  removed: number
 }
 
 /** Both sides of one file for the diff editor. `binary`/`tooLarge` render a placeholder instead. */

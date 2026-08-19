@@ -65,6 +65,7 @@ import { createPrInboxHandlers, prInboxWireRoutes } from './api/prInbox.ipc'
 import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
 import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentRuntime.ipc'
+import { createPaletteHandlers, paletteWireRoutes } from './api/palette.ipc'
 import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
 import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
 import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ipc'
@@ -484,6 +485,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       projectId: () => safeDefaultProject(env, settings.getSavedAdo()),
       priorThreadCount: (repositoryId, prId) =>
         prCache.get(repositoryId, prId)?.activeThreadCount ?? 0,
+      priorActivityAt: (repositoryId, prId) => prCache.get(repositoryId, prId)?.lastActivityAt ?? 0,
       resolveVoteCredentials: () => resolveVoteCredentials(settings.getSavedAdo())
     })
 
@@ -570,6 +572,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---
   const todos = createTodoRepo(db, repoDeps)
   const todoHandlers = createTodoHandlers({ todos })
+  const paletteHandlers = createPaletteHandlers({ appState })
 
   // --- My Work slice: Jira boards synced directly and read-only with the SSO cookies (no PAT,
   // no Claude session). The engine owns the SQLite read model and the shared background refresh;
@@ -723,6 +726,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     timeTrackingWireRoutes(timeTrackingHandlers),
     agentRuntimeWireRoutes(agentRuntimeHandlers),
     todoWireRoutes(todoHandlers),
+    paletteWireRoutes(paletteHandlers),
     myWorkWireRoutes(myWorkHandlers),
     oneOnOneWireRoutes(oneOnOneHandlers),
     settingsWireRoutes(settingsHandlers),

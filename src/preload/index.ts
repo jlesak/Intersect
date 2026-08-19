@@ -103,6 +103,7 @@ const api: IpcApi = {
   prInbox: {
     sync: () => ipcRenderer.invoke(Channel.prInboxSync),
     list: () => ipcRenderer.invoke(Channel.prInboxList),
+    getSyncedAt: () => ipcRenderer.invoke(Channel.prInboxGetSyncedAt),
     getChanges: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxGetChanges, repositoryId, prId),
     getFileDiff: (repositoryId, prId, filePath) =>
       ipcRenderer.invoke(Channel.prInboxGetFileDiff, repositoryId, prId, filePath),
@@ -113,6 +114,7 @@ const api: IpcApi = {
     setThreadStatus: (repositoryId, prId, threadId, status) =>
       ipcRenderer.invoke(Channel.prInboxSetThreadStatus, repositoryId, prId, threadId, status),
     listDrafts: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxListDrafts, repositoryId, prId),
+    listUnfinishedDraftReviews: () => ipcRenderer.invoke(Channel.prInboxListUnfinishedDraftReviews),
     addManualDraft: (input) => ipcRenderer.invoke(Channel.prInboxAddManualDraft, input),
     editDraft: (id, body) => ipcRenderer.invoke(Channel.prInboxEditDraft, id, body),
     discardDraft: (id) => ipcRenderer.invoke(Channel.prInboxDiscardDraft, id),
@@ -174,6 +176,10 @@ const api: IpcApi = {
     setDone: (id, done) => ipcRenderer.invoke(Channel.todoSetDone, id, done),
     remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
     reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
+  },
+  palette: {
+    getRecent: () => ipcRenderer.invoke(Channel.paletteGetRecent),
+    recordUse: (commandId) => ipcRenderer.invoke(Channel.paletteRecordUse, commandId)
   },
   myWork: {
     list: () => ipcRenderer.invoke(Channel.myWorkList),

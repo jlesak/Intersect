@@ -15,6 +15,7 @@ const pr = (over: Partial<PullRequest>): PullRequest => ({
   repositoryName: 'repo',
   projectId: 'p',
   title: 't',
+  description: '',
   authorId: 'a',
   authorName: 'A',
   createdAt: 0,
@@ -30,6 +31,7 @@ const pr = (over: Partial<PullRequest>): PullRequest => ({
   reviewers: [],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 0,
   ...over
 })
 

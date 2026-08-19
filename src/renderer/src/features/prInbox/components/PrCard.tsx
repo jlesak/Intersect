@@ -1,10 +1,10 @@
 import type { PrReviewer, PullRequest } from '@common/domain'
-import { boardReason } from '@common/prBoard'
+import { boardReason, reasonAlreadyStates } from '@common/prBoard'
 import { prKey, usePrInboxStore } from '../store'
 
 /** Compact relative age (e.g. "3d", "2h", "just now") from an epoch-ms timestamp. */
-function relativeAge(createdAt: number): string {
-  const secs = Math.max(0, Math.floor((Date.now() - createdAt) / 1000))
+function relativeAge(at: number, now: number): string {
+  const secs = Math.max(0, Math.floor((now - at) / 1000))
   if (secs < 60) return 'just now'
   const mins = Math.floor(secs / 60)
   if (mins < 60) return `${mins}m ago`
@@ -31,10 +31,19 @@ function VoteChip({ reviewer }: { reviewer: PrReviewer }) {
   )
 }
 
-/** One PR on the board: title, origin, why it sits in its column, and the reviewers' votes. */
-export function PrCard({ pr, urgent }: { pr: PullRequest; urgent: boolean }) {
+/**
+ * One PR on the board: title, origin, why it sits in its column, and the reviewers' votes.
+ *
+ * Dated by when anything last happened on it rather than by when it was opened, because a review
+ * queue is read by what moved most recently. The clock comes from the board so every card ages
+ * together and keeps ageing while the board stays open.
+ */
+export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; now: number }) {
   const reason = boardReason(pr)
-  const reviewing = usePrInboxStore((s) => s.reviewPrKey === prKey(pr.repositoryId, pr.prId))
+  const stated = reasonAlreadyStates(pr)
+  const key = prKey(pr.repositoryId, pr.prId)
+  const reviewing = usePrInboxStore((s) => s.reviewPrKey === key)
+  const remainingDrafts = usePrInboxStore((s) => s.unfinishedReviews[key] ?? 0)
   const open = (): void => void usePrInboxStore.getState().openDetail(pr.repositoryId, pr.prId)
   return (
     <div
@@ -52,7 +61,7 @@ export function PrCard({ pr, urgent }: { pr: PullRequest; urgent: boolean }) {
     >
       <div className="ix-board-card__title">{pr.title}</div>
       <div className="ix-board-card__meta">
-        {pr.authorName} · {pr.repositoryName} · {relativeAge(pr.createdAt)}
+        {pr.authorName} · {pr.repositoryName} · {relativeAge(pr.lastActivityAt, now)}
       </div>
       <div className="ix-board-card__row">
         <span className="ix-chip">{pr.role === 'author' ? 'Author' : 'Reviewer'}</span>
@@ -61,7 +70,25 @@ export function PrCard({ pr, urgent }: { pr: PullRequest; urgent: boolean }) {
             ● reviewing
           </span>
         )}
+        {remainingDrafts > 0 && (
+          <span className="ix-chip ix-chip--review" data-testid="pr-card-unfinished-review">
+            {remainingDrafts} {remainingDrafts === 1 ? 'draft' : 'drafts'} to review
+          </span>
+        )}
         {reason && <span className={`ix-chip${urgent ? ' ix-chip--accent' : ''}`}>{reason}</span>}
+        {/* Both of these are reasons to come back to a pull request already seen, so they belong on
+            the card rather than only inside the detail - but not where the reason chip beside them
+            has just said the same thing, which it does for each of them in the action column. */}
+        {pr.newChangesSinceMyReview && !stated.newChanges && (
+          <span className="ix-chip ix-chip--accent" data-testid="pr-card-new-changes">
+            ● new changes
+          </span>
+        )}
+        {pr.activeThreadCount > 0 && !stated.unresolved && (
+          <span className="ix-chip" data-testid="pr-card-unresolved">
+            {pr.activeThreadCount} unresolved
+          </span>
+        )}
         {pr.reviewers.length > 0 && (
           <span className="ix-board-card__votes">
             {pr.reviewers.map((r) => (

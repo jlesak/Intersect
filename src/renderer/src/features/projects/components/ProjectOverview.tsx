@@ -74,9 +74,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           ADO repositories:{' '}
           {project.adoRepositories.length > 0 ? project.adoRepositories.join(', ') : 'none'}
         </p>
-        <p className="ix-ctx__hint">
-          Toggl project: {project.togglProjectId !== null ? project.togglProjectId : 'none'}
-        </p>
         <p className="ix-ctx__hint">Edit bindings in Settings → Projekty.</p>
       </div>
     </div>

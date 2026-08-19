@@ -219,7 +219,12 @@ describe('createCoreRuntime', () => {
       expect(board.sourceKey).toBe('global')
       expect(board.error).toBeNull()
       expect(board.fetchedAt).not.toBeNull()
-      expect(board.issues.map((i) => i.key)).toEqual(['FID2507-3', 'FID2507-2', 'FID2507-1'])
+      expect(board.issues.map((i) => i.key)).toEqual([
+        'FID2507-3',
+        'FID2507-2',
+        'FID2507-4',
+        'FID2507-1'
+      ])
       // The zero-Claude guarantee: the whole sync never touched the spawn seam.
       expect(fake.procs).toHaveLength(0)
     })
@@ -241,12 +246,12 @@ describe('createCoreRuntime', () => {
       const second = boot({ INTERSECT_E2E_JIRA: 'error' })
       // The persisted board paints immediately, fresh enough that no refresh starts.
       const cached = (await second.handleRequest(Channel.myWorkList, [])) as BoardEnvelope
-      expect(cached.issues).toHaveLength(3)
+      expect(cached.issues).toHaveLength(4)
       expect(cached.error).toBeNull()
 
       // A forced refresh fails, but the last-good issues stay next to the error.
       const failed = (await second.handleRequest(Channel.myWorkRefresh, [])) as BoardEnvelope
-      expect(failed.issues).toHaveLength(3)
+      expect(failed.issues).toHaveLength(4)
       expect(failed.error).toMatchObject({ kind: 'other' })
       expect(fake.procs).toHaveLength(0)
     })

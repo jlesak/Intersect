@@ -43,11 +43,30 @@ Requires Node 20.19+/22.12+ (Node 24 LTS recommended) and macOS with Xcode Comma
 | `npm run build` | Type-check and build main/preload/renderer into `out/` |
 | `npm start` | Preview the built app |
 | `npm test` | Unit + integration tests (Vitest) |
-| `npm run e2e` | End-to-end tests against the built app (Playwright + Electron) |
+| `npm run e2e` | Build, then end-to-end tests against the built app (Playwright + Electron) |
+| `npm run e2e:nobuild` | The same suite against the existing build in `out/` |
 | `npm run typecheck` | Type-check the node and web projects |
 | `npm run lint` | ESLint (enforces slice boundaries + `node-pty` confinement) |
 
-For E2E: `npm run build` first, then `npm run e2e`.
+The E2E suite runs against `out/`, so a run started without a build would report on code you are
+not looking at. Every Playwright entry point - `npm run e2e`, `npm run e2e:nobuild`, and a bare
+`npx playwright test` - therefore refuses to start unless `out/main`, `out/preload` and
+`out/renderer` have all been built and *every file* in them is newer than every build input.
+Nothing weaker holds: `npm run dev` rebuilds main and preload but serves the renderer from memory,
+so after a dev session a single newer file - a `.DS_Store` from opening `out/renderer` in Finder
+will do - would otherwise vouch for a renderer that was never rebuilt.
+
+Build inputs are `src/`, `electron.vite.config.*`, `package.json`, `package-lock.json`, the root
+`tsconfig*.json`, and the root `.env` files Vite actually loads. Editing a test file in place
+(`*.test.*`, `*.spec.*`, anything under `__tests__/`) never trips the guard, because no bundle
+entry imports one - but creating, deleting or renaming one does, through its parent directory.
+That is deliberate: the same directory signal is the only thing that catches a deleted or renamed
+production file. Editing only `e2e/` never trips it either, so `npm run e2e:nobuild` stays the fast
+loop while iterating on specs.
+
+A refusal names whatever beat the build, and the fix, `npm run build`. `E2E_ALLOW_STALE=1`, and
+only that exact value, runs against a stale build anyway and says so in the log. It does not
+override a missing build or a check the guard could not complete.
 
 ## Architecture
 
@@ -72,6 +91,7 @@ src/
       tabs/          # the selected workspace's terminal view: tabs, layout, active, pane slots
       terminal/      # imperative xterm controller + split stage + panes
 e2e/                 # Playwright _electron specs
+tooling/             # repo tooling outside the app: the E2E build-freshness guard and app register
 ```
 
 ### Extensibility seam

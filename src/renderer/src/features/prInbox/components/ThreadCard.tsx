@@ -17,6 +17,12 @@ interface ThreadCardProps {
   initialReply?: string
   /** Called on every reply keystroke so the caller can persist the draft across remounts. */
   onReplyChange?(text: string): void
+  /**
+   * True when the file no longer reaches the line this thread was written against, so wherever the
+   * card ends up sitting is not where the comment was aimed. Saying so is what keeps a reviewer
+   * from reading it as a remark about whatever line it landed on.
+   */
+  positionOutdated?: boolean
 }
 
 const timeAgo = (ms: number): string => {
@@ -36,7 +42,8 @@ export function ThreadCard({
   context = 'inline',
   onOpenFile,
   initialReply = '',
-  onReplyChange
+  onReplyChange,
+  positionOutdated = false
 }: ThreadCardProps) {
   const [reply, setReply] = useState(initialReply)
   const [busy, setBusy] = useState(false)
@@ -77,6 +84,15 @@ export function ThreadCard({
         <span className={`ix-chip${unresolved ? ' ix-chip--accent' : ''}`}>
           {unresolved ? 'Active' : 'Resolved'}
         </span>
+        {positionOutdated && (
+          <span
+            className="ix-chip ix-chip--warn"
+            data-testid="pr-thread-stale-anchor"
+            title={`Written against line ${thread.line} of an earlier version of this file, which no longer reaches that line.`}
+          >
+            Position approximate
+          </span>
+        )}
         <button
           type="button"
           className="ix-btn ix-btn--ghost"
@@ -95,15 +111,21 @@ export function ThreadCard({
         </div>
       ))}
       <div className="ix-thread__reply">
-        <input
-          className="ix-input"
+        <textarea
+          className="ix-thread__reply-input"
+          rows={2}
           placeholder="Reply…"
           value={reply}
           data-testid="pr-thread-reply"
           disabled={busy}
           onChange={(e) => changeReply(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              // Without this the submitted reply also gains a trailing newline.
+              e.preventDefault()
+              void submit()
+            }
+            // Escape belongs to the reply box; the window-level one navigates back to the board.
             if (e.key === 'Escape') e.stopPropagation()
           }}
         />

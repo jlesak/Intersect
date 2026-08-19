@@ -1,13 +1,21 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import type { Preset } from '@common/domain'
 import { debounce } from '@common/debounce'
 import { makeSessionId, type TerminalAttachResult } from '@common/ipc'
 import { drainAfterSeq, type BufferedChunk } from './attachBuffer'
 import { createDataRouter } from './dataRouter'
+import { useFindStore } from './findStore'
 import { useInterruptedStore } from './interruptedStore'
 import * as ipc from './ipc'
-import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_SCROLLBACK, xtermTheme } from './theme'
+import {
+  XTERM_FONT_FAMILY,
+  XTERM_FONT_SIZE,
+  XTERM_SCROLLBACK,
+  XTERM_SEARCH_DECORATIONS,
+  xtermTheme
+} from './theme'
 
 // A font-size change restyles xterm instantly, but the follow-up refit + PTY winsize resize is
 // coalesced: dragging the settings slider must not fire a refit/resize per step across every open
@@ -22,6 +30,7 @@ const LOW_WATER = 50_000
 interface View {
   term: Terminal
   fit: FitAddon
+  search: SearchAddon
   mount: HTMLDivElement
   observer: ResizeObserver
   opened: boolean
@@ -34,6 +43,11 @@ interface View {
 // cursor survive. Keyed by sessionId. This lives OUTSIDE React's render tree by design.
 const views = new Map<string, View>()
 const router = createDataRouter()
+
+// Who is listening to a session's search tallies, keyed by sessionId. Kept beside the views rather
+// than inside them so a listener can be registered before the terminal exists and still be fed
+// once it does.
+const searchListeners = new Map<string, Set<(results: ISearchResultChangeEvent) => void>>()
 
 // The font size every terminal uses - the settings-driven override once set, the theme default
 // until then. New terminals are created with it; setTerminalFontSize restyles the live ones.
@@ -231,6 +245,11 @@ function buildView(sessionId: string, dims: { cols: number; rows: number } | nul
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  const search = new SearchAddon()
+  term.loadAddon(search)
+  search.onDidChangeResults((results) => {
+    for (const listener of searchListeners.get(sessionId) ?? []) listener(results)
+  })
 
   const mount = document.createElement('div')
   mount.className = 'ix-pane__mount'
@@ -238,6 +257,7 @@ function buildView(sessionId: string, dims: { cols: number; rows: number } | nul
   const view: View = {
     term,
     fit,
+    search,
     mount,
     opened: false,
     outstanding: 0,
@@ -292,7 +312,10 @@ export function attachSession(sessionId: string, host: HTMLElement): void {
     try {
       view.fit.fit()
       ipc.resize(sessionId, view.term.cols, view.term.rows)
-      view.term.focus()
+      // A pane returning to view normally wants the keyboard, but not over the head of a find bar
+      // the user left open in it: that would put the caret in the terminal while the search box
+      // is the thing on screen asking to be typed into.
+      if (!useFindStore.getState().open[sessionId]) view.term.focus()
     } catch {
       /* container not laid out yet */
     }
@@ -302,6 +325,75 @@ export function attachSession(sessionId: string, host: HTMLElement): void {
 /** Detach a session from its pane without destroying it (keeps scrollback alive). */
 export function detachSession(sessionId: string): void {
   views.get(sessionId)?.mount.remove()
+}
+
+/** Give a session's terminal the keyboard back, so what is typed next reaches the shell. */
+export function focusSession(sessionId: string): void {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return
+  view.term.focus()
+}
+
+/**
+ * Look for a term in one session's scrollback and move the viewport onto the match, wrapping at
+ * either end. An emptied term is not a search but the abandoning of one: the highlights come off,
+ * the match the terminal was standing on stops being selected, and the viewport stays put.
+ * `incremental` keeps a match that still matches rather than stepping past it, which is what makes
+ * typing search where the user already is and re-opening a bar resume in place.
+ *
+ * Returns whether a match was reached.
+ */
+export function findInSession(
+  sessionId: string,
+  term: string,
+  direction: 'next' | 'previous',
+  incremental = false
+): boolean {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return false
+  if (term === '') {
+    view.term.clearSelection()
+    view.search.clearDecorations()
+    return false
+  }
+  const options = {
+    decorations: XTERM_SEARCH_DECORATIONS,
+    incremental: direction === 'next' && incremental
+  }
+  return direction === 'next'
+    ? view.search.findNext(term, options)
+    : view.search.findPrevious(term, options)
+}
+
+/** Take a session's match highlights off - the search is over, not merely unsuccessful. */
+export function clearSessionSearch(sessionId: string): void {
+  const view = views.get(sessionId)
+  if (!view || view.disposed) return
+  view.search.clearDecorations()
+}
+
+/**
+ * Follow how many matches a session's searches find and which one is current. Listeners are held
+ * here rather than on the addon so that subscribing does not depend on the terminal already
+ * existing - a find bar raised while a session is still being attached would otherwise be left
+ * subscribed to nothing for as long as it stayed open.
+ */
+export function onSessionSearchResults(
+  sessionId: string,
+  listener: (results: ISearchResultChangeEvent) => void
+): () => void {
+  let listeners = searchListeners.get(sessionId)
+  if (!listeners) {
+    listeners = new Set()
+    searchListeners.set(sessionId, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    const held = searchListeners.get(sessionId)
+    if (!held) return
+    held.delete(listener)
+    if (held.size === 0) searchListeners.delete(sessionId)
+  }
 }
 
 /** Fully tear down a session: dispose xterm, stop observing, and kill the PTY. */
@@ -319,6 +411,8 @@ export function disposeSession(sessionId: string): void {
   view.term.dispose()
   views.delete(sessionId)
   useInterruptedStore.getState().clear(sessionId)
+  useFindStore.getState().forgetSession(sessionId)
+  searchListeners.delete(sessionId)
   ipc.kill(sessionId)
 }
 

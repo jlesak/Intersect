@@ -547,6 +547,17 @@
   overflow-y: auto;
   padding: 6px;
 }
+.ix-palette__heading {
+  padding: 10px 12px 4px 15px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ix-palette__section:first-child .ix-palette__heading {
+  padding-top: 4px;
+}
 .ix-palette__item {
   position: relative;
   display: flex;
@@ -560,6 +571,10 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+.ix-palette__item--disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .ix-palette__item::before {
   content: '';
@@ -605,6 +620,20 @@
   padding: 22px 16px;
   color: var(--text-dim);
   font-size: 13px;
+}
+.ix-palette__capture {
+  padding: 6px;
+}
+.ix-palette__capture-hint {
+  display: block;
+  padding: 16px 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.ix-palette__prefixes {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: pre;
 }
 .ix-palette__legend {
   display: flex;
@@ -844,9 +873,20 @@
   padding: 14px 18px 6px;
   flex: none;
 }
+/* Freshness reads as the board's own footnote, so it sits with the Sync button rather than beside
+   the heading. */
+.ix-board-head__age {
+  margin-left: auto;
+}
+/* The failed-refresh line belongs to the whole board, not to a card inside it, so it takes the
+   columns' horizontal padding and drops the vertical padding an inline card notice needs. */
+.ix-mw-loading.ix-board-stale {
+  padding: 0 18px 4px;
+}
+/* Laid out as a flex row rather than as three equal tracks, so a column with nothing in it can step
+   out of the way and give its width to the ones that do. */
 .ix-board {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
   gap: 12px;
   padding: 10px 18px 18px;
   overflow-y: auto;
@@ -855,6 +895,7 @@
   min-height: 0;
 }
 .ix-board-col {
+  flex: 1 1 0;
   min-width: 0;
 }
 .ix-board-col__head {
@@ -862,6 +903,22 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 9px;
+}
+/* An empty column shrinks to a strip, keeping its name turned on its side: a board of anonymous
+   strips cannot be read at all. */
+.ix-board-col--collapsed {
+  flex: 0 0 auto;
+  width: 30px;
+}
+.ix-board-col--collapsed .ix-board-col__head {
+  flex-direction: column;
+  gap: 7px;
+}
+.ix-board-col--collapsed .ix-eyebrow {
+  writing-mode: vertical-rl;
+}
+.ix-board-col--collapsed .ix-board-col__count {
+  padding: 2px 0;
 }
 .ix-board-col__label--action {
   color: var(--accent);
@@ -920,6 +977,12 @@
   color: #8fce9b;
   border-color: rgba(143, 206, 155, 0.5);
   background: rgba(143, 206, 155, 0.12);
+}
+/* Something the user may want to act on, but not an error: data that has gone old enough to doubt. */
+.ix-chip--warn {
+  color: var(--status-waiting);
+  border-color: var(--status-waiting);
+  background: var(--status-waiting-soft);
 }
 .ix-rail__badge {
   margin-left: auto;
@@ -996,6 +1059,13 @@
   font-size: 11.5px;
   min-width: 0;
   overflow: hidden;
+}
+.ix-pr-header__size {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
 }
 .ix-pr-ref {
   font-family: var(--font-mono);
@@ -1250,6 +1320,24 @@
   font-size: 10px;
   color: var(--text-faint);
 }
+.ix-tree__lines {
+  flex: none;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+/* The comment badge already carries the auto margin that pushes the row's tail right, and two
+   auto margins in one flex row would share the slack and strand both in the middle instead. */
+.ix-tree__node:not(:has(.ix-tree__count)) .ix-tree__lines {
+  margin-left: auto;
+}
+.ix-lines-added {
+  color: #8fce9b;
+}
+.ix-lines-removed {
+  color: var(--danger);
+}
 
 /* ---------------- PR review: diff view zones (threads, drafts, composer) ---------------- */
 .ix-zone-host {
@@ -1316,17 +1404,30 @@
 }
 .ix-thread__reply {
   display: flex;
+  align-items: flex-end;
   gap: 7px;
   padding: 9px 12px 10px;
 }
-.ix-thread__reply .ix-input {
-  height: 28px;
+.ix-thread__reply-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 6px 9px;
+  font: inherit;
   font-size: 12px;
+  resize: vertical;
+}
+.ix-thread__reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .ix-thread__reply .ix-btn {
   height: 28px;
 }
-.ix-zone-draft {
+.ix-pr-draft.ix-pr-draft--inline {
   margin: 6px 12px 8px 26px;
   max-width: 640px;
   padding: 8px 12px;
@@ -1334,6 +1435,12 @@
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
   font-family: var(--font-ui);
+}
+.ix-pr-draft--inline .ix-pr-draft__meta {
+  gap: 7px;
+}
+.ix-pr-draft--inline .ix-pr-draft__body {
+  font-size: 12.5px;
 }
 .ix-composer {
   margin: 6px 12px 8px 26px;
@@ -1380,9 +1487,38 @@
   gap: 10px;
   padding: 4px 0 10px;
 }
-.ix-overview__filter {
-  width: 130px;
-  height: 30px;
+/* The author's own explanation, shown as the text they typed. Azure DevOps stores it as markdown
+   and nothing here renders markup, so the line breaks they used are the only structure that
+   survives - and losing those would run the whole description into one paragraph. A description is
+   also where a pasted id, hash or token lands, and such a run offers no character a line break may
+   fall on - a URL at least breaks at its slashes and ampersands, this does not. Left alone it
+   paints past the border and drags a horizontal scrollbar across the whole pane, so the box is
+   allowed to break inside a word when it has no other choice. */
+.ix-overview__description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 760px;
+  margin: 6px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+/* Settled threads stay on the page, dimmed and folded away, rather than being filtered out. The
+   dimming is on the threads alone: the toggle is the control that reveals them, so it has to stay
+   as legible as anything else on the page. */
+.ix-overview__resolved {
+  padding-top: 4px;
+}
+.ix-overview__resolved .ix-thread {
+  opacity: 0.62;
+}
+.ix-overview__resolved-toggle {
+  gap: 7px;
+  margin-bottom: 8px;
 }
 .ix-overview .ix-thread {
   margin: 0 0 10px;
@@ -1393,12 +1529,7 @@
   max-width: 760px;
 }
 
-/* ---------------- PR review inbox: drafts ---------------- */
-.ix-pr-drafts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+/* ---------------- PR review inbox: draft cards ---------------- */
 .ix-pr-draft {
   display: flex;
   flex-direction: column;
@@ -1442,6 +1573,22 @@
   font-size: 12.5px;
   color: var(--text);
   white-space: pre-wrap;
+}
+.ix-pr-draft__stale {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--status-waiting);
+  background: var(--status-waiting-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.ix-pr-drafts--recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
 }
 .ix-pr-draft__edit {
   height: auto;
@@ -1501,11 +1648,11 @@
   margin-left: auto;
 }
 
-/* folder multiselect */
-.ix-sessions-folder {
+/* multiselect filter: the chip control shared by the session folder picker and the boards */
+.ix-msel {
   position: relative;
 }
-.ix-sessions-fbtn {
+.ix-msel__btn {
   height: 30px;
   padding: 0 11px;
   border: 1px solid var(--border-strong);
@@ -1517,19 +1664,14 @@
   cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.ix-sessions-fbtn:hover {
+.ix-msel__btn:hover {
   background: var(--panel-3);
   color: var(--text);
 }
-.ix-sessions-fbtn__count {
+.ix-msel__count {
   color: var(--accent);
 }
-.ix-sessions-folder__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-}
-.ix-sessions-folder__pop {
+.ix-msel__pop {
   position: absolute;
   top: calc(100% + 5px);
   left: 0;
@@ -1545,21 +1687,21 @@
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
   animation: ix-fade calc(var(--dur) - 40ms) var(--ease);
 }
-.ix-sessions-folder__head {
+.ix-msel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 2px 4px 8px;
 }
-.ix-sessions-folder__actions {
+.ix-msel__actions {
   display: flex;
   gap: 4px;
 }
-.ix-sessions-folder__list {
+.ix-msel__list {
   overflow-y: auto;
   min-height: 0;
 }
-.ix-sessions-folder__item {
+.ix-msel__item {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1569,10 +1711,10 @@
   font-size: 12.5px;
   cursor: pointer;
 }
-.ix-sessions-folder__item:hover {
+.ix-msel__item:hover {
   background: var(--panel-2);
 }
-.ix-sessions-folder__item input {
+.ix-msel__item input {
   accent-color: var(--accent);
   cursor: pointer;
 }
@@ -1628,6 +1770,11 @@
 }
 .ix-session-row:hover {
   background: var(--panel-2);
+}
+.ix-session-row:focus-visible {
+  background: var(--panel-2);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 .ix-session-row--active {
   background: var(--panel-2);
@@ -1699,6 +1846,32 @@
   background: var(--panel);
   flex: none;
 }
+.ix-transcript__actions,
+.ix-transcript__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-transcript__actions {
+  flex: none;
+}
+.ix-transcript__search-input {
+  width: 178px;
+  min-width: 0;
+}
+.ix-transcript__match-count {
+  min-width: 42px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  text-align: right;
+  white-space: nowrap;
+}
+.ix-btn--icon {
+  min-width: 26px;
+  padding: 4px 7px;
+  line-height: 1;
+}
 .ix-transcript__heading {
   display: flex;
   flex-direction: column;
@@ -1753,6 +1926,36 @@
   color: var(--text-dim);
   font-size: 12.5px;
 }
+.ix-transcript__entry--match .ix-transcript__body {
+  margin: -5px -8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+}
+.ix-transcript__tool-batch {
+  margin-left: 54px;
+  min-width: 0;
+}
+.ix-transcript__tool-toggle {
+  max-width: 100%;
+  border: 0;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.ix-transcript__tool-toggle:hover {
+  color: var(--text-dim);
+}
+.ix-transcript__tool-kinds {
+  color: var(--text-faint);
+}
+.ix-transcript__tool-list {
+  padding: 3px 0 3px 14px;
+}
 .ix-transcript__tool {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1762,6 +1965,19 @@
 .ix-transcript__tool::before {
   content: '› ';
   color: var(--status-working);
+}
+
+@media (max-width: 840px) {
+  .ix-transcript__header {
+    align-items: flex-start;
+  }
+  .ix-transcript__actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .ix-transcript__search-input {
+    width: 138px;
+  }
 }
 
 /* markdown block rendered inside a transcript bubble */
@@ -2007,17 +2223,52 @@
   text-align: right;
 }
 
+/* ---------------- boards: the narrowing bar above a kanban ---------------- */
+.ix-boardfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  flex: none;
+}
+.ix-boardfilter__search {
+  flex: 0 1 380px;
+  min-width: 150px;
+  height: 30px;
+}
+.ix-boardfilter__count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ix-boardfilter__none {
+  padding-bottom: 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* On the PR board the bar is one of the view's own rows, so it takes the columns' side padding
+   instead of the inline margin it uses inside a My Work section. */
+.ix-boardfilter--pr {
+  padding: 0 18px;
+  margin-bottom: 4px;
+}
+.ix-boardfilter--pr + .ix-boardfilter__none {
+  padding: 0 18px 6px;
+}
+
 /* ---------------- My Work: Jira kanban board ---------------- */
+/* Laid out as a flex row rather than as equal grid tracks, so a column with nothing in it can step
+   out of the way and give its width to the ones that do. */
 .ix-mw-board {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(190px, 1fr);
+  display: flex;
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 4px;
 }
 .ix-mw-col {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 8px;
   min-width: 190px;
@@ -2070,6 +2321,26 @@
 .ix-mw-col--test {
   --col-color: var(--status-test);
 }
+/* An empty column carries no information, so it shrinks to a strip - but it keeps its name, turned
+   on its side, because a board of anonymous strips cannot be read at all. */
+.ix-mw-col--collapsed {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 34px;
+  padding: 10px 6px;
+}
+.ix-mw-col--collapsed .ix-mw-col__head {
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.ix-mw-col--collapsed .ix-mw-col__name {
+  writing-mode: vertical-rl;
+}
+.ix-mw-col--collapsed .ix-mw-col__count {
+  margin-left: 0;
+}
 
 .ix-mw-card2 {
   display: flex;
@@ -2110,12 +2381,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-}
-.ix-mw-col__empty {
-  padding: 10px 4px;
-  font-size: 11px;
-  color: var(--text-faint);
-  text-align: center;
 }
 .ix-mw-col__skel {
   height: 52px;
@@ -2555,6 +2820,11 @@
 }
 .ix-todo-item--dragging {
   opacity: 0.45;
+}
+/* The row the user was sent here to look at: found, not selected, so the mark expires on its own. */
+.ix-todo-item--focused {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .ix-todo-item__drag,
 .ix-todo-item__drag-spacer {
@@ -3039,14 +3309,9 @@
   margin-bottom: 20px;
 }
 
-/* All four category panes stay mounted; only the active one is shown, so switching
-   categories never loses another pane's field state. */
-.ix-settings__pane {
-  display: none;
-}
-.ix-settings__pane--active {
-  display: block;
-}
+/* `.ix-settings__pane` and `.ix-settings__pane--active` carry no styling: only the selected
+   category is mounted, so there is nothing to hide. They stay in the markup as the hook the
+   end-to-end tests find the live pane by. */
 
 .ix-set-row {
   display: flex;
@@ -3958,4 +4223,396 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ===== Dashboard: the four mission-control zones ===== */
+
+/* .ix-main is a flex column with min-height 0, so the scrolling child has to claim the space. */
+.ix-dash {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ix-dash__topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ix-dash__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ix-dash__subtitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Needs action is the only zone that grows without bound, so it gets the wider column. The minmax
+   floors stop a long PR title from widening a track past the viewport. */
+.ix-dash__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.ix-dash__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .ix-dash__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ix-dash-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.ix-dash-zone__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.ix-dash-zone__title {
+  flex: none;
+}
+.ix-dash-zone__count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--panel-3);
+  padding: 1px 7px;
+  border-radius: 8px;
+}
+.ix-dash-zone__meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+}
+
+/* The one-line state a zone shrinks to, with the action that resolves it on the same row. Wrapping
+   keeps the action reachable in the narrow single-column layout. */
+.ix-dash-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ix-dash-note__action {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* --- zone 1: needs action --- */
+.ix-dash-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ix-dash-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+}
+.ix-dash-group__label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ix-dash-group__count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ix-dash-group__empty {
+  padding: 4px 2px 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.ix-dash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ix-dash-row:hover {
+  background: var(--panel-2);
+}
+.ix-dash-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.ix-dash-row__title {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-row__sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-row__age,
+.ix-dash-row__due {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ix-dash-row__due--overdue {
+  color: var(--danger);
+}
+
+/* --- zone 2: running sessions --- */
+.ix-dash-sessions__empty {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ix-dash-session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 2px;
+}
+.ix-dash-session__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.ix-dash-session__dot--waiting {
+  background: var(--status-waiting);
+}
+.ix-dash-session__dot--working {
+  background: var(--status-working);
+}
+.ix-dash-session__dot--done {
+  background: var(--status-done);
+}
+.ix-dash-session__name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-dash-session__state {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ix-dash-session__go {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* --- zone 3: time today --- */
+.ix-dash-time__logged {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ix-dash-time__total {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ix-dash-time__label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ix-dash-time__note {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* --- zone 4: system status --- */
+.ix-dash-usage__empty {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ix-dash-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ix-dash-meter__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-dash-meter__pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.ix-dash-meter__track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.ix-dash-meter__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--dur) var(--ease);
+}
+.ix-dash-meter__reset {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ix-dash-sync {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-dash-sync__value {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+/* A source that was never connected states that as the way to connect it, so the row itself is the
+   affordance rather than carrying a second control beside it. */
+.ix-dash-sync__setup {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.ix-dash-sync__setup:hover {
+  color: var(--accent-hover);
+}
+
+/* --- terminal find bar ---
+   An overlay in the pane's top-right corner rather than a row above the terminal: a row would
+   resize the xterm and push a new winsize to the shell every time the bar opened or closed. */
+.ix-find {
+  position: absolute;
+  top: 7px;
+  right: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+.ix-find__input {
+  width: 190px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  user-select: text;
+}
+.ix-find__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ix-find__count {
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ix-find__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ix-find__btn:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+/* --- tab strip overflow ---
+   Always present rather than appearing once the tabs really overflow: chrome that comes and goes
+   moves the controls next to it under the pointer. */
+.ix-tabbar__overflow {
+  flex: none;
+}
+.ix-tabmenu__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-tabmenu__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.ix-tabmenu__dot--working {
+  background: var(--status-working);
+}
+.ix-tabmenu__dot--waiting {
+  background: var(--status-waiting);
+}
+.ix-tabmenu__dot--done {
+  background: var(--status-done);
 }

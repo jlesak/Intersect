@@ -1,39 +1,48 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { selectFilteredThreads, usePrInboxStore } from '../store'
+import type { PrThread } from '@common/domain'
+import { selectSelectedPr, splitThreadsByResolution, usePrInboxStore } from '../store'
 import { CommentComposer } from './CommentComposer'
 import { ThreadCard } from './ThreadCard'
 
-const FILTERS = [
-  { value: 'active', label: 'Active' },
-  { value: 'all', label: 'All' },
-  { value: 'resolved', label: 'Resolved' }
-] as const
+/** One thread of the conversation, wired to the store. */
+function Thread({ thread }: { thread: PrThread }) {
+  return (
+    <ThreadCard
+      thread={thread}
+      context="overview"
+      onReply={(body) => usePrInboxStore.getState().replyToThread(thread.threadId, body)}
+      onSetStatus={(status) =>
+        usePrInboxStore.getState().setThreadStatus(thread.threadId, status)
+      }
+      onOpenFile={(path, line) => usePrInboxStore.getState().revealThread(path, line)}
+    />
+  )
+}
 
-/** Every comment thread of the PR on one page, ADO Overview style. */
+/**
+ * Every comment thread of the PR on one page, ADO Overview style, led by the threads that still ask
+ * for something. The settled ones keep their place at the bottom rather than disappearing: a thread
+ * somebody else resolved while I was away is the one I most need to notice, and a list that starts
+ * out hiding it can never tell me it changed.
+ */
 export function OverviewTab() {
-  const threads = usePrInboxStore(useShallow(selectFilteredThreads))
-  const filter = usePrInboxStore((s) => s.threadFilter)
+  const pr = usePrInboxStore(selectSelectedPr)
+  const threads = usePrInboxStore(useShallow((s) => s.threads))
+  const threadsError = usePrInboxStore((s) => s.threadsError)
+  const { unresolved, resolved } = useMemo(() => splitThreadsByResolution(threads), [threads])
   const [composing, setComposing] = useState(false)
+  const [showResolved, setShowResolved] = useState(false)
 
   return (
     <div className="ix-overview" data-testid="pr-overview">
+      {pr && pr.description.trim() !== '' && (
+        <div className="ix-overview__description" data-testid="pr-description">
+          {pr.description}
+        </div>
+      )}
       <div className="ix-overview__head">
         <span className="ix-eyebrow">Comments</span>
-        <select
-          className="ix-input ix-overview__filter"
-          value={filter}
-          data-testid="pr-thread-filter"
-          onChange={(e) =>
-            usePrInboxStore.getState().setThreadFilter(e.target.value as typeof filter)
-          }
-        >
-          {FILTERS.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
         <button
           type="button"
           className="ix-btn"
@@ -53,23 +62,42 @@ export function OverviewTab() {
           onCancel={() => setComposing(false)}
         />
       )}
-      {threads.length === 0 ? (
+      {threadsError ? (
+        <div className="ix-empty">
+          <span className="ix-eyebrow">Comments unavailable</span>
+          <div className="ix-empty__title">Could not read the conversation</div>
+          <p className="ix-faint">{threadsError}</p>
+          <button
+            type="button"
+            className="ix-btn"
+            data-testid="pr-threads-retry"
+            onClick={() => void usePrInboxStore.getState().loadThreads()}
+          >
+            Try again
+          </button>
+        </div>
+      ) : unresolved.length === 0 && resolved.length === 0 ? (
         <div className="ix-empty">
           <span className="ix-eyebrow">No comments</span>
           <div className="ix-empty__title">Nothing here</div>
-          <p className="ix-empty__hint">No threads match the current filter.</p>
+          <p className="ix-empty__hint">Nobody has commented on this pull request yet.</p>
         </div>
       ) : (
-        threads.map((t) => (
-          <ThreadCard
-            key={t.threadId}
-            thread={t}
-            context="overview"
-            onReply={(body) => usePrInboxStore.getState().replyToThread(t.threadId, body)}
-            onSetStatus={(status) => usePrInboxStore.getState().setThreadStatus(t.threadId, status)}
-            onOpenFile={(path, line) => usePrInboxStore.getState().revealThread(path, line)}
-          />
-        ))
+        unresolved.map((t) => <Thread key={t.threadId} thread={t} />)
+      )}
+      {resolved.length > 0 && (
+        <div className="ix-overview__resolved">
+          <button
+            type="button"
+            className="ix-btn ix-btn--ghost ix-overview__resolved-toggle"
+            data-testid="pr-resolved-toggle"
+            onClick={() => setShowResolved((open) => !open)}
+          >
+            {showResolved ? '▾' : '▸'} Resolved
+            <span className="ix-board-col__count">{resolved.length}</span>
+          </button>
+          {showResolved && resolved.map((t) => <Thread key={t.threadId} thread={t} />)}
+        </div>
       )}
     </div>
   )

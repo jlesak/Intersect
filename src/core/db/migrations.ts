@@ -565,6 +565,44 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // PR board: when each pull request was last touched, so the board can be ordered by what needs
+    // attention rather than by age. Rows already cached are dated by their own creation instead of
+    // being left at 1970, which is what the board would otherwise show until the next sync lands.
+    version: 23,
+    up(db) {
+      db.exec(`
+        ALTER TABLE pr_cache ADD COLUMN last_activity_at INTEGER NOT NULL DEFAULT 0;
+        UPDATE pr_cache SET last_activity_at = created_at;
+      `)
+    }
+  },
+  {
+    // Toggl removal: time tracking is native and never synced anywhere, so the per-project Toggl
+    // binding held nothing any code read. Dropping the column removes the setting rather than
+    // leaving a field that suggests a sync that does not exist.
+    version: 24,
+    up(db) {
+      db.exec(`ALTER TABLE projects DROP COLUMN toggl_project_id;`)
+    }
+  },
+  {
+    // PR detail: the author's own explanation of the change, which the sync already received and
+    // discarded. Empty for a PR nobody described, and for rows cached before the column existed.
+    version: 25,
+    up(db) {
+      db.exec(`ALTER TABLE pr_cache ADD COLUMN description TEXT NOT NULL DEFAULT '';`)
+    }
+  },
+  {
+    // Persist the immutable PR source commit each draft was anchored to. Existing rows cannot be
+    // proved safe against the current diff, so they deliberately migrate as NULL and are surfaced
+    // as stale instead of being silently publishable.
+    version: 26,
+    up(db) {
+      db.exec(`ALTER TABLE draft_comment ADD COLUMN source_commit_id TEXT;`)
+    }
   }
 ]
 

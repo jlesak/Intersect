@@ -1,3 +1,3 @@
 export { useTodoStore } from './store'
-export { formatDueDay, isOverdue } from './due'
-export { registerTodoFeature } from './register'
+export { formatDueDay, isDueToday, isOverdue } from './due'
+export { registerTodoFeature, TODO_SECTION_ID } from './register'

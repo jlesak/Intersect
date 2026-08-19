@@ -52,6 +52,7 @@ import type {
   TodoLists,
   TodoTask,
   TodoTaskPatch,
+  UnfinishedDraftReview,
   NewWorkItemRef,
   WorkItemCandidateGroup,
   WorkItemRef,
@@ -199,6 +200,8 @@ export interface IpcApi {
     sync(): Promise<PullRequest[]>
     /** The cached PRs from the last sync (no network). */
     list(): Promise<PullRequest[]>
+    /** When the cache was last replaced by a sync, or null when none has ever completed. */
+    getSyncedAt(): Promise<number | null>
     getChanges(repositoryId: string, prId: number): Promise<PrChangeFile[]>
     getFileDiff(repositoryId: string, prId: number, filePath: string): Promise<FileDiff>
     getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
@@ -214,6 +217,8 @@ export interface IpcApi {
       status: 'active' | 'fixed'
     ): Promise<PrThread[]>
     listDrafts(repositoryId: string, prId: number): Promise<DraftComment[]>
+    /** Durable aggregate used to mark every PR whose local draft decisions are unfinished. */
+    listUnfinishedDraftReviews(): Promise<UnfinishedDraftReview[]>
     addManualDraft(input: NewManualDraft): Promise<DraftComment>
     editDraft(id: string, body: string): Promise<DraftComment>
     discardDraft(id: string): Promise<void>
@@ -324,6 +329,12 @@ export interface IpcApi {
     pickVttFile(): Promise<string | null>
     /** Fired whenever a run finishes (done or failed) so the history refreshes live. */
     onRunChanged(cb: (run: OtoRun) => void): () => void
+  }
+  palette: {
+    /** Command ids the user ran most recently, newest first; empty on a fresh profile. */
+    getRecent(): Promise<string[]>
+    /** Note that a command was just run, and answer with the updated recently-used list. */
+    recordUse(commandId: string): Promise<string[]>
   }
   settings: {
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
@@ -550,6 +561,7 @@ export const Channel = {
   // prInbox (request/response)
   prInboxSync: 'prInbox:sync',
   prInboxList: 'prInbox:list',
+  prInboxGetSyncedAt: 'prInbox:getSyncedAt',
   prInboxGetChanges: 'prInbox:getChanges',
   prInboxGetFileDiff: 'prInbox:getFileDiff',
   prInboxGetThreads: 'prInbox:getThreads',
@@ -557,6 +569,7 @@ export const Channel = {
   prInboxReplyToThread: 'prInbox:replyToThread',
   prInboxSetThreadStatus: 'prInbox:setThreadStatus',
   prInboxListDrafts: 'prInbox:listDrafts',
+  prInboxListUnfinishedDraftReviews: 'prInbox:listUnfinishedDraftReviews',
   prInboxAddManualDraft: 'prInbox:addManualDraft',
   prInboxEditDraft: 'prInbox:editDraft',
   prInboxDiscardDraft: 'prInbox:discardDraft',
@@ -610,6 +623,9 @@ export const Channel = {
   oneOnOneStart: 'oneOnOne:start',
   oneOnOnePickVtt: 'oneOnOne:pickVtt',
   oneOnOneRunChanged: 'oneOnOne:runChanged',
+  // commandPalette (request/response)
+  paletteGetRecent: 'palette:getRecent',
+  paletteRecordUse: 'palette:recordUse',
   // settings (request/response)
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',

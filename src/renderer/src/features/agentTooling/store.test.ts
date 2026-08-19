@@ -111,6 +111,29 @@ describe('load', () => {
     expect(s.error).toMatch(/disk gone/)
     expect(s.config).toBeNull()
   })
+
+  test('returning to an already loaded scope reads nothing off disk again', async () => {
+    await useAgentToolingStore.getState().load()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(1)
+    expect(mocked.listSkills).toHaveBeenCalledTimes(1)
+    expect(mocked.listAgents).toHaveBeenCalledTimes(1)
+
+    await useAgentToolingStore.getState().load()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(1)
+    expect(mocked.listSkills).toHaveBeenCalledTimes(1)
+    expect(mocked.listAgents).toHaveBeenCalledTimes(1)
+    expect(useAgentToolingStore.getState().status).toBe('ready')
+  })
+
+  test('a failed load is retried on the next visit', async () => {
+    mocked.listSkills.mockRejectedValueOnce(new Error('disk gone'))
+    await useAgentToolingStore.getState().load()
+    expect(useAgentToolingStore.getState().status).toBe('error')
+
+    await useAgentToolingStore.getState().load()
+    expect(useAgentToolingStore.getState().status).toBe('ready')
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('setScope', () => {
@@ -121,6 +144,20 @@ describe('setScope', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(mocked.getEffectiveConfig).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' })
+  })
+
+  test('a scope switch refetches even though the previous scope is loaded', async () => {
+    await useAgentToolingStore.getState().load()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(1)
+
+    useAgentToolingStore.getState().setScope({ kind: 'project', projectId: 'p1' })
+    // Let the triggered load settle.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(2)
+    expect(mocked.getEffectiveConfig).toHaveBeenLastCalledWith({ kind: 'project', projectId: 'p1' })
+    expect(useAgentToolingStore.getState().status).toBe('ready')
   })
 
   test('re-selecting the same scope does not refetch', () => {
@@ -217,6 +254,18 @@ describe('commit', () => {
     expect(toastMocks.push).toHaveBeenCalled()
   })
 
+  test('refetches an already loaded scope, because the save changed what is on disk', async () => {
+    await useAgentToolingStore.getState().load()
+    useAgentToolingStore.setState({ pendingPreview: { request: editRequest, preview: preview() } }, false)
+    mocked.commitSave.mockResolvedValue({
+      ok: true,
+      path: '/home/u/.claude/settings.json',
+      newRevision: 'rev-2'
+    })
+    await useAgentToolingStore.getState().commit()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(2)
+  })
+
   test('never commits an invalid preview', async () => {
     useAgentToolingStore.setState(
       { pendingPreview: { request: editRequest, preview: preview({ valid: false, errors: ['bad'] }) } },
@@ -236,6 +285,14 @@ describe('undo', () => {
     expect(mocked.undoSave).toHaveBeenCalledWith('/home/u/.claude/settings.json')
     expect(s.lastUndo).toBeNull()
     expect(mocked.getEffectiveConfig).toHaveBeenCalled()
+  })
+
+  test('refetches an already loaded scope, because the restore changed what is on disk', async () => {
+    await useAgentToolingStore.getState().load()
+    useAgentToolingStore.setState({ lastUndo: { path: '/home/u/.claude/settings.json' } }, false)
+    mocked.undoSave.mockResolvedValue({ ok: true, restoredRevision: 'rev-1' })
+    await useAgentToolingStore.getState().undo()
+    expect(mocked.getEffectiveConfig).toHaveBeenCalledTimes(2)
   })
 
   test('a rejected undo keeps the affordance and warns', async () => {

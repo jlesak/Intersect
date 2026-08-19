@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DraftComment, FileDiff, PrThread } from '@common/domain'
 import { usePrInboxStore } from '../store'
 import { CommentComposer } from './CommentComposer'
+import { DraftCard } from './DraftCard'
 import { useMonacoZones, type ZoneSpec } from './monacoZones'
 import { ThreadCard } from './ThreadCard'
 
@@ -14,13 +15,56 @@ interface DiffViewerProps {
   /** File + line the diff should scroll to once up (set by Overview's file:line chip). */
   pendingReveal: { path: string; line: number | null } | null
   onRevealDone(): void
+  /** Current PR head; persisted drafts from any other or unknown head are stale. */
+  currentSourceCommitId?: string
+}
+
+/**
+ * Whether a thread's recorded line falls past the end of the file as this diff has it.
+ *
+ * Azure DevOps anchors a comment to the iteration it was written against, while the diff here is
+ * computed locally against the current merge base, so a recorded line can name a line the file no
+ * longer has. Monaco does not refuse such an anchor - it clamps it and renders the thread under the
+ * last line - so the placement itself says nothing about the position being a guess.
+ *
+ * Read off the text the model was built from rather than off the model: the two are the same
+ * content, and the arithmetic is then answerable wherever the anchors are decided.
+ */
+export function anchorPastEndOfFile(modified: string, line: number): boolean {
+  return line > modified.split('\n').length
+}
+
+/** The renderer cannot import the core's ADO adapter, so preserve its path convention locally. */
+function canonicalDiffPath(filePath: string): string {
+  const relative = filePath.trim().replace(/^\/+/, '')
+  return relative ? `/${relative}` : ''
+}
+
+/**
+ * The draft's `side` is an anchor, not a display preference: a left-side finding belongs beside
+ * the original code and a right-side finding beside the changed code. Older stored drafts can be
+ * repo-relative; matching their canonical form restores them inline without a data migration.
+ */
+export function splitDraftsBySide(
+  drafts: DraftComment[],
+  filePath: string
+): { original: DraftComment[]; modified: DraftComment[] } {
+  const original: DraftComment[] = []
+  const modified: DraftComment[] = []
+  for (const draft of drafts) {
+    if (canonicalDiffPath(draft.filePath) !== canonicalDiffPath(filePath)) continue
+    if (draft.side === 'left') original.push(draft)
+    else modified.push(draft)
+  }
+  return { original, modified }
 }
 
 /**
  * Side-by-side, read-only Monaco diff of one changed file. Existing ADO threads render inline
- * under their lines (full conversation, reply, resolve), drafts as pinned notes, and a click on
- * a line number opens an inline comment composer. All inline content lives in Monaco view zones
- * hosting React portals. Binary / oversized files never reach Monaco.
+ * under their lines (full conversation, reply, resolve), and actionable draft cards on their
+ * recorded side. A click on a changed-file line number opens an inline comment composer. All inline
+ * content lives in Monaco view zones hosting React portals. Binary / oversized files never reach
+ * Monaco.
  */
 export function DiffViewer({
   diff,
@@ -28,10 +72,12 @@ export function DiffViewer({
   drafts,
   threads,
   pendingReveal,
-  onRevealDone
+  onRevealDone,
+  currentSourceCommitId = ''
 }: DiffViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+  const [originalEditor, setOriginalEditor] = useState<monaco.editor.ICodeEditor | null>(null)
   const [modifiedEditor, setModifiedEditor] = useState<monaco.editor.ICodeEditor | null>(null)
   const [composerLine, setComposerLine] = useState<number | null>(null)
 
@@ -51,10 +97,12 @@ export function DiffViewer({
       glyphMargin: true
     })
     editorRef.current = editor
+    setOriginalEditor(editor.getOriginalEditor())
     setModifiedEditor(editor.getModifiedEditor())
     return () => {
       editor.dispose()
       editorRef.current = null
+      setOriginalEditor(null)
       setModifiedEditor(null)
     }
   }, [renderable])
@@ -97,19 +145,21 @@ export function DiffViewer({
     onRevealDone()
   }, [modifiedEditor, diff, pendingReveal])
 
-  const zoneSpecs = useMemo<ZoneSpec[]>(() => {
-    if (!diff) return []
+  const { originalZones, modifiedZones } = useMemo(() => {
+    if (!diff) return { originalZones: [] as ZoneSpec[], modifiedZones: [] as ZoneSpec[] }
     const store = usePrInboxStore.getState
-    const specs: ZoneSpec[] = []
+    const originalZones: ZoneSpec[] = []
+    const modifiedZones: ZoneSpec[] = []
     for (const t of threads) {
       if (t.isSystem || t.filePath !== diff.path || !t.line) continue
       const replyKey = `reply:${t.threadId}`
-      specs.push({
+      modifiedZones.push({
         key: `thread-${t.threadId}`,
         afterLine: t.line,
         node: (
           <ThreadCard
             thread={t}
+            positionOutdated={anchorPastEndOfFile(diff.modified, t.line)}
             onReply={(body) => store().replyToThread(t.threadId, body)}
             onSetStatus={(status) => store().setThreadStatus(t.threadId, status)}
             initialReply={store().commentDrafts[replyKey] ?? ''}
@@ -118,22 +168,38 @@ export function DiffViewer({
         )
       })
     }
-    for (const d of drafts) {
-      if (d.filePath !== diff.path || d.side !== 'right') continue
-      specs.push({
+    const inlineDrafts = splitDraftsBySide(drafts, diff.path)
+    for (const d of inlineDrafts.original) {
+      originalZones.push({
         key: `draft-${d.id}`,
         afterLine: d.line,
         node: (
-          <div className="ix-zone-draft">
-            <span className="ix-chip">{d.source === 'claude' ? 'Claude draft' : 'Draft'}</span>
-            <p className="ix-thread__body">{d.body}</p>
-          </div>
+          <DraftCard
+            draft={d}
+            inline
+            stale={!d.sourceCommitId || d.sourceCommitId !== currentSourceCommitId}
+            positionOutdated={anchorPastEndOfFile(diff.original, d.line)}
+          />
+        )
+      })
+    }
+    for (const d of inlineDrafts.modified) {
+      modifiedZones.push({
+        key: `draft-${d.id}`,
+        afterLine: d.line,
+        node: (
+          <DraftCard
+            draft={d}
+            inline
+            stale={!d.sourceCommitId || d.sourceCommitId !== currentSourceCommitId}
+            positionOutdated={anchorPastEndOfFile(diff.modified, d.line)}
+          />
         )
       })
     }
     if (composerLine) {
       const composerKey = `composer:${diff.path}:${composerLine}`
-      specs.push({
+      modifiedZones.push({
         key: 'composer',
         afterLine: composerLine,
         node: (
@@ -155,10 +221,11 @@ export function DiffViewer({
         )
       })
     }
-    return specs
+    return { originalZones, modifiedZones }
   }, [diff, threads, drafts, composerLine])
 
-  const portals = useMonacoZones(modifiedEditor, zoneSpecs)
+  const originalPortals = useMonacoZones(originalEditor, originalZones)
+  const modifiedPortals = useMonacoZones(modifiedEditor, modifiedZones)
 
   if (loading) {
     return <div className="ix-pr-diff__placeholder">Loading diff…</div>
@@ -182,7 +249,8 @@ export function DiffViewer({
         </span>
       </div>
       <div className="ix-pr-diff__host" ref={hostRef} />
-      {portals}
+      {originalPortals}
+      {modifiedPortals}
     </div>
   )
 }

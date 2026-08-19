@@ -42,6 +42,7 @@ const pr = (prId: number, title: string, repositoryName = 'spot-backend'): PullR
   repositoryName,
   projectId: 'ado-project',
   title,
+  description: '',
   authorId: 'a',
   authorName: 'A',
   createdAt: 1,
@@ -56,7 +57,8 @@ const pr = (prId: number, title: string, repositoryName = 'spot-backend'): PullR
   myReviewerId: null,
   reviewers: [],
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 1
 })
 
 const project = (id: string, over: Partial<Project> = {}): Project => ({
@@ -68,7 +70,6 @@ const project = (id: string, over: Partial<Project> = {}): Project => ({
   jiraJql: null,
   jiraBoardUrl: null,
   adoRepositories: [],
-  togglProjectId: null,
   ...over
 })
 

@@ -14,15 +14,29 @@ interface TodoState {
   done: TodoTask[]
   /** Whether the Done drawer is expanded. Renderer-only; every app start begins collapsed. */
   showDone: boolean
+  /**
+   * The task another surface asked to be taken to, until the list has revealed it. Left standing
+   * across the section switch, because it is the only record of which row to reveal.
+   */
+  pendingFocusId: string | null
   load(): Promise<void>
   toggleShowDone(): void
-  add(text: string, dueDay: string | null): Promise<void>
+  /**
+   * Add a task, answering whether it was really written. A caller that confirms the add to the
+   * user - quick capture, which never shows the list - has to be able to tell success from a
+   * failure that only reported itself to a toast.
+   */
+  add(text: string, dueDay: string | null): Promise<boolean>
   /** Edit any subset of a task's fields in place (inline editing). */
   update(id: string, patch: TodoTaskPatch): Promise<void>
   toggleDone(id: string, done: boolean): Promise<void>
   remove(id: string): Promise<void>
   /** Apply the new order immediately, then persist it; failures resync from main. */
   reorder(orderedIds: string[]): Promise<void>
+  /** Ask for a task to be brought into view and marked, from anywhere in the app. */
+  focusTask(id: string): void
+  /** The list has revealed the requested task; the request is spent. */
+  clearFocus(): void
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -39,15 +53,21 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     }
   }
 
-  /** Run a mutation, then re-read both lists so the section always shows main's truth. */
-  async function mutate(op: () => Promise<unknown>, failure: string): Promise<void> {
+  /**
+   * Run a mutation, then re-read both lists so the section always shows main's truth. Answers
+   * whether the mutation itself succeeded; a failure has already been reported to the user.
+   */
+  async function mutate(op: () => Promise<unknown>, failure: string): Promise<boolean> {
     reorderRevision += 1
+    let ok = true
     try {
       await op()
     } catch (e) {
+      ok = false
       reportError(failure, e)
     }
     await reload()
+    return ok
   }
 
   return {
@@ -56,6 +76,15 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     open: [],
     done: [],
     showDone: false,
+    pendingFocusId: null,
+
+    focusTask(id) {
+      set({ pendingFocusId: id })
+    },
+
+    clearFocus() {
+      set({ pendingFocusId: null })
+    },
 
     async load() {
       reorderRevision += 1
@@ -68,7 +97,7 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     },
 
     async add(text, dueDay) {
-      await mutate(() => api.add(text, dueDay), 'Could not add the task')
+      return mutate(() => api.add(text, dueDay), 'Could not add the task')
     },
 
     async update(id, patch) {

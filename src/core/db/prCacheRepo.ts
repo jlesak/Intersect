@@ -9,6 +9,7 @@ interface PrRow {
   project_id: string
   repository_name: string
   title: string
+  description: string
   author_id: string
   author_name: string
   created_at: number
@@ -25,6 +26,7 @@ interface PrRow {
   my_reviewer_id: string | null
   reviewers_json: string
   active_thread_count: number
+  last_activity_at: number
   synced_at: number
 }
 
@@ -35,6 +37,7 @@ function toPr(row: PrRow): PullRequest {
     repositoryName: row.repository_name,
     projectId: row.project_id,
     title: row.title,
+    description: row.description ?? '',
     authorId: row.author_id,
     authorName: row.author_name,
     createdAt: row.created_at,
@@ -50,14 +53,27 @@ function toPr(row: PrRow): PullRequest {
     reviewers: JSON.parse(row.reviewers_json) as PrReviewer[],
     // Derived from the review watermark by the read path (see reviewWatermark), never stored.
     newChangesSinceMyReview: false,
-    activeThreadCount: row.active_thread_count ?? 0
+    activeThreadCount: row.active_thread_count ?? 0,
+    lastActivityAt: row.last_activity_at ?? 0
   }
 }
+
+/**
+ * The `app_state` key carrying when the whole cache was last replaced. Kept beside the cache rather
+ * than derived from them, because a sync that legitimately found no pull requests still happened -
+ * and an empty inbox reading as "never synced" is a freshness indicator lying about itself.
+ */
+const SYNCED_AT_KEY = 'pr_cache_synced_at'
 
 export interface PrCacheRepo {
   /** Replace the whole cache with a fresh sync result, in one transaction, stamped with synced_at. */
   replaceAll(prs: PullRequest[]): void
   list(): PullRequest[]
+  /**
+   * When the cache was last replaced by a sync, or null when no sync has ever completed. Answers
+   * how stale the pull-request board is, which only the cache itself can know across restarts.
+   */
+  getSyncedAt(): number | null
   get(repositoryId: string, prId: number): PullRequest | undefined
   /**
    * Record a vote just cast from Intersect on the cached row, without waiting for a full sync:
@@ -81,10 +97,11 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
         db.exec('DELETE FROM pr_cache')
         const stmt = db.prepare(
           `INSERT INTO pr_cache
-             (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
-              created_at, status, source_ref, target_ref, source_commit, target_commit, url,
-              my_role, my_vote, my_reviewer_id, reviewers_json, active_thread_count, synced_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+             (repository_id, pr_id, project_id, repository_name, title, description, author_id,
+              author_name, created_at, status, source_ref, target_ref, source_commit,
+              target_commit, url, my_role, my_vote, my_reviewer_id, reviewers_json,
+              active_thread_count, last_activity_at, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         for (const pr of prs) {
           stmt.run(
@@ -93,6 +110,7 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.projectId,
             pr.repositoryName,
             pr.title,
+            pr.description,
             pr.authorId,
             pr.authorName,
             pr.createdAt,
@@ -107,9 +125,14 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
             pr.myReviewerId,
             JSON.stringify(pr.reviewers),
             pr.activeThreadCount,
+            pr.lastActivityAt,
             syncedAt
           )
         }
+        db.prepare(
+          `INSERT INTO app_state (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        ).run(SYNCED_AT_KEY, String(syncedAt))
       })
     },
 
@@ -118,6 +141,20 @@ export function createPrCacheRepo(db: DatabaseSync, deps: RepoDeps): PrCacheRepo
         .prepare('SELECT * FROM pr_cache ORDER BY created_at DESC')
         .all() as unknown as PrRow[]
       return rows.map(toPr)
+    },
+
+    getSyncedAt() {
+      const stamped = db.prepare('SELECT value FROM app_state WHERE key = ?').get(SYNCED_AT_KEY) as
+        | { value: string | null }
+        | undefined
+      const value = stamped?.value === null || stamped?.value === undefined ? null : Number(stamped.value)
+      if (value !== null && Number.isFinite(value)) return value
+      // A cache filled before the stamp existed still carries the sync time on its rows. MAX over an
+      // empty table yields a row whose value is NULL, so a row is no proof of a timestamp.
+      const row = db.prepare('SELECT MAX(synced_at) AS t FROM pr_cache').get() as
+        | { t: number | null }
+        | undefined
+      return row?.t ?? null
     },
 
     get(repositoryId, prId) {

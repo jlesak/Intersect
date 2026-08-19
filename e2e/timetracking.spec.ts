@@ -168,7 +168,7 @@ const cardAt = (column: Locator, index: number): Locator =>
 const RUNS_ON_WEEKDAY = ![0, 6].includes(new Date().getDay())
 
 test('the rail lists every section and the board shows the week with auto cards in their days', async () => {
-  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
+  const { win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
 
   await expect(win.locator('.ix-rail__label')).toHaveText([...RAIL_LABELS])
 
@@ -212,12 +212,10 @@ test('the rail lists every section and the board shows the week with auto cards 
   // The Saturday session is excluded entirely: three cards on the whole board, weekend not counted.
   await expect(win.locator('.ix-tt-card')).toHaveCount(3)
   await expect(win.locator('.ix-tt__total')).toHaveText('1h 25m total')
-
-  await app.close()
 })
 
 test('manual add, inline edits and delete update the cards and totals', async () => {
-  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
+  const { win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
   await openTimeTracking(win)
   await expect(win.locator('.ix-tt-card')).toHaveCount(3)
 
@@ -270,12 +268,10 @@ test('manual add, inline edits and delete update the cards and totals', async ()
   await expect(tuesday.locator('.ix-tt-card')).toHaveCount(0)
   await expect(tuesday.locator('.ix-tt__day-total')).toHaveText('—')
   await expect(win.locator('.ix-tt__total')).toHaveText('2h 42m total')
-
-  await app.close()
 })
 
 test('week navigation moves the range, empties the board, and Today returns', async () => {
-  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
+  const { win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
   await openTimeTracking(win)
   await expect(win.locator('.ix-tt-card')).toHaveCount(3)
 
@@ -291,8 +287,6 @@ test('week navigation moves the range, empties the board, and Today returns', as
   await expect(win.locator('.ix-tt__range')).toHaveText(currentRange!)
   await expect(win.locator('.ix-tt-card')).toHaveCount(3)
   if (RUNS_ON_WEEKDAY) await expect(win.locator('.ix-tt__day--today')).toHaveCount(1)
-
-  await app.close()
 })
 
 test('manual entries, auto-card edits and deletions persist across a relaunch', async () => {
@@ -341,7 +335,6 @@ test('manual entries, auto-card edits and deletions persist across a relaunch', 
   )
   await expect(dayColumn(second.win, TUESDAY).locator('.ix-tt-card')).toHaveCount(0)
   await expect(second.win.locator('.ix-tt__total')).toHaveText('4h 12m total')
-  await second.app.close()
 })
 
 test('the work timer keeps running across a relaunch and logs an entry on stop', async () => {
@@ -383,5 +376,4 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
     await expect(today.locator('.ix-tt-card')).toHaveCount(1)
     await expect(today.locator('.ix-tt-card__title')).toHaveValue('Timed work')
   }
-  await second.app.close()
 })

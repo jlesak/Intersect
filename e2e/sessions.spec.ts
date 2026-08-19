@@ -87,7 +87,7 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
 
@@ -105,9 +105,63 @@ test('lists indexed sessions, filters by search, and reads a transcript', async 
   await win.locator('.ix-session-row', { hasText: 'Building the widget factory' }).click()
   await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
   await expect(win.locator('.ix-transcript__body-scroll')).toContainText('assemble widgets')
-  await expect(win.locator('.ix-transcript__tool')).toContainText('factory.ts')
 
-  await app.close()
+  // Tool-only records stay available without dominating the transcript: the batch starts collapsed
+  // and reveals its individual calls only when requested.
+  await expect(win.locator('.ix-transcript__tool-toggle')).toContainText('1 tool call')
+  await expect(win.locator('.ix-transcript__tool')).toHaveCount(0)
+  await win.locator('.ix-transcript__tool-toggle').click()
+  await expect(win.locator('.ix-transcript__tool')).toContainText('factory.ts')
+})
+
+test('arrow keys walk the list from the search box and Enter opens what they land on', async () => {
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
+  const projectsDir = buildProjectsFixture(cwdA, cwdB)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
+
+  await openSessions(win)
+  await expect(win.locator('.ix-session-row')).toHaveCount(2)
+
+  // ArrowDown out of the search box lands on the first row; a second one steps to the next.
+  await win.locator('.ix-sessions-search').click()
+  await win.locator('.ix-sessions-search').press('ArrowDown')
+  await expect(win.locator('.ix-session-row').first()).toBeFocused()
+  await win.keyboard.press('ArrowDown')
+  await expect(win.locator('.ix-session-row').nth(1)).toBeFocused()
+
+  // Only the row the list points at is a Tab stop, so Tab leaves the list rather than crawling it.
+  await expect(win.locator('.ix-session-row').first()).toHaveAttribute('tabindex', '-1')
+  await expect(win.locator('.ix-session-row').nth(1)).toHaveAttribute('tabindex', '0')
+
+  // Enter opens the second session, not the first: the transcript proves where the pointer was.
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-transcript__title')).toHaveText('Fixing the login redirect')
+
+  // ArrowUp walks back, and Enter there opens the other session.
+  await win.keyboard.press('ArrowUp')
+  await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-transcript__title')).toHaveText('Building the widget factory')
+})
+
+test('a fuzzy query finds a session the letters are only scattered through', async () => {
+  const profileDir = userDataDir()
+  const cwdA = tempDir('proj-a-')
+  const cwdB = tempDir('proj-b-')
+  const projectsDir = buildProjectsFixture(cwdA, cwdB)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
+
+  await openSessions(win)
+
+  // "lgnrdrct" is nowhere in the text contiguously; only a subsequence match can find it.
+  await win.locator('.ix-sessions-search').fill('lgnrdrct')
+  await expect(win.locator('.ix-session-row')).toHaveCount(1)
+  await expect(win.locator('.ix-session-row__title')).toHaveText('Fixing the login redirect')
+
+  // The matched prompt is shown with the characters that earned the hit marked.
+  await expect(win.locator('.ix-session-row__snip')).toContainText('the login redirect loops forever')
+  await expect(win.locator('.ix-session-row__mark').first()).toBeVisible()
 })
 
 test('folder multiselect narrows the list to the checked folders', async () => {
@@ -115,20 +169,18 @@ test('folder multiselect narrows the list to the checked folders', async () => {
   const cwdA = tempDir('proj-a-')
   const cwdB = tempDir('proj-b-')
   const projectsDir = buildProjectsFixture(cwdA, cwdB)
-  const { app, win } = await launchWithSessions(profileDir, projectsDir)
+  const { win } = await launchWithSessions(profileDir, projectsDir)
 
   await openSessions(win)
   await expect(win.locator('.ix-session-row')).toHaveCount(2)
 
   // Open the folder popover and uncheck the widget session's folder (proj-a-*).
-  await win.locator('.ix-sessions-fbtn').click()
-  await win.locator('.ix-sessions-folder__pop').waitFor()
-  await win.locator('.ix-sessions-folder__item', { hasText: 'proj-a' }).locator('input').uncheck()
+  await win.getByTestId('sessions-folders').click()
+  await win.locator('.ix-msel__pop').waitFor()
+  await win.locator('.ix-msel__item', { hasText: 'proj-a' }).locator('input').uncheck()
 
   await expect(win.locator('.ix-session-row')).toHaveCount(1)
   await expect(win.locator('.ix-session-row__title')).toHaveText('Fixing the login redirect')
-
-  await app.close()
 })
 
 test('resume opens a Claude tab in a workspace for the session folder', async () => {
@@ -151,5 +203,6 @@ test('resume opens a Claude tab in a workspace for the session folder', async ()
   await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
   await expect(win.locator('.xterm')).toBeVisible()
 
-  await app.close()
+  // The resume says it finished, naming the session it brought back.
+  await expect(win.locator('.ix-toast')).toContainText('Resumed Building the widget factory')
 })

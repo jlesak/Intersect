@@ -1,26 +1,30 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { type ElectronApplication, type Page } from '@playwright/test'
+import {
+  connectedAdo,
+  expect,
+  launch as launchApp,
+  openRailSection,
+  test,
+  userDataDir
+} from './harness'
 
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-/** Launch the app against the stubbed ADO backend in radar mode (see adoE2eStub). */
+/**
+ * Launch the app against the stubbed ADO backend in radar mode (see adoE2eStub).
+ *
+ * Always on a connected machine: these tests start from a populated radar, which the app fills by
+ * refreshing itself, and it only does that where Azure DevOps is reachable.
+ */
 async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1', INTERSECT_E2E_ADO: 'radar' }
+  const { app, win } = await launchApp(userDataDir(), {
+    env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' }
   })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
   // Boot lands on Claude Code, not My Work; switch to the section most of these tests start from.
-  await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
+  await openRailSection(win, 'My Work', '.ix-mywork')
   return { app, win }
 }
 
 test('voting on a reviewed PR activates the clicked button and survives a re-sync', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // Open PR 502 (I review it, no vote yet) from the My Work radar row.
   await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
@@ -49,12 +53,10 @@ test('voting on a reviewed PR activates the clicked button and survives a re-syn
   await expect(
     win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
   ).toHaveCount(1)
-
-  await app.close()
 })
 
 test('switching my vote moves the active state to the newly clicked button', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   await win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' }).click()
   const group = win.locator('.ix-pr-vote-group')
@@ -65,12 +67,10 @@ test('switching my vote moves the active state to the newly clicked button', asy
   await group.getByRole('button', { name: 'Approve+' }).click()
   await expect(group.locator('.ix-pr-vote-btn--active-suggestions')).toHaveCount(1)
   await expect(group.locator('.ix-pr-vote-btn--active-waiting')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('an already-voted PR reflects my standing vote when opened', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // PR 503 comes from the stub with my vote already 'approved'; it sits in the Approved column.
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
@@ -85,12 +85,10 @@ test('an already-voted PR reflects my standing vote when opened', async () => {
   await expect(
     win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
   ).toHaveCount(1)
-
-  await app.close()
 })
 
 test('the vote group is absent on a PR where my reviewer identity is not resolvable', async () => {
-  const { app, win } = await launch()
+  const { win } = await launch()
 
   // PR 501 is authored by me with no reviewer entry of mine - there is nothing to vote with.
   await win.locator('.ix-mw-row', { hasText: 'Add rate limiting to the sync pipeline' }).click()
@@ -98,6 +96,4 @@ test('the vote group is absent on a PR where my reviewer identity is not resolva
   await expect(win.locator('.ix-pr-vote-group')).toHaveCount(0)
   // The rest of the header (the review action) still renders.
   await expect(win.locator('.ix-btn', { hasText: 'Review with Claude Code' })).toBeVisible()
-
-  await app.close()
 })

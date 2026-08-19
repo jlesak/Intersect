@@ -2,7 +2,12 @@ import { describe, expect, test } from 'vitest'
 import type { Command } from '@renderer/shared/registries/commandRegistry'
 import { filterCommands } from './fuzzy'
 
-const cmd = (id: string, title: string): Command => ({ id, title, handler: () => {} })
+const cmd = (id: string, title: string, keywords?: string[]): Command => ({
+  id,
+  title,
+  keywords,
+  handler: () => {}
+})
 
 const commands: Command[] = [
   cmd('workspaces.create', 'Add Workspace'),
@@ -62,5 +67,21 @@ describe('filterCommands', () => {
     const input = [...commands]
     filterCommands('new', input)
     expect(input).toEqual(commands)
+  })
+
+  test('finds a command by a keyword its title never contains', () => {
+    const items = [
+      cmd('tabs.newShell', 'New Shell Tab', ['bash', 'zsh', 'terminal']),
+      cmd('tabs.newClaude', 'New Claude Code Tab')
+    ]
+    expect(titles(filterCommands('bash', items))).toEqual(['New Shell Tab'])
+  })
+
+  test('a title hit outranks an equally good keyword hit', () => {
+    const items = [
+      cmd('a', 'Nothing Relevant', ['terminal']),
+      cmd('b', 'Terminal Bell', ['nothing'])
+    ]
+    expect(titles(filterCommands('term', items))).toEqual(['Terminal Bell', 'Nothing Relevant'])
   })
 })

@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { SessionSummary } from '@common/domain'
 import { useSessionsStore } from '../store'
@@ -69,6 +69,102 @@ describe('SessionList', () => {
       expect(document.querySelectorAll('.ix-session-row--active')).toHaveLength(1)
     } finally {
       consoleError.mockRestore()
+    }
+  })
+
+  test('only the pointed-at row is a Tab stop, and the arrows move it', async () => {
+    useSessionsStore.setState({
+      status: 'ready',
+      all: [session(), session({ id: 's2', title: 'Add the radar' }), session({ id: 's3', title: 'Rework the importer' })],
+      query: '',
+      folders: null
+    })
+    await act(async () => {
+      render(<SessionList />)
+    })
+    const rows = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.ix-session-row')]
+    const tabStops = (): string[] => rows().map((r) => r.getAttribute('tabindex') ?? '')
+
+    expect(tabStops()).toEqual(['0', '-1', '-1'])
+
+    await act(async () => {
+      fireEvent.keyDown(rows()[0], { key: 'ArrowDown' })
+    })
+    expect(tabStops()).toEqual(['-1', '0', '-1'])
+    expect(document.activeElement).toBe(rows()[1])
+
+    await act(async () => {
+      fireEvent.keyDown(rows()[1], { key: 'End' })
+    })
+    expect(document.activeElement).toBe(rows()[2])
+
+    // The last row is the end of the list: ArrowDown there must not wrap or run off it.
+    await act(async () => {
+      fireEvent.keyDown(rows()[2], { key: 'ArrowDown' })
+    })
+    expect(document.activeElement).toBe(rows()[2])
+    expect(tabStops()).toEqual(['-1', '-1', '0'])
+
+    await act(async () => {
+      fireEvent.keyDown(rows()[2], { key: 'ArrowUp' })
+    })
+    expect(document.activeElement).toBe(rows()[1])
+  })
+
+  test('ArrowUp on the first row leaves the list reachable by Tab', async () => {
+    useSessionsStore.setState({
+      status: 'ready',
+      all: [session(), session({ id: 's2', title: 'Add the radar' })],
+      query: '',
+      folders: null
+    })
+    await act(async () => {
+      render(<SessionList />)
+    })
+    const rows = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.ix-session-row')]
+
+    await act(async () => {
+      fireEvent.keyDown(rows()[0], { key: 'ArrowUp' })
+    })
+
+    // Running off the top would leave every row at tabindex -1 and strand the list entirely.
+    expect(rows().map((r) => r.getAttribute('tabindex'))).toEqual(['0', '-1'])
+    expect(document.activeElement).toBe(rows()[0])
+  })
+
+  test('Enter opens the pointed-at session and Cmd+Enter asks to resume it', async () => {
+    useSessionsStore.setState({
+      status: 'ready',
+      all: [session(), session({ id: 's2', title: 'Add the radar' })],
+      query: '',
+      folders: null,
+      selectedId: null,
+      pendingResume: null
+    })
+    const select = vi.spyOn(useSessionsStore.getState(), 'select').mockResolvedValue()
+    try {
+      await act(async () => {
+        render(<SessionList />)
+      })
+      const rows = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.ix-session-row')]
+
+      await act(async () => {
+        fireEvent.keyDown(rows()[0], { key: 'ArrowDown' })
+        fireEvent.keyDown(rows()[1], { key: 'Enter' })
+      })
+      // The second row, not the first: Enter acts on wherever the arrows left the pointer.
+      expect(select).toHaveBeenCalledWith('s2')
+      expect(useSessionsStore.getState().pendingResume).toBeNull()
+
+      await act(async () => {
+        fireEvent.keyDown(rows()[1], { key: 'Enter', metaKey: true })
+      })
+      expect(useSessionsStore.getState().pendingResume?.id).toBe('s2')
+      // Resuming also opens the session, so the transcript header can report the progress.
+      expect(select).toHaveBeenCalledTimes(2)
+      expect(select).toHaveBeenLastCalledWith('s2')
+    } finally {
+      select.mockRestore()
     }
   })
 

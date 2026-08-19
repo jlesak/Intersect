@@ -14,6 +14,7 @@ vi.mock('@renderer/features/terminal', () => ({
   SplitStage: ({ tabs }: { tabs: Tab[] }) => (
     <div data-testid="split-stage" data-tab-count={tabs.length} />
   ),
+  installTerminalFindShortcut: () => () => {},
   disposeSession: () => {},
   disposeWorkspaceSessions: () => {}
 }))
@@ -46,8 +47,7 @@ const PROJECT: Project = {
   repoPaths: ['/repos/spot-api', '/repos/spot-web'],
   jiraJql: 'project = FID2507',
   jiraBoardUrl: null,
-  adoRepositories: ['spot-backend'],
-  togglProjectId: 42
+  adoRepositories: ['spot-backend']
 }
 
 const TAB: Tab = {

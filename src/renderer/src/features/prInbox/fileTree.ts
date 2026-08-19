@@ -6,6 +6,8 @@ export interface TreeFile {
   changeType: PrChangeFile['changeType']
   /** Unresolved comment threads anchored to this file. */
   commentCount: number
+  added: number
+  removed: number
 }
 
 /** A directory node; `label` may span several path segments when the chain had single children. */
@@ -50,7 +52,9 @@ export function buildFileTree(
       path: change.path,
       name,
       changeType: change.changeType,
-      commentCount: commentCounts.get(change.path) ?? 0
+      commentCount: commentCounts.get(change.path) ?? 0,
+      added: change.added,
+      removed: change.removed
     })
   }
   return finalize(root)

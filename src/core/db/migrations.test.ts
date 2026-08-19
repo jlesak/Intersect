@@ -133,6 +133,79 @@ describe('migrations', () => {
     expect(row.c).toBe(0)
   })
 
+  test('pr_cache stores a description, and rows cached before the column read as empty', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the last schema version without a description column.
+    runMigrations(db, 24)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 1)`
+    ).run()
+
+    runMigrations(db)
+
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, description, synced_at)
+       VALUES ('r', 2, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 'Why this exists.', 1)`
+    ).run()
+
+    const legacy = db.prepare('SELECT description AS d FROM pr_cache WHERE pr_id = 1').get() as {
+      d: string
+    }
+    const written = db.prepare('SELECT description AS d FROM pr_cache WHERE pr_id = 2').get() as {
+      d: string
+    }
+    expect(legacy.d).toBe('')
+    expect(written.d).toBe('Why this exists.')
+  })
+
+  test('pull requests cached before the activity column are dated by their creation, not by 1970', () => {
+    const db = new DatabaseSync(':memory:')
+    // A database genuinely at the last schema version without an activity timestamp.
+    runMigrations(db, 22)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, active_thread_count, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 7000, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 2, 1)`
+    ).run()
+
+    runMigrations(db)
+
+    const row = db
+      .prepare('SELECT last_activity_at AS a, active_thread_count AS c FROM pr_cache WHERE pr_id = 1')
+      .get() as { a: number; c: number }
+    expect(row.a).toBe(7000)
+    expect(row.c).toBe(2)
+  })
+
+  test('pr_cache defaults last_activity_at to 0 for rows inserted without it', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db)
+    db.prepare(
+      `INSERT INTO pr_cache
+         (repository_id, pr_id, project_id, repository_name, title, author_id, author_name,
+          created_at, status, source_ref, target_ref, source_commit, target_commit, url,
+          my_role, reviewers_json, synced_at)
+       VALUES ('r', 1, 'p', 'repo', 't', 'a', 'A', 1, 'active', 's', 't', 'sc', 'tc', 'u',
+               'author', '[]', 1)`
+    ).run()
+    const row = db
+      .prepare('SELECT last_activity_at AS a FROM pr_cache WHERE pr_id = 1')
+      .get() as { a: number }
+    expect(row.a).toBe(0)
+  })
+
   test('the todo table defaults priority to 4 and description to empty for rows inserted without them', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)
@@ -490,5 +563,54 @@ describe('migrations', () => {
         .prepare(`INSERT INTO session_lifecycle_events (tab_id, action, reason, at) VALUES ('t', 'pause', NULL, 1)`)
         .run()
     ).toThrow()
+  })
+
+  test('the Toggl binding is gone and pre-removal projects keep every other field', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 23)
+    db.prepare(
+      'INSERT INTO projects (id,name,sort_order,archived,jira_jql,jira_board_url,toggl_project_id,created_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).run('p1', 'SPOT', 0, 0, 'project = FID2507', 'https://jira/board/1', 42, 100)
+    db.prepare(
+      'INSERT INTO project_repo (project_id,path,sort_order,created_at) VALUES (?,?,?,?)'
+    ).run('p1', '/repos/spot', 0, 100)
+
+    runMigrations(db)
+
+    const cols = (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map(
+      (c) => c.name
+    )
+    expect(cols).not.toContain('toggl_project_id')
+    expect(db.prepare('SELECT * FROM projects').get()).toEqual({
+      id: 'p1',
+      name: 'SPOT',
+      sort_order: 0,
+      archived: 0,
+      jira_jql: 'project = FID2507',
+      jira_board_url: 'https://jira/board/1',
+      created_at: 100
+    })
+    // The rebuild-free drop leaves child bindings and their foreign key intact.
+    expect(db.prepare('SELECT project_id AS p, path FROM project_repo').all()).toEqual([
+      { p: 'p1', path: '/repos/spot' }
+    ])
+  })
+
+  test('drafts gain a nullable source commit so legacy anchors fail closed', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 25)
+    db.prepare(
+      `INSERT INTO draft_comment
+         (id, pr_id, repository_id, file_path, line, side, body, status, source,
+          review_session_id, published_thread_id, created_at)
+       VALUES ('legacy', 1, 'r', '/a.ts', 3, 'right', 'body', 'pending', 'claude', NULL, NULL, 1)`
+    ).run()
+
+    runMigrations(db)
+
+    expect(
+      (db.prepare('SELECT source_commit_id AS sha FROM draft_comment').get() as { sha: string | null })
+        .sha
+    ).toBeNull()
   })
 })

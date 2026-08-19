@@ -1,0 +1,511 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { appEntry, checkBundleFreshness, resolveGuardAction } from './e2eFreshness'
+
+/**
+ * The freshness comparison decides whether an E2E run is allowed to believe itself, so every case
+ * runs against a real throwaway repository tree rather than a mocked filesystem: the trap being
+ * closed here is exactly a mismatch between what the code assumes about the filesystem and what is
+ * actually on it.
+ *
+ * Modification times are stamped explicitly instead of relying on write order. A build and an edit
+ * a few milliseconds apart are indistinguishable on a coarse clock, which would make the whole
+ * suite decide by luck. Directories are stamped too, because creating a fixture file bumps its
+ * parent to the wall clock and the guard reads directory times on the source side.
+ */
+describe('checkBundleFreshness', () => {
+  const BUILT_AT = 1_700_000_000
+  const BEFORE_BUILD = BUILT_AT - 60
+  const AFTER_BUILD = BUILT_AT + 60
+
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'intersect-freshness-'))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  /** Create or overwrite a file with the given seconds-resolution modification time. */
+  const fileAt = (relativePath: string, seconds: number): void => {
+    const absolute = join(root, relativePath)
+    mkdirSync(dirname(absolute), { recursive: true })
+    writeFileSync(absolute, '')
+    utimesSync(absolute, seconds, seconds)
+  }
+
+  /** Stamp every directory in the fixture, which creating files has left at the wall clock. */
+  const stampDirectories = (seconds: number): void => {
+    const visit = (absolute: string): void => {
+      for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+        if (entry.isDirectory()) visit(join(absolute, entry.name))
+      }
+      utimesSync(absolute, seconds, seconds)
+    }
+    visit(root)
+  }
+
+  /**
+   * A checkout whose build is newer than every watched source input: three populated build
+   * subtrees, sources and tests that predate them, and specs which are not inputs at all.
+   */
+  const freshRepo = (): void => {
+    fileAt('src/renderer/src/App.tsx', BEFORE_BUILD)
+    fileAt('src/renderer/src/App.test.tsx', BEFORE_BUILD)
+    fileAt('src/renderer/src/App.spec.tsx', BEFORE_BUILD)
+    fileAt('src/renderer/src/__tests__/appBehaviour.ts', BEFORE_BUILD)
+    fileAt('src/main/index.ts', BEFORE_BUILD)
+    fileAt('electron.vite.config.ts', BEFORE_BUILD)
+    fileAt('package.json', BEFORE_BUILD)
+    fileAt('package-lock.json', BEFORE_BUILD)
+    fileAt('tsconfig.web.json', BEFORE_BUILD)
+    fileAt('e2e/harness.ts', BEFORE_BUILD)
+    fileAt('out/main/index.js', BUILT_AT)
+    fileAt('out/main/chunks/core.js', BUILT_AT)
+    fileAt('out/preload/index.js', BUILT_AT)
+    fileAt('out/renderer/index.html', BUILT_AT)
+    fileAt('out/renderer/assets/index.js', BUILT_AT)
+    stampDirectories(BEFORE_BUILD)
+  }
+
+  describe('an incomplete build', () => {
+    test('a checkout with no out directory has nothing to test', () => {
+      freshRepo()
+      rmSync(join(root, 'out'), { recursive: true, force: true })
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'missing', path: 'out/main/index.js' })
+    })
+
+    test('an out directory without the launched entry has nothing to test', () => {
+      freshRepo()
+      rmSync(join(root, 'out', 'main'), { recursive: true, force: true })
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'missing', path: 'out/main/index.js' })
+    })
+
+    test('a directory sitting where the entry belongs is not a built app', () => {
+      freshRepo()
+      rmSync(join(root, 'out', 'main', 'index.js'))
+      mkdirSync(join(root, 'out', 'main', 'index.js'))
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'missing', path: 'out/main/index.js' })
+    })
+
+    test('a renderer that was never built is named, though the entry is there', () => {
+      freshRepo()
+      rmSync(join(root, 'out', 'renderer'), { recursive: true, force: true })
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'missing', path: 'out/renderer' })
+    })
+
+    test('a build subtree emptied of files is as absent as a missing one', () => {
+      freshRepo()
+      rmSync(join(root, 'out', 'preload', 'index.js'))
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'missing', path: 'out/preload' })
+    })
+  })
+
+  describe('a build that no longer describes the working tree', () => {
+    /**
+     * The sequence this guard exists for, and the one its first version let through: build, edit a
+     * renderer file, run `npm run dev` to look at it, quit, then reach for a bare Playwright run.
+     * Development mode builds main and preload but serves the renderer from memory, so `out/main`
+     * ends up newer than the edit while `out/renderer` still holds the pre-edit markup that
+     * `loadFile` will hand to the window. Taking the newest file anywhere under `out/` reads that
+     * as fresh, which is the original false pass reached through the most common command there is.
+     */
+    test('a dev run that rebuilt main but not the renderer does not count as a build', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+      fileAt('out/main/index.js', AFTER_BUILD + 60)
+      fileAt('out/main/chunks/core.js', AFTER_BUILD + 60)
+      fileAt('out/preload/index.js', AFTER_BUILD + 60)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src/App.tsx')
+      expect(result.oldestBuilt.path).toMatch(/^out\/renderer\//)
+      expect(result.oldestBuilt.mtimeMs).toBe(BUILT_AT * 1000)
+    })
+
+    /**
+     * The same dev-mode sequence, with one Finder visit added. A single `.DS_Store` is the newest
+     * thing in `out/renderer` while every real renderer asset is still pre-edit, so judging each
+     * build output by its newest file hands the verdict to the litter. `out/` is gitignored, which
+     * means nothing ever cleans it and nobody ever sees it, and this app only ships on macOS.
+     */
+    test('a stray file dropped into a build output does not vouch for the rest of it', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+      fileAt('out/main/index.js', AFTER_BUILD + 60)
+      fileAt('out/main/chunks/core.js', AFTER_BUILD + 60)
+      fileAt('out/preload/index.js', AFTER_BUILD + 60)
+      fileAt('out/renderer/.DS_Store', AFTER_BUILD + 120)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src/App.tsx')
+      expect(result.oldestBuilt.mtimeMs).toBe(BUILT_AT * 1000)
+    })
+
+    test('a source file touched after the build names itself', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src/App.tsx')
+      expect(result.newestSource.mtimeMs).toBe(AFTER_BUILD * 1000)
+      expect(result.oldestBuilt.mtimeMs).toBe(BUILT_AT * 1000)
+    })
+
+    test('a source file deleted after the build is caught by its parent directory', () => {
+      freshRepo()
+      rmSync(join(root, 'src', 'renderer', 'src', 'App.tsx'))
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src')
+    })
+
+    test('a source input as old as the build to the millisecond is not trusted', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', BUILT_AT)
+
+      expect(checkBundleFreshness(root).state).toBe('stale')
+    })
+
+    test('the build config counts under whichever extension it carries', () => {
+      freshRepo()
+      fileAt('electron.vite.config.mts', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('electron.vite.config.mts')
+    })
+
+    test('a manifest touched after the build is stale', () => {
+      freshRepo()
+      fileAt('package.json', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('package.json')
+    })
+
+    test('a lockfile touched after the build is stale, standing in for node_modules', () => {
+      freshRepo()
+      fileAt('package-lock.json', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('package-lock.json')
+    })
+
+    test('a compiler config touched after the build is stale, since it steers what is emitted', () => {
+      freshRepo()
+      fileAt('tsconfig.web.json', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('tsconfig.web.json')
+    })
+
+    test.each([['.env'], ['.env.local'], ['.env.production']])(
+      'the environment file %s appearing after the build is stale',
+      (name) => {
+        freshRepo()
+        fileAt(name, AFTER_BUILD)
+
+        const result = checkBundleFreshness(root)
+        expect(result.state).toBe('stale')
+        if (result.state !== 'stale') return
+        expect(result.newestSource.path).toBe(name)
+      }
+    )
+  })
+
+  /**
+   * The invariant stated directly rather than through examples. Twice now an aggregation ruling has
+   * survived a green gate - first the newest file anywhere under `out/`, then the newest file
+   * within each output - because every case happened to agree with the weaker rule. Pairing each
+   * build file against each source input in turn leaves the weaker rules nowhere to hide: only the
+   * one chosen build file is old and only the one chosen source input is new, so nothing but that
+   * pairing can produce the verdict.
+   */
+  describe('any build file older than any source input is stale, wherever either one sits', () => {
+    const BUILT_FILES = [
+      'out/main/index.js',
+      'out/main/chunks/core.js',
+      'out/preload/index.js',
+      'out/renderer/index.html',
+      'out/renderer/assets/index.js'
+    ]
+    const SOURCE_INPUTS = [
+      'src/renderer/src/App.tsx',
+      'src/main/index.ts',
+      'package.json',
+      'tsconfig.web.json',
+      'electron.vite.config.ts'
+    ]
+
+    for (const builtPath of BUILT_FILES) {
+      test.each(SOURCE_INPUTS)(`${builtPath} older than %s is stale`, (sourcePath) => {
+        freshRepo()
+        for (const other of BUILT_FILES) fileAt(other, AFTER_BUILD + 600)
+        fileAt(builtPath, BUILT_AT)
+        fileAt(sourcePath, AFTER_BUILD)
+
+        const result = checkBundleFreshness(root)
+        expect(result.state).toBe('stale')
+        if (result.state !== 'stale') return
+        expect(result.oldestBuilt.path).toBe(builtPath)
+        expect(result.newestSource.path).toBe(sourcePath)
+      })
+    }
+  })
+
+  describe('edits a build cannot be affected by', () => {
+    test('a build newer than every source input is fresh', () => {
+      freshRepo()
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+    })
+
+    test('editing only the specs leaves the build fresh', () => {
+      freshRepo()
+      fileAt('e2e/harness.ts', AFTER_BUILD)
+      fileAt('e2e/prInbox.spec.ts', AFTER_BUILD)
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+    })
+
+    test.each([
+      ['src/renderer/src/App.test.tsx'],
+      ['src/renderer/src/App.spec.tsx'],
+      ['src/renderer/src/__tests__/appBehaviour.ts']
+    ])('editing %s alone leaves the build fresh, since no entry imports it', (path) => {
+      freshRepo()
+      fileAt(path, AFTER_BUILD)
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+    })
+
+    test('the module under test is not excused by the tests beside it', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.test.tsx', AFTER_BUILD)
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('stale')
+      if (result.state !== 'stale') return
+      expect(result.newestSource.path).toBe('src/renderer/src/App.tsx')
+    })
+
+    test('the scratch config a crashed build leaves behind is not a build input', () => {
+      freshRepo()
+      fileAt('electron.vite.config.ts.timestamp-1700000123-abc.mjs', AFTER_BUILD)
+
+      expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+    })
+
+    test.each([['.envrc'], ['.env.example'], ['.env.sample']])(
+      '%s is not an environment file the build reads',
+      (name) => {
+        freshRepo()
+        fileAt(name, AFTER_BUILD)
+
+        expect(checkBundleFreshness(root)).toEqual({ state: 'fresh' })
+      }
+    )
+  })
+
+  describe('a verdict that cannot be formed', () => {
+    test('a source tree that cannot be walked is reported, not thrown', () => {
+      freshRepo()
+      symlinkSync(join(root, 'src', 'loop'), join(root, 'src', 'loop'))
+
+      const result = checkBundleFreshness(root)
+      expect(result.state).toBe('unknown')
+      if (result.state !== 'unknown') return
+      expect(result.path).toBe('src/loop')
+      expect(result.reason).toMatch(/ELOOP/)
+    })
+
+    test('a checkout with no watched source input at all is not called fresh', () => {
+      fileAt('out/main/index.js', BUILT_AT)
+      fileAt('out/preload/index.js', BUILT_AT)
+      fileAt('out/renderer/index.html', BUILT_AT)
+      stampDirectories(BEFORE_BUILD)
+
+      expect(checkBundleFreshness(root).state).toBe('unknown')
+    })
+  })
+
+  /**
+   * The two halves of the guard are otherwise tested apart, with hand-written verdicts standing in
+   * for the walk. That leaves the one thing a developer actually reads unpinned: a plain edit
+   * mislabelled as a directory change reads as a guard malfunction, and a bypass becomes reflex.
+   * These drive the real walk all the way through to the sentence.
+   */
+  describe('the refusal a real walk produces', () => {
+    test('an edited file is reported as itself, not as a directory that gained or lost one', () => {
+      freshRepo()
+      fileAt('src/renderer/src/App.tsx', AFTER_BUILD)
+
+      const action = resolveGuardAction(checkBundleFreshness(root), undefined)
+
+      expect(action.kind).toBe('fail')
+      if (action.kind === 'proceed') return
+      expect(action.message).toContain('src/renderer/src/App.tsx')
+      expect(action.message).not.toMatch(/added, removed or renamed/)
+    })
+
+    test('a deleted file is reported as its directory changing, since nothing else records it', () => {
+      freshRepo()
+      rmSync(join(root, 'src', 'renderer', 'src', 'App.tsx'))
+
+      const action = resolveGuardAction(checkBundleFreshness(root), undefined)
+
+      expect(action.kind).toBe('fail')
+      if (action.kind === 'proceed') return
+      expect(action.message).toMatch(/added, removed or renamed in src\/renderer\/src/)
+    })
+  })
+
+  test('the entry resolves under the repository root it is asked about', () => {
+    expect(appEntry(root)).toBe(join(root, 'out', 'main', 'index.js'))
+  })
+})
+
+/**
+ * What the guard says, and to whom. The wording is asserted here rather than in the Playwright hook
+ * because a message that fails to name the fix costs a developer the same half hour the missing
+ * guard used to.
+ */
+describe('resolveGuardAction', () => {
+  const built = { path: 'out/renderer/index.html', mtimeMs: 1_700_000_000_000, kind: 'file' } as const
+  const stale = {
+    state: 'stale',
+    newestSource: { path: 'src/renderer/src/App.tsx', mtimeMs: 1_700_000_060_000, kind: 'file' },
+    oldestBuilt: built
+  } as const
+  const staleByDirectory = {
+    state: 'stale',
+    newestSource: { path: 'src/renderer/src', mtimeMs: 1_700_000_060_000, kind: 'directory' },
+    oldestBuilt: built
+  } as const
+  const missing = { state: 'missing', path: 'out/renderer' } as const
+  const unknown = {
+    state: 'unknown',
+    path: 'src/loop',
+    reason: 'ELOOP: too many symbolic links'
+  } as const
+  const fresh = { state: 'fresh' } as const
+
+  test('a fresh build starts the suite without a word', () => {
+    expect(resolveGuardAction(fresh, undefined)).toEqual({ kind: 'proceed' })
+    expect(resolveGuardAction(fresh, '1')).toEqual({ kind: 'proceed' })
+  })
+
+  test('a stale build is refused, naming the offender and both ways to build', () => {
+    const action = resolveGuardAction(stale, undefined)
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toContain('src/renderer/src/App.tsx')
+    expect(action.message).toContain('out/renderer/index.html')
+    expect(action.message).toContain('npm run build')
+    expect(action.message).toContain('npm run e2e')
+  })
+
+  test('an incomplete build is refused, naming the part that is not there', () => {
+    const action = resolveGuardAction(missing, undefined)
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toContain('out/renderer')
+    expect(action.message).toContain('npm run build')
+    expect(action.message).toContain('npm run e2e')
+  })
+
+  test('a verdict that could not be formed blames the guard, not the suite', () => {
+    const action = resolveGuardAction(unknown, undefined)
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toContain('src/loop')
+    expect(action.message).toContain('ELOOP')
+    expect(action.message).not.toContain('E2E_ALLOW_STALE')
+  })
+
+  test('an exact opt-in downgrades a stale build to a warning that admits how stale it is', () => {
+    const action = resolveGuardAction(stale, '1')
+
+    expect(action.kind).toBe('warn')
+    if (action.kind === 'proceed') return
+    expect(action.message).toContain('E2E_ALLOW_STALE')
+    expect(action.message).toContain('src/renderer/src/App.tsx')
+    expect(action.message).toContain('out/renderer/index.html')
+  })
+
+  /**
+   * A path the guard cannot stat is a path the bundler cannot read either, so there is no build
+   * behind it worth testing on purpose. The opt-in downgrades staleness and nothing else.
+   */
+  test('the opt-in does not cover a verdict nobody could form', () => {
+    const action = resolveGuardAction(unknown, '1')
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toContain('src/loop')
+  })
+
+  /**
+   * The refusal a test-first workflow meets most often, since adding or deleting a co-located test
+   * file registers only on its parent directory. Reporting the directory as though someone had
+   * edited it reads as a guard malfunction, which is how a bypass becomes reflex.
+   */
+  test('a directory that changed says what changing a directory means', () => {
+    const action = resolveGuardAction(staleByDirectory, undefined)
+
+    expect(action.kind).toBe('fail')
+    if (action.kind === 'proceed') return
+    expect(action.message).toMatch(/added, removed or renamed/)
+    expect(action.message).toContain('src/renderer/src')
+    expect(action.message).toContain('npm run build')
+  })
+
+  test.each([['true'], ['0'], [''], ['yes'], ['1 ']])(
+    'the opt-in value %o is not the opt-in and the run is still refused',
+    (value) => {
+      expect(resolveGuardAction(stale, value).kind).toBe('fail')
+      expect(resolveGuardAction(unknown, value).kind).toBe('fail')
+    }
+  )
+
+  test('the opt-in cannot conjure a build that was never made', () => {
+    expect(resolveGuardAction(missing, '1').kind).toBe('fail')
+  })
+})

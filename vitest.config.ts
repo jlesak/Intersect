@@ -37,6 +37,14 @@ export default defineConfig({
           include: ['src/renderer/**/*.{test,spec}.{ts,tsx}'],
           setupFiles: [resolve(__dirname, 'vitest.setup.dom.ts')]
         }
+      },
+      {
+        extends: true,
+        test: {
+          name: 'tooling',
+          environment: 'node',
+          include: ['tooling/**/*.{test,spec}.ts']
+        }
       }
     ]
   }

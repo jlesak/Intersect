@@ -1,24 +1,17 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
-
-async function launch(userDataDir: string): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  await win.waitForSelector('.ix-wordmark__name')
-  return { app, win }
-}
+import { type Page } from '@playwright/test'
+import {
+  expect,
+  launch,
+  openRailSection,
+  stubFolderPick,
+  tempDir,
+  test,
+  userDataDir
+} from './harness'
 
 /** Open the Settings section via its footer rail button (pinned below the daily sections). */
 async function openSettings(win: Page): Promise<void> {
-  await win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' }).click()
-  await win.locator('.ix-settings').waitFor()
+  await openRailSection(win, 'Settings', '.ix-settings')
 }
 
 /** Click a settings toggle by its accessible name (the input itself is visually hidden). */
@@ -30,8 +23,13 @@ async function flipToggle(win: Page, label: string): Promise<void> {
 }
 
 test('Settings opens from the footer rail with every category and the notification defaults', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { win } = await launch(userDataDir())
+
+  // Asserted here rather than in the shared opener: every other section reaches the rail through
+  // the same helper, and only Settings is pinned below the daily ones. Without this the section
+  // could drift up into the rail proper and every Settings test would still pass.
+  await expect(win.locator('.ix-rail__foot .ix-rail__btn', { hasText: 'Settings' })).toBeVisible()
+
   await openSettings(win)
 
   await expect(win.locator('.ix-settings__nav-btn')).toHaveText([
@@ -57,13 +55,43 @@ test('Settings opens from the footer rail with every category and the notificati
   await expect(win.getByLabel('Waiting', { exact: true })).toBeChecked()
   await expect(win.getByLabel('Done', { exact: true })).toBeChecked()
   await expect(win.getByLabel('Zvuk', { exact: true })).toBeChecked()
+})
 
-  await app.close()
+test('only the active category pane is in the DOM', async () => {
+  const { win } = await launch(userDataDir())
+  await openSettings(win)
+
+  await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
+
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
+  await expect(win.locator('.ix-settings__pane')).toHaveCount(1)
+  await expect(win.locator('#ix-set-review-prompt')).toHaveCount(0)
+})
+
+/**
+ * The project fields commit on blur rather than on every keystroke, and leaving the category now
+ * unmounts them. Clicking the sub-navigation has to blur the field first, so the edit is saved on
+ * the way out - anything else silently discards what the user just typed.
+ */
+test('a project name typed but not blurred survives switching category', async () => {
+  const projectDir = tempDir('settingsproj-')
+  const { app, win } = await launch(userDataDir())
+  await openSettings(win)
+
+  await stubFolderPick(app, projectDir)
+  await win.getByRole('button', { name: 'Nový projekt (vybrat složku)' }).click()
+
+  const name = win.locator('input[id^="ix-proj-name-"]')
+  await expect(name).toHaveCount(1)
+  await name.fill('Přejmenovaný projekt')
+
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
+  await win.locator('.ix-settings__nav-btn', { hasText: 'Projekty' }).click()
+  await expect(name).toHaveValue('Přejmenovaný projekt')
 })
 
 test('switching categories never loses the typed ADO values, and the shortcuts table is read-only', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -81,13 +109,10 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await expect(win.locator('#ix-set-ado-orgUrl')).toHaveValue('https://devops.example.com/tfs/Col')
   await expect(win.locator('#ix-set-ado-project')).toHaveValue('SPOT')
-
-  await app.close()
 })
 
 test('test connection reports the authenticated user inline', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const { app, win } = await launch(userDataDir)
+  const { win } = await launch(userDataDir())
   await openSettings(win)
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
@@ -99,14 +124,12 @@ test('test connection reports the authenticated user inline', async () => {
   // Editing any field (to a genuinely different value) invalidates the stale outcome.
   await win.locator('#ix-set-ado-project').fill('SomeOtherProject')
   await expect(win.locator('.ix-settings__test-msg--ok')).toHaveCount(0)
-
-  await app.close()
 })
 
 test('notification, ADO, PR-review prompt, and font-size changes survive a relaunch', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
+  const profileDir = userDataDir()
   const reviewPrompt = '  Review this pull request in English.\n\nKeep this exact spacing.  \n'
-  const first = await launch(userDataDir)
+  const first = await launch(profileDir)
   await openSettings(first.win)
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
@@ -127,7 +150,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   await first.app.close()
 
-  const second = await launch(userDataDir)
+  const second = await launch(profileDir)
   await openSettings(second.win)
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await expect(second.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
@@ -142,5 +165,4 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await expect(second.win.locator('.ix-set-slider__value')).toHaveText('20px')
-  await second.app.close()
 })

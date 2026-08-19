@@ -16,6 +16,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     repositoryName: 'spot-backend',
     projectId: 'ado',
     title: 'Fix the sync',
+    description: '',
     authorId: 'u1',
     authorName: 'Jan',
     createdAt: 1,
@@ -31,6 +32,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     reviewers: [],
     newChangesSinceMyReview: false,
     activeThreadCount: 0,
+    lastActivityAt: 1,
     ...over
   }
 }
@@ -50,7 +52,10 @@ describe('ProjectPrList', () => {
   /** The bridge call the panel makes on mount, so a client render can reach a ready state. */
   function stubBridge(prs: PullRequest[]): void {
     ;(window as { intersect?: unknown }).intersect = {
-      prInbox: { list: () => Promise.resolve(prs) }
+      prInbox: {
+        list: () => Promise.resolve(prs),
+        listUnfinishedDraftReviews: () => Promise.resolve([])
+      }
     }
   }
 
@@ -87,8 +92,7 @@ describe('ProjectPrList', () => {
           repoPaths: ['/repos/spot'],
           jiraJql: null,
           jiraBoardUrl: null,
-          adoRepositories: ['spot-backend'],
-          togglProjectId: null
+          adoRepositories: ['spot-backend']
         }
       ]
     })

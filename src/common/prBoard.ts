@@ -32,18 +32,22 @@ export function boardColumn(pr: PullRequest): BoardColumn {
   return 'waiting'
 }
 
+const NEW_CHANGES_REASON = 'new changes since your review'
+const unresolvedReason = (count: number): string =>
+  `${count} unresolved comment${count === 1 ? '' : 's'}`
+
 /** The chip on a board card explaining why the PR sits in its column; null when self-evident. */
 export function boardReason(pr: PullRequest): string | null {
   const column = boardColumn(pr)
   if (column === 'action') {
     if (pr.role === 'reviewer') {
       if (!pr.myVote || pr.myVote === 'noVote') return 'no vote yet'
-      return 'new changes since your review'
+      return NEW_CHANGES_REASON
     }
     if (pr.reviewers.some((r) => r.vote === 'rejected' || r.vote === 'waiting')) {
       return 'review response needed'
     }
-    return `${pr.activeThreadCount} unresolved comment${pr.activeThreadCount === 1 ? '' : 's'}`
+    return unresolvedReason(pr.activeThreadCount)
   }
   if (column === 'waiting') {
     if (pr.role === 'reviewer') return 'voted'
@@ -53,4 +57,25 @@ export function boardReason(pr: PullRequest): string | null {
     return `waiting for ${shown}${pending.length > 2 ? ` +${pending.length - 2}` : ''}`
   }
   return null
+}
+
+/**
+ * Which of a card's own signals the column reason is already announcing.
+ *
+ * A card carries a chip for new pushes and one for unresolved threads, and in the action column the
+ * reason chip beside them can be saying exactly the same thing. Two adjacent chips for one fact read
+ * as two separate signals, so the card drops whichever the reason has covered.
+ *
+ * Answered by comparing against what `boardReason` actually returned rather than by re-deciding from
+ * the pull request, so the two cannot drift into disagreeing about what has already been said.
+ */
+export function reasonAlreadyStates(pr: PullRequest): {
+  newChanges: boolean
+  unresolved: boolean
+} {
+  const reason = boardReason(pr)
+  return {
+    newChanges: reason === NEW_CHANGES_REASON,
+    unresolved: reason === unresolvedReason(pr.activeThreadCount)
+  }
 }

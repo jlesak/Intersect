@@ -1,4 +1,5 @@
 export { SplitStage } from './components/SplitStage'
+export { installTerminalFindShortcut } from './findShortcut'
 export {
   disposeSession,
   disposeWorkspaceSessions,
@@ -12,3 +13,4 @@ export {
   onSessionStatus,
   reportActiveSession
 } from './ipc'
+export { registerTerminalFeature } from './register'

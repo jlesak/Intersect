@@ -26,8 +26,6 @@ interface MyWorkState {
   /** When the shown board was last successfully fetched (epoch ms); null before the first
    * successful fetch. Also the marker that a last-good board exists to fall back to. */
   fetchedAt: number | null
-  /** Set once hydrate has kicked off the shared ADO sync, so it runs once per app session. */
-  prSyncStarted: boolean
   /** A PR-radar row click waiting for the app layer to open it in the PR Inbox section
    * (cross-slice; see myWorkPrNavWiring, mirroring the sessions slice's pendingResume). */
   pendingPrOpen: { repositoryId: string; prId: number } | null
@@ -48,10 +46,10 @@ interface MyWorkState {
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /** The board's issues grouped per column, each column sorted by last activity (newest first). */
-export function groupByColumn(issues: JiraIssue[]): Record<JiraColumn, JiraIssue[]> {
+export function groupByColumn<T extends JiraIssue>(issues: readonly T[]): Record<JiraColumn, T[]> {
   const board = { todo: [], progress: [], waiting: [], review: [], test: [] } as Record<
     JiraColumn,
-    JiraIssue[]
+    T[]
   >
   for (const issue of issues) board[issue.column].push(issue)
   for (const column of JIRA_COLUMNS) board[column].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -119,18 +117,15 @@ export const useMyWorkStore = createStore<MyWorkState>()((set, get) => {
     partial: false,
     issues: [],
     fetchedAt: null,
-    prSyncStarted: false,
     pendingPrOpen: null,
 
     async hydrate() {
-      // The PR radar shares this section's lifecycle: opening My Work also kicks off one ADO sync
-      // per app session. The prInbox store already serves its SQLite cache from boot, so PR cards
-      // show instantly while the sync runs. This automatic sync is quiet: a machine without ADO
-      // configured must not toast an error on every boot just for landing on this section.
-      if (!get().prSyncStarted) {
-        set({ prSyncStarted: true })
-        void usePrInboxStore.getState().sync({ quiet: true })
-      }
+      // The PR radar shares this section's lifecycle: opening My Work also fetches current pull
+      // requests whenever they are stale. It goes through the shared guard rather than syncing on
+      // its own, so landing here just after the app synced does not repeat that whole fan-out, and a
+      // machine without Azure DevOps configured never tries at all. The prInbox store serves its
+      // SQLite cache from boot, so the PR cards show instantly either way.
+      void usePrInboxStore.getState().syncIfStale()
       if (get().fetchedAt === null) set({ status: 'loading' })
       try {
         // The core paints its cache immediately and refreshes in the background when stale;

@@ -38,8 +38,8 @@ export function ProjectsPaneBody({
     <>
       <div className="ix-settings__title">Projekty</div>
       <div className="ix-set-row__hint ix-proj__intro">
-        Projekt spojuje repo složky, Jira filtr, ADO repozitáře a Toggl projekt do jednoho
-        kontextu. Smazání ani archivace nikdy nemaže složky na disku ani nic vzdáleného.
+        Projekt spojuje repo složky, Jira filtr a ADO repozitáře do jednoho kontextu. Smazání ani
+        archivace nikdy nemaže složky na disku ani nic vzdáleného.
       </div>
       {status === 'error' && (
         <div className="ix-proj__error">Projekty se nepodařilo načíst.</div>
@@ -221,18 +221,6 @@ function ProjectCard({
               .filter((name) => name.length > 0)
           })
         }
-      />
-      <CommitField
-        id={`ix-proj-toggl-${project.id}`}
-        label="Toggl projekt ID"
-        value={project.togglProjectId === null ? '' : String(project.togglProjectId)}
-        placeholder="123456"
-        onCommit={(v) => {
-          const trimmed = v.trim()
-          const parsed = trimmed === '' ? null : Number(trimmed)
-          if (parsed !== null && !Number.isInteger(parsed)) return
-          void store().update(project.id, { togglProjectId: parsed })
-        }}
       />
     </div>
   )

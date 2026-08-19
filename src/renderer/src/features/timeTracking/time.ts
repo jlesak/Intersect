@@ -85,11 +85,17 @@ const WEEKEND_NAMES: Record<number, string> = { 0: 'Sunday', 6: 'Saturday' }
  * its true day and then has nowhere to appear; silently swallowing that would leave the user
  * believing their time was lost. The day is never moved to fake a weekday - a worklog that invents
  * dates is worse than one with a gap.
+ *
+ * Names the issue whenever the entry carries one. A confirmation exists so that someone who cannot
+ * see the board still knows what landed, and where it landed is half of that.
  */
-export function loggedEntryNotice(entry: TimeEntry): string | null {
+export function loggedEntryNotice(
+  entry: Pick<TimeEntry, 'day' | 'durationMs' | 'issueKey'>
+): string | null {
   const dayName = WEEKEND_NAMES[dateOfDayKey(entry.day).getDay()]
   if (!dayName) return null
-  return `${formatTotal(entry.durationMs)} logged to ${dayName} ${formatDayDate(entry.day)}. The weekday board does not show weekend days.`
+  const against = entry.issueKey === null ? '' : ` to ${entry.issueKey}`
+  return `${formatTotal(entry.durationMs)} logged${against} on ${dayName} ${formatDayDate(entry.day)}. The weekday board does not show weekend days.`
 }
 
 /**

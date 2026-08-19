@@ -10,6 +10,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   repositoryName: 'spot-backend',
   projectId: 'SPOT',
   title: 'a change',
+  description: '',
   authorId: 'author-1',
   authorName: 'Jan',
   createdAt: 5000,
@@ -25,6 +26,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   reviewers: [{ id: 'r1', displayName: 'Radek', vote: 'approved', isRequired: true }],
   newChangesSinceMyReview: false,
   activeThreadCount: 0,
+  lastActivityAt: 5000,
   ...over
 })
 
@@ -47,9 +49,21 @@ describe('prCacheRepo', () => {
     ])
   })
 
+  test('round-trips the description, including its line breaks', () => {
+    repo.replaceAll([pr({ description: 'What this does.\n\n- first\n- second' })])
+    expect(repo.get('repo-a', 100)?.description).toBe('What this does.\n\n- first\n- second')
+    expect(repo.list()[0].description).toBe('What this does.\n\n- first\n- second')
+  })
+
   test('round-trips the active thread count', () => {
     repo.replaceAll([pr({ activeThreadCount: 3 })])
     expect(repo.get('repo-a', 100)?.activeThreadCount).toBe(3)
+  })
+
+  test('round-trips when the PR was last touched, distinct from when it was created', () => {
+    repo.replaceAll([pr({ createdAt: 5000, lastActivityAt: 9000 })])
+    expect(repo.get('repo-a', 100)?.lastActivityAt).toBe(9000)
+    expect(repo.list()[0].lastActivityAt).toBe(9000)
   })
 
   test('replaceAll clears the previous cache', () => {
@@ -145,5 +159,31 @@ describe('prCacheRepo', () => {
 
   test('CHECK rejects an invalid role', () => {
     expect(() => repo.replaceAll([pr({ role: 'owner' as unknown as 'author' })])).toThrow()
+  })
+
+  test('an empty cache has never been synced', () => {
+    expect(repo.getSyncedAt()).toBeNull()
+  })
+
+  test('getSyncedAt reports the moment the cache was filled, and moves with each sync', () => {
+    // The injected clock advances by one on every read, so the two syncs are distinguishable.
+    repo.replaceAll([pr()])
+    const first = repo.getSyncedAt()
+    expect(first).toBe(1001)
+
+    repo.replaceAll([pr()])
+    expect(repo.getSyncedAt()).toBe(1002)
+  })
+
+  test('a sync that found no PRs at all still reports when it ran', () => {
+    // An empty inbox is an ordinary state, and "no PRs" must not read as "never synced".
+    repo.replaceAll([])
+    expect(repo.getSyncedAt()).toBe(1001)
+  })
+
+  test('a cache filled before the freshness stamp existed falls back to its rows', () => {
+    repo.replaceAll([pr()])
+    db.prepare(`DELETE FROM app_state WHERE key = 'pr_cache_synced_at'`).run()
+    expect(repo.getSyncedAt()).toBe(1001)
   })
 })

@@ -1,5 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { DraftComment, DraftSource, DraftStatus, NewManualDraft } from '@common/domain'
+import type {
+  DraftComment,
+  DraftSource,
+  DraftStatus,
+  NewManualDraft,
+  UnfinishedDraftReview
+} from '@common/domain'
 import type { RepoDeps } from './deps'
 
 interface DraftRow {
@@ -13,6 +19,7 @@ interface DraftRow {
   status: string
   source: string
   review_session_id: string | null
+  source_commit_id: string | null
   published_thread_id: number | null
   created_at: number
 }
@@ -29,6 +36,7 @@ function toDraft(row: DraftRow): DraftComment {
     status: row.status as DraftStatus,
     source: row.source as DraftSource,
     reviewSessionId: row.review_session_id,
+    sourceCommitId: row.source_commit_id ?? null,
     publishedThreadId: row.published_thread_id,
     createdAt: row.created_at
   }
@@ -36,9 +44,16 @@ function toDraft(row: DraftRow): DraftComment {
 
 export interface DraftCommentRepo {
   /** Create a pending draft from the given source (Claude session or a manual diff comment). */
-  create(input: NewManualDraft, source: DraftSource, reviewSessionId?: string | null): DraftComment
-  /** All non-discarded drafts for a PR, oldest first. */
+  create(
+    input: NewManualDraft,
+    source: DraftSource,
+    sourceCommitId: string,
+    reviewSessionId?: string | null
+  ): DraftComment
+  /** All actionable drafts for a PR, oldest first. Published/discarded history stays in SQLite. */
   listByPr(repositoryId: string, prId: number): DraftComment[]
+  /** Every PR with at least one actionable draft, for the durable board continuation affordance. */
+  listUnfinishedReviews(): UnfinishedDraftReview[]
   get(id: string): DraftComment | undefined
   setBody(id: string, body: string): DraftComment
   setStatus(id: string, status: DraftStatus, publishedThreadId?: number | null): DraftComment
@@ -62,12 +77,13 @@ export function createDraftCommentRepo(db: DatabaseSync, deps: RepoDeps): DraftC
   }
 
   return {
-    create(input, source, reviewSessionId = null) {
+    create(input, source, sourceCommitId, reviewSessionId = null) {
       const id = deps.newId()
       db.prepare(
         `INSERT INTO draft_comment
-           (id, pr_id, repository_id, file_path, line, side, body, status, source, review_session_id, published_thread_id, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+           (id, pr_id, repository_id, file_path, line, side, body, status, source,
+            review_session_id, source_commit_id, published_thread_id, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         id,
         input.prId,
@@ -79,6 +95,7 @@ export function createDraftCommentRepo(db: DatabaseSync, deps: RepoDeps): DraftC
         'pending',
         source,
         reviewSessionId,
+        sourceCommitId.trim() || null,
         null,
         deps.now()
       )
@@ -89,11 +106,25 @@ export function createDraftCommentRepo(db: DatabaseSync, deps: RepoDeps): DraftC
       const rows = db
         .prepare(
           `SELECT * FROM draft_comment
-           WHERE repository_id = ? AND pr_id = ? AND status != 'discarded'
+           WHERE repository_id = ? AND pr_id = ? AND status IN ('pending','approved')
            ORDER BY created_at`
         )
         .all(repositoryId, prId) as unknown as DraftRow[]
       return rows.map(toDraft)
+    },
+
+    listUnfinishedReviews() {
+      return db
+        .prepare(
+          `SELECT repository_id AS repositoryId,
+                  pr_id AS prId,
+                  COUNT(*) AS remainingDraftCount
+             FROM draft_comment
+            WHERE status IN ('pending','approved')
+            GROUP BY repository_id, pr_id
+            ORDER BY MIN(created_at)`
+        )
+        .all() as unknown as UnfinishedDraftReview[]
     },
 
     get,

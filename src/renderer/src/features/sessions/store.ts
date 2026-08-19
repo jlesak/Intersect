@@ -2,6 +2,7 @@ import type { SessionSummary, SessionTranscript } from '@common/domain'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
+import { scoreSession } from './search'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -27,15 +28,21 @@ interface SessionsState {
    * workspaces/tabs/shell stores itself.
    */
   pendingResume: SessionSummary | null
+  /**
+   * The session whose resume is under way, set by the app layer that performs it. Resuming spans a
+   * workspace, its tabs and a terminal launch, so the action that started it needs to say it is
+   * still working rather than look like it did nothing.
+   */
+  resumingId: string | null
   hydrate(): Promise<void>
   refresh(): Promise<void>
   setQuery(query: string): void
   setRange(from: number | null, to: number | null): void
-  toggleFolder(folderName: string): void
   setFolders(folders: string[] | null): void
   select(id: string): Promise<void>
   requestResume(summary: SessionSummary): void
   clearResume(): void
+  markResuming(id: string | null): void
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -52,23 +59,28 @@ export function defaultDateRange(): { from: number; to: number } {
 }
 
 /**
- * The sessions passing every active filter, in the store's descending-by-lastTimestamp order.
- * Text match is a case-insensitive substring of the query against the title and the joined user
- * prompts; the date range bounds lastTimestamp; the folder filter keeps only selected folderNames.
+ * The sessions passing every active filter. The date range bounds lastTimestamp and the folder
+ * filter keeps only selected folderNames; both preserve the store's descending-by-activity order.
+ * A search query then narrows further to the sessions whose title or one of whose prompts matches
+ * it, and reorders those best match first - recency stops being the useful ordering the moment the
+ * user says what they are looking for.
  */
 export function selectFiltered(state: SessionsState): SessionSummary[] {
-  const q = state.query.trim().toLowerCase()
+  const query = state.query.trim()
   const folderSet = state.folders ? new Set(state.folders) : null
-  return state.all.filter((s) => {
-    if (q) {
-      const haystack = `${s.title}\n${s.userPrompts.join('\n')}`.toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
+  const inRange = state.all.filter((s) => {
     if (state.from !== null && s.lastTimestamp < state.from) return false
     if (state.to !== null && s.lastTimestamp > state.to) return false
     if (folderSet && !folderSet.has(s.folderName)) return false
     return true
   })
+  if (query === '') return inRange
+
+  return inRange
+    .map((session, index) => ({ session, index, score: scoreSession(query, session) }))
+    .filter((entry): entry is { session: SessionSummary; index: number; score: number } => entry.score !== null)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.session)
 }
 
 /** The distinct folderNames present in the index, sorted, for the folder filter UI. */
@@ -96,6 +108,7 @@ export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
   transcript: null,
   transcriptStatus: 'idle',
   pendingResume: null,
+  resumingId: null,
 
   async hydrate() {
     set({ status: 'loading', error: null })
@@ -126,15 +139,6 @@ export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
     set({ from, to })
   },
 
-  toggleFolder(folderName) {
-    const allFolders = selectFolders(get())
-    const current = new Set(get().folders ?? allFolders)
-    if (current.has(folderName)) current.delete(folderName)
-    else current.add(folderName)
-    // Collapse a fully-checked selection back to null (the "all folders" default).
-    set({ folders: current.size === allFolders.length ? null : [...current].sort() })
-  },
-
   setFolders(folders) {
     set({ folders })
   },
@@ -159,5 +163,9 @@ export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
 
   clearResume() {
     set({ pendingResume: null })
+  },
+
+  markResuming(id) {
+    set({ resumingId: id })
   }
 }))

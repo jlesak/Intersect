@@ -19,6 +19,18 @@ interface ListResult {
   hasMoreResults?: boolean
 }
 
+interface RepositoryRef {
+  id?: string
+  name?: string
+}
+
+/**
+ * Azure DevOps' Git REST API returns collection responses as `{ count, value }`. The default MCP
+ * server currently unwraps that to an array, but configured server implementations are allowed to
+ * pass the REST payload through unchanged, so tolerate both representations at this boundary.
+ */
+type ListRepositoriesResult = RepositoryRef[] | { value?: RepositoryRef[] }
+
 export interface AdoServiceDeps {
   client: AdoClient
   /**
@@ -34,6 +46,11 @@ export interface AdoServiceDeps {
    * clobbering the persisted count with 0.
    */
   priorThreadCount: (repositoryId: string, prId: number) => number
+  /**
+   * The last-known activity timestamp for a PR, read from the cache. Used so a single PR's failed
+   * thread fetch cannot drop that card to the bottom of an activity-ordered column.
+   */
+  priorActivityAt: (repositoryId: string, prId: number) => number
   /** Org URL + PAT for the direct REST vote call, resolved lazily per vote (see adoVote). */
   resolveVoteCredentials: () => { orgUrl: string; pat: string }
   /** Injected in tests to fake the vote HTTP round-trip. */
@@ -48,14 +65,19 @@ export interface SyncResult {
 export interface AdoService {
   syncMyPrs(): Promise<SyncResult>
   getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
-  /** Post a new comment thread; null filePath/line anchors it to the PR itself. */
+  /**
+   * Post a new comment thread; null filePath/line anchors it to the PR itself. Resolves with the
+   * created thread id, or with null when the write succeeded but the server's answer carried no
+   * readable id. Rejects only when the comment did not reach Azure DevOps, so a caller may treat a
+   * rejection as "nothing was posted" and safely offer a retry.
+   */
   publishComment(input: {
     repositoryId: string
     prId: number
     filePath: string | null
     line: number | null
     body: string
-  }): Promise<number>
+  }): Promise<number | null>
   /** Post a reply into an existing thread, immediately and under my identity. */
   replyToThread(input: {
     repositoryId: string
@@ -75,6 +97,12 @@ export interface AdoService {
 }
 
 export function createAdoService(d: AdoServiceDeps): AdoService {
+  function repositoriesFrom(result: ListRepositoriesResult): RepositoryRef[] {
+    if (Array.isArray(result)) return result
+    if (Array.isArray(result.value)) return result.value
+    throw new Error('Azure DevOps list_repositories returned no repository list')
+  }
+
   /** Page through list_pull_requests, applying an optional identity filter, collecting all pages. */
   async function listAll(
     repositoryId: string,
@@ -135,10 +163,11 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
   return {
     async syncMyPrs() {
       const identity = await d.resolveIdentity()
-      const repos = await d.client.callTool<Array<{ id?: string; name?: string }>>(
+      const result = await d.client.callTool<ListRepositoriesResult>(
         'list_repositories',
         { projectId: d.projectId() }
       )
+      const repos = repositoriesFrom(result)
       const settled = await Promise.allSettled(
         repos.map(async (r) => ({
           name: r.name ?? r.id ?? '?',
@@ -162,18 +191,23 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         throw new Error(`Sync failed for every repository: ${failedRepos.join(', ')}`)
       }
       const merged = mergeMyPrs(prs)
-      // Thread counts feed the board's author-side "needs my action" signal. One PR's failure
-      // must not fail the sync; carry that PR's last-known count forward so a transient thread
-      // fetch does not clear the board signal until the next fully-successful sync.
+      // Thread counts feed the board's author-side "needs my action" signal, and the newest
+      // comment across all threads dates the PR for an activity-ordered queue. One PR's failure
+      // must not fail the sync; carry that PR's last-known values forward so a transient thread
+      // fetch neither clears the board signal nor moves the card until the next successful sync.
       const enriched = await Promise.all(
         merged.map(async (pr) => {
           try {
             const threads = await fetchThreads(pr.repositoryId, pr.prId)
             const count = threads.filter((t) => !t.isSystem && isThreadUnresolved(t)).length
-            return { ...pr, activeThreadCount: count }
+            return { ...pr, activeThreadCount: count, lastActivityAt: lastActivity(pr, threads) }
           } catch (err) {
             console.warn(`Thread fetch failed for PR ${pr.prId} in ${pr.repositoryName}`, err)
-            return { ...pr, activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId) }
+            return {
+              ...pr,
+              activeThreadCount: d.priorThreadCount(pr.repositoryId, pr.prId),
+              lastActivityAt: Math.max(pr.createdAt, d.priorActivityAt(pr.repositoryId, pr.prId))
+            }
           }
         })
       )
@@ -185,7 +219,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     },
 
     async publishComment(input) {
-      const res = await d.client.callTool<RawThread>('add_pull_request_comment', {
+      const res = await d.client.callTool<AddCommentResult>('add_pull_request_comment', {
         pullRequestId: input.prId,
         repositoryId: input.repositoryId,
         projectId: d.projectId(),
@@ -194,9 +228,15 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         ...(input.line !== null ? { lineNumber: input.line } : {}),
         status: 'active'
       })
-      const threadId = res?.id ?? res?.threadId
+      // Creating a thread answers with the created comment beside the created thread, so the id
+      // lives under `thread`. The flat fallbacks cover a server that hands back the thread itself.
+      const threadId = res?.thread?.id ?? res?.id ?? res?.threadId
       if (typeof threadId !== 'number') {
-        throw new Error('Azure DevOps did not return a thread id for the published comment')
+        // The comment is already live on the pull request at this point, so this is bookkeeping
+        // loss rather than a failed write. Reporting it as a failure would send the caller into a
+        // retry that posts a duplicate.
+        console.warn('Azure DevOps published the comment but returned no thread id', res)
+        return null
       }
       return threadId
     },
@@ -231,7 +271,34 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
   }
 }
 
+/**
+ * When this pull request was last touched: the newest comment on any of its threads, or its own
+ * creation when nothing is newer. System threads count, because Azure DevOps records pushes, vote
+ * changes and policy evaluations as system comments and those are real activity on a review queue.
+ * Creation is the floor, so a comment whose publish date was missing (mapped to 0) cannot backdate
+ * a pull request to 1970.
+ */
+function lastActivity(pr: PullRequest, threads: PrThread[]): number {
+  let newest = pr.createdAt
+  for (const thread of threads) {
+    for (const comment of thread.comments) {
+      if (comment.publishedAt > newest) newest = comment.publishedAt
+    }
+  }
+  return newest
+}
+
 // --- raw ADO shapes + defensive mappers -------------------------------------
+
+/**
+ * What `add_pull_request_comment` answers when it opens a new thread: the created comment next to
+ * the created thread. The flat `RawThread` fields are kept as a fallback for a server variant that
+ * returns the thread unwrapped.
+ */
+interface AddCommentResult extends RawThread {
+  thread?: RawThread
+  comment?: { id?: number }
+}
 
 interface RawThread {
   id?: number
@@ -275,4 +342,3 @@ function toThread(raw: RawThread): PrThread {
     }))
   }
 }
-

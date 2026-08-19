@@ -1,32 +1,26 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
-
-const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+import { expect, launch, test, userDataDir } from './harness'
 
 test('app launches and renders the shell', async () => {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'intersect-e2e-'))
-  const app = await electron.launch({
-    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, INTERSECT_E2E: '1' }
-  })
-  const win = await app.firstWindow()
-  const errors: string[] = []
-  win.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text())
-  })
-  win.on('pageerror', (e) => errors.push(e.message))
+  const { app, win, errors } = await launch(userDataDir())
 
   await expect(win.locator('.ix-wordmark__name')).toHaveText('Intersect')
 
-  // Boot lands on Claude Code (the first, default main-owning section); it renders its empty state.
-  await expect(win.locator('.ix-empty__title')).toBeVisible()
+  // Boot lands on the Dashboard - the first main-owning section - so its four zones are the very
+  // first thing the app renders, and every one of them must survive a profile with nothing set up.
+  await expect(win.locator('.ix-dash-zone__title')).toHaveText([
+    'Needs action',
+    'Running sessions',
+    'Time today',
+    'System status'
+  ])
 
   // Switching to My Work renders the stubbed E2E board's empty state.
   await win.locator('.ix-rail__btn', { hasText: 'My Work' }).click()
   await expect(win.locator('.ix-mw-empty-inline')).toBeVisible()
 
+  // Closed here rather than left to the harness because shutdown is part of what is being read:
+  // `errors` is inspected on the next line, and anything the renderer logs on its way out only
+  // reaches it while the window is still being listened to.
   await app.close()
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])
 })

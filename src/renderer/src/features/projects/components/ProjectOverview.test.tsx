@@ -17,8 +17,7 @@ const project: Project = {
   repoPaths: ['/repos/spot'],
   jiraJql: 'project = FID2507',
   jiraBoardUrl: null,
-  adoRepositories: ['spot-backend'],
-  togglProjectId: 42
+  adoRepositories: ['spot-backend']
 }
 
 /**

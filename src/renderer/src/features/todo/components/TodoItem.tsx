@@ -28,6 +28,8 @@ export function TodoItem({
   onCancelEdit,
   onSave,
   onContextMenu,
+  focused,
+  rowRef,
   drag
 }: {
   task: TodoTask
@@ -40,6 +42,10 @@ export function TodoItem({
   onSave?(patch: TodoTaskPatch): void
   /** Lets the embedding list attach a per-row menu (e.g. session launch) at the pointer. */
   onContextMenu?(x: number, y: number): void
+  /** Marks the row the user was sent here to look at, so it stands out on arrival. */
+  focused?: boolean
+  /** Lets the embedding list hold on to the row element so it can scroll it into view. */
+  rowRef?(el: HTMLDivElement | null): void
   drag?: TodoItemDrag
 }) {
   const today = dayKeyOf(Date.now())
@@ -110,9 +116,10 @@ export function TodoItem({
 
   return (
     <div
+      ref={rowRef}
       className={`ix-todo-item${done ? ' ix-todo-item--done' : ''}${
         drag?.dragging ? ' ix-todo-item--dragging' : ''
-      }`}
+      }${focused ? ' ix-todo-item--focused' : ''}`}
       role="listitem"
       draggable={drag?.draggable ?? false}
       onClick={!done ? onStartEdit : undefined}

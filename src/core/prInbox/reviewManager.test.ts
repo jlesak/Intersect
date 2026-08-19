@@ -49,6 +49,7 @@ const pr: PullRequest = {
   repositoryName: 'Intersect',
   projectId: 'project-id',
   title: 'Use ordinary Claude Code for reviews',
+  description: '',
   authorId: 'author-id',
   authorName: 'Author',
   createdAt: 1,
@@ -63,7 +64,8 @@ const pr: PullRequest = {
   myReviewerId: 'reviewer-id',
   reviewers: [],
   newChangesSinceMyReview: false,
-  activeThreadCount: 0
+  activeThreadCount: 0,
+  lastActivityAt: 1
 }
 
 async function harness() {

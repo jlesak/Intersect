@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   _electron as electron,
   expect,
@@ -8,6 +8,8 @@ import {
   type ElectronApplication,
   type Page
 } from '@playwright/test'
+import { closeRegisteredApps, registerApp } from '../tooling/e2eApps'
+import { appEntry } from '../tooling/e2eFreshness'
 
 /**
  * Shared E2E harness. Every spec drove its own copy of these helpers, so a single navigation
@@ -15,7 +17,11 @@ import {
  * that shape of change lands in one place.
  */
 
-export const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
+/**
+ * The built app every spec launches. Taken from the freshness guard so that the file being launched
+ * and the file being checked for staleness cannot drift apart.
+ */
+export const APP_ENTRY = appEntry(resolve(__dirname, '..'))
 
 /**
  * Rail labels in render order on a fresh profile, which has no project pins. Settings is last
@@ -25,7 +31,7 @@ export const APP_ENTRY = join(__dirname, '..', 'out', 'main', 'index.js')
 export const RAIL_LABELS = [
   'Dashboard',
   'Other',
-  'People',
+  '1:1',
   'TODO',
   'Time Tracking',
   'My Work',
@@ -45,14 +51,20 @@ const tempDirs: string[] = []
  * imported once per worker, so a hook registered at module scope would only ever attach to the
  * first spec file that loaded it and every later file would leak silently.
  *
+ * Both drains live in one fixture body so that their order is stated rather than inferred. Apps go
+ * first: a profile directory removed out from under a process that is still running is a race, and
+ * splitting the two across separate fixtures would leave that order resting on which of them
+ * Playwright happened to set up first.
+ *
  * Because the drain empties the list after each test, `tempDir` must only ever be called from
  * inside a test. A directory taken at module scope or in a `beforeAll` would be removed once the
  * first test finished and every later test in that file would be pointed at nothing.
  */
-export const test = base.extend<{ removeTempDirs: void }>({
-  removeTempDirs: [
+export const test = base.extend<{ cleanUp: void }>({
+  cleanUp: [
     async ({}, use) => {
       await use()
+      await closeRegisteredApps()
       while (tempDirs.length > 0) {
         const dir = tempDirs.pop()
         if (dir) rmSync(dir, { recursive: true, force: true })
@@ -76,6 +88,34 @@ export function userDataDir(): string {
   return tempDir('intersect-e2e-')
 }
 
+/**
+ * Environment for a machine with no Azure DevOps connection at all.
+ *
+ * Being connected is a property of the machine, not of the profile: a blank profile still inherits an
+ * organisation URL and a token from `~/.claude.json` or from `AZURE_DEVOPS_*`, so on a developer
+ * laptop a fresh profile is usually connected. That decides whether the app refreshes pull requests
+ * by itself, which in turn decides how many syncs the canned backend has served by the time a spec
+ * asserts anything - so a spec that counts syncs and does not say which machine it wants passes or
+ * fails according to whose laptop ran it. Pointing the home directory at an empty temp dir and
+ * blanking the environment pair is what makes "not connected" reproducible everywhere.
+ */
+export function unconfiguredAdo(): Record<string, string> {
+  return { HOME: tempDir('intersect-empty-home-'), AZURE_DEVOPS_ORG_URL: '', AZURE_DEVOPS_PAT: '' }
+}
+
+/**
+ * Environment for a connected machine, resolved from the same empty home so only these credentials
+ * can count. The values are never dialled: an E2E run answers every Azure DevOps call from the canned
+ * backend, and what is under test is which of those calls the app decides to make.
+ */
+export function connectedAdo(): Record<string, string> {
+  return {
+    HOME: tempDir('intersect-empty-home-'),
+    AZURE_DEVOPS_ORG_URL: 'https://devops.example/e2e',
+    AZURE_DEVOPS_PAT: 'e2e-token'
+  }
+}
+
 export interface LaunchOptions {
   /** Extra environment for the app process. Overrides the harness defaults. */
   env?: Record<string, string>
@@ -92,11 +132,23 @@ export interface LaunchOptions {
  * Session data is pointed at an empty fixture directory unless the caller supplies its own.
  * Without that, the indexer falls back to the real `~/.claude/projects`, so specs would read
  * whichever transcripts the developer happens to have and fail differently on every machine.
+ *
+ * The returned `errors` array accumulates renderer console errors and uncaught page errors for the
+ * life of the window. Collection is unconditional because it has to start before the shell mounts:
+ * a spec cannot subscribe after `launch` returns without having already missed everything the app
+ * logged while booting, which is the part worth catching.
+ *
+ * Closing is the harness's job, not the spec's: every app is handed to the drain that runs after
+ * the test whatever its outcome, so a failed assertion can no longer leave one running. It is
+ * handed over the instant it exists, because everything between here and the return - waiting for
+ * the window, waiting for the shell, the core health check that exists to throw - can fail on a
+ * broken build, and an app abandoned mid-launch is abandoned just as thoroughly as one abandoned
+ * mid-test.
  */
 export async function launch(
   profileDir: string,
   opts: LaunchOptions = {}
-): Promise<{ app: ElectronApplication; win: Page }> {
+): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${profileDir}`],
     env: {
@@ -106,11 +158,17 @@ export async function launch(
       ...opts.env
     }
   })
+  registerApp(app)
   const win = await app.firstWindow()
+  const errors: string[] = []
+  win.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
+  win.on('pageerror', (e) => errors.push(e.message))
   await win.waitForSelector('.ix-wordmark__name')
   await assertCoreHealthy(win)
   if (opts.openOther) await win.locator('.ix-rail__btn--other').click()
-  return { app, win }
+  return { app, win, errors }
 }
 
 /**
@@ -138,6 +196,25 @@ export async function stubFolderPick(app: ElectronApplication, dir: string): Pro
       filePaths: [folder]
     })
   }, dir)
+}
+
+/**
+ * Replace the system-browser launch with a recorder, and answer with what it has been handed.
+ *
+ * Opening a real browser mid-suite is both disruptive and unassertable, and the URL is the whole
+ * point of a link: it travels the renderer, the preload bridge, the IPC allowlist and Electron's
+ * shell, and only the far end proves the address a user would actually land on.
+ */
+export async function stubOpenExternal(app: ElectronApplication): Promise<() => Promise<string[]>> {
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = []
+    ;(globalThis as unknown as { __openedExternal: string[] }).__openedExternal = opened
+    ;(shell as unknown as { openExternal: unknown }).openExternal = async (url: string) => {
+      opened.push(url)
+    }
+  })
+  return () =>
+    app.evaluate(() => (globalThis as unknown as { __openedExternal: string[] }).__openedExternal)
 }
 
 /**

@@ -15,6 +15,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     repositoryName: 'spot-backend',
     projectId: 'ado',
     title: 'Fix the sync',
+    description: '',
     authorId: 'u1',
     authorName: 'Jan Lesak',
     createdAt: Date.now() - 3_600_000,
@@ -30,6 +31,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     reviewers: [],
     newChangesSinceMyReview: false,
     activeThreadCount: 0,
+    lastActivityAt: Date.now() - 3_600_000,
     ...over
   }
 }

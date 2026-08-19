@@ -10,7 +10,6 @@ function project(partial: Partial<Project> & Pick<Project, 'id' | 'repoPaths'>):
     jiraJql: null,
     jiraBoardUrl: null,
     adoRepositories: [],
-    togglProjectId: null,
     ...partial
   }
 }

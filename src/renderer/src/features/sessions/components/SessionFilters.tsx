@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { MultiSelectFilter } from '@renderer/shared/ui/MultiSelectFilter'
 import { selectFolders, useSessionsStore } from '../store'
 
 /** Local date (YYYY-MM-DD) for a date input, derived from an epoch-ms bound. */
@@ -20,63 +20,18 @@ function dayEnd(value: string): number | null {
   return value ? new Date(`${value}T23:59:59.999`).getTime() : null
 }
 
-/** The folder multiselect: a button opening a checkbox popover derived from the indexed folders. */
+/** The folder multiselect: the shared chip control over the folders present in the index. */
 function FolderFilter() {
-  const [open, setOpen] = useState(false)
   const allFolders = useSessionsStore(useShallow(selectFolders))
   const folders = useSessionsStore((s) => s.folders)
-  const selectedCount = folders === null ? allFolders.length : folders.length
-  const isChecked = (name: string): boolean => folders === null || folders.includes(name)
-
   return (
-    <div className="ix-sessions-folder">
-      <button
-        type="button"
-        className="ix-sessions-fbtn"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        Folders <span className="ix-sessions-fbtn__count">{selectedCount}/{allFolders.length}</span>
-      </button>
-      {open && (
-        <>
-          <div className="ix-sessions-folder__backdrop" onMouseDown={() => setOpen(false)} />
-          <div className="ix-sessions-folder__pop" role="menu">
-            <div className="ix-sessions-folder__head">
-              <span className="ix-eyebrow">Folders</span>
-              <div className="ix-sessions-folder__actions">
-                <button
-                  type="button"
-                  className="ix-btn ix-btn--ghost"
-                  onClick={() => useSessionsStore.getState().setFolders(null)}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  className="ix-btn ix-btn--ghost"
-                  onClick={() => useSessionsStore.getState().setFolders([])}
-                >
-                  None
-                </button>
-              </div>
-            </div>
-            <div className="ix-sessions-folder__list">
-              {allFolders.map((name) => (
-                <label key={name} className="ix-sessions-folder__item">
-                  <input
-                    type="checkbox"
-                    checked={isChecked(name)}
-                    onChange={() => useSessionsStore.getState().toggleFolder(name)}
-                  />
-                  <span>{name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+    <MultiSelectFilter
+      label="Folders"
+      testId="sessions-folders"
+      options={allFolders.map((name) => ({ value: name, label: name }))}
+      selection={folders}
+      onChange={(next) => useSessionsStore.getState().setFolders(next)}
+    />
   )
 }
 
@@ -96,6 +51,15 @@ export function SessionFilters() {
         placeholder="Search titles and your prompts…"
         value={query}
         onChange={(e) => useSessionsStore.getState().setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // Typing and then walking the results is one gesture, so ArrowDown steps out of the box
+          // into the list rather than stopping at the end of the query.
+          if (e.key !== 'ArrowDown') return
+          const first = document.querySelector<HTMLElement>('.ix-session-row')
+          if (!first) return
+          e.preventDefault()
+          first.focus()
+        }}
       />
       <div className="ix-sessions-controls">
         <label className="ix-sessions-date">

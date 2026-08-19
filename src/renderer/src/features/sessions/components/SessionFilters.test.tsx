@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { SessionSummary } from '@common/domain'
 import { useSessionsStore } from '../store'
@@ -69,10 +69,45 @@ describe('SessionFilters', () => {
 
       expect(logged).toEqual([])
       // The count reads off the derived folder list, so a populated selector is what rendered it.
-      expect(document.querySelector('.ix-sessions-fbtn__count')?.textContent).toBe('3/3')
+      expect(document.querySelector('.ix-msel__count')?.textContent).toBe('3/3')
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  test('unticking a folder is written to the store, so the list actually narrows', async () => {
+    seedFolders()
+    await act(async () => {
+      render(<SessionFilters />)
+    })
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[data-testid="sessions-folders"]')?.click()
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('spot'))
+    })
+
+    expect(useSessionsStore.getState().folders).toEqual(['atlas', 'intersect'])
+  })
+
+  test('ticking the last folder back collapses the selection to "all folders"', async () => {
+    seedFolders()
+    await act(async () => {
+      render(<SessionFilters />)
+    })
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[data-testid="sessions-folders"]')?.click()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('spot'))
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('spot'))
+    })
+
+    expect(useSessionsStore.getState().folders).toBeNull()
   })
 
   test('the open folder popover lists the indexed folders sorted', async () => {
@@ -82,10 +117,10 @@ describe('SessionFilters', () => {
       render(<SessionFilters />)
     })
     await act(async () => {
-      document.querySelector<HTMLButtonElement>('.ix-sessions-fbtn')?.click()
+      document.querySelector<HTMLButtonElement>('[data-testid="sessions-folders"]')?.click()
     })
 
-    const names = [...document.querySelectorAll('.ix-sessions-folder__item span')].map(
+    const names = [...document.querySelectorAll('.ix-msel__item span')].map(
       (e) => e.textContent
     )
     expect(names).toEqual(['atlas', 'intersect', 'spot'])

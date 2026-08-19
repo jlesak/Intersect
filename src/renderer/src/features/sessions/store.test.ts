@@ -78,9 +78,32 @@ describe('selectFiltered', () => {
 
   test('matches query against title and user prompts, case-insensitively', () => {
     const s = { ...useSessionsStore.getState(), all, query: 'LOCK OWNER' }
-    // "a" matches on both title and prompt; "b" matches "owner ... lock" only via prompt substring
-    // check ("lock owner" is not a substring of b's prompt), so only "a" qualifies.
+    // "a" matches on both title and prompt; "b" says "owner ... lock" in the other order, which no
+    // left-to-right match of "lock owner" can reach, so only "a" qualifies.
     expect(selectFiltered(s).map((x) => x.id)).toEqual(['a'])
+  })
+
+  test('finds a session the query is not a substring of', () => {
+    const s = { ...useSessionsStore.getState(), all, query: 'lckowner' }
+    expect(selectFiltered(s).map((x) => x.id)).toEqual(['a'])
+  })
+
+  test('a search puts the best match first, ahead of a more recent weaker one', () => {
+    const items = [
+      summary('recent', {
+        title: 'Something unrelated',
+        lastTimestamp: 9000,
+        userPrompts: ['a passing mention of the importer']
+      }),
+      summary('older', { title: 'Importer rewrite', lastTimestamp: 1000, userPrompts: [] })
+    ]
+    const s = { ...useSessionsStore.getState(), all: items, query: 'importer' }
+    expect(selectFiltered(s).map((x) => x.id)).toEqual(['older', 'recent'])
+  })
+
+  test('with no query the list stays in the store order, newest first', () => {
+    const s = { ...useSessionsStore.getState(), all, query: '  ' }
+    expect(selectFiltered(s).map((x) => x.id)).toEqual(['a', 'b', 'c'])
   })
 
   test('query matching a prompt but not the title still selects the session', () => {
@@ -151,23 +174,6 @@ describe('formatDuration', () => {
     [(3 * 60 + 12) * 60_000, '3h 12m']
   ])('formats %i ms as %s', (ms, expected) => {
     expect(formatDuration(ms)).toBe(expected)
-  })
-})
-
-describe('toggleFolder', () => {
-  beforeEach(() => {
-    reset({ all: [summary('SPOT', { folderName: 'SPOT' }), summary('Int', { folderName: 'Int' })] })
-  })
-
-  test('toggling one folder off from the all state selects the rest', () => {
-    useSessionsStore.getState().toggleFolder('SPOT')
-    expect(useSessionsStore.getState().folders).toEqual(['Int'])
-  })
-
-  test('re-selecting every folder collapses back to null', () => {
-    useSessionsStore.getState().toggleFolder('SPOT') // -> ['Int']
-    useSessionsStore.getState().toggleFolder('SPOT') // -> all again
-    expect(useSessionsStore.getState().folders).toBeNull()
   })
 })
 
