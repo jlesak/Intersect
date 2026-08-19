@@ -163,6 +163,63 @@ describe('tabsStore', () => {
     expect(useTabsStore.getState().activeTabId).toBe('a')
   })
 
+  // The group that takes over is showing a terminal of its own, and closing a tab somewhere else
+  // is no reason for that terminal to change.
+  test('emptying a group hands focus to the tab the receiving group already shows', async () => {
+    await hydrateWith(
+      [
+        tab('a', { paneSlot: 0, sortOrder: 0, lastActiveAt: 10 }),
+        tab('b', { paneSlot: 0, sortOrder: 1, lastActiveAt: 50 }),
+        ...group(1, ['c'])
+      ],
+      workspace({ layout: 'columns', activeTabId: 'c' })
+    )
+    expect(selectGroupVisibleTab(useTabsStore.getState(), 0)?.id).toBe('b')
+    mocked.remove.mockResolvedValue(undefined)
+
+    await useTabsStore.getState().removeTab('c')
+
+    const s = useTabsStore.getState()
+    expect(s.activeTabId).toBe('b')
+    // Picking group 0's first row instead would switch pane 1 to 'a' and stamp that choice.
+    expect(selectGroupVisibleTab(s, 0)?.id).toBe('b')
+    expect(mocked.setActive).toHaveBeenCalledWith('w1', 'b')
+  })
+
+  // Two closes overlap as soon as the user clicks a second X before the first round trip answers.
+  test('a close that lands during another close does not bring the closed tab back', async () => {
+    await hydrateWith(group(0, ['a', 'x', 'y']), workspace({ activeTabId: 'a' }))
+    let releaseX: () => void = () => {}
+    mocked.remove.mockImplementation(async (tabId: string) => {
+      if (tabId === 'x') await new Promise<void>((resolve) => (releaseX = resolve))
+    })
+
+    const closingX = useTabsStore.getState().removeTab('x')
+    await useTabsStore.getState().removeTab('y')
+    releaseX()
+    await closingX
+
+    // 'y' is deleted in main and its terminal is gone, so a strip still holding it would render a
+    // dead session and activating it would fail.
+    expect(useTabsStore.getState().order).toEqual(['a'])
+  })
+
+  test('a tab opened while a close is in flight survives the close', async () => {
+    await hydrateWith(group(0, ['a', 'x']), workspace({ activeTabId: 'a' }))
+    let releaseX: () => void = () => {}
+    mocked.remove.mockImplementation(async () => {
+      await new Promise<void>((resolve) => (releaseX = resolve))
+    })
+    mocked.create.mockResolvedValue(tab('n', { paneSlot: 0, sortOrder: 2, lastActiveAt: ++stamp }))
+
+    const closing = useTabsStore.getState().removeTab('x')
+    await useTabsStore.getState().createTab('shell')
+    releaseX()
+    await closing
+
+    expect(useTabsStore.getState().order).toEqual(['a', 'n'])
+  })
+
   test('removeTab of an inactive tab leaves focus where it is', async () => {
     await hydrateWith(group(0, ['a', 'b']), workspace({ activeTabId: 'a' }))
     mocked.remove.mockResolvedValue(undefined)

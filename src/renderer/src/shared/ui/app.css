@@ -326,17 +326,26 @@
   flex-direction: column;
 }
 /* The pane a dragged tab would land in, marked over the whole pane so the answer to "which pane"
-   is legible from anywhere in the split. A ring plus a wash rather than a fill, so the terminal
-   underneath stays readable while the drag is still in flight. */
-.ix-pane--drop {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-.ix-pane--drop .ix-pane__body {
+   is legible from anywhere in the split. An overlay laid on top of the pane rather than a
+   background behind it: the tab strip and the terminal are both opaque and would bury anything
+   painted underneath them. A ring plus a wash rather than a fill, and blind to the pointer, so
+   the terminal stays readable and the drop still lands where it was aimed. */
+.ix-pane--drop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  border: 2px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 /* Everything under the pane's own tab bar. The bar is fixed height, so the body takes the rest and
-   is what the terminal (or the empty state) measures itself against. */
+   is what the terminal (or the empty state) measures itself against.
+
+   Positioned, so that what a pane overlays - the find bar above all - is placed against the
+   terminal area rather than against the pane, whose top edge is now the top of the tab strip. */
 .ix-pane__body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;

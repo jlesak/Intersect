@@ -38,6 +38,14 @@ interface TabsState {
    */
   dropSlot: number | null
   setDropSlot(slot: number | null): void
+  /**
+   * The tab a strip has been asked to scroll into view, carrying a nonce so the same tab can be
+   * asked for twice running. Only the bar that holds a tab can scroll to it, while the all-tabs
+   * list naming every tab of the workspace lives in one bar, so the request travels through the
+   * store to whichever bar can answer it.
+   */
+  revealRequest: { id: string; nonce: number } | null
+  requestReveal(id: string): void
   hydrate(workspaceId: string): Promise<void>
   clear(): void
   /**
@@ -130,7 +138,8 @@ const EMPTY = {
   // the new one, and neither does a drag that was in flight over its panes. `lastPreset` is
   // deliberately absent - it is a user habit, not workspace data.
   presetPickerOpen: false,
-  dropSlot: null as number | null
+  dropSlot: null as number | null,
+  revealRequest: null as { id: string; nonce: number } | null
 }
 
 export const useTabsStore = createStore<TabsState>()((set, get) => ({
@@ -145,6 +154,10 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
     // Guarded because a drag fires dragover many times a second over the same pane, and each
     // unguarded write would re-render every bar and every pane on screen.
     if (get().dropSlot !== slot) set({ dropSlot: slot })
+  },
+
+  requestReveal(id) {
+    set((s) => ({ revealRequest: { id, nonce: (s.revealRequest?.nonce ?? 0) + 1 } }))
   },
 
   async hydrate(workspaceId) {
@@ -208,9 +221,7 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
   },
 
   async removeTab(id) {
-    const before = get()
-    const workspaceId = before.workspaceId
-    const closing = before.byId[id]
+    const workspaceId = get().workspaceId
     try {
       await api.remove(id)
     } catch (e) {
@@ -224,23 +235,29 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
       useAttentionStore.getState().remove(sessionId)
     }
 
-    const remaining = selectTabList(before).filter((tab) => tab.id !== id)
+    // Read the tabs after the round trip rather than before it: a second close or a create can
+    // commit while main is answering, and a slice rebuilt from the older list would undo it.
+    // Nothing can land between this read and the write below, so the pair acts as one step.
+    const state = get()
+    const closing = state.byId[id]
+    const remaining = selectTabList(state).filter((tab) => tab.id !== id)
     // Closing a tab the user was not on leaves focus exactly where it is.
-    let successor = before.activeTabId
-    if (before.activeTabId === id) {
+    let successor = state.activeTabId
+    if (state.activeTabId === id) {
       const siblings = closing
         ? remaining.filter((tab) => tab.paneSlot === closing.paneSlot)
         : remaining
       // Staying inside the group keeps the pane the user was working in on screen. Picking that
-      // group's new visible tab means focus and what the pane shows cannot disagree. Only an
-      // emptied group hands focus to another one, and then to the first tab of the first group.
-      successor = (visibleTabOf(siblings) ?? remaining[0])?.id ?? null
+      // group's new visible tab means focus and what the pane shows cannot disagree. An emptied
+      // group hands focus to another one, and there too to the tab that group is already showing,
+      // so closing a tab in one pane never changes the terminal another pane renders.
+      successor = (visibleTabOf(siblings) ?? visibleTabOf(remaining))?.id ?? null
     }
     set({ ...indexTabs(remaining), activeTabId: successor })
 
     // Main chooses its own successor when it deletes the row, and it cannot know about groups.
     // Persisting ours overrides that choice and stamps the tab we just made visible.
-    if (successor !== null && before.activeTabId === id) await get().setActiveTab(successor)
+    if (successor !== null && state.activeTabId === id) await get().setActiveTab(successor)
   },
 
   async moveTab(id, slot, index) {

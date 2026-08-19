@@ -112,7 +112,8 @@ describe('PaneTabBar', () => {
       layout: 'single',
       activeTabId: null,
       presetPickerOpen: false,
-      dropSlot: null
+      dropSlot: null,
+      revealRequest: null
     })
     useWorkItemsStore.setState({ workspaceId: null, byTabId: {} })
     useAttentionStore.setState({ status: {} })
@@ -240,6 +241,103 @@ describe('PaneTabBar', () => {
     // Group order, then bar order inside each group - the same order the strips read in.
     expect(menuLabels()).toEqual(['shell', 'logs', 'claude'])
     expect(document.querySelectorAll('.ix-tabmenu__dot--waiting')).toHaveLength(1)
+  })
+
+  test('picking a tab from the overflow list activates it', async () => {
+    seedTabs()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.click(document.querySelector<HTMLElement>('[aria-label="All tabs"]')!)
+      })
+      await act(async () => {
+        fireEvent.click(menuItems().find((e) => e.lastChild?.textContent === 'logs')!)
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t3')
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+
+  // Two shells both start out called "Shell", so the list cannot be keyed on what a tab is called.
+  test('two tabs sharing a title stay distinguishable in the overflow list', async () => {
+    seedTabs()
+    useTabsStore.setState((s) => ({ byId: { ...s.byId, t2: { ...s.byId.t2, title: 'shell' } } }))
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.click(document.querySelector<HTMLElement>('[aria-label="All tabs"]')!)
+      })
+      expect(menuLabels()).toEqual(['shell', 'logs', 'shell'])
+      await act(async () => {
+        fireEvent.click(menuItems()[2])
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t2')
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+
+  // The button is exempt from the menu's own dismiss-on-outside-press, so it is the click that
+  // has to close what the same button opened.
+  test('the overflow button closes the list it opened', async () => {
+    seedTabs()
+    await renderStage('columns')
+    const button = document.querySelector<HTMLElement>('[aria-label="All tabs"]')!
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    expect(document.querySelector('.ix-menu')).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.mouseDown(button)
+      fireEvent.click(button)
+    })
+
+    expect(document.querySelector('.ix-menu')).toBeNull()
+  })
+
+  test('activating a tab scrolls its own strip to it', async () => {
+    seedTabs()
+    await renderStage('columns')
+    const scrolled = vi.fn()
+    tabElsIn(0)[1].scrollIntoView = scrolled
+
+    await act(async () => {
+      useTabsStore.setState({ activeTabId: 't3' })
+    })
+
+    expect(scrolled).toHaveBeenCalled()
+  })
+
+  // The list names every tab of the workspace while it lives in a single bar, so a pick lands on
+  // a strip that bar does not own - and picking the tab that is already active leaves nothing for
+  // the activation effect to react to.
+  test('picking the tab that is already active still scrolls its own strip to it', async () => {
+    seedTabs()
+    useTabsStore.setState({ activeTabId: 't1' })
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      const scrolled = vi.fn()
+      tabElsIn(0)[0].scrollIntoView = scrolled
+
+      await act(async () => {
+        fireEvent.click(document.querySelector<HTMLElement>('[aria-label="All tabs"]')!)
+      })
+      await act(async () => {
+        fireEvent.click(menuItems().find((e) => e.lastChild?.textContent === 'shell')!)
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t1')
+      expect(scrolled).toHaveBeenCalled()
+    } finally {
+      setActiveTab.mockRestore()
+    }
   })
 
   test('a right-click offers the other panes as move targets, never the tab’s own', async () => {
@@ -493,6 +591,31 @@ describe('PaneTabBar', () => {
       expect(barOf(0).querySelector('[role="status"]')?.textContent).toBe(
         'shell is already first in pane 1.'
       )
+    } finally {
+      moveTab.mockRestore()
+    }
+  })
+
+  // A live region is only read out when its contents change, and a key held down at the end of a
+  // bar produces the same sentence every time. Silence there reads as the key having stopped
+  // working, which is the very thing the sentence exists to rule out.
+  test('reaching the end of the bar twice is said out loud twice', async () => {
+    seedTabs()
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      const spoken = (): string => barOf(0).querySelector('[role="status"]')!.textContent ?? ''
+
+      await act(async () => {
+        fireEvent.keyDown(tabElsIn(0)[0], { key: 'ArrowLeft', shiftKey: true })
+      })
+      const first = spoken()
+      await act(async () => {
+        fireEvent.keyDown(tabElsIn(0)[0], { key: 'ArrowLeft', shiftKey: true })
+      })
+
+      expect(spoken()).not.toBe(first)
+      expect(spoken().trim()).toBe(first.trim())
     } finally {
       moveTab.mockRestore()
     }

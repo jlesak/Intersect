@@ -51,6 +51,7 @@ export function PaneTabBar({ slot }: { slot: number }) {
   const layout = useTabsStore((s) => s.layout)
   const focusedSlot = useTabsStore(selectFocusedSlot)
   const presetPickerOpen = useTabsStore((s) => s.presetPickerOpen)
+  const revealRequest = useTabsStore((s) => s.revealRequest)
   const attention = useAttentionStore((s) => s.status)
   const workItems = useWorkItemsStore((s) => s.byTabId)
   const store = useTabsStore.getState()
@@ -73,6 +74,15 @@ export function PaneTabBar({ slot }: { slot: number }) {
   const [clickedPicker, setClickedPicker] = useState(false)
   const overflowRef = useRef<HTMLButtonElement>(null)
   const tabRefs = useRef(new Map<string, HTMLDivElement>())
+
+  /**
+   * Write a sentence into the bar's live region. A live region is read out when its contents
+   * change, and holding an arrow at the end of a strip produces the same sentence over and over,
+   * so a repeat alternates a trailing no-break space: silent to a reader, a change to the region,
+   * and not subject to the whitespace collapsing an ordinary space would go through.
+   */
+  const announce = (sentence: string): void =>
+    setMoveStatus((current) => (current === sentence ? `${sentence}\u00a0` : sentence))
 
   // The picker flag on the store is what the keyboard shortcut raises, and the shortcut means "in
   // the group I am working in". A "+" clicked in some other group's bar has to open that bar's
@@ -101,6 +111,12 @@ export function PaneTabBar({ slot }: { slot: number }) {
   useEffect(() => {
     if (activeTabId) revealTab(activeTabId)
   }, [activeTabId])
+
+  // A request naming a tab this group does not hold finds no element and passes straight through,
+  // so every bar can watch the same request and only the one that owns the tab scrolls.
+  useEffect(() => {
+    if (revealRequest) revealTab(revealRequest.id)
+  }, [revealRequest])
 
   const statusOf = (tabId: string): SessionStatus | undefined =>
     workspaceId ? attention[makeSessionId(workspaceId, tabId)]?.status : undefined
@@ -186,9 +202,10 @@ export function PaneTabBar({ slot }: { slot: number }) {
         ),
         onClick: () => {
           void store.setActiveTab(tab.id)
-          // Not left to the reveal effect: picking the tab that is already active changes nothing
-          // for the effect to react to, and the user still asked to be shown that tab.
-          revealTab(tab.id)
+          // Asked of every bar rather than scrolled here: the tab picked usually belongs to
+          // another group, and picking the tab that is already active leaves the activation
+          // effect nothing to react to while the user still asked to be shown that tab.
+          store.requestReveal(tab.id)
         }
       }
     })
@@ -220,10 +237,10 @@ export function PaneTabBar({ slot }: { slot: number }) {
     // Said out loud either way: a move that cannot happen is otherwise indistinguishable from a
     // key that did not register.
     if (to < 0 || to >= tabs.length) {
-      setMoveStatus(`${title} is already ${step < 0 ? 'first' : 'last'} in pane ${slot + 1}.`)
+      announce(`${title} is already ${step < 0 ? 'first' : 'last'} in pane ${slot + 1}.`)
       return
     }
-    setMoveStatus(`${title} moved to position ${to + 1} of ${tabs.length} in pane ${slot + 1}.`)
+    announce(`${title} moved to position ${to + 1} of ${tabs.length} in pane ${slot + 1}.`)
     void store.moveTab(id, slot, to)
   }
 
