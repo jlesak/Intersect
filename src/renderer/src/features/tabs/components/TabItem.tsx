@@ -74,6 +74,9 @@ export function TabItem({
       className={`ix-tab${active ? ' ix-tab--active' : ''}${status ? ` ix-tab--${status}` : ''}${
         dragging ? ' ix-tab--dragging' : ''
       }`}
+      // Mirrors the session id the pane host carries, so which tab names which terminal is
+      // readable from the DOM alone.
+      data-tab-id={tab.id}
       // Renaming turns the tab into a text field, and a draggable ancestor takes the pointer away
       // from selecting inside it, so the drag is off for exactly as long as the input is up.
       draggable={!renaming}

@@ -24,3 +24,60 @@ test('Cmd+F opens the find bar on the focused terminal, and Escape gives the she
   await expect(win.locator('.ix-find')).toHaveCount(0)
   await expect(win.locator('.ix-pane__host .xterm-helper-textarea')).toBeFocused()
 })
+
+/**
+ * Per-pane tab groups, end to end. The pieces are covered individually by component tests; what
+ * only a running app can show is that a split really does put each terminal's name in a bar of
+ * its own directly above that terminal, and that collapsing the split brings every tab back into
+ * one bar rather than stranding any of them.
+ */
+test('a split gives each pane its own tab bar above its terminal, and collapsing merges them', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('groupws-'))
+
+  const openShell = async (bar: number): Promise<void> => {
+    await win.locator('.ix-tabbar').nth(bar).locator('.ix-iconbtn[title="New terminal"]').click()
+    await win.locator('.ix-preset', { hasText: 'Shell' }).click()
+  }
+
+  await openShell(0)
+  await win.locator('.xterm').first().waitFor()
+  await expect(win.locator('.ix-tabbar')).toHaveCount(1)
+
+  // Splitting leaves the first tab where it was and opens a second, empty group beside it.
+  await win.locator('.ix-layout[aria-label="Two columns"]').click()
+  await expect(win.locator('.ix-tabbar')).toHaveCount(2)
+  await expect(win.locator('.ix-pane').nth(0).locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-pane').nth(1).locator('.ix-tab')).toHaveCount(0)
+  await expect(win.locator('.ix-pane').nth(1).locator('.ix-pane__empty')).toBeVisible()
+
+  await openShell(1)
+  await expect(win.locator('.ix-pane').nth(1).locator('.ix-tab')).toHaveCount(1)
+
+  // The point of the whole change: the tab named in a pane's bar is the very terminal running in
+  // that pane's body, which the session id on the host spells out.
+  const named: string[] = []
+  for (const pane of [0, 1]) {
+    const scope = win.locator('.ix-pane').nth(pane)
+    await expect(scope.locator('.ix-tabbar .ix-tab')).toHaveCount(1)
+    await expect(scope.locator('.ix-pane__body .xterm')).toBeVisible()
+    const tabId = await scope.locator('.ix-tab').getAttribute('data-tab-id')
+    const sessionId = await scope.locator('.ix-pane__host').getAttribute('data-session-id')
+    expect(tabId).toBeTruthy()
+    expect(sessionId?.endsWith(`:${tabId}`)).toBe(true)
+    named.push(tabId as string)
+  }
+  expect(named[0]).not.toBe(named[1])
+
+  // The workspace tools ride in the top-right group's bar, so there is exactly one of each.
+  await expect(win.locator('.ix-layouts')).toHaveCount(1)
+  await expect(win.locator('.ix-tabbar').nth(1).locator('.ix-layouts')).toHaveCount(1)
+
+  // Collapsing merges both groups into one bar, keeping both tabs reachable.
+  await win.locator('.ix-layout[aria-label="Single pane"]').click()
+  await expect(win.locator('.ix-tabbar')).toHaveCount(1)
+  await expect(win.locator('.ix-tab')).toHaveCount(2)
+  for (const tabId of named) {
+    await expect(win.locator(`.ix-tab[data-tab-id="${tabId}"]`)).toHaveCount(1)
+  }
+})

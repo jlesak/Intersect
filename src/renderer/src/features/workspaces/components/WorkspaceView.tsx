@@ -1,9 +1,6 @@
 import { useEffect } from 'react'
-import { useShallow } from 'zustand/react/shallow'
-import type { Preset } from '@common/domain'
-import { selectTabList, useTabsStore } from '@renderer/features/tabs'
+import { useTabsStore } from '@renderer/features/tabs'
 import { installTerminalFindShortcut, SplitStage } from '@renderer/features/terminal'
-import { IconClaude, IconShell } from '@renderer/shared/ui/icons'
 import { selectSelectedWorkspace, useWorkspacesStore } from '../store'
 
 /**
@@ -19,10 +16,7 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
   }
   const selectedId = selected?.id ?? null
 
-  const tabsStatus = useTabsStore((s) => s.status)
   const layout = useTabsStore((s) => s.layout)
-  const workspaceId = useTabsStore((s) => s.workspaceId)
-  const tabs = useTabsStore(useShallow(selectTabList))
 
   // Load the selected workspace's terminal view whenever the selection changes.
   useEffect(() => {
@@ -44,14 +38,9 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
     )
   }
 
-  const ready = tabsStatus === 'ready' && workspaceId === selected.id
-
-  // Every tab now lives in a group, so the only workspace-wide empty state left is a workspace
-  // with nothing open at all; anything less is a pane's own empty state, under its own tab bar.
-  if (ready && tabs.length === 0) {
-    return <NoTabs onOpen={(preset) => void useTabsStore.getState().createTab(preset)} />
-  }
-
+  // A workspace with nothing open is just its first group standing empty, so the stage renders it
+  // like any other empty group: a tab bar with its "+" over the pane's own starter buttons. A
+  // separate workspace-wide empty screen would take the tab bar away with it.
   return (
     <SplitStage
       workspaceId={selected.id}
@@ -59,22 +48,5 @@ export function WorkspaceView({ projectScope }: { projectScope?: string | null }
       projectKey={selected.projectId ?? 'other'}
       layout={layout}
     />
-  )
-}
-
-function NoTabs({ onOpen }: { onOpen: (preset: Preset) => void }) {
-  return (
-    <div className="ix-empty">
-      <span className="ix-eyebrow">No terminals</span>
-      <div className="ix-empty__title">Open a terminal to get going</div>
-      <div className="ix-row" style={{ gap: 10 }}>
-        <button type="button" className="ix-btn ix-btn--primary" onClick={() => onOpen('shell')}>
-          <IconShell /> Shell
-        </button>
-        <button type="button" className="ix-btn" onClick={() => onOpen('claude')}>
-          <IconClaude /> Claude Code
-        </button>
-      </div>
-    </div>
   )
 }

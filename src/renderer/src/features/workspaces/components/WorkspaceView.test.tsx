@@ -140,7 +140,7 @@ describe('WorkspaceView', () => {
     expect(uninstallFind).toHaveBeenCalledTimes(1)
   })
 
-  test('a workspace with no tabs at all offers the terminal starters in place of the stage', async () => {
+  test('a workspace with no tabs at all still renders the stage, so its first group keeps its bar', async () => {
     stubBridge([])
     seedSelection()
 
@@ -148,9 +148,8 @@ describe('WorkspaceView', () => {
       render(<WorkspaceView projectScope="p1" />)
     })
 
-    expect(document.querySelector('[data-testid="split-stage"]')).toBeNull()
-    expect(document.querySelector('.ix-empty__title')?.textContent).toBe(
-      'Open a terminal to get going'
-    )
+    // The empty state belongs to the pane, under its own tab bar. Swapping the stage out for a
+    // workspace-wide screen would take the "+" and the layout picker away with it.
+    expect(document.querySelector('[data-testid="split-stage"]')).not.toBeNull()
   })
 })
