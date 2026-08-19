@@ -37,6 +37,35 @@ export function withMcpLogging(call: ToolCall, logger: Logger): ToolCall {
   }
 }
 
+/** The part of the stdio transport the child's lifecycle records need. */
+export interface McpChildLifecycleDeps {
+  transport: { readonly pid: number | null; onclose?: () => void }
+  command: string
+  logger: Logger
+  /** Whether this connection is still the live one, so an exit now was nobody's decision. */
+  isLive: () => boolean
+}
+
+/**
+ * Record the start and the end of the MCP server child.
+ *
+ * Without the exit half, a child that is killed - out of memory, a launcher that dies - leaves only
+ * the failure of whichever call happened to be in flight, which reads exactly like a network
+ * timeout. The transport reports the close rather than the exit status, so the record names the
+ * child by command and pid; it also already carries the client's own close handler, which is
+ * chained rather than replaced.
+ */
+export function recordMcpChildLifecycle(deps: McpChildLifecycleDeps): void {
+  const data = { command: deps.command, pid: deps.transport.pid }
+  deps.logger.info('mcp server spawned', { data })
+  const inner = deps.transport.onclose
+  deps.transport.onclose = () => {
+    if (deps.isLive()) deps.logger.warn('mcp server exited', { data })
+    else deps.logger.info('mcp server exited', { data })
+    inner?.()
+  }
+}
+
 /**
  * Long-lived MCP client to the Azure DevOps server. One persistent stdio child is spawned lazily
  * and reused for every call. A call that times out or errors tears the connection down so the next
@@ -72,9 +101,21 @@ export function createAdoClient(
       })
       const client = new Client({ name: 'intersect', version: '0.1.0' })
       await client.connect(transport)
-      logger?.info('mcp server spawned', { data: { command: config.command } })
-      conn = { client, transport }
-      return conn
+      const connection: Connection = { client, transport }
+      conn = connection
+      if (logger) {
+        // After connect: the client installs its own close handler while connecting, and this
+        // chains onto whatever is there rather than displacing it.
+        recordMcpChildLifecycle({
+          transport,
+          command: config.command,
+          logger,
+          // `teardown` clears `conn` before it closes anything, so this child still being the
+          // current one means it went on its own.
+          isLive: () => conn === connection
+        })
+      }
+      return connection
     })()
     try {
       return await connecting

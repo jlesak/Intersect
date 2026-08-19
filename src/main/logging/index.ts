@@ -9,6 +9,7 @@ import {
 } from '@common/logging/fileSink.node'
 import { createLogger, parseLevel, type Logger, type LogSink } from '@common/logging/logger'
 import {
+  isLevelEnabled,
   LEVEL_ORDER,
   serialize,
   type LogLevel,
@@ -24,17 +25,23 @@ import {
 export interface MainLoggerOptions {
   userDataDir: string
   env: NodeJS.ProcessEnv
+  /** Whether this is a packaged app, which is what chooses the default floor. */
+  packaged: boolean
   /** Injected in tests; production opens the shared daily file. */
   sink?: LogSink
   now?: () => Date
 }
 
 /**
- * The level floor a run starts from when nothing is configured. A packaged build keeps the file
- * readable by holding back the per-operation detail, while a development run wants all of it.
+ * The floor this run writes at. A packaged build keeps the file readable by holding back the
+ * per-operation detail, while a development run wants all of it.
+ *
+ * Whether the app is packaged is asked of the host rather than read from `NODE_ENV`: nothing sets
+ * that variable in an app launched from the Dock, so keying on it put every packaged run on the
+ * development floor - the one configuration an end user actually has.
  */
-function defaultLevel(env: NodeJS.ProcessEnv): LogLevel {
-  return env.NODE_ENV === 'production' ? 'info' : 'debug'
+export function resolveLogLevel(env: NodeJS.ProcessEnv, packaged: boolean): LogLevel {
+  return parseLevel(env.INTERSECT_LOG_LEVEL, packaged ? 'info' : 'debug')
 }
 
 /**
@@ -58,7 +65,7 @@ export function createMainSink(userDataDir: string, now?: () => Date): LogSink {
 export function createMainLogger(opts: MainLoggerOptions): Logger {
   return createLogger({
     sink: opts.sink ?? createMainSink(opts.userDataDir, opts.now),
-    level: parseLevel(opts.env.INTERSECT_LOG_LEVEL, defaultLevel(opts.env)),
+    level: resolveLogLevel(opts.env, opts.packaged),
     proc: 'main',
     scope: 'lifecycle',
     now: opts.now
@@ -66,11 +73,27 @@ export function createMainLogger(opts: MainLoggerOptions): Logger {
 }
 
 /**
- * Record the failures nobody wrote a handler for. Main keeps its existing behaviour on both, so
- * this only adds a cause on disk for a crash that would otherwise leave nothing behind.
+ * Record the failures nobody wrote a handler for, and hand an uncaught exception to `onFatal`.
+ *
+ * Electron installs its own `uncaughtException` listener and that listener stands down as soon as a
+ * second one exists, so registering this one takes away the native error box the user would
+ * otherwise see. `onFatal` is where the caller puts that visible signal back: a crash the user
+ * cannot see is a crash nobody reports. Reporting that itself fails is swallowed, because this is
+ * the last handler in the process and a throw from here would end the run without a word.
+ *
+ * A rejection is recorded and goes no further, which is a deliberate difference: it leaves the
+ * process in a state it can usually continue from, and a modal for every dangling promise would
+ * cost more than the record it already writes.
  */
-export function installMainGlobalHandlers(logger: Logger): void {
-  process.on('uncaughtException', (err) => logger.error('uncaught exception', { err }))
+export function installMainGlobalHandlers(logger: Logger, onFatal?: (err: unknown) => void): void {
+  process.on('uncaughtException', (err) => {
+    logger.error('uncaught exception', { err })
+    try {
+      onFatal?.(err)
+    } catch {
+      // The record above is already on disk, which is the part that has to survive.
+    }
+  })
   process.on('unhandledRejection', (reason) => logger.error('unhandled rejection', { err: reason }))
 }
 
@@ -134,12 +157,23 @@ function validate(payload: unknown): LogRecord | null {
   }
   if (r.data !== undefined && typeof r.data === 'object' && r.data !== null) record.data = r.data
   if (r.err !== undefined && typeof r.err === 'object' && r.err !== null) record.err = r.err
+  // The renderer redacted this record before serialising it, so the pass this process makes finds
+  // the values already replaced and counts nothing. Carrying the count over is what keeps a
+  // renderer record that held a credential distinguishable from one that never had any.
+  if (typeof r.redactions === 'number' && Number.isInteger(r.redactions) && r.redactions > 0) {
+    record.redactions = r.redactions
+  }
   return record
 }
 
 export interface RendererLogReceiverDeps {
   ipcMain: Pick<IpcMain, 'on'>
   sink: LogSink
+  /**
+   * The floor this run writes at. The sandboxed renderer cannot read the environment, so the
+   * configured level is applied here, by the process that resolved it and owns the file.
+   */
+  level: LogLevel
   /** Main's own logger, used to report a payload that did not validate. */
   logger: Logger
 }
@@ -156,6 +190,7 @@ export function registerRendererLogReceiver(deps: RendererLogReceiverDeps): void
       log.warn('discarded a malformed renderer log record')
       return
     }
+    if (!isLevelEnabled(record.level, deps.level)) return
     try {
       deps.sink.write(serialize(record))
     } catch {

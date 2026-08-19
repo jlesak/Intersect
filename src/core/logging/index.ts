@@ -12,17 +12,23 @@ import type { LogLevel } from '@common/logging/record'
 export interface CoreLoggerOptions {
   userDataDir: string
   env: NodeJS.ProcessEnv
+  /** Whether this is a packaged app, reported by main in the init message. */
+  packaged: boolean
   /** Injected in tests; production opens the shared daily file. */
   sink?: LogSink
   now?: () => Date
 }
 
 /**
- * The level floor a run starts from when nothing is configured. A packaged build keeps the file
- * readable by holding back the per-operation detail, while a development run wants all of it.
+ * The floor this run writes at. A packaged build keeps the file readable by holding back the
+ * per-operation detail, while a development run wants all of it.
+ *
+ * Whether the app is packaged is asked of the host rather than read from `NODE_ENV`: nothing sets
+ * that variable in an app launched from the Dock, so keying on it put every packaged run on the
+ * development floor - the one configuration an end user actually has.
  */
-function defaultLevel(env: NodeJS.ProcessEnv): LogLevel {
-  return env.NODE_ENV === 'production' ? 'info' : 'debug'
+function defaultLevel(packaged: boolean): LogLevel {
+  return packaged ? 'info' : 'debug'
 }
 
 /**
@@ -41,7 +47,7 @@ export function createCoreLogger(opts: CoreLoggerOptions): Logger {
     })
   return createLogger({
     sink,
-    level: parseLevel(opts.env.INTERSECT_LOG_LEVEL, defaultLevel(opts.env)),
+    level: parseLevel(opts.env.INTERSECT_LOG_LEVEL, defaultLevel(opts.packaged)),
     proc: 'core',
     scope: 'lifecycle',
     now: opts.now

@@ -18,7 +18,7 @@ export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
       proc.onData(cb)
     },
     onExit: (cb) => {
-      proc.onExit(({ exitCode }) => cb({ exitCode }))
+      proc.onExit(({ exitCode, signal }) => cb({ exitCode, signal }))
     },
     write: (data) => proc.write(data),
     resize: (cols, rows) => proc.resize(cols, rows),

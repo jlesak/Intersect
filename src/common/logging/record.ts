@@ -52,6 +52,15 @@ export interface LogRecord {
   msg: string
   data?: Record<string, unknown>
   err?: NormalizedError
+  /**
+   * How many markers redaction already wrote into this record before it got here.
+   *
+   * Set only on a record that was serialised in one process and is being written by another: the
+   * sandboxed renderer redacts and serialises its own records, and main appends them. Main's pass
+   * over such a record finds the values already replaced and writes nothing of its own, so without
+   * the count that came with it the line would read as one that had no credentials in it at all.
+   */
+  redactions?: number
 }
 
 export const REDACTED = '[redacted]'
@@ -333,8 +342,14 @@ function marker(): string {
   return REDACTED
 }
 
-/** Describe a value that refuses to be read, rather than letting its failure escape. */
-function safeText(value: unknown): string {
+/**
+ * Describe a value that refuses to be read, rather than letting its failure escape.
+ *
+ * Exported because the renderer's console mirror stringifies its arguments before they ever become
+ * record fields, and a plain `String` throws on a null-prototype object, on one whose `toString`
+ * throws, and on a revoked proxy - inside a global every library calls.
+ */
+export function safeText(value: unknown): string {
   try {
     return String(value)
   } catch {
@@ -1154,7 +1169,16 @@ function bound(record: LogRecord, identity: RecordIdentity): string {
   // be counted here and text a caller wrote `[redacted]` into cannot inflate it.
   const before = markersWritten
   const wire = toWire(record)
-  const redactions = markersWritten - before
+  // A record that arrived already serialised from another process brings its own count, and this
+  // pass sees a subset of what that one did: a key naming a credential is marked again here, while
+  // one embedded in a string is recognised only by whichever pass met it first. The larger of the
+  // two is therefore the number of credentials the line held, and summing them would double the
+  // named ones.
+  const carried =
+    typeof record.redactions === 'number' && Number.isFinite(record.redactions) && record.redactions > 0
+      ? record.redactions
+      : 0
+  const redactions = Math.max(markersWritten - before, carried)
   if (redactions > 0) wire.redactions = redactions
   let line = stringify(wire)
   if (bytes(line) <= MAX_RECORD_BYTES) return line

@@ -30,6 +30,7 @@ import { createPrCacheRepo } from './db/prCacheRepo'
 import { createPrReviewWatermarkRepo } from './db/prReviewWatermarkRepo'
 import { createReviewSessionRepo } from './db/reviewSessionRepo'
 import { createSessionManager } from './pty/sessionManager'
+import { withPtySpawnLogging } from './pty/spawnLogging'
 import type { SpawnFn } from './pty/sessionManager'
 import { createTerminalSnapshots } from './pty/terminalSnapshots'
 import { createTerminalStream } from './pty/terminalStream'
@@ -206,6 +207,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // The one decorated fetch every outbound HTTP caller in the core shares, so no request reaches
   // the network without leaving a record of its method, URL, status and duration.
   const loggedFetch = withHttpLogging(globalThis.fetch.bind(globalThis), deps.logger.child('http'))
+  // Every child the core forks goes through this one seam - terminals, the PR-review session, the
+  // hidden Jira fetch, the 1:1 run - so decorating it here records each one's start and exit
+  // wherever it was started from.
+  const spawn = withPtySpawnLogging(deps.spawn, ptyLog)
 
   deps.ensureSpawnHelper()
   // Launched from Finder/Dock, the process inherits only the bare /usr/bin:/bin PATH, so the
@@ -347,7 +352,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     },
     alert: (sessionId, status, message, risk) => notifier.onAlert(sessionId, status, message, risk),
     markWorking: (sessionId) => notifier.onInput(sessionId),
-    log: (message) => lifecycleLog.info(message)
+    log: (msg, data) => lifecycleLog.info(msg, data ? { data } : undefined)
   })
 
   // The authenticated localhost listener the hook helper posts to. Its failure to start is
@@ -394,11 +399,11 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       emitPush(Channel.terminalData, event)
       if (!lifecycle.isHookHealthy(event.sessionId)) notifier.onChunk(event.sessionId, event.data)
     },
-    log: (message) => ptyLog.info(message)
+    log: (msg, data) => ptyLog.info(msg, data ? { data } : undefined)
   })
 
   const sessions = createSessionManager({
-    spawn: deps.spawn,
+    spawn,
     // PTY exit is always authoritative for the lifecycle regardless of hook health.
     send: {
       data: (event) => terminalStream.onData(event.sessionId, event.data),
@@ -536,7 +541,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     prCache,
     worktrees,
     workspaceFolders,
-    spawn: deps.spawn,
+    spawn,
     sendData: (data) => emitPush(Channel.prInboxReviewData, data),
     sendExit: (exitCode) => emitPush(Channel.prInboxReviewExit, exitCode),
     onDraft: (draft) => emitPush(Channel.prInboxDraftAdded, draft),
@@ -612,12 +617,12 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // the login stays the existing interactive browser SSO flow. The legacy hidden-Claude fetcher
   // is a diagnostic-only fallback: it exists solely behind INTERSECT_JIRA_HIDDEN_FETCH=1 (one
   // release, then removed) and is never constructed on the default path.
-  const jiraLogin = createJiraLogin()
+  const jiraLogin = createJiraLogin({ logger: deps.logger.child('jira') })
   const jiraStub = isE2e ? createJiraE2eStub(env) : null
   const hiddenJiraFetcher: JiraFetcher | null =
     !isE2e && env.INTERSECT_JIRA_HIDDEN_FETCH === '1'
       ? createJiraFetcher({
-          spawn: deps.spawn,
+          spawn,
           claudePath: resolveClaudePath(env),
           reportServerPath: join(__dirname, 'jiraReportServer.js')
         })
@@ -728,7 +733,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     : createOtoManager({
         runs: otoRuns,
         onRunChanged: onOtoRunChanged,
-        spawn: deps.spawn,
+        spawn,
         claudePath: resolveClaudePath(env),
         reportServerPath: join(__dirname, 'otoReportServer.js'),
         logger: deps.logger.child('oneOnOne')

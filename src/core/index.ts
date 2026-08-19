@@ -34,7 +34,11 @@ parentPort.on('message', (event) => {
   const port = event.ports[0]
   if (!port) return
 
-  const logger = createCoreLogger({ userDataDir: message.userDataDir!, env: process.env })
+  const logger = createCoreLogger({
+    userDataDir: message.userDataDir!,
+    env: process.env,
+    packaged: message.packaged === true
+  })
   // A crash here would otherwise be reported to the host as a bare exit code with no cause.
   installCoreGlobalHandlers(logger, () => process.exit(1))
   logger.info('core starting', { data: { pid: process.pid } })

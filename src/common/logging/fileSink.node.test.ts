@@ -1,8 +1,26 @@
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFileSink, dailyLogFileName, pruneOldLogs } from './fileSink.node'
+
+/**
+ * Every descriptor the sink closes, in order. A descriptor number is reusable the instant it is
+ * closed, so closing one twice is the sink reaching outside itself: the second close lands on
+ * whatever the process opened in between.
+ */
+const closed = vi.hoisted(() => [] as number[])
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return {
+    ...actual,
+    closeSync: (fd: number) => {
+      closed.push(fd)
+      return actual.closeSync(fd)
+    }
+  }
+})
 
 const dirs: string[] = []
 
@@ -11,6 +29,10 @@ function scratch(): string {
   dirs.push(dir)
   return dir
 }
+
+beforeEach(() => {
+  closed.length = 0
+})
 
 afterEach(() => {
   while (dirs.length > 0) {
@@ -59,6 +81,32 @@ describe('createFileSink', () => {
       'intersect-2026-07-28.jsonl',
       'intersect-2026-07-29.jsonl'
     ])
+  })
+
+  /**
+   * A rollover that fails after the day's descriptor is closed must not leave the sink holding a
+   * number the OS has already handed to somebody else. The core opens descriptors from libuv's
+   * threadpool - SQLite, the PTYs, the MCP child's pipes - while the blocking `mkdirSync` in this
+   * path runs, so a second close on the freed number takes down unrelated I/O with EBADF.
+   */
+  it('never closes a descriptor twice when the day rolls over onto an unusable directory', () => {
+    const dir = join(scratch(), 'logs')
+    const onFailure = vi.fn()
+    let clock = new Date('2026-07-28T23:59:59.000Z')
+    const sink = createFileSink({ dir, now: () => clock, onFailure })
+    sink.write('{"day":28}')
+    expect(closed).toEqual([])
+
+    // The directory becomes a plain file, so the reopen on the next day cannot succeed.
+    rmSync(dir, { recursive: true, force: true })
+    writeFileSync(dir, 'in the way')
+    clock = new Date('2026-07-29T00:00:01.000Z')
+    expect(() => sink.write('{"day":29}')).not.toThrow()
+    expect(onFailure).toHaveBeenCalledTimes(1)
+
+    // Closing the dead sink afterwards must not reach for it either.
+    sink.close()
+    expect(closed).toHaveLength(new Set(closed).size)
   })
 
   it('reports an unwritable directory once and then goes quiet', () => {

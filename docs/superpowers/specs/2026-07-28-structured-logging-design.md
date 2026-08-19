@@ -185,7 +185,7 @@ follows the existing precedent: `NATIVE_NOTIFICATION_PUSH`, `CORE_SHUTDOWN_CHANN
 | MCP `callTool` | `debug` / `error` | `tool`, `durationMs`, argument summary |
 | Child process spawn and exit | `info` / `warn` | `command`, `pid`, `exitCode`, `signal` |
 | Core lifecycle | `info` | `state`, `attempt`, `message` |
-| Uncaught throw or rejection | `error` | `err` with stack, then the process dies as before |
+| Uncaught throw or rejection | `error` | `err` with stack, then the process disposes of it as before: the core exits, and main re-raises the native error dialog Electron stops showing once a listener of ours exists |
 | DB migration | `info` | `from`, `to`, `durationMs` |
 
 The PTY data path is deliberately absent. Terminal throughput would flood the file and throttle the
@@ -194,8 +194,14 @@ terminal itself. PTY output is never logged as content anywhere - only byte coun
 ## Levels and configuration
 
 `INTERSECT_LOG_LEVEL` selects the floor, defaulting to `debug` in development and `info` when
-packaged. Read from the environment at logger construction in each process; the core already receives
-`process.env` through its init path.
+packaged. Read from the environment at logger construction in main and in the core; the core already
+receives `process.env` through its init path. Whether the run is packaged is reported by Electron
+through `app.isPackaged` and passed to the core in the same message, because `NODE_ENV` is unset in
+an app launched from the Dock and would put every packaged run on the development floor.
+
+The sandboxed renderer has no environment to read, so the floor is applied to its records by main,
+which resolved it and owns the file: a renderer record below the floor is dropped as it arrives
+rather than appended.
 
 Not a Settings toggle: the logger must exist before the database opens, so bootstrap-time records
 could not honour a persisted value, and the most valuable records are the bootstrap ones.

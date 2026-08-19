@@ -17,8 +17,12 @@ export function withHttpLogging(fetchFn: typeof fetch, logger: Logger): typeof f
     try {
       const response = await fetchFn(input, init)
       const data = { method, url, status: response.status, durationMs: Date.now() - startedAt }
-      if (response.ok) logger.debug('http request', { data })
-      else logger.error('http request', { data })
+      // The threshold is the status rather than `response.ok`: a caller that asked for
+      // `redirect: 'manual'` reads a 3xx as an answer it handles - an expired SSO session being
+      // sent to the identity provider - and recording that as an error fills the band a reader
+      // filters on to find real failures.
+      if (response.status >= 400) logger.error('http request', { data })
+      else logger.debug('http request', { data })
       return response
     } catch (err) {
       logger.error('http request failed', {

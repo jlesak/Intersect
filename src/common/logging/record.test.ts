@@ -1158,6 +1158,31 @@ describe('the redaction count', () => {
     const line = serialize({ ...base, data: { token: 'x', blob: 'y'.repeat(MAX_RECORD_BYTES) } })
     expect(utf8Bytes(line)).toBeLessThanOrEqual(MAX_RECORD_BYTES)
   })
+
+  /**
+   * A record serialised in another process arrives with its values already replaced, so the pass
+   * that writes it to disk finds nothing left to take. Without the count it carried, the line reads
+   * as one that had nothing to redact - the anomaly signal inverted for a whole producer.
+   */
+  it('keeps the count a record carried in from the process that produced it', () => {
+    const parsed = JSON.parse(
+      serialize({ ...base, redactions: 2, data: { url: `https://h/a?sig=${REDACTED}` } })
+    )
+    expect(parsed.redactions).toBe(2)
+  })
+
+  it('does not double a credential both passes marked', () => {
+    // A key naming a credential is marked again on arrival, while one embedded in a string is only
+    // ever counted by the pass that found it first: the later pass sees a subset, never an addition.
+    const parsed = JSON.parse(
+      serialize({
+        ...base,
+        redactions: 2,
+        data: { token: REDACTED, url: `https://h/a?sig=${REDACTED}` }
+      })
+    )
+    expect(parsed.redactions).toBe(2)
+  })
 })
 
 /**
@@ -1353,7 +1378,10 @@ describe('every string that reaches the wire', () => {
       message: poison,
       stack: poison,
       cause: { name: poison, message: poison, stack: poison }
-    }
+    },
+    // Nothing promises this arrived as a number either, and a count that cannot be read as one
+    // gives way to the count this pass measured itself.
+    redactions: poison as unknown as number
   })
 
   it('redacts every field a record carries, whatever its type says', () => {

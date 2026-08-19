@@ -1,5 +1,5 @@
 import { createLogger, type Logger, type LogSink } from '@common/logging/logger'
-import type { LogLevel, LogRecord } from '@common/logging/record'
+import { safeText, type LogLevel, type LogRecord } from '@common/logging/record'
 
 /**
  * The renderer's diagnostic surface.
@@ -50,6 +50,9 @@ export function initRendererLogging(opts: RendererLoggingOptions = {}): Logger {
   }
   const logger = createLogger({
     sink: createIpcSink(),
+    // Everything the renderer produces is offered to main, which holds the configured floor and
+    // drops what falls below it before appending. A sandboxed renderer has no environment to read,
+    // so this is a ceiling rather than the floor `INTERSECT_LOG_LEVEL` names.
     level: opts.level ?? 'debug',
     proc: 'renderer',
     pid: 0,
@@ -77,7 +80,14 @@ export function initRendererLogging(opts: RendererLoggingOptions = {}): Logger {
       if (mirroring) return
       mirroring = true
       try {
-        log[level](`console.${level}`, { data: { args: args.map((a) => String(a)).slice(0, 5) } })
+        // `safeText` rather than `String`, and the whole body guarded: this is a global that React,
+        // xterm and Monaco call, and the arguments are stringified before they become fields, ahead
+        // of every protection the logger itself has. A value with no usable primitive conversion -
+        // a null-prototype object, a module namespace object, a revoked proxy - would otherwise
+        // throw out of `console.error` into a caller that has no reason to guard a diagnostic.
+        log[level](`console.${level}`, { data: { args: args.slice(0, 5).map(safeText) } })
+      } catch {
+        // A diagnostic must never break the code it was meant to explain.
       } finally {
         mirroring = false
       }

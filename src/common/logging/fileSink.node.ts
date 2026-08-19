@@ -100,7 +100,17 @@ export function createFileSink(opts: FileSinkOptions): FileSink {
       try {
         const name = dailyLogFileName(now())
         if (name !== openName) {
-          if (fd !== null) closeSync(fd)
+          // The handle is dropped at the moment it is closed, before anything that can throw. A
+          // closed descriptor number is free for the next `open` anywhere in the process - and this
+          // process opens the database, the PTYs and the MCP child's pipes from libuv's threadpool
+          // while the blocking calls below run - so a `fail` that found the number still recorded
+          // here would close somebody else's file.
+          if (fd !== null) {
+            const stale = fd
+            fd = null
+            openName = null
+            closeSync(stale)
+          }
           mkdirSync(opts.dir, { recursive: true })
           fd = openSync(join(opts.dir, name), 'a')
           openName = name

@@ -27,6 +27,22 @@ describe('withHttpLogging', () => {
     expect(readRecords(sink)[0]).toMatchObject({ level: 'error', data: { status: 503 } })
   })
 
+  /**
+   * The Jira client sets `redirect: 'manual'` so it can read a 302 to the identity provider as
+   * "the SSO session expired, sign in again" - an outcome the UI handles and the user resolves.
+   * Recording it as an error would put routine auth expiry in the band a reader filters on to find
+   * real failures.
+   */
+  it('logs a redirect the caller handles itself at debug', async () => {
+    const sink = fakeSink()
+    const wrapped = withHttpLogging(
+      async () => new Response(null, { status: 302, headers: { location: 'https://sso/' } }),
+      logger(sink)
+    )
+    await wrapped('https://jira.example.com/rest/api/2/search')
+    expect(readRecords(sink)[0]).toMatchObject({ level: 'debug', data: { status: 302 } })
+  })
+
   it('logs a transport failure and rethrows it', async () => {
     const sink = fakeSink()
     const wrapped = withHttpLogging(async () => {

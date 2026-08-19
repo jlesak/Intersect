@@ -13,9 +13,14 @@ import {
 import { Channel, type CoreStatus } from '@common/ipc'
 import { effectiveAdoOrgUrl } from '@common/ado'
 import type { AppSettings, LiveClaudeSession } from '@common/domain'
-import { WINDOW_FOCUS_CHANGED, type NativeNotificationRequest } from '@common/coreBridge'
+import {
+  WINDOW_FOCUS_CHANGED,
+  type CoreInitMessage,
+  type NativeNotificationRequest
+} from '@common/coreBridge'
 import type { RpcPort } from '@common/portRpc'
 import type { Logger } from '@common/logging/logger'
+import { safeText } from '@common/logging/record'
 import { createCoreHost, type CoreHost } from './coreHost'
 import { registerCoreBridge } from './ipc/bridge'
 import { createSystemHandlers } from './ipc/system.ipc'
@@ -31,7 +36,8 @@ import {
   createMainSink,
   installMainGlobalHandlers,
   pruneLogsOnStartup,
-  registerRendererLogReceiver
+  registerRendererLogReceiver,
+  resolveLogLevel
 } from './logging'
 
 /**
@@ -156,7 +162,7 @@ function createWindow(): void {
 }
 
 /** Fork the core utility process and hand it one end of a fresh message channel. */
-function spawnCore(init: { kind: 'init'; userDataDir: string; execPath: string }): {
+function spawnCore(init: CoreInitMessage): {
   port: RpcPort
   kill(): void
   onExit(cb: (code: number | null) => void): void
@@ -183,7 +189,7 @@ function wireCore(userDataDir: string, logger: Logger): void {
   const lifecycle = logger.child('lifecycle')
   host = createCoreHost({
     spawnCore,
-    init: { kind: 'init', userDataDir, execPath: process.execPath },
+    init: { kind: 'init', userDataDir, execPath: process.execPath, packaged: app.isPackaged },
     logger: lifecycle,
     onStatus: (status) => {
       coreStatus = status
@@ -262,10 +268,19 @@ function wireCore(userDataDir: string, logger: Logger): void {
 app.whenReady().then(() => {
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
   const sink = createMainSink(userDataDir)
-  log = createMainLogger({ userDataDir, env: process.env, sink })
-  installMainGlobalHandlers(log)
+  const level = resolveLogLevel(process.env, app.isPackaged)
+  log = createMainLogger({ userDataDir, env: process.env, packaged: app.isPackaged, sink })
+  // Electron's own uncaught-exception listener stands down as soon as a second one exists, so the
+  // error box it would have shown is raised here instead. A main process left in an undefined
+  // state with nothing on screen is a failure the user has no way to report.
+  installMainGlobalHandlers(log, (err) => {
+    dialog.showErrorBox(
+      'A JavaScript error occurred in the main process',
+      err instanceof Error ? (err.stack ?? `${err.name}: ${err.message}`) : safeText(err)
+    )
+  })
   pruneLogsOnStartup(userDataDir, log)
-  registerRendererLogReceiver({ ipcMain, sink, logger: log })
+  registerRendererLogReceiver({ ipcMain, sink, level, logger: log })
   log.info('app ready', { data: { userDataDir, packaged: app.isPackaged } })
   wireCore(userDataDir, log)
   createWindow()

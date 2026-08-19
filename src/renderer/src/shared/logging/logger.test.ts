@@ -53,6 +53,41 @@ describe('initRendererLogging', () => {
     expect(native.error).toHaveBeenCalledWith('React key warning')
   })
 
+  /**
+   * The mirror is installed over a global every library calls, so it is the one call site in the
+   * app that cannot be allowed to throw. A value with no usable primitive conversion is ordinary in
+   * a Vite renderer - a module namespace object is one - and stringifying it is the first thing the
+   * mirror does, upstream of every guard the logger has.
+   */
+  it('describes an argument that cannot be stringified instead of throwing at the caller', () => {
+    const native = { error: vi.fn(), warn: vi.fn() }
+    initRendererLogging({ console: native })
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    const hostile: Array<[string, unknown]> = [
+      ['null-prototype', Object.create(null)],
+      [
+        'throwing toString',
+        {
+          toString() {
+            throw new Error('nope')
+          }
+        }
+      ],
+      ['revoked proxy', revoked.proxy]
+    ]
+    for (const [label, value] of hostile) {
+      expect(() => console.error(label, value), label).not.toThrow()
+    }
+    const mirrored = records().filter((r) => r.msg === 'console.error')
+    expect(mirrored).toHaveLength(3)
+    for (const record of mirrored) {
+      expect((record.data as { args: string[] }).args[1]).toContain('unprintable')
+    }
+    // The native console still saw every call, so devtools output is unaffected by the failure.
+    expect(native.error).toHaveBeenCalledTimes(3)
+  })
+
   it('does not recurse when the sink itself logs to console', () => {
     ;(window as unknown as { intersect: unknown }).intersect = {
       log: {
