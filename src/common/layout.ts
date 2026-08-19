@@ -36,8 +36,12 @@ export function remapSlots(from: Layout, to: Layout): number[] {
   if (target === 1) return Array.from({ length: source }, () => 0)
   if (from === 'grid' && to === 'columns') return [0, 1, 0, 1]
   if (from === 'grid' && to === 'rows') return [0, 0, 1, 1]
-  // Same-size layouts (columns <-> rows) and every growth keep their group indices; anything
-  // beyond the target's range clamps into the last group rather than vanishing.
+  // Growing two rows into the grid is the one case where the group indices themselves move: the
+  // bottom pane is grid slot 2, so an identity map would throw it up to the top right.
+  if (from === 'rows' && to === 'grid') return [0, 2]
+  // Everything else keeps its index, which is already the same screen position: two columns become
+  // the grid's top row, and columns and rows map onto each other one for one. Anything beyond the
+  // target's range clamps into the last group rather than vanishing.
   return Array.from({ length: source }, (_, slot) => Math.min(slot, target - 1))
 }
 
