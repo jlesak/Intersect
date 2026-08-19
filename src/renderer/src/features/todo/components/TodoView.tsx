@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { launchFromTodoTask } from '@renderer/features/workItems'
 import { IconCalendar } from '@renderer/shared/ui/icons'
 import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
@@ -216,6 +217,7 @@ export function TodoView() {
                   setEditingId(null)
                   void useTodoStore.getState().update(task.id, patch)
                 }}
+                onStartSession={() => launchFromTodoTask(task)}
                 drag={{
                   position: index + 1,
                   total: open.length,

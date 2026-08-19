@@ -361,3 +361,38 @@ describe('openIssue', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 })
+
+describe('copyIssueLink', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+  })
+
+  test('puts the issue’s browsable link on the clipboard', async () => {
+    await useMyWorkStore.getState().copyIssueLink(issue('FID2507-611'))
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      'https://jira.skoda.vwgroup.com/browse/FID2507-611'
+    )
+  })
+
+  test('a refused clipboard is reported, never an unhandled rejection', async () => {
+    clipboard.writeText.mockRejectedValue(new Error('denied'))
+    await useMyWorkStore.getState().copyIssueLink(issue('A-1'))
+  })
+})
+
+describe('openPrExternal', () => {
+  test('hands the pull request URL to the system browser bridge', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    useMyWorkStore.getState().openPrExternal('https://ado.test/pr/501')
+    expect(mocked.openExternal).toHaveBeenCalledWith('https://ado.test/pr/501')
+  })
+
+  test('a failed open is swallowed into a toast, never an unhandled rejection', async () => {
+    mocked.openExternal.mockRejectedValue(new Error('blocked'))
+    useMyWorkStore.getState().openPrExternal('https://ado.test/pr/501')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+})

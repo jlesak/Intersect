@@ -126,15 +126,15 @@ function GlobalFilteredKanban({ projectId }: { projectId: string | null }) {
     )
   }, [issues, projects, overrides, projectId])
 
+  /**
+   * Where an issue's work belongs, which is also what decides the repository a session opens in.
+   * These sit in each card's own overflow menu, next to the launch button they govern; the
+   * right-click menu offers the same list under the launch entry it has always had.
+   */
   const assignEntries = (issue: JiraIssue): MenuEntry[] => {
     const active = selectActiveProjects(useProjectsStore.getState())
     const hasOverride = overrides.some((o) => o.kind === 'jira' && o.key === issue.key)
     return [
-      {
-        label: 'Start Claude session with this issue',
-        onClick: () => launchFromJiraIssue(issue)
-      },
-      { separator: true },
       ...active
         .filter((p) => p.id !== projectId)
         .map((p) => ({
@@ -157,6 +157,14 @@ function GlobalFilteredKanban({ projectId }: { projectId: string | null }) {
             }
           ]
         : [])
+    ]
+  }
+
+  const menuEntries = (issue: JiraIssue): MenuEntry[] => {
+    const assign = assignEntries(issue)
+    return [
+      { label: 'Start Claude session with this issue', onClick: () => launchFromJiraIssue(issue) },
+      ...(assign.length > 0 ? [{ separator: true } as MenuEntry, ...assign] : [])
     ]
   }
 
@@ -197,13 +205,14 @@ function GlobalFilteredKanban({ projectId }: { projectId: string | null }) {
       <JiraBoard
         issues={filtered}
         onIssueContextMenu={(issue, x, y) => setMenu({ x, y, issue })}
+        issueOverflow={assignEntries}
       />
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          entries={assignEntries(menu.issue)}
+          entries={menuEntries(menu.issue)}
         />
       )}
     </div>

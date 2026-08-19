@@ -1,12 +1,16 @@
-import { act, render } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
 import { usePrInboxStore } from '@renderer/features/prInbox'
+import { useMyWorkStore } from '../store'
 import { PrRadar } from './PrRadar'
 
 // The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. The radar
 // never renders an editor, so an inert stand-in is enough to import the barrel's store.
 vi.mock('monaco-editor', () => ({ editor: {} }))
+vi.mock('@renderer/features/workItems', () => ({ launchFromPullRequest: vi.fn() }))
+
+import { launchFromPullRequest } from '@renderer/features/workItems'
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -123,5 +127,84 @@ describe('PrRadar', () => {
 
     expect(document.querySelector('.ix-mw-pr-loading')).toBeNull()
     expect(document.querySelectorAll('.ix-mw-row')).toHaveLength(3)
+  })
+})
+
+/**
+ * What a radar row does when it is used: the row itself still goes to the in-app review, and the
+ * bar it reveals carries the launch the app exists for.
+ */
+describe('PrRadar row actions', () => {
+  const launch = vi.mocked(launchFromPullRequest)
+  const openPr = vi.fn()
+  const openPrExternal = vi.fn()
+  const real = {
+    openPr: useMyWorkStore.getState().openPr,
+    openPrExternal: useMyWorkStore.getState().openPrExternal
+  }
+
+  beforeEach(() => {
+    launch.mockReset()
+    openPr.mockReset()
+    openPrExternal.mockReset()
+    useMyWorkStore.setState({ openPr, openPrExternal })
+    seedPrs([pr()])
+  })
+
+  afterEach(() => {
+    useMyWorkStore.setState(real)
+  })
+
+  const row = async (): Promise<HTMLElement> => {
+    await act(async () => {
+      render(<PrRadar />)
+    })
+    return screen.getByRole('button', { name: /Fix the sync/ })
+  }
+
+  test('the row still opens the pull request in the in-app review', async () => {
+    fireEvent.click(await row())
+
+    expect(openPr).toHaveBeenCalledWith('repo-1', 7)
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  test('Enter on the focused row does exactly what clicking it does', async () => {
+    fireEvent.keyDown(await row(), { key: 'Enter' })
+
+    expect(openPr).toHaveBeenCalledWith('repo-1', 7)
+  })
+
+  test('Cmd+Enter opens the pull request where it lives, in Azure DevOps', async () => {
+    fireEvent.keyDown(await row(), { key: 'Enter', metaKey: true })
+
+    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPr).not.toHaveBeenCalled()
+  })
+
+  test('Cmd+click opens it in Azure DevOps, so the chord means one thing', async () => {
+    fireEvent.click(await row(), { metaKey: true })
+
+    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPr).not.toHaveBeenCalled()
+  })
+
+  test('the row bar starts a session on the pull request', async () => {
+    const bar = await row()
+    fireEvent.click(within(bar).getByRole('button', { name: 'Start session' }))
+
+    expect(launch).toHaveBeenCalledTimes(1)
+    expect(launch.mock.calls[0][0].prId).toBe(7)
+    // The press belongs to the button, so the row behind it never also opened the review.
+    expect(openPr).not.toHaveBeenCalled()
+  })
+
+  test('the overflow offers the pull request in Azure DevOps', async () => {
+    const bar = await row()
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Azure DevOps' }))
+
+    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPr).not.toHaveBeenCalled()
   })
 })

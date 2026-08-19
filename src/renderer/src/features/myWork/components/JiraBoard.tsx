@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { JIRA_COLUMNS, type JiraColumn, type JiraIssue, type JiraIssueSnapshot } from '@common/domain'
+import type { MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { MultiSelectFilter } from '@renderer/shared/ui/MultiSelectFilter'
 import { type JiraBoardFilter, NO_JIRA_FILTER, filterJiraIssues, jiraFilterOptions } from '../boardFilter'
 import { groupByColumn } from '../store'
@@ -26,7 +27,8 @@ function ColumnHead({ column, count }: { column: JiraColumn; count?: number }) {
 /**
  * The five-column kanban board over the fetched issues, with a bar for narrowing it down to the
  * one the user is after. `onIssueContextMenu` lets an embedding surface (the project Kanban)
- * attach a per-card menu without the board knowing about it.
+ * attach a per-card menu without the board knowing about it, and `issueOverflow` lets it add its
+ * own entries to the menu each card's action bar already raises.
  *
  * The narrowing lives in the board rather than in the store because the same board is on screen
  * more than once at a time - two projects side by side - and typing into one of them must not
@@ -34,10 +36,12 @@ function ColumnHead({ column, count }: { column: JiraColumn; count?: number }) {
  */
 export function JiraBoard({
   issues,
-  onIssueContextMenu
+  onIssueContextMenu,
+  issueOverflow
 }: {
   issues: JiraIssueSnapshot[]
   onIssueContextMenu?: (issue: JiraIssue, x: number, y: number) => void
+  issueOverflow?: (issue: JiraIssue) => MenuEntry[]
 }) {
   const [filter, setFilter] = useState<JiraBoardFilter>(NO_JIRA_FILTER)
   const options = useMemo(() => jiraFilterOptions(issues), [issues])
@@ -96,10 +100,10 @@ export function JiraBoard({
                     onIssueContextMenu(issue, e.clientX, e.clientY)
                   }}
                 >
-                  <JiraCard issue={issue} />
+                  <JiraCard issue={issue} overflow={issueOverflow?.(issue)} />
                 </div>
               ) : (
-                <JiraCard key={issue.key} issue={issue} />
+                <JiraCard key={issue.key} issue={issue} overflow={issueOverflow?.(issue)} />
               )
             )}
           </div>
