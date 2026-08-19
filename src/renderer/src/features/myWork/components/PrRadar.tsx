@@ -31,7 +31,7 @@ function statusPill(group: keyof PrGroups, pr: PullRequest): { label: string; va
 function PrRow({ pr, group }: { pr: PullRequest; group: keyof PrGroups }) {
   const pill = statusPill(group, pr)
   const openReview = (): void => useMyWorkStore.getState().openPr(pr.repositoryId, pr.prId)
-  const openExternal = (): void => useMyWorkStore.getState().openPrExternal(pr.url)
+  const openExternal = (): void => useMyWorkStore.getState().openPrExternal(pr)
   return (
     <div
       role="button"

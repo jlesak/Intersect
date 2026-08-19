@@ -1,3 +1,4 @@
+import { prWebUrl } from '@common/ado'
 import {
   GLOBAL_JIRA_SOURCE,
   JIRA_COLUMNS,
@@ -5,7 +6,8 @@ import {
   type JiraColumn,
   type JiraIssue,
   type JiraIssueSnapshot,
-  type JiraSyncErrorKind
+  type JiraSyncErrorKind,
+  type PullRequest
 } from '@common/domain'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { createStore } from '@renderer/shared/store/createStore'
@@ -40,8 +42,9 @@ interface MyWorkState {
   openIssue(issue: JiraIssue): void
   /** Put the issue's browsable link on the clipboard, to paste into a chat or a work item. */
   copyIssueLink(issue: JiraIssue): Promise<void>
-  /** Open a pull request's own page in the system default browser (no in-app navigation). */
-  openPrExternal(url: string): void
+  /** Open the pull request's Azure DevOps page in the system default browser (no in-app
+   * navigation). Takes the pull request so the browsable address is composed here. */
+  openPrExternal(pr: PullRequest): void
   /** Ask the app shell to show this PR in the PR Inbox section (recorded as intent only). */
   openPr(repositoryId: string, prId: number): void
   clearPrOpen(): void
@@ -188,7 +191,13 @@ export const useMyWorkStore = createStore<MyWorkState>()((set, get) => {
       }
     },
 
-    openPrExternal(url) {
+    openPrExternal(pr) {
+      // The page is composed from the configured organisation plus the pull request's project,
+      // repository and number. The payload's own `url` addresses the REST resource, which answers
+      // JSON, so it stays out of the browser. An organisation the app has never been given leaves
+      // nothing to compose, and offering nothing beats opening a broken address.
+      const url = prWebUrl(usePrInboxStore.getState().adoOrgUrl, pr)
+      if (!url) return
       api.openExternal(url).catch((e) => reportError('Could not open the pull request', e))
     },
 

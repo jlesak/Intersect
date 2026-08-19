@@ -28,7 +28,8 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     targetRefName: 'refs/heads/main',
     sourceCommitId: 'a',
     targetCommitId: 'b',
-    url: 'https://ado/pr/7',
+    // What Azure DevOps really puts on a pull request: the REST resource, which answers JSON.
+    url: 'https://devops.example/e2e/_apis/git/repositories/spot-backend/pullRequests/7',
     role: 'reviewer',
     myVote: null,
     myReviewerId: null,
@@ -138,6 +139,15 @@ describe('PrRadar row actions', () => {
   const launch = vi.mocked(launchFromPullRequest)
   const openPr = vi.fn()
   const openPrExternal = vi.fn()
+  /**
+   * The row hands the whole pull request over. The browsable Azure DevOps page is composed from
+   * the project, repository and number, so the row passes what that composition needs.
+   */
+  const opened = expect.objectContaining({
+    prId: 7,
+    projectId: 'ado',
+    repositoryName: 'spot-backend'
+  })
   const real = {
     openPr: useMyWorkStore.getState().openPr,
     openPrExternal: useMyWorkStore.getState().openPrExternal
@@ -178,14 +188,14 @@ describe('PrRadar row actions', () => {
   test('Cmd+Enter opens the pull request where it lives, in Azure DevOps', async () => {
     fireEvent.keyDown(await row(), { key: 'Enter', metaKey: true })
 
-    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPrExternal).toHaveBeenCalledWith(opened)
     expect(openPr).not.toHaveBeenCalled()
   })
 
   test('Cmd+click opens it in Azure DevOps, so the chord means one thing', async () => {
     fireEvent.click(await row(), { metaKey: true })
 
-    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPrExternal).toHaveBeenCalledWith(opened)
     expect(openPr).not.toHaveBeenCalled()
   })
 
@@ -204,7 +214,7 @@ describe('PrRadar row actions', () => {
     fireEvent.click(within(bar).getByRole('button', { name: 'More actions' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Azure DevOps' }))
 
-    expect(openPrExternal).toHaveBeenCalledWith('https://ado/pr/7')
+    expect(openPrExternal).toHaveBeenCalledWith(opened)
     expect(openPr).not.toHaveBeenCalled()
   })
 })
