@@ -33,11 +33,16 @@ interface TabsState {
   setPresetPickerOpen(open: boolean): void
   hydrate(workspaceId: string): Promise<void>
   clear(): void
-  /** Open a tab at the end of the focused group and activate it there. */
+  /**
+   * Open a tab at the end of a group and activate it there. The group defaults to the focused
+   * one, which is what an accelerator or the palette wants; a pane's own `+` names its slot so
+   * the tab is created where it will live instead of being created elsewhere and moved.
+   */
   createTab(
     preset: Preset,
     resumeSessionId?: string | null,
-    primaryWorkItem?: NewWorkItemRef | null
+    primaryWorkItem?: NewWorkItemRef | null,
+    paneSlot?: number
   ): Promise<Tab | null>
   renameTab(id: string, title: string): Promise<void>
   removeTab(id: string): Promise<void>
@@ -154,12 +159,13 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
     set({ ...EMPTY })
   },
 
-  async createTab(preset, resumeSessionId, primaryWorkItem) {
+  async createTab(preset, resumeSessionId, primaryWorkItem, paneSlot) {
     const state = get()
     const workspaceId = state.workspaceId
     if (!workspaceId) return null
-    // The new tab belongs where the user is looking, so the focused group decides its slot.
-    const slot = selectFocusedSlot(state)
+    // An unnamed slot means the new tab belongs where the user is looking, so the focused group
+    // decides it.
+    const slot = paneSlot ?? selectFocusedSlot(state)
     let created: Tab
     try {
       created = await api.create(workspaceId, preset, slot, resumeSessionId, primaryWorkItem)

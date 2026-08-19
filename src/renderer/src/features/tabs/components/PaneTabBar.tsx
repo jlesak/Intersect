@@ -30,10 +30,7 @@ import { dropIndexAt, dropTargetIndex, isTabDrag, readTabDrag, writeTabDrag } fr
  * group's bar or for an empty pane's starter buttons, so those move it home afterwards.
  */
 export async function openTabInGroup(slot: number, preset: Preset): Promise<void> {
-  const tab = await useTabsStore.getState().createTab(preset)
-  if (!tab || tab.paneSlot === slot) return
-  const settled = selectGroupTabs(useTabsStore.getState(), slot).filter((t) => t.id !== tab.id)
-  await useTabsStore.getState().moveTab(tab.id, slot, settled.length)
+  await useTabsStore.getState().createTab(preset, null, null, slot)
 }
 
 /**
