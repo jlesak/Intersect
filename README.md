@@ -40,6 +40,7 @@ Requires Node 20.19+/22.12+ (Node 24 LTS recommended) and macOS with Xcode Comma
 | Script | Purpose |
 |---|---|
 | `npm run dev` | Run the app in development with hot reload |
+| `npm run dev:debug` | The same, with the renderer exposed on Chrome DevTools port 9222 |
 | `npm run build` | Type-check and build main/preload/renderer into `out/` |
 | `npm start` | Preview the built app |
 | `npm test` | Unit + integration tests (Vitest) |
@@ -67,6 +68,23 @@ loop while iterating on specs.
 A refusal names whatever beat the build, and the fix, `npm run build`. `E2E_ALLOW_STALE=1`, and
 only that exact value, runs against a stale build anyway and says so in the log. It does not
 override a missing build or a check the guard could not complete.
+
+### Diagnostics
+
+Structured logs are written as one JSON object per line to
+`~/Library/Application Support/Intersect/logs/intersect-<date>.jsonl`, covering Electron main, the
+headless core, and the renderer. Records from all three processes interleave, so sort by `ts`:
+
+```bash
+cat ~/Library/Application\ Support/Intersect/logs/intersect-*.jsonl \
+  | jq -s 'sort_by(.ts) | .[] | select(.level == "error")'
+```
+
+`INTERSECT_LOG_LEVEL` sets the floor (`error`, `warn`, `info`, `debug`); it defaults to `debug` in
+development and `info` when packaged. Files older than 7 days are pruned at startup.
+
+`npm run dev:debug` additionally exposes the renderer on `http://127.0.0.1:9222` for a Chrome
+DevTools client.
 
 ## Architecture
 
