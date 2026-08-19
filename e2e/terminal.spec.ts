@@ -73,6 +73,14 @@ test('a split gives each pane its own tab bar above its terminal, and collapsing
   await expect(win.locator('.ix-layouts')).toHaveCount(1)
   await expect(win.locator('.ix-tabbar').nth(1).locator('.ix-layouts')).toHaveCount(1)
 
+  // Working in a pane is how focus moves between groups, and the bars say which group has it.
+  await win.locator('.ix-pane').nth(0).locator('.xterm').click()
+  await expect(win.locator('.ix-tabbar').nth(0)).toHaveClass(/ix-tabbar--focused/)
+  await expect(win.locator('.ix-tabbar').nth(1)).toHaveClass(/ix-tabbar--unfocused/)
+  await win.locator('.ix-pane').nth(1).locator('.xterm').click()
+  await expect(win.locator('.ix-tabbar').nth(1)).toHaveClass(/ix-tabbar--focused/)
+  await expect(win.locator('.ix-tabbar').nth(0)).toHaveClass(/ix-tabbar--unfocused/)
+
   // Collapsing merges both groups into one bar, keeping both tabs reachable.
   await win.locator('.ix-layout[aria-label="Single pane"]').click()
   await expect(win.locator('.ix-tabbar')).toHaveCount(1)
@@ -80,4 +88,49 @@ test('a split gives each pane its own tab bar above its terminal, and collapsing
   for (const tabId of named) {
     await expect(win.locator(`.ix-tab[data-tab-id="${tabId}"]`)).toHaveCount(1)
   }
+})
+
+/**
+ * The tab drag, end to end. jsdom implements neither DataTransfer nor DragEvent, so every
+ * component test of the drag drives hand-built stand-ins over hand-fed coordinates. What only a
+ * running browser can show is that the drag starts at all, that the private transfer type
+ * survives the round trip, and that a release really does land the tab in the pane it was aimed
+ * at - including on the pane body, which is the whole target an empty pane offers.
+ */
+test('a tab is dragged onto another pane, and back onto the body of the one it left', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('dragws-'))
+
+  const pane = (n: number) => win.locator('.ix-pane').nth(n)
+  const openShell = async (bar: number): Promise<void> => {
+    await win.locator('.ix-tabbar').nth(bar).locator('.ix-iconbtn[title="New terminal"]').click()
+    await win.locator('.ix-preset', { hasText: 'Shell' }).click()
+  }
+
+  await openShell(0)
+  await win.locator('.xterm').first().waitFor()
+  await win.locator('.ix-layout[aria-label="Two columns"]').click()
+  await openShell(1)
+  await expect(pane(1).locator('.xterm')).toBeVisible()
+
+  const moved = await pane(0).locator('.ix-tab').getAttribute('data-tab-id')
+  const shows = (n: number, tabId: string | null): Promise<void> =>
+    expect(pane(n).locator('.ix-pane__host')).toHaveAttribute(
+      'data-session-id',
+      new RegExp(`:${tabId}$`)
+    )
+
+  // Onto the other pane's strip: the tab leaves its own bar, joins that one, and is what the
+  // pane now runs rather than the terminal it was showing a moment ago.
+  await pane(0).locator('.ix-tab').dragTo(pane(1).locator('.ix-tabs'))
+  await expect(pane(1).locator('.ix-tab')).toHaveCount(2)
+  await expect(pane(0).locator('.ix-tab')).toHaveCount(0)
+  await expect(pane(0).locator('.ix-pane__empty')).toBeVisible()
+  await shows(1, moved)
+
+  // And back, onto the empty pane's body rather than its 32px strip.
+  await pane(1).locator(`.ix-tab[data-tab-id="${moved}"]`).dragTo(pane(0).locator('.ix-pane__body'))
+  await expect(pane(0).locator(`.ix-tab[data-tab-id="${moved}"]`)).toHaveCount(1)
+  await expect(pane(1).locator('.ix-tab')).toHaveCount(1)
+  await shows(0, moved)
 })

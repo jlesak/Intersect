@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { IpcApi } from '@common/ipc'
 import { makeSessionId } from '@common/ipc'
+import { visibleTabOf } from '@common/layout'
 import { createTabHandlers } from './tabs.ipc'
 import { makeHandlerContext, type HandlerContext } from './handlerTestkit'
 
@@ -146,6 +147,47 @@ describe('tab handlers', () => {
     const b = await tabs.create(wsId, 'shell', 0)
     await tabs.moveTab(b.id, 0, 0)
     expect(placements()).toEqual([`${b.id}@0:0`, `${a.id}@0:1`])
+  })
+
+  test('a tab dropped into another group becomes the tab that group shows', async () => {
+    // A controlled clock, because the assertion is about which of two stamps is the greater and
+    // three calls in a row land in the same millisecond on a real one.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(1_000)
+      const a = await tabs.create(wsId, 'shell', 0)
+      vi.setSystemTime(2_000)
+      const x = await tabs.create(wsId, 'shell', 1)
+
+      vi.setSystemTime(3_000)
+      // Appended behind the tab already living there, so bar order alone would not choose it.
+      const out = await tabs.moveTab(a.id, 1, 1)
+
+      const group = out.filter((t) => t.paneSlot === 1)
+      expect(group.map((t) => t.id)).toEqual([x.id, a.id])
+      expect(visibleTabOf(group)?.id).toBe(a.id)
+      expect(ctx.tabs.getById(a.id)?.lastActiveAt).toBe(3_000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('reordering inside a group leaves the tab that group shows alone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(1_000)
+      const a = await tabs.create(wsId, 'shell', 0)
+      vi.setSystemTime(2_000)
+      const b = await tabs.create(wsId, 'shell', 0)
+
+      vi.setSystemTime(3_000)
+      const out = await tabs.moveTab(a.id, 0, 1)
+
+      expect(visibleTabOf(out)?.id).toBe(b.id)
+      expect(ctx.tabs.getById(a.id)?.lastActiveAt).toBe(1_000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('setActive updates the workspace active tab and stamps the tab it returns', async () => {

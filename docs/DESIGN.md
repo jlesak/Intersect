@@ -129,7 +129,8 @@ intersect/
             components/          # WorkspaceList, WorkspaceItem, WorkspaceDialog, folder picker btn
             __tests__/
           tabs/
-            index.ts  register.ts  store.ts  ipc.ts  components/ (TabBar, TabItem, PresetPicker) __tests__/
+            index.ts  register.ts  store.ts  ipc.ts  paneDrop.ts
+            components/ (PaneTabBar, TabItem, tabDrag, PresetPicker, LayoutPicker) __tests__/
           terminal/
             index.ts  register.ts  store.ts  ipc.ts
             terminalController.ts  # imperative Map<sessionId,{term,fit,mount}> OUTSIDE React
@@ -167,9 +168,10 @@ tabs.listByWorkspace(workspaceId)        -> Tab[]
 tabs.create(workspaceId, preset)         -> Tab              // preset: 'shell' | 'claude'
 tabs.rename(id, title)                   -> Tab
 tabs.remove(id)                          -> void             // also kills its PTY session
-tabs.reorder(workspaceId, orderedIds[])  -> Tab[]            // one transaction
-tabs.assignToPane(id, slot|null)         -> Tab              // slot 0..3 or null (unplaced)
-tabs.setActive(workspaceId, tabId)       -> void
+tabs.moveTab(id, slot, index)            -> Tab[]            // reorder and regroup, one transaction
+tabs.setActive(workspaceId, tabId)       -> Tab              // also stamps last_active_at
+
+workspaces.setLayout(id, layout)         -> { workspace, tabs }  // regroups every tab
 
 app.getBootState()                       -> { selectedWorkspaceId: string|null }
 ```
@@ -213,8 +215,9 @@ interface Tab {
   workspaceId: string
   title: string
   preset: Preset
-  paneSlot: number | null   // 0..3 assigned pane in current layout, or null (tab-bar only)
-  sortOrder: number
+  paneSlot: number         // 0..3: the tab group (= pane) this tab belongs to; every tab has one
+  sortOrder: number        // position inside its own group, dense 0..n-1
+  lastActiveAt: number|null // when this tab was last activated; the greatest in a group wins
 }
 ```
 
@@ -247,8 +250,9 @@ CREATE TABLE tabs (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title        TEXT NOT NULL,
   preset       TEXT NOT NULL CHECK (preset IN ('shell','claude')),
-  pane_slot    INTEGER,          -- 0..3 or NULL
-  sort_order   INTEGER NOT NULL,
+  pane_slot    INTEGER,          -- the tab group; nullable in SQL only, read as 0 (§ migration 27)
+  sort_order   INTEGER NOT NULL, -- position inside that group, dense 0..n-1
+  last_active_at INTEGER,        -- when last activated; the greatest in a group is what it shows
   created_at   INTEGER NOT NULL
 );
 CREATE INDEX idx_tabs_workspace ON tabs(workspace_id);
@@ -280,15 +284,16 @@ rows    : 2 slots  two rows
 grid    : 4 slots  2x2 (css grid-areas a b / c d)
 ```
 
-- `layout` persists per workspace. `paneSlot` per tab records assignment.
-- Assignment UX (choose the simplest correct one): the tab context menu has "Open in split ->
-  [slot]" actions, and the layout picker sets `workspace.layout`. Dragging is a nice-to-have,
-  not required (PROMPT allows a simpler affordance). We implement context-menu assignment +
-  a layout picker; drag-and-drop deferred.
-- When layout shrinks (e.g. grid->single), tabs whose slot no longer exists are reconciled to
-  `paneSlot=null` (still in tab bar). `activeTabId` fills slot 0 if empty.
-- Pure functions: `slotsForLayout(layout)`, `reconcilePanes(tabs, layout, activeTabId)` -
-  unit-tested.
+- `layout` persists per workspace. Every pane is a tab group and `paneSlot` names it, so each tab
+  belongs to exactly one group and there is no unplaced state.
+- A group shows the tab of its own with the greatest `last_active_at`, falling back to bar order.
+  The focused group is the `paneSlot` of `workspaces.active_tab_id`.
+- Assignment UX: drag a tab onto another pane (its bar for a position, its body for "show it
+  here"), the "Open in pane N" context-menu entries, or Shift with an arrow key inside a bar.
+- When layout shrinks (e.g. grid->single), the groups that disappear merge into the surviving one
+  holding their screen position, so no tab is ever hidden or lost.
+- Pure functions in `common/layout.ts`: `slotCount(layout)`, `toolsSlot(layout)`,
+  `remapSlots(from, to)`, `regroupTabs(tabs, from, to)`, `visibleTabOf(groupTabs)` - unit-tested.
 
 ---
 
@@ -381,7 +386,7 @@ so the design is not "unstyled".
    app_state kv. **These are true integration tests but need no rebuild** (node:sqlite).
 3. Migration runner: fresh DB -> v1; idempotent re-run; user_version bump; transaction rollback
    on a failing migration.
-4. Pure layout logic: `slotsForLayout`, `reconcilePanes`.
+4. Pure layout logic: `slotCount`, `toolsSlot`, `remapSlots`, `regroupTabs`, `visibleTabOf`.
 5. Store logic with `./ipc` mocked (`vi.mock`): status transitions, write-through merges,
    optimistic-rollback branch, cross-slice clear on workspace delete.
 6. Shell/preset spawn spec builder (`buildSpawn`) as a pure function: correct file/args and
@@ -553,7 +558,8 @@ message string), canonical-row return, `pickFolder` cancel path. New test-plan i
 
 ### 16.14 Tab reorder affordance + geometry ownership + scope
 - Tab reorder UI: **move-left / move-right** actions in the TabItem context menu (drag-and-drop
-  remains a deferred nice-to-have). E2E reorder step drives these.
+  remains a deferred nice-to-have). E2E reorder step drives these. *(Superseded: tabs are dragged,
+  with the context-menu entries and Shift+arrow kept as the paths that need no pointer.)*
 - `renderer/src/shared/layout/geometry.ts` has genuine cross-slice consumers: terminal slice
   (`SplitStage`/`LayoutPicker` use `slotsForLayout`+grid templates) and tabs store
   (`reconcilePanes` on tab delete). Legit shared primitive; documented.
@@ -594,6 +600,8 @@ requirements (all adopted):
 - **reconcilePanes hardening + applied on load AND setLayout:** never place `activeTabId` in slot 0
   if it already owns a slot (no double-render); clear any `pane_slot >= slotCount(layout)`;
   reconcile is the single authoritative transform run on `setLayout` (persisted) and at load.
+  *(Superseded by per-pane tab groups: `regroupTabs` merges rather than clears, and runs on
+  `setLayout` alone, which persists its result.)*
 - **Invariants (all sessions):** `route/write/resize/kill` are no-ops on an unknown sessionId;
   xterm disposal is idempotent (guarded Map entry); exactly ONE module-scope `terminal:data`
   listener for the renderer's lifetime; the `ResizeObserver` observes the persisted `mountDiv`
@@ -620,7 +628,9 @@ raised 22 findings; 7 were rejected on verification. The confirmed/plausible one
 - **Silent errors (major):** every mutating store action reports failures via a toast surface.
 - **Pane invariant (major/minor):** `assignToPane` evicts the prior slot occupant atomically in
   one main-process transaction (`clearPaneSlot` + `setPaneSlot`), so the one-tab-per-slot invariant
-  is enforced by the persistence authority, not only the renderer.
+  is enforced by the persistence authority, not only the renderer. *(Superseded by per-pane tab
+  groups: a slot holds a whole group, so there is nothing to evict; `moveToGroup` renumbers both
+  affected groups in one transaction instead.)*
 - **Dead code (minor):** the unused `Dialog` is now the workspace-delete confirmation.
 - Cheap: `webContents.isDestroyed()` guard in the sender; removed unused `has()/count()`;
   consolidated preset metadata into `PRESET_META` (one entry per preset); comment-rule fix.

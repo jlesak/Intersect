@@ -650,6 +650,13 @@ describe('migrations', () => {
     expect(byId.get('loose-a')?.last_active_at).toBeNull()
     expect(byId.get('solo-other')?.last_active_at).toBeNull()
 
+    // The workspace's active tab outranks everything else in the group it joins, so the tab that
+    // holds focus after the upgrade is the tab its pane renders. loose-b was active and unplaced,
+    // and it lands in group 0 next to the tab that held pane 0.
+    expect(byId.get('loose-b')!.last_active_at!).toBeGreaterThan(
+      byId.get('pane-0')!.last_active_at!
+    )
+
     // sort_order is 0..n-1 inside every (workspace, group), in the pre-migration order.
     const groups = new Map<string, { id: string; sort_order: number }[]>()
     for (const r of rows) {

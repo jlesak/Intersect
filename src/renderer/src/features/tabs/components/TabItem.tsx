@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent } from 'react'
+import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import { PRESET_META, type Tab, type WorkItemRef } from '@common/domain'
 import type { SessionStatus } from '@common/ipc'
 import { IconClose } from '@renderer/shared/ui/icons'
@@ -24,6 +24,9 @@ export interface TabItemProps {
   tab: Tab
   /** Whether this is the tab its group currently shows. */
   active: boolean
+  /** This tab's 1-based place in its own bar, and how many tabs that bar holds. */
+  position: number
+  total: number
   /** The Claude session state of this tab's terminal, which colours the tab. */
   status?: SessionStatus
   workItem?: WorkItemRef
@@ -38,6 +41,8 @@ export interface TabItemProps {
   onRenameCancel: () => void
   onClose: () => void
   onContextMenu: (e: MouseEvent<HTMLDivElement>) => void
+  /** The bar's keyboard handling: activation, walking the strip, and moving the tab along it. */
+  onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void
   onDragStart: (e: DragEvent<HTMLDivElement>) => void
   onDragEnd: () => void
   /** Whether this tab is the one currently being dragged, so it can fade out of its own strip. */
@@ -52,6 +57,8 @@ export interface TabItemProps {
 export function TabItem({
   tab,
   active,
+  position,
+  total,
   status,
   workItem,
   renaming,
@@ -64,6 +71,7 @@ export function TabItem({
   onRenameCancel,
   onClose,
   onContextMenu,
+  onKeyDown,
   onDragStart,
   onDragEnd,
   dragging
@@ -77,6 +85,14 @@ export function TabItem({
       // Mirrors the session id the pane host carries, so which tab names which terminal is
       // readable from the DOM alone.
       data-tab-id={tab.id}
+      role="tab"
+      aria-selected={active}
+      aria-posinset={position}
+      aria-setsize={total}
+      aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight"
+      // One stop per bar rather than one per tab: the strip is entered on the tab its pane is
+      // showing, and the arrow keys walk the rest of it from there.
+      tabIndex={active ? 0 : -1}
       // Renaming turns the tab into a text field, and a draggable ancestor takes the pointer away
       // from selecting inside it, so the drag is off for exactly as long as the input is up.
       draggable={!renaming}
@@ -85,6 +101,8 @@ export function TabItem({
       onMouseDown={() => !renaming && onActivate()}
       onDoubleClick={onStartRename}
       onContextMenu={onContextMenu}
+      // While the input is up every key belongs to it, arrows and Enter included.
+      onKeyDown={renaming ? undefined : onKeyDown}
     >
       <span className="ix-tab__preset">{PRESET_META[tab.preset].badge}</span>
       {workItem && <WorkItemChip workItem={workItem} />}
@@ -109,6 +127,15 @@ export function TabItem({
         className="ix-tab__close"
         aria-label={`Close ${tab.title}`}
         onMouseDown={(e) => {
+          e.stopPropagation()
+          onClose()
+        }}
+        // A button closes on Enter and Space of its own accord only through a click, which this
+        // one never takes. Stopping the key here also keeps the tab underneath from reading the
+        // same press as "activate me".
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
           e.stopPropagation()
           onClose()
         }}

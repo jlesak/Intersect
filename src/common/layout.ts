@@ -47,8 +47,9 @@ export function remapSlots(from: Layout, to: Layout): number[] {
 
 /**
  * The single authoritative transform from (tabs, from-layout, to-layout) to group placements.
- * Run both when the layout changes (persisted) and at load (before render) so the DB and the
- * view never disagree.
+ * It runs on the one event that can put a tab in a group its layout does not have - the layout
+ * change - and the result is persisted there and then, so what the renderer loads is already
+ * reconciled and load-time rendering has nothing left to decide.
  *
  * Tabs keep their relative order throughout: inside a target group, the tabs that were already
  * there come first (lowest source slot wins), then the merged-in ones, and `sortOrder` is

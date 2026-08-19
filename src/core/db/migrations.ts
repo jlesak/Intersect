@@ -616,8 +616,8 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE tabs ADD COLUMN last_active_at INTEGER;`)
 
-      // One timestamp for every stamp, so no migrated tab silently outranks another inside its
-      // group and `visibleTabOf` falls back to bar order to break the tie.
+      // One timestamp for every placed tab, so no migrated tab silently outranks another inside
+      // its group and `visibleTabOf` falls back to bar order to break the tie.
       const stampedAt = Date.now()
 
       // The tabs holding a pane today are the ones on screen today, and stamping them keeps them
@@ -625,13 +625,15 @@ const MIGRATIONS: Migration[] = [
       db.prepare('UPDATE tabs SET last_active_at = ? WHERE pane_slot IS NOT NULL').run(stampedAt)
 
       // Each workspace's active tab is stamped as well, which covers `single` workspaces where no
-      // tab carries a slot at all. Both steps write the same value into a column that starts out
-      // NULL, and both run before any slot is normalized, so this one purely adds to the set the
-      // previous one marked and an active tab always ends up stamped.
+      // tab carries a slot at all. It is stamped one tick later so that it strictly wins the group
+      // it ends up in: the active tab drives the focused group and the attention report, and an
+      // active tab its own pane does not render is a disagreement that survives until the user
+      // clicks something. Both steps run before any slot is normalized, so an active tab always
+      // ends up stamped whichever pane it did or did not hold.
       db.prepare(
         `UPDATE tabs SET last_active_at = ?
          WHERE id IN (SELECT active_tab_id FROM workspaces WHERE active_tab_id IS NOT NULL)`
-      ).run(stampedAt)
+      ).run(stampedAt + 1)
 
       // Only now that the stamps are placed does the unplaced state disappear: every tab that
       // belonged to no pane joins group 0.

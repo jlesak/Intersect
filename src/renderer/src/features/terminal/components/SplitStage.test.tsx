@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Tab } from '@common/domain'
 import { equalShares } from '@common/terminalLayoutShares'
-import { useTabsStore } from '@renderer/features/tabs'
+import { TAB_DRAG_MIME, useTabsStore } from '@renderer/features/tabs'
+import { dragEvent, fakeDataTransfer, type FakeDataTransfer } from '@renderer/shared/dragTestkit'
 import { useLayoutRatiosStore } from '../layoutRatios'
 import * as ipc from '../ipc'
 import { SplitStage, type SplitStageProps } from './SplitStage'
@@ -138,6 +139,10 @@ async function render(element: React.ReactElement): Promise<void> {
   })
 }
 
+/** The area under one pane's tab bar: its terminal, or its empty state, and its drop surface. */
+const paneBody = (index: number): HTMLElement =>
+  host.querySelectorAll<HTMLElement>('.ix-pane__body')[index]
+
 describe('SplitStage structure', () => {
   test('single renders one plain pane and no resize handles', async () => {
     seedLoaded()
@@ -197,7 +202,7 @@ describe('SplitStage structure', () => {
     seedLoaded()
     seedTabs([tab('t1', 0)])
     await render(stage({ layout: 'columns' }))
-    const empty = host.querySelector('.ix-pane--empty')
+    const empty = host.querySelector('.ix-pane__empty')?.closest('.ix-pane')
     expect(empty).toBeTruthy()
     expect(empty?.querySelector('.test-tabbar')).toBeTruthy()
     expect(empty?.querySelector('.test-terminal')).toBeNull()
@@ -232,6 +237,156 @@ describe('SplitStage structure', () => {
     expect(getLayouts).toHaveBeenCalledWith('p1')
     expect(host.querySelector('.ix-stage--resizable')).toBeTruthy()
     expect(useLayoutRatiosStore.getState().columns).toEqual([70, 30])
+  })
+})
+
+describe('SplitStage focus', () => {
+  test('pressing inside a pane hands focus to the group that pane holds', async () => {
+    seedLoaded()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+      await act(async () => {
+        paneBody(1).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t2')
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+
+  test('typing inside a pane hands focus to the group that pane holds', async () => {
+    seedLoaded()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+      await act(async () => {
+        paneBody(1).dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t2')
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+
+  test('working in the pane that already has focus asks for nothing', async () => {
+    seedLoaded()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+      await act(async () => {
+        paneBody(0).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+        paneBody(0).dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+      })
+
+      expect(setActiveTab).not.toHaveBeenCalled()
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+})
+
+describe('SplitStage as a drop target', () => {
+  /** A transfer carrying a tab drag, the way a tab's own dragstart handler writes one. */
+  function tabDrag(id: string, slot: number): FakeDataTransfer {
+    const transfer = fakeDataTransfer()
+    transfer.setData(TAB_DRAG_MIME, JSON.stringify({ id, slot }))
+    return transfer
+  }
+
+  test('a tab dragged over a pane body marks that pane as the one it would land in', async () => {
+    seedLoaded()
+    await render(stage({ layout: 'columns' }))
+    const transfer = tabDrag('t1', 0)
+
+    await act(async () => {
+      paneBody(1).dispatchEvent(dragEvent('dragover', transfer))
+    })
+
+    const marked = [...host.querySelectorAll('.ix-pane')].map((p) =>
+      p.classList.contains('ix-pane--drop')
+    )
+    expect(marked).toEqual([false, true])
+    // Without this the drag keeps the no-drop cursor and the release does nothing at all.
+    expect(transfer.dropEffect).toBe('move')
+  })
+
+  test('leaving the pane again drops the mark', async () => {
+    seedLoaded()
+    await render(stage({ layout: 'columns' }))
+    const transfer = tabDrag('t1', 0)
+
+    await act(async () => {
+      paneBody(1).dispatchEvent(dragEvent('dragover', transfer))
+    })
+    await act(async () => {
+      paneBody(1).dispatchEvent(dragEvent('dragleave', transfer))
+    })
+
+    expect(host.querySelector('.ix-pane--drop')).toBeNull()
+  })
+
+  test('dropping a tab on a pane body moves it to the end of that pane’s group', async () => {
+    seedLoaded()
+    seedTabs([tab('t1', 0), tab('t2', 1), { ...tab('t3', 0), sortOrder: 1 }])
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+
+      await act(async () => {
+        paneBody(1).dispatchEvent(dragEvent('drop', tabDrag('t3', 0)))
+      })
+
+      // Group 1 already holds one tab, so the end of it is index 1.
+      expect(moveTab).toHaveBeenCalledWith('t3', 1, 1)
+      expect(host.querySelector('.ix-pane--drop')).toBeNull()
+    } finally {
+      moveTab.mockRestore()
+    }
+  })
+
+  test('dropping a tab on the pane its own group already fills just shows it', async () => {
+    seedLoaded()
+    seedTabs([tab('t1', 0), tab('t2', 1), { ...tab('t3', 0), sortOrder: 1 }])
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+
+      await act(async () => {
+        paneBody(0).dispatchEvent(dragEvent('drop', tabDrag('t3', 0)))
+      })
+
+      expect(moveTab).not.toHaveBeenCalled()
+      expect(setActiveTab).toHaveBeenCalledWith('t3')
+    } finally {
+      moveTab.mockRestore()
+      setActiveTab.mockRestore()
+    }
+  })
+
+  test('a drag that is not one of our tabs is refused by the pane', async () => {
+    seedLoaded()
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    try {
+      await render(stage({ layout: 'columns' }))
+      const transfer = fakeDataTransfer()
+      transfer.setData('text/plain', '/etc/hosts')
+
+      await act(async () => {
+        paneBody(1).dispatchEvent(dragEvent('dragover', transfer))
+      })
+      expect(host.querySelector('.ix-pane--drop')).toBeNull()
+
+      await act(async () => {
+        paneBody(1).dispatchEvent(dragEvent('drop', transfer))
+      })
+      expect(moveTab).not.toHaveBeenCalled()
+    } finally {
+      moveTab.mockRestore()
+    }
   })
 })
 

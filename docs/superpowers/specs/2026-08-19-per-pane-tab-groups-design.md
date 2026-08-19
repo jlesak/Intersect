@@ -19,8 +19,9 @@ Settled by the product owner during design:
 - The fixed layout presets stay. `single` / `columns` / `rows` / `grid` keep their picker and
   their persisted divider shares; a pane is a group. A group with no tabs stays on screen as an
   empty pane.
-- Tabs move between groups by drag onto another group's bar, with the existing
-  "Open in pane N" context-menu entries kept as the non-mouse path.
+- Tabs move between groups by drag onto another pane - its bar names a position in that bar, its
+  body means "show this tab here" - with the existing "Open in pane N" context-menu entries kept
+  as the non-mouse path.
 - Shrinking the layout merges the disappearing groups into the surviving ones. Nothing is ever
   hidden or lost.
 - Keyboard shortcuts and the new-tab button act on the focused group.
@@ -57,8 +58,10 @@ Applied in this order:
 1. `ALTER TABLE tabs ADD COLUMN last_active_at INTEGER;`
 2. Stamp `last_active_at` on rows whose `pane_slot` is currently non-null. These are the tabs
    visible in panes today, and stamping them keeps them visible after the merge.
-3. Stamp `last_active_at` on every `workspaces.active_tab_id`, which covers workspaces in the
-   `single` layout where no tab carries a slot.
+3. Stamp `last_active_at` on every `workspaces.active_tab_id`, one tick later, which covers
+   workspaces in the `single` layout where no tab carries a slot and makes the active tab win the
+   group it joins. A tie would let a placed sibling win on bar order, leaving the workspace's
+   active tab out of the pane that tab's own group renders.
 4. `UPDATE tabs SET pane_slot = 0 WHERE pane_slot IS NULL;`
 5. Renumber `sort_order` per `(workspace_id, pane_slot)`.
 
@@ -73,6 +76,7 @@ grid    -> rows      [0, 0, 1, 1]   the top row stays top
 grid    -> single    [0, 0, 0, 0]
 columns -> single    [0, 0]
 rows    -> single    [0, 0]
+rows    -> grid      [0, 2]         the bottom row stays bottom
 columns <-> rows     identity
 single  -> anything  identity; groups 1..n-1 start empty
 ```
@@ -84,10 +88,12 @@ A slot outside the target layout's range clamps to `n - 1`.
 
 - `tabRepo`: `setPaneSlot`, `setPaneSlots` and `clearPaneSlot` (the one-tab-per-slot eviction)
   give way to `moveToGroup(id, slot, index)`, which renumbers both affected groups inside one
-  `tx`, plus `remapGroups(workspaceId, from, to)` and `touchActive(id, at)`.
+  `tx`, plus `regroup(workspaceId, from, to)` and `touchActive(id, at)`.
 - `tabs.ipc`: `assignToPane(id, slot)` becomes `moveTab(id, slot, index)`; `setActive` also
-  stamps `last_active_at`; `create` inserts at the end of a caller-supplied slot.
-- `workspaces.ipc.setLayout` calls `remapGroups` in place of `reconcilePanes`.
+  stamps `last_active_at`; `create` inserts at the end of a caller-supplied slot. `moveTab` stamps
+  as well when the move crosses into another group, because sending a tab to a pane is asking that
+  pane to show it.
+- `workspaces.ipc.setLayout` calls `regroup` in place of `reconcilePanes`.
 
 ## Renderer state
 
@@ -116,6 +122,17 @@ Shell and Claude Code. Drag follows the native HTML5 pattern already used in `To
 a drop indicator at the insert point. The focused group's bar carries an accent. `.ix-tabbar`
 drops from 42px to 32px, since it can now appear four times on screen.
 
+The pane body is a drop surface of its own (`paneDrop.ts`), so the whole pane accepts a tab and
+not only the 32px strip - an empty pane reads as one large target and has to behave like one. The
+pane a drop would land in is marked over its full area, because a caret inside one of four strips
+answers "where in this bar" and not "which pane". Which slot that is lives on the tabs store, the
+one place both the strip and the stage can see.
+
+The strip is a `tablist` of `tab`s: each tab carries `aria-selected` and its position, the tab a
+pane shows is the bar's one tab stop, Enter or Space shows a tab and Shift with an arrow carries
+it along its bar, announced through a `role="status"` region. That is the drag's keyboard
+equivalent, in the shape `TodoItem.tsx` already established for reordering.
+
 ## Testing
 
 - `remapSlots` table-driven across every from/to pair; per-group renumbering; a migration 27
@@ -124,7 +141,10 @@ drops from 42px to 32px, since it can now appear four times on screen.
 - Components: `PaneTabBar` renders only its own group; the tools appear in exactly one bar; a
   drag from group 0 to group 1 moves the tab.
 - E2E: split to columns and assert each pane carries its own bar with its own title above it;
-  drag a tab across; collapse to single and find everything merged into one bar.
+  click into a pane and find focus followed; collapse to single and find everything merged into
+  one bar. A second spec drags a tab onto another pane's bar and then back onto the body of the
+  pane it left, which is the part no jsdom test can reach: jsdom has neither `DataTransfer` nor
+  `DragEvent`, so a component test can prove the arithmetic and never the drag itself.
 
 ## Out of scope
 

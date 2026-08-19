@@ -7,6 +7,7 @@ import { slotCount } from '@common/layout'
 import type { PairShares } from '@common/terminalLayoutShares'
 import {
   openTabInGroup,
+  paneDropHandlers,
   PaneTabBar,
   selectGroupVisibleTab,
   useTabsStore
@@ -45,6 +46,9 @@ export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageP
       Array.from({ length: slotCount(layout) }, (_, slot) => selectGroupVisibleTab(s, slot))
     )
   )
+  // Which pane a tab drag would land in, so that pane can say so. Read here rather than in the
+  // pane, because the hover can be over either a pane's body or the tab strip above it.
+  const dropSlot = useTabsStore((s) => s.dropSlot)
 
   // The persisted shares must be in place before a resizable group mounts (the panel library
   // reads default sizes only at mount), so hydration starts with the project switch and the
@@ -56,22 +60,25 @@ export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageP
   // Leaving a layout or project must not drop a pending share write mid-debounce.
   useEffect(() => () => useLayoutRatiosStore.getState().flush(), [projectKey, layout])
 
-  const paneClass = (slot: number): string => `ix-pane${paneTabs[slot] ? '' : ' ix-pane--empty'}`
+  const paneClass = (slot: number): string => `ix-pane${dropSlot === slot ? ' ix-pane--drop' : ''}`
   const paneContent = (slot: number): React.ReactNode => {
     const tab = paneTabs[slot]
+    // Working in a pane is what moves focus between groups, so both a press and a keystroke
+    // inside the body claim it. Capture rather than bubble, and without preventDefault, so xterm
+    // receives the very same event and keeps the keyboard.
+    const claimFocus = (): void => {
+      if (tab && tab.id !== useTabsStore.getState().activeTabId) {
+        void useTabsStore.getState().setActiveTab(tab.id)
+      }
+    }
     return (
       <>
         <PaneTabBar slot={slot} />
         <div
           className="ix-pane__body"
-          // Working in a pane is what moves focus between groups, so any press inside the body
-          // claims it. Capture rather than bubble, and without preventDefault, so xterm still
-          // receives the very same press and keeps the keyboard.
-          onMouseDownCapture={() => {
-            if (tab && tab.id !== useTabsStore.getState().activeTabId) {
-              void useTabsStore.getState().setActiveTab(tab.id)
-            }
-          }}
+          onMouseDownCapture={claimFocus}
+          onKeyDownCapture={claimFocus}
+          {...paneDropHandlers(slot)}
         >
           {tab ? (
             <TerminalPane

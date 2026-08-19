@@ -31,6 +31,13 @@ interface TabsState {
   /** Whether the "+" preset popover is showing, so the keyboard can open it as well as a click. */
   presetPickerOpen: boolean
   setPresetPickerOpen(open: boolean): void
+  /**
+   * The group a tab drag is hovering over, or null while none is. It lives on the store because
+   * the pane that lights up is drawn by the stage, while the surface being hovered is either that
+   * pane's body or the tab strip above it, and the two are separate components.
+   */
+  dropSlot: number | null
+  setDropSlot(slot: number | null): void
   hydrate(workspaceId: string): Promise<void>
   clear(): void
   /**
@@ -120,8 +127,10 @@ const EMPTY = {
   layout: 'single' as Layout,
   activeTabId: null as string | null,
   // Workspace-scoped: a popover left open over the old workspace's tab bar has no meaning in
-  // the new one. `lastPreset` is deliberately absent - it is a user habit, not workspace data.
-  presetPickerOpen: false
+  // the new one, and neither does a drag that was in flight over its panes. `lastPreset` is
+  // deliberately absent - it is a user habit, not workspace data.
+  presetPickerOpen: false,
+  dropSlot: null as number | null
 }
 
 export const useTabsStore = createStore<TabsState>()((set, get) => ({
@@ -130,6 +139,12 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
 
   setPresetPickerOpen(open) {
     set({ presetPickerOpen: open })
+  },
+
+  setDropSlot(slot) {
+    // Guarded because a drag fires dragover many times a second over the same pane, and each
+    // unguarded write would re-render every bar and every pane on screen.
+    if (get().dropSlot !== slot) set({ dropSlot: slot })
   },
 
   async hydrate(workspaceId) {

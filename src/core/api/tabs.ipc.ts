@@ -56,7 +56,16 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
     },
 
     async moveTab(id, slot, index) {
-      return d.tabs.moveToGroup(id, slot, index)
+      return tx(d.db, () => {
+        const before = d.tabs.getById(id)
+        const tabs = d.tabs.moveToGroup(id, slot, index)
+        // A tab sent to another pane is a tab the user asked that pane to show, so it takes the
+        // group it joins - both for a drop and for the "Open in pane N" entry that says as much.
+        // A reorder inside one group is only a change of position and leaves the shown tab alone.
+        if (!before || before.paneSlot === slot) return tabs
+        d.tabs.touchActive(id, Date.now())
+        return d.tabs.listByWorkspace(before.workspaceId)
+      })
     },
 
     async setActive(workspaceId, tabId) {

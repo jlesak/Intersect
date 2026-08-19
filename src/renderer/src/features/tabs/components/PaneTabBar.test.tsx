@@ -5,9 +5,10 @@ import { makeSessionId } from '@common/ipc'
 import { slotCount } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
 import { useWorkItemsStore } from '@renderer/features/workItems'
+import { dragEvent, fakeDataTransfer } from '@renderer/shared/dragTestkit'
 import { useTabsStore } from '../store'
 import { PaneTabBar } from './PaneTabBar'
-import { TAB_DRAG_MIME, type TabTransfer } from './tabDrag'
+import { TAB_DRAG_MIME } from './tabDrag'
 
 const WORKSPACE_ID = 'ws1'
 
@@ -78,8 +79,11 @@ async function renderStage(layout: Layout): Promise<void> {
   })
 }
 
+// The label rides on the tab list inside the bar, so the bar itself is that list's own root.
 const barOf = (slot: number): HTMLElement =>
-  document.querySelector<HTMLElement>(`[aria-label="Pane ${slot + 1} tabs"]`)!
+  document
+    .querySelector<HTMLElement>(`[aria-label="Pane ${slot + 1} tabs"]`)!
+    .closest<HTMLElement>('.ix-tabbar')!
 const titlesIn = (slot: number): (string | null)[] =>
   [...barOf(slot).querySelectorAll('.ix-tab__title')].map((e) => e.textContent)
 const tabElsIn = (slot: number): HTMLElement[] => [
@@ -89,33 +93,6 @@ const menuItems = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement
 // An entry renders its icon before its label, so the label is the trailing text node on its own.
 const menuLabels = (): (string | null | undefined)[] =>
   menuItems().map((e) => e.lastChild?.textContent)
-
-/** A DataTransfer stand-in, because jsdom provides none for a synthesised drag. */
-function transfer(): TabTransfer & { effectAllowed: string; dropEffect: string } {
-  const data: Record<string, string> = {}
-  return {
-    effectAllowed: '',
-    dropEffect: '',
-    get types() {
-      return Object.keys(data)
-    },
-    getData: (type: string) => data[type] ?? '',
-    setData: (type: string, value: string) => {
-      data[type] = value
-    }
-  }
-}
-
-/**
- * A drag event carrying both a pointer position and a transfer. jsdom implements no DragEvent, so
- * fireEvent's would arrive as a bare Event with no clientX on it at all - and clientX is the whole
- * input to the drop-position arithmetic under test.
- */
-function dragEvent(type: string, dataTransfer: TabTransfer, clientX = 0): Event {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX })
-  Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
-  return event
-}
 
 /** Lay the strip's tabs out end to end, since jsdom measures every element as zero-sized. */
 function measure(slot: number, width = 100): void {
@@ -134,7 +111,8 @@ describe('PaneTabBar', () => {
       order: [],
       layout: 'single',
       activeTabId: null,
-      presetPickerOpen: false
+      presetPickerOpen: false,
+      dropSlot: null
     })
     useWorkItemsStore.setState({ workspaceId: null, byTabId: {} })
     useAttentionStore.setState({ status: {} })
@@ -174,6 +152,50 @@ describe('PaneTabBar', () => {
 
     expect(barOf(0).classList.contains('ix-tabbar--focused')).toBe(true)
     expect(barOf(1).classList.contains('ix-tabbar--focused')).toBe(false)
+  })
+
+  test('the one bar of a single layout is marked neither focused nor unfocused', async () => {
+    seedTabs('single')
+    // Everything in one group, which is what collapsing to single leaves behind.
+    useTabsStore.setState({
+      byId: {
+        t1: tab('t1', { title: 'shell', paneSlot: 0, sortOrder: 0 }),
+        t2: tab('t2', { title: 'claude', paneSlot: 0, sortOrder: 1 })
+      },
+      order: ['t1', 't2'],
+      activeTabId: 't1'
+    })
+    await renderStage('single')
+
+    // There is no other bar to tell this one from, so it carries neither marker - and therefore
+    // none of the muting the unfocused marker brings with it.
+    expect(barOf(0).className).toBe('ix-tabbar')
+  })
+
+  test('a bar that is not the focused one is marked as such once there is a second bar', async () => {
+    seedTabs()
+    await renderStage('columns')
+
+    expect(barOf(0).classList.contains('ix-tabbar--unfocused')).toBe(true)
+    expect(barOf(1).classList.contains('ix-tabbar--unfocused')).toBe(false)
+  })
+
+  test('every group marks the tab its own pane is showing, focused or not', async () => {
+    seedTabs()
+    await renderStage('columns')
+
+    // Group 0 is not the focused one and nobody has activated a tab in it, so it shows - and
+    // marks - the first tab of its bar.
+    expect(tabElsIn(0).map((e) => e.classList.contains('ix-tab--active'))).toEqual([true, false])
+    expect(tabElsIn(1).map((e) => e.classList.contains('ix-tab--active'))).toEqual([true])
+
+    // The marker follows that group's own activation history, not the workspace's active tab.
+    await act(async () => {
+      useTabsStore.setState((s) => ({
+        byId: { ...s.byId, t3: { ...s.byId.t3, lastActiveAt: 500 } }
+      }))
+    })
+    expect(tabElsIn(0).map((e) => e.classList.contains('ix-tab--active'))).toEqual([false, true])
   })
 
   test('a group with no tabs still shows its bar, carrying only the new-terminal button', async () => {
@@ -272,13 +294,35 @@ describe('PaneTabBar', () => {
     }
   })
 
+  test('dragging over a bar names its pane as the one the tab would land in', async () => {
+    seedTabs()
+    await renderStage('columns')
+    measure(1)
+    const dataTransfer = fakeDataTransfer()
+    const strip = barOf(1).querySelector('.ix-tabs')!
+
+    await act(async () => {
+      fireEvent(tabElsIn(0)[0], dragEvent('dragstart', dataTransfer))
+    })
+    await act(async () => {
+      fireEvent(strip, dragEvent('dragover', dataTransfer, 20))
+    })
+    // The stage draws the mark on the pane; the bar's part is naming which pane that is.
+    expect(useTabsStore.getState().dropSlot).toBe(1)
+
+    await act(async () => {
+      fireEvent(strip, dragEvent('dragleave', dataTransfer, 20))
+    })
+    expect(useTabsStore.getState().dropSlot).toBeNull()
+  })
+
   test('dragging a tab from one group onto another moves it to the pointed-at position', async () => {
     seedTabs()
     const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
     try {
       await renderStage('columns')
       measure(1)
-      const dataTransfer = transfer()
+      const dataTransfer = fakeDataTransfer()
 
       await act(async () => {
         fireEvent(tabElsIn(0)[0], dragEvent('dragstart', dataTransfer))
@@ -306,7 +350,7 @@ describe('PaneTabBar', () => {
     try {
       await renderStage('columns')
       measure(1)
-      const dataTransfer = transfer()
+      const dataTransfer = fakeDataTransfer()
 
       await act(async () => {
         fireEvent(tabElsIn(0)[0], dragEvent('dragstart', dataTransfer))
@@ -330,7 +374,7 @@ describe('PaneTabBar', () => {
     try {
       await renderStage('columns')
       measure(0)
-      const dataTransfer = transfer()
+      const dataTransfer = fakeDataTransfer()
 
       await act(async () => {
         fireEvent(tabElsIn(0)[0], dragEvent('dragstart', dataTransfer))
@@ -354,7 +398,7 @@ describe('PaneTabBar', () => {
     const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
     try {
       await renderStage('columns')
-      const dataTransfer = transfer()
+      const dataTransfer = fakeDataTransfer()
       dataTransfer.setData('text/plain', '/etc/hosts')
 
       await act(async () => {
@@ -369,6 +413,130 @@ describe('PaneTabBar', () => {
       expect(dataTransfer.types).not.toContain(TAB_DRAG_MIME)
     } finally {
       moveTab.mockRestore()
+    }
+  })
+
+  test('a group presents its tabs as a keyboard-reachable tab list', async () => {
+    seedTabs()
+    await renderStage('columns')
+
+    expect(barOf(0).querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe(
+      'Pane 1 tabs'
+    )
+    expect(tabElsIn(0).map((e) => e.getAttribute('role'))).toEqual(['tab', 'tab'])
+    expect(tabElsIn(0).map((e) => e.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    // Only the tab the pane shows is in the tab order; the arrow keys reach the rest of the bar.
+    expect(tabElsIn(0).map((e) => e.getAttribute('tabindex'))).toEqual(['0', '-1'])
+    expect(tabElsIn(0).map((e) => e.getAttribute('aria-posinset'))).toEqual(['1', '2'])
+    expect(tabElsIn(0).map((e) => e.getAttribute('aria-setsize'))).toEqual(['2', '2'])
+  })
+
+  test('Enter on a focused tab activates it', async () => {
+    seedTabs()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.keyDown(tabElsIn(0)[1], { key: 'Enter' })
+      })
+
+      expect(setActiveTab).toHaveBeenCalledWith('t3')
+    } finally {
+      setActiveTab.mockRestore()
+    }
+  })
+
+  test('the arrow keys walk focus along the bar, wrapping at its ends', async () => {
+    seedTabs()
+    await renderStage('columns')
+
+    await act(async () => {
+      tabElsIn(0)[0].focus()
+      fireEvent.keyDown(tabElsIn(0)[0], { key: 'ArrowRight' })
+    })
+    expect(document.activeElement).toBe(tabElsIn(0)[1])
+
+    await act(async () => {
+      fireEvent.keyDown(tabElsIn(0)[1], { key: 'ArrowRight' })
+    })
+    expect(document.activeElement).toBe(tabElsIn(0)[0])
+  })
+
+  test('Shift and an arrow move the tab along its bar and say where it went', async () => {
+    seedTabs()
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.keyDown(tabElsIn(0)[0], { key: 'ArrowRight', shiftKey: true })
+      })
+
+      expect(moveTab).toHaveBeenCalledWith('t1', 0, 1)
+      expect(barOf(0).querySelector('[role="status"]')?.textContent).toBe(
+        'shell moved to position 2 of 2 in pane 1.'
+      )
+    } finally {
+      moveTab.mockRestore()
+    }
+  })
+
+  test('Shift and an arrow at the end of the bar move nothing and say so', async () => {
+    seedTabs()
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.keyDown(tabElsIn(0)[0], { key: 'ArrowLeft', shiftKey: true })
+      })
+
+      expect(moveTab).not.toHaveBeenCalled()
+      expect(barOf(0).querySelector('[role="status"]')?.textContent).toBe(
+        'shell is already first in pane 1.'
+      )
+    } finally {
+      moveTab.mockRestore()
+    }
+  })
+
+  test('a tab being renamed keeps its arrow keys for the text field', async () => {
+    seedTabs()
+    const moveTab = vi.spyOn(useTabsStore.getState(), 'moveTab').mockResolvedValue()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.doubleClick(tabElsIn(0)[0])
+      })
+      const input = barOf(0).querySelector<HTMLInputElement>('.ix-tab__rename')!
+
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'ArrowRight', shiftKey: true })
+      })
+
+      expect(moveTab).not.toHaveBeenCalled()
+      expect(setActiveTab).not.toHaveBeenCalled()
+    } finally {
+      moveTab.mockRestore()
+      setActiveTab.mockRestore()
+    }
+  })
+
+  test('Enter on a tab’s close button closes it', async () => {
+    seedTabs()
+    const removeTab = vi.spyOn(useTabsStore.getState(), 'removeTab').mockResolvedValue()
+    const setActiveTab = vi.spyOn(useTabsStore.getState(), 'setActiveTab').mockResolvedValue()
+    try {
+      await renderStage('columns')
+      await act(async () => {
+        fireEvent.keyDown(barOf(0).querySelector('[aria-label="Close shell"]')!, { key: 'Enter' })
+      })
+
+      expect(removeTab).toHaveBeenCalledWith('t1')
+      // The tab underneath must not take the same key as an activation.
+      expect(setActiveTab).not.toHaveBeenCalled()
+    } finally {
+      removeTab.mockRestore()
+      setActiveTab.mockRestore()
     }
   })
 
