@@ -1,5 +1,6 @@
 import { Terminal, type ITerminalAddon } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import type { Logger } from '@common/logging/logger'
 
 // Caps how much history a reattaching renderer can recover, and with it the per-session
 // memory the headless emulator may hold.
@@ -34,7 +35,11 @@ export interface TerminalSnapshots {
   dispose(sessionId: string): void
 }
 
-export function createTerminalSnapshots(): TerminalSnapshots {
+/**
+ * Build the per-session emulator store. The logger is optional so tests can construct the store
+ * without one; production always supplies it, since a failed emulator is invisible otherwise.
+ */
+export function createTerminalSnapshots(logger?: Logger): TerminalSnapshots {
   const entries = new Map<string, SnapshotEntry>()
 
   return {
@@ -53,7 +58,7 @@ export function createTerminalSnapshots(): TerminalSnapshots {
         term.loadAddon(serializer as unknown as ITerminalAddon)
         entries.set(sessionId, { term, serializer })
       } catch (err) {
-        console.warn(`[terminal] snapshot init failed for ${sessionId}:`, err)
+        logger?.warn('terminal snapshot init failed', { data: { sessionId }, err })
       }
     },
     feed(sessionId, chunk) {

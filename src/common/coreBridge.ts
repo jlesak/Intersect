@@ -112,6 +112,11 @@ export interface CoreInitMessage {
   userDataDir: string
   /** Electron main's binary path; hook/statusline commands run it with ELECTRON_RUN_AS_NODE. */
   execPath: string
+  /**
+   * Whether the app is packaged. Only Electron can answer that, and the core needs it to pick the
+   * level floor its log records are held to.
+   */
+  packaged: boolean
 }
 
 /** Core finished bootstrapping and is serving requests. */

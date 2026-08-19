@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { create } from 'zustand'
 import type { StateCreator, StoreApi, UseBoundStore } from 'zustand'
+import { rendererLogger } from '../logging/logger'
 
 /**
  * Creates a store whose selectors are checked for reference stability while developing and under
@@ -55,7 +56,7 @@ function assertStable<T, U>(selector: (state: T) => U, state: T, storeName: stri
   // tree indefinitely. One logged copy per selector keeps the diagnosis visible without flooding.
   if (!reported.has(message)) {
     reported.add(message)
-    console.error(message)
+    rendererLogger().child('renderer').error(message)
   }
   throw new Error(message)
 }

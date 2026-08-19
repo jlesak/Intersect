@@ -2,6 +2,8 @@ import { Fragment, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PullRequest } from '@common/domain'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
+import { launchFromPullRequest } from '@renderer/features/workItems'
+import { RowActions } from '@renderer/shared/ui/RowActions'
 import { approvalCount, groupPrs, initials, type PrGroups } from '../prGroups'
 import { formatRelativeTime, useMyWorkStore } from '../store'
 
@@ -21,15 +23,33 @@ function statusPill(group: keyof PrGroups, pr: PullRequest): { label: string; va
   return { label: 'Updated', variant: 'review' }
 }
 
-/** One radar row. Clicking records the open intent; the app layer switches to the PR Inbox. */
+/**
+ * One radar row. Activating it records the open intent and the app layer switches to PR Review,
+ * which is where this app reviews a pull request; holding Cmd or Ctrl opens it in Azure DevOps
+ * instead. The bar it reveals carries the session launch, so the row advertises both.
+ */
 function PrRow({ pr, group }: { pr: PullRequest; group: keyof PrGroups }) {
   const pill = statusPill(group, pr)
+  const openReview = (): void => useMyWorkStore.getState().openPr(pr.repositoryId, pr.prId)
+  const openExternal = (): void => useMyWorkStore.getState().openPrExternal(pr)
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className="ix-mw-row"
+      // The row's own name, so a screen reader announces the pull request rather than reading out
+      // the labels of the buttons the bar nests inside it.
+      aria-label={`${pr.title}, ${pr.repositoryName} pull request ${pr.prId}`}
       title={pr.title}
-      onClick={() => useMyWorkStore.getState().openPr(pr.repositoryId, pr.prId)}
+      onClick={(e) => (e.metaKey || e.ctrlKey ? openExternal() : openReview())}
+      onKeyDown={(e) => {
+        // A press on a bar button belongs to that button; the bar's own handler runs it.
+        if (e.target !== e.currentTarget) return
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        if (e.metaKey || e.ctrlKey) openExternal()
+        else openReview()
+      }}
     >
       <span className="ix-mw-avatar">{initials(pr.authorName)}</span>
       <span className="ix-mw-main">
@@ -39,9 +59,12 @@ function PrRow({ pr, group }: { pr: PullRequest; group: keyof PrGroups }) {
         </span>
       </span>
       <span className={`ix-mw-status ix-mw-status--${pill.variant}`}>{pill.label}</span>
-      <span />
+      <RowActions
+        primary={{ label: 'Start session', onClick: () => launchFromPullRequest(pr) }}
+        overflow={[{ label: 'Open in Azure DevOps', onClick: openExternal }]}
+      />
       <span className="ix-mw-time">{formatRelativeTime(pr.createdAt)}</span>
-    </button>
+    </div>
   )
 }
 

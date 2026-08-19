@@ -5,12 +5,12 @@ import { createTerminalStream } from './terminalStream'
 
 function harness() {
   const emitted: TerminalDataEvent[] = []
-  const logs: string[] = []
+  const logs: Array<{ msg: string; data?: Record<string, unknown> }> = []
   const snapshots = createTerminalSnapshots()
   const stream = createTerminalStream({
     snapshots,
     emit: (e) => emitted.push(e),
-    log: (m) => logs.push(m)
+    log: (msg, data) => logs.push({ msg, data })
   })
   return { stream, emitted, logs, snapshots }
 }
@@ -197,6 +197,10 @@ describe('terminalStream', () => {
     expect(result.data).toContain('flood-1000')
     expect(result.data).not.toContain('flood-0001')
     expect(result.lastSeq).toBe(1000)
-    expect(h.logs.some((l) => l.includes('attach a:'))).toBe(true)
+    // A constant message with the measurements as fields, so attaches group and the durations
+    // can be read as numbers rather than parsed back out of a sentence.
+    const attached = h.logs.find((l) => l.msg === 'terminal attached')
+    expect(attached?.data).toMatchObject({ sessionId: 'a', chunksHeld: 0 })
+    expect(typeof attached?.data?.durationMs).toBe('number')
   })
 })

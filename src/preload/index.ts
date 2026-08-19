@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ClaudeUsage, DraftComment, OtoRun } from '@common/domain'
+import { RENDERER_LOG_CHANNEL } from '@common/logging/channel'
 import {
   Channel,
   type CoreStatus,
@@ -251,6 +252,9 @@ const api: IpcApi = {
       ipcRenderer.on(Channel.shortcutInvoked, listener)
       return () => ipcRenderer.removeListener(Channel.shortcutInvoked, listener)
     }
+  },
+  log: {
+    write: (record) => ipcRenderer.send(RENDERER_LOG_CHANNEL, record)
   }
 }
 

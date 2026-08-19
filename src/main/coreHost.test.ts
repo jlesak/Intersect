@@ -9,7 +9,12 @@ import {
 import { PortRpc, type RpcPort } from '@common/portRpc'
 import { createCoreHost, type CoreHost, type SpawnedCore } from './coreHost'
 
-const INIT: CoreInitMessage = { kind: 'init', userDataDir: '/tmp/x', execPath: '/tmp/electron' }
+const INIT: CoreInitMessage = {
+  kind: 'init',
+  userDataDir: '/tmp/x',
+  execPath: '/tmp/electron',
+  packaged: false
+}
 
 // The delay the host waits before respawning a crashed core (keeps a fast-failing init from
 // tight-looping); tests advance fake timers past it to reach the next fork.

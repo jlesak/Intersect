@@ -8,7 +8,8 @@ import { buildSpawn, type SpawnSpec } from './shell'
 export interface PtyProcess {
   readonly pid: number
   onData(cb: (data: string) => void): void
-  onExit(cb: (e: { exitCode: number }) => void): void
+  /** node-pty reports the signal alongside the code when one ended the child. */
+  onExit(cb: (e: { exitCode: number; signal?: number }) => void): void
   write(data: string): void
   resize(cols: number, rows: number): void
   pause(): void

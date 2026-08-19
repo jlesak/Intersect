@@ -28,6 +28,17 @@ import { usePrInboxStore } from './features/prInbox'
 import { useTodoStore } from './features/todo'
 import { useUsageStore } from './features/usage'
 import { useWorkspacesStore } from './features/workspaces'
+import { initRendererLogging } from './shared/logging/logger'
+
+// Diagnostics come first so that a failure in registration or in the very first render already
+// reaches the log file rather than only the devtools console a user does not have open.
+//
+// The boot record goes out immediately, before anything else can fail. Every other renderer record
+// reports something going wrong, so on a healthy run this is the only trace the renderer leaves -
+// and without it the log file cannot tell a renderer that stayed quiet because all was well from
+// one whose route to the file was broken the whole time. It also dates the renderer's start
+// against the lifecycle records main and the core write for themselves.
+initRendererLogging().info('renderer boot')
 
 // Registration is synchronous and must complete before first render so the shell can read the
 // registries. Store hydration is fired after render (non-blocking); slices show their own state.

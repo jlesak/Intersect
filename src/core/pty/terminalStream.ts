@@ -20,7 +20,8 @@ export interface TerminalStreamDeps {
   snapshots: TerminalSnapshots
   /** The complete downstream fanout for one data event (renderer push plus attention tap). */
   emit(event: TerminalDataEvent): void
-  log?(message: string): void
+  /** A constant sentence with the measurements beside it, so attaches group and compare. */
+  log?(msg: string, data?: Record<string, unknown>): void
 }
 
 /**
@@ -83,9 +84,12 @@ export function createTerminalStream(deps: TerminalStreamDeps): TerminalStream {
     const held = st.held
     st.held = null
     for (const chunk of held) push(st, sessionId, chunk)
-    log(
-      `[terminal] attach ${sessionId}: ${data.length} bytes, ${held.length} chunks held, ${Date.now() - started}ms`
-    )
+    log('terminal attached', {
+      sessionId,
+      bytes: data.length,
+      chunksHeld: held.length,
+      durationMs: Date.now() - started
+    })
     return { live: true, data, cols: st.cols, rows: st.rows, lastSeq }
   }
 

@@ -9,6 +9,8 @@ import { Channel } from '@common/ipc'
 import type { PtyProcess, SpawnFn } from './pty/sessionManager'
 import { buildMarker, PERMISSION_TOKEN, STOP_TOKEN } from './pty/attentionMarkers'
 import { readListenerSidecar } from './hooks/listenerSidecar'
+import { createLogger } from '@common/logging/logger'
+import { fakeSink, readRecords } from '@common/logging/testSink'
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
 
 /** A recording PTY fake: enough surface for the session manager, no native module. */
@@ -31,21 +33,23 @@ interface FakeProc {
   emitExit(code: number): void
 }
 
+// node-pty fans each event out to every listener, and more than one part of the core listens for
+// an exit, so the fake keeps them all rather than only the last one registered.
 function makeFakeProc(): FakeProc {
   const calls: string[] = []
-  let onData: ((data: string) => void) | null = null
-  let onExit: ((e: { exitCode: number }) => void) | null = null
+  const onData: Array<(data: string) => void> = []
+  const onExit: Array<(e: { exitCode: number }) => void> = []
   return {
     calls,
-    emitData: (chunk) => onData?.(chunk),
-    emitExit: (code) => onExit?.({ exitCode: code }),
+    emitData: (chunk) => onData.forEach((cb) => cb(chunk)),
+    emitExit: (code) => onExit.forEach((cb) => cb({ exitCode: code })),
     pty: {
       pid: 4242,
       onData: (cb) => {
-        onData = cb
+        onData.push(cb)
       },
       onExit: (cb) => {
-        onExit = cb
+        onExit.push(cb)
       },
       write: (data) => calls.push(`write:${data}`),
       resize: (cols, rows) => calls.push(`resize:${cols}x${rows}`),
@@ -61,6 +65,7 @@ describe('createCoreRuntime', () => {
   let pushes: Array<{ channel: string; payload: unknown }>
   let fake: ReturnType<typeof makeFakeSpawn>
   let runtime: CoreRuntime | null
+  let logSink: ReturnType<typeof fakeSink>
 
   const boot = (env: NodeJS.ProcessEnv = {}): CoreRuntime => {
     runtime = createCoreRuntime({
@@ -70,7 +75,8 @@ describe('createCoreRuntime', () => {
       emitPush: (channel, payload) => pushes.push({ channel, payload }),
       spawn: fake.spawn,
       ensureSpawnHelper: () => {},
-      applyLoginShellPath: () => Promise.resolve()
+      applyLoginShellPath: () => Promise.resolve(),
+      logger: createLogger({ sink: logSink, level: 'debug', proc: 'core' })
     })
     return runtime
   }
@@ -80,6 +86,7 @@ describe('createCoreRuntime', () => {
     pushes = []
     fake = makeFakeSpawn()
     runtime = null
+    logSink = fakeSink()
   })
 
   afterEach(() => {
@@ -152,6 +159,33 @@ describe('createCoreRuntime', () => {
     expect(pushes).toContainEqual({
       channel: Channel.terminalExit,
       payload: { sessionId, exitCode: 0 }
+    })
+  })
+
+  /**
+   * A terminal that disappears is the failure the log exists to explain, and the exit reaches the
+   * renderer as a push - a path that writes nothing to the file. Without a record here, "my
+   * terminal vanished" leaves no trace at all in the primary subsystem of the app.
+   */
+  test('records the start and the exit of every PTY child', async () => {
+    const rt = boot()
+    const ws = (await rt.handleRequest(Channel.workspacesCreate, [dir, 'ws'])) as { id: string }
+    const tab = (await rt.handleRequest(Channel.tabsCreate, [ws.id, 'shell', null])) as {
+      id: string
+    }
+    await rt.handleRequest(Channel.terminalSpawn, [`${ws.id}:${tab.id}`, 'shell', dir, 80, 24, null])
+    fake.procs[0].emitExit(137)
+
+    const records = readRecords(logSink)
+    expect(records.find((r) => r.msg === 'child process spawned')).toMatchObject({
+      level: 'info',
+      scope: 'pty',
+      data: { pid: 4242 }
+    })
+    expect(records.find((r) => r.msg === 'child process exited')).toMatchObject({
+      level: 'warn',
+      scope: 'pty',
+      data: { pid: 4242, exitCode: 137 }
     })
   })
 

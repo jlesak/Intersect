@@ -49,6 +49,25 @@ const ZUSTAND_CREATE = [
   { name: 'zustand/traditional', message: ZUSTAND_CREATE_MESSAGE }
 ]
 
+// The logger is the only sanctioned diagnostic surface: a console call writes to a stream nobody
+// reads in a packaged app, and never reaches the log file.
+const NO_CONSOLE = {
+  'no-console': 'error'
+}
+
+// Reporting that the log sink itself is unusable cannot go through the logger that depends on it.
+const SINK_FALLBACK_FILES = [
+  'src/core/logging/index.ts',
+  'src/main/logging/index.ts'
+]
+
+// The file sink opens a descriptor with node:fs. The renderer is sandboxed and preload runs in a
+// sandboxed context, so an import there is a build-time bundling error waiting to happen.
+const NODE_FILE_SINK = {
+  group: ['**/logging/fileSink.node'],
+  message: 'fileSink.node.ts is Node-only. The renderer ships log records to main over the preload bridge instead.'
+}
+
 // Every spec used to launch Electron itself, so one navigation change broke fifteen tests across
 // separate files. Launching belongs to the harness alone.
 const PLAYWRIGHT_ELECTRON = {
@@ -86,6 +105,32 @@ export default tseslint.config(
     }
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: NO_CONSOLE
+  },
+  {
+    files: SINK_FALLBACK_FILES,
+    rules: {
+      'no-console': 'off'
+    }
+  },
+  {
+    // The renderer mirror replaces the global console so that React, xterm and Monaco diagnostics
+    // reach the log file. Reading and reassigning console is the mechanism itself.
+    files: ['src/renderer/src/shared/logging/logger.ts'],
+    rules: {
+      'no-console': 'off'
+    }
+  },
+  {
+    // Tests never ship, and their output goes to a terminal somebody is watching. Several stub the
+    // global console to prove that a diagnostic reached the log or that a render stayed quiet.
+    files: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-console': 'off'
+    }
+  },
+  {
     files: ['src/core/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -96,6 +141,17 @@ export default tseslint.config(
   },
   {
     files: ['src/main/**/*.{ts,tsx}', 'src/preload/**/*.{ts,tsx}', 'src/renderer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: [NODE_PTY], patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP, NODE_FILE_SINK] }
+      ]
+    }
+  },
+  {
+    // Main owns the log file: it opens the sink it shares with the renderer receiver and prunes
+    // expired days at startup. It runs in full Node, so the descriptor is safe to hold here.
+    files: ['src/main/logging/index.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -110,7 +166,7 @@ export default tseslint.config(
         'error',
         {
           paths: [NODE_PTY, ...ZUSTAND_CREATE],
-          patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP]
+          patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP, NODE_FILE_SINK]
         }
       ]
     }
@@ -121,7 +177,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { paths: [NODE_PTY], patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP] }
+        { paths: [NODE_PTY], patterns: [FEATURE_BOUNDARY, ...CORE_OWNERSHIP, NODE_FILE_SINK] }
       ]
     }
   },
