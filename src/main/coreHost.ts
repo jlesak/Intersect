@@ -7,6 +7,7 @@ import {
   type CoreInitMessage
 } from '@common/coreBridge'
 import { PortRpc, type RpcPort } from '@common/portRpc'
+import type { Logger } from '@common/logging/logger'
 
 /** The forked core process, reduced to what the host needs (utilityProcess in production). */
 export interface SpawnedCore {
@@ -23,6 +24,8 @@ export interface CoreHostDeps {
   onStatus(status: CoreStatus): void
   /** How long bootstrap may take before the host declares the attempt crashed. */
   readyTimeoutMs?: number
+  /** Records push-handler faults, which have nowhere else to surface. */
+  logger?: Logger
 }
 
 export interface CoreHost {
@@ -146,7 +149,7 @@ export function createCoreHost(deps: CoreHostDeps): CoreHost {
         try {
           handler(channel, payload)
         } catch (err) {
-          console.error('[coreHost] push handler threw:', err)
+          deps.logger?.error('core push handler threw', { data: { channel }, err })
         }
       }
     })

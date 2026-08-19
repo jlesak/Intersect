@@ -15,6 +15,7 @@ import { effectiveAdoOrgUrl } from '@common/ado'
 import type { AppSettings, LiveClaudeSession } from '@common/domain'
 import { WINDOW_FOCUS_CHANGED, type NativeNotificationRequest } from '@common/coreBridge'
 import type { RpcPort } from '@common/portRpc'
+import type { Logger } from '@common/logging/logger'
 import { createCoreHost, type CoreHost } from './coreHost'
 import { registerCoreBridge } from './ipc/bridge'
 import { createSystemHandlers } from './ipc/system.ipc'
@@ -25,6 +26,13 @@ import {
   shouldQuitOnWindowAllClosed,
   shouldZeroDockBadge
 } from './lifecycle'
+import {
+  createMainLogger,
+  createMainSink,
+  installMainGlobalHandlers,
+  pruneLogsOnStartup,
+  registerRendererLogReceiver
+} from './logging'
 
 /**
  * Electron main is a thin shell now: it owns windows, the Dock, dialogs, native
@@ -42,6 +50,10 @@ let coreStatus: CoreStatus = { state: 'starting' }
 // Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
 // neither veto the quit nor create new windows.
 let quitting = false
+// Assigned once the app is ready and the user data directory is known, which is the earliest
+// moment a file-backed logger can exist. Every call site stays optional so a failure before that
+// point cannot turn into a second failure inside the reporting itself.
+let log: Logger | null = null
 
 /** The one place the Dock badge is written: the count of sessions awaiting interaction. */
 function setDockBadge(count: number): void {
@@ -84,7 +96,12 @@ function showCoreNotification(request: NativeNotificationRequest): void {
   notification.on('click', () => focusAndNavigate(request.sessionId))
   // macOS (Electron 42+) only shows notifications for a code-signed app; an unsigned dev
   // build fires 'failed' instead of a banner. Log it so a missing banner is diagnosable.
-  notification.on('failed', (_e, error) => console.error('[intersect] notification failed:', error))
+  notification.on('failed', (_e, error) =>
+    log?.error('native notification failed', {
+      data: { sessionId: request.sessionId },
+      err: error
+    })
+  )
   notification.show()
 }
 
@@ -162,21 +179,26 @@ function spawnCore(init: { kind: 'init'; userDataDir: string; execPath: string }
   }
 }
 
-function wireCore(userDataDir: string): void {
+function wireCore(userDataDir: string, logger: Logger): void {
+  const lifecycle = logger.child('lifecycle')
   host = createCoreHost({
     spawnCore,
     init: { kind: 'init', userDataDir, execPath: process.execPath },
+    logger: lifecycle,
     onStatus: (status) => {
       coreStatus = status
       sendToRenderer(Channel.systemCoreStatus, status)
       // A dead core cannot retract its badge; clear it here so no stale count survives the
       // crash. A recovered core repopulates it through the canonical push when warranted.
       if (shouldZeroDockBadge(status)) setDockBadge(0)
+      if (status.state === 'ready') log?.info('core ready')
       if (status.state === 'restarting') {
-        console.error(`[intersect] core crashed (restart ${status.attempt}): ${status.message}`)
+        log?.error('core crashed, restarting', {
+          data: { attempt: status.attempt, message: status.message }
+        })
       }
       if (status.state === 'failed') {
-        console.error(`[intersect] core failed: ${status.message}`)
+        log?.error('core failed', { data: { message: status.message } })
       }
     }
   })
@@ -219,6 +241,7 @@ function wireCore(userDataDir: string): void {
   registerCoreBridge({
     ipcMain,
     host,
+    logger: lifecycle,
     electronOnly: {
       [Channel.workspacesPickFolder]: pickFolder,
       [Channel.oneOnOnePickVtt]: pickVttFile,
@@ -238,7 +261,13 @@ function wireCore(userDataDir: string): void {
 
 app.whenReady().then(() => {
   const userDataDir = process.env.INTERSECT_USER_DATA_DIR || app.getPath('userData')
-  wireCore(userDataDir)
+  const sink = createMainSink(userDataDir)
+  log = createMainLogger({ userDataDir, env: process.env, sink })
+  installMainGlobalHandlers(log)
+  pruneLogsOnStartup(userDataDir, log)
+  registerRendererLogReceiver({ ipcMain, sink, logger: log })
+  log.info('app ready', { data: { userDataDir, packaged: app.isPackaged } })
+  wireCore(userDataDir, log)
   createWindow()
 
   // The native menu owns every app-wide shortcut: macOS resolves accelerators before the key

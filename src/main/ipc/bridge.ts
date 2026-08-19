@@ -9,6 +9,7 @@ import {
   type NativeDockBadgeRequest,
   type NativeNotificationRequest
 } from '@common/coreBridge'
+import type { Logger } from '@common/logging/logger'
 
 /**
  * The whole renderer <-> core bridge in Electron main. Registration is mechanical, driven
@@ -29,6 +30,8 @@ export interface CoreBridgeDeps {
   sendToRenderer: (channel: string, payload: unknown) => void
   showNotification: (request: NativeNotificationRequest) => void
   setDockBadge: (count: number) => void
+  /** Records a core push that matched no route, which has nowhere else to surface. */
+  logger?: Logger
 }
 
 export function registerCoreBridge(deps: CoreBridgeDeps): void {
@@ -63,6 +66,6 @@ export function registerCoreBridge(deps: CoreBridgeDeps): void {
       deps.setDockBadge((payload as NativeDockBadgeRequest).count)
       return
     }
-    console.error(`[bridge] unroutable core push: ${channel}`)
+    deps.logger?.error('unroutable core push', { data: { channel } })
   })
 }
