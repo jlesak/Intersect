@@ -9,6 +9,7 @@ import {
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
 import { applyLoginShellPath } from './loginShellPath'
+import { createCoreLogger, installCoreGlobalHandlers } from './logging'
 
 /**
  * The headless core process entry. Runs as an Electron utilityProcess (plain Node plus
@@ -33,7 +34,12 @@ parentPort.on('message', (event) => {
   const port = event.ports[0]
   if (!port) return
 
-  const rpc = new PortRpc(port)
+  const logger = createCoreLogger({ userDataDir: message.userDataDir!, env: process.env })
+  // A crash here would otherwise be reported to the host as a bare exit code with no cause.
+  installCoreGlobalHandlers(logger, () => process.exit(1))
+  logger.info('core starting', { data: { pid: process.pid } })
+
+  const rpc = new PortRpc(port, { logger: logger.child('rpc') })
 
   // Serve requests immediately so nothing is dropped while bootstrap runs; the first
   // requests simply await the runtime. Bootstrap is synchronous, so in practice only the
@@ -67,7 +73,9 @@ parentPort.on('message', (event) => {
       applyLoginShellPath
     })
     rpc.push(CORE_READY_PUSH, null)
+    logger.info('core ready')
   } catch (err) {
+    logger.error('core bootstrap failed', { err })
     // Stay alive so the failure push reaches main; main owns the decision to kill us.
     const payload: CoreFailedPayload = {
       message: err instanceof Error ? err.message : String(err)
