@@ -1,6 +1,7 @@
+import { slotCount } from '@common/layout'
 import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { useToastStore } from '@renderer/shared/ui/toast'
-import { selectTabList, useTabsStore } from './store'
+import { selectFocusedSlot, selectGroupTabs, useTabsStore } from './store'
 
 /**
  * A tab needs a workspace to live in. Reached from a menu accelerator there is no button to grey
@@ -15,29 +16,55 @@ function requireWorkspace(): boolean {
 /** Whether a workspace is open for a new tab to be created in. */
 const hasWorkspace = (): boolean => useTabsStore.getState().workspaceId !== null
 
-/** The active tab's index in bar order, or -1 when there is no active tab. */
-function activeIndex(): number {
+/**
+ * The bar the tab commands act on: the focused group, the ids it holds in bar order, and where
+ * the active tab sits in it (-1 when there is no active tab). Every move is group-scoped, so a
+ * tab at the left edge of its own bar has nowhere further left to go even when another group's
+ * tabs precede it in the workspace-wide order.
+ */
+function focusedGroup(): { slot: number; ids: string[]; at: number } {
   const state = useTabsStore.getState()
-  return selectTabList(state).findIndex((tab) => tab.id === state.activeTabId)
+  const slot = selectFocusedSlot(state)
+  const ids = selectGroupTabs(state, slot).map((tab) => tab.id)
+  return { slot, ids, at: state.activeTabId === null ? -1 : ids.indexOf(state.activeTabId) }
 }
 
-/** Whether the active tab has anywhere to go in the given direction. */
+/** Whether the active tab has anywhere to go in the given direction within its own group. */
 const canMove = (direction: -1 | 1): (() => boolean) => {
   return () => {
-    const at = activeIndex()
+    const { ids, at } = focusedGroup()
     const target = at + direction
-    return at !== -1 && target >= 0 && target < selectTabList(useTabsStore.getState()).length
+    return at !== -1 && target >= 0 && target < ids.length
   }
 }
 
-/** Swap the active tab with its neighbour in the given direction and persist the whole order. */
+/** Shift the active tab one position along its own group's bar. */
 function moveActiveTab(direction: -1 | 1): void {
-  const ids = selectTabList(useTabsStore.getState()).map((tab) => tab.id)
-  const at = activeIndex()
+  const { slot, ids, at } = focusedGroup()
   const target = at + direction
   if (at === -1 || target < 0 || target >= ids.length) return
-  ;[ids[at], ids[target]] = [ids[target], ids[at]]
-  void useTabsStore.getState().reorderTabs(ids)
+  void useTabsStore.getState().moveTab(ids[at], slot, target)
+}
+
+/** Whether the layout has a second group for the active tab to be sent to. */
+const canMoveToPane = (): boolean => {
+  const state = useTabsStore.getState()
+  return state.activeTabId !== null && slotCount(state.layout) > 1
+}
+
+/**
+ * Send the active tab to the neighbouring group, appended at the end of that group's bar. The
+ * step wraps, so both directions stay usable in a two-pane layout where the other group is at
+ * once the next one and the previous one. The tab keeps focus, which moves the focused group
+ * with it and lets a run of these commands walk a tab around the whole split.
+ */
+function moveActiveTabToPane(direction: -1 | 1): void {
+  const state = useTabsStore.getState()
+  const id = state.activeTabId
+  const groups = slotCount(state.layout)
+  if (id === null || groups < 2) return
+  const target = (selectFocusedSlot(state) + direction + groups) % groups
+  void useTabsStore.getState().moveTab(id, target, selectGroupTabs(state, target).length)
 }
 
 /** The palette heading the tab and layout commands are filed under. */
@@ -131,6 +158,22 @@ export function registerTabsFeature(): void {
     keywords: ['reorder', 'shift', 'after'],
     enabled: canMove(1),
     handler: () => moveActiveTab(1)
+  })
+  registerCommand({
+    id: 'tabs.moveToNextPane',
+    title: 'Move Tab to Next Pane',
+    group: GROUP,
+    keywords: ['group', 'split', 'send', 'right', 'down'],
+    enabled: canMoveToPane,
+    handler: () => moveActiveTabToPane(1)
+  })
+  registerCommand({
+    id: 'tabs.moveToPreviousPane',
+    title: 'Move Tab to Previous Pane',
+    group: GROUP,
+    keywords: ['group', 'split', 'send', 'left', 'up'],
+    enabled: canMoveToPane,
+    handler: () => moveActiveTabToPane(-1)
   })
   registerCommand({
     id: 'terminal.layoutSingle',

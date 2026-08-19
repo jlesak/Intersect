@@ -1,6 +1,6 @@
 import type { Layout, NewWorkItemRef, Preset, Tab } from '@common/domain'
 import { makeSessionId } from '@common/ipc'
-import { reconcilePanes } from '@common/layout'
+import { visibleTabOf } from '@common/layout'
 import { useAttentionStore } from '@renderer/features/attention'
 import { disposeSession } from '@renderer/features/terminal'
 import { createStore } from '@renderer/shared/store/createStore'
@@ -14,6 +14,11 @@ interface TabsState {
   error: string | null
   workspaceId: string | null
   byId: Record<string, Tab>
+  /**
+   * Every tab of the workspace, always sorted by (paneSlot, sortOrder). One workspace-wide list
+   * keeps the group selectors to a filter over a list that is already in bar order, and it is the
+   * order the all-tabs overflow needs anyway.
+   */
   order: string[]
   layout: Layout
   activeTabId: string | null
@@ -28,6 +33,7 @@ interface TabsState {
   setPresetPickerOpen(open: boolean): void
   hydrate(workspaceId: string): Promise<void>
   clear(): void
+  /** Open a tab at the end of the focused group and activate it there. */
   createTab(
     preset: Preset,
     resumeSessionId?: string | null,
@@ -35,18 +41,22 @@ interface TabsState {
   ): Promise<Tab | null>
   renameTab(id: string, title: string): Promise<void>
   removeTab(id: string): Promise<void>
-  reorderTabs(orderedIds: string[]): Promise<void>
+  /** Place a tab at `index` inside group `slot`, which covers both reordering and regrouping. */
+  moveTab(id: string, slot: number, index: number): Promise<void>
   setActiveTab(id: string): Promise<void>
-  /** Activate the next tab in bar order, wrapping past the last one back to the first. */
+  /**
+   * Activate the next tab of the focused group, wrapping past the last one back to the first.
+   * Cycling stays inside the group the user is working in, the way VS Code cycles within an
+   * editor group, so the split on screen never changes under the shortcut.
+   */
   nextTab(): Promise<void>
   /**
-   * Activate the tab at a 1-based position in bar order. The nine positional accelerators are
-   * fixed while the tab count is not, so a position beyond the last tab lands on the last tab
-   * rather than doing nothing.
+   * Activate the tab at a 1-based position in the focused group's bar. The nine positional
+   * accelerators are fixed while a group's tab count is not, so a position beyond the last tab
+   * lands on the last tab rather than doing nothing.
    */
   jumpToTab(position: number): Promise<void>
   setLayout(layout: Layout): Promise<void>
-  assignToPane(id: string, slot: number | null): Promise<void>
   /**
    * Locally clear a tab's suspend marker once its session has been respawned, so the pane stops
    * showing the restored/resume state without waiting for a full re-hydrate. Mirrors the DB clear
@@ -55,12 +65,46 @@ interface TabsState {
   markResumed(id: string): void
 }
 
-/** Tabs of the current workspace in bar order. */
+/** Every tab of the workspace in bar order: group by group, and by position inside each group. */
 export function selectTabList(state: TabsState): Tab[] {
   return state.order.map((id) => state.byId[id]).filter(Boolean)
 }
 
+/** One group's tabs in the order its own tab bar shows them. */
+export function selectGroupTabs(state: TabsState, slot: number): Tab[] {
+  return selectTabList(state).filter((tab) => tab.paneSlot === slot)
+}
+
+/**
+ * The tab a group's pane is showing, or null while the group is empty. The result is a row out of
+ * `byId`, so the selector is reference-stable and needs no useShallow at the call site.
+ */
+export function selectGroupVisibleTab(state: TabsState, slot: number): Tab | null {
+  return visibleTabOf(selectGroupTabs(state, slot)) ?? null
+}
+
+/**
+ * The group the user is working in: the active tab's. A workspace with nothing open still has to
+ * point somewhere, and group 0 is the one group every layout has.
+ */
+export function selectFocusedSlot(state: TabsState): number {
+  const active = state.activeTabId === null ? undefined : state.byId[state.activeTabId]
+  return active?.paneSlot ?? 0
+}
+
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+/**
+ * Rebuilds `byId` and `order` from a tab list, enforcing the (paneSlot, sortOrder) invariant the
+ * group selectors read. Main already answers in that order; sorting here means one place decides
+ * what bar order is, whatever route the rows arrived by.
+ */
+function indexTabs(tabs: Tab[]): { byId: Record<string, Tab>; order: string[] } {
+  const sorted = [...tabs].sort((a, b) => a.paneSlot - b.paneSlot || a.sortOrder - b.sortOrder)
+  const byId: Record<string, Tab> = {}
+  for (const tab of sorted) byId[tab.id] = tab
+  return { byId, order: sorted.map((tab) => tab.id) }
+}
 
 const EMPTY = {
   status: 'idle' as Status,
@@ -94,15 +138,12 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
         return
       }
       const tabs = await api.listByWorkspace(workspaceId)
-      const byId: Record<string, Tab> = {}
-      for (const t of tabs) byId[t.id] = t
       set({
         status: 'ready',
         workspaceId,
         layout: ws.layout,
         activeTabId: ws.activeTabId,
-        byId,
-        order: tabs.map((t) => t.id)
+        ...indexTabs(tabs)
       })
     } catch (e) {
       set({ status: 'error', error: message(e) })
@@ -114,21 +155,24 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
   },
 
   async createTab(preset, resumeSessionId, primaryWorkItem) {
-    const workspaceId = get().workspaceId
+    const state = get()
+    const workspaceId = state.workspaceId
     if (!workspaceId) return null
+    // The new tab belongs where the user is looking, so the focused group decides its slot.
+    const slot = selectFocusedSlot(state)
+    let created: Tab
     try {
-      const t = await api.create(workspaceId, preset, resumeSessionId, primaryWorkItem)
-      set((s) => ({
-        byId: { ...s.byId, [t.id]: t },
-        order: [...s.order, t.id],
-        activeTabId: t.id,
-        lastPreset: preset
-      }))
-      return t
+      created = await api.create(workspaceId, preset, slot, resumeSessionId, primaryWorkItem)
     } catch (e) {
       reportError('Could not open a terminal', e)
       return null
     }
+    set((s) => ({ ...indexTabs([...selectTabList(s), created]), lastPreset: preset }))
+    // A fresh tab carries no activation stamp, so its group would go on showing whatever it
+    // showed before. Going through setActiveTab is the one path that both moves focus and writes
+    // the stamp the visible-tab rule reads, so the pane switches to the terminal just opened.
+    await get().setActiveTab(created.id)
+    return created
   },
 
   async renameTab(id, title) {
@@ -141,7 +185,9 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
   },
 
   async removeTab(id) {
-    const workspaceId = get().workspaceId
+    const before = get()
+    const workspaceId = before.workspaceId
+    const closing = before.byId[id]
     try {
       await api.remove(id)
     } catch (e) {
@@ -154,25 +200,34 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
       disposeSession(sessionId)
       useAttentionStore.getState().remove(sessionId)
     }
-    set((s) => {
-      const byId = { ...s.byId }
-      delete byId[id]
-      const order = s.order.filter((x) => x !== id)
-      const activeTabId = s.activeTabId === id ? (order[0] ?? null) : s.activeTabId
-      return { byId, order, activeTabId }
-    })
+
+    const remaining = selectTabList(before).filter((tab) => tab.id !== id)
+    // Closing a tab the user was not on leaves focus exactly where it is.
+    let successor = before.activeTabId
+    if (before.activeTabId === id) {
+      const siblings = closing
+        ? remaining.filter((tab) => tab.paneSlot === closing.paneSlot)
+        : remaining
+      // Staying inside the group keeps the pane the user was working in on screen. Picking that
+      // group's new visible tab means focus and what the pane shows cannot disagree. Only an
+      // emptied group hands focus to another one, and then to the first tab of the first group.
+      successor = (visibleTabOf(siblings) ?? remaining[0])?.id ?? null
+    }
+    set({ ...indexTabs(remaining), activeTabId: successor })
+
+    // Main chooses its own successor when it deletes the row, and it cannot know about groups.
+    // Persisting ours overrides that choice and stamps the tab we just made visible.
+    if (successor !== null && before.activeTabId === id) await get().setActiveTab(successor)
   },
 
-  async reorderTabs(orderedIds) {
-    const workspaceId = get().workspaceId
-    if (!workspaceId) return
+  async moveTab(id, slot, index) {
     try {
-      const tabs = await api.reorder(workspaceId, orderedIds)
-      const byId: Record<string, Tab> = {}
-      for (const t of tabs) byId[t.id] = t
-      set({ byId, order: tabs.map((t) => t.id) })
+      // Both the source and the target group are renumbered by the move, so the canonical list
+      // main answers with replaces the local one wholesale.
+      const tabs = await api.moveTab(id, slot, index)
+      set(indexTabs(tabs))
     } catch (e) {
-      reportError('Could not reorder tabs', e)
+      reportError('Could not move the tab', e)
     }
   },
 
@@ -180,63 +235,42 @@ export const useTabsStore = createStore<TabsState>()((set, get) => ({
     const workspaceId = get().workspaceId
     if (!workspaceId) return
     try {
-      await api.setActive(workspaceId, id)
-      set({ activeTabId: id })
+      const updated = await api.setActive(workspaceId, id)
+      // Mirroring the returned lastActiveAt is what makes the group show the tab that was just
+      // clicked; with only `activeTabId` moved, the pane would keep its previous terminal.
+      set((s) => ({ byId: { ...s.byId, [updated.id]: updated }, activeTabId: id }))
     } catch (e) {
       reportError('Could not switch tabs', e)
     }
   },
 
   async nextTab() {
-    const { order, activeTabId } = get()
-    if (order.length < 2) return
+    const state = get()
+    const group = selectGroupTabs(state, selectFocusedSlot(state))
+    if (group.length < 2) return
     // No active tab means the cycle has not started yet, so it starts at the first tab.
-    const current = activeTabId === null ? -1 : order.indexOf(activeTabId)
-    await get().setActiveTab(order[(current + 1) % order.length])
+    const current = group.findIndex((tab) => tab.id === state.activeTabId)
+    await get().setActiveTab(group[(current + 1) % group.length].id)
   },
 
   async jumpToTab(position) {
-    const { order } = get()
-    if (order.length === 0) return
-    const index = Math.min(Math.max(position, 1), order.length) - 1
-    await get().setActiveTab(order[index])
+    const state = get()
+    const group = selectGroupTabs(state, selectFocusedSlot(state))
+    if (group.length === 0) return
+    const index = Math.min(Math.max(position, 1), group.length) - 1
+    await get().setActiveTab(group[index].id)
   },
 
   async setLayout(layout) {
     const workspaceId = get().workspaceId
     if (!workspaceId) return
     try {
-      const ws = await api.setLayout(workspaceId, layout)
-      // Recompute pane placement locally to match what the main process persisted.
-      const assignments = reconcilePanes(selectTabList(get()), ws.layout, get().activeTabId)
-      set((s) => {
-        const byId = { ...s.byId }
-        for (const a of assignments) {
-          if (byId[a.id]) byId[a.id] = { ...byId[a.id], paneSlot: a.paneSlot }
-        }
-        return { layout: ws.layout, byId }
-      })
+      // Shrinking the layout merges the groups that disappear, so main regroups every tab and
+      // answers with the result. Rebuilding from that list is what keeps the two in step.
+      const { workspace, tabs } = await api.setLayout(workspaceId, layout)
+      set({ layout: workspace.layout, ...indexTabs(tabs) })
     } catch (e) {
       reportError('Could not change the layout', e)
-    }
-  },
-
-  async assignToPane(id, slot) {
-    try {
-      // Main atomically evicts any other tab in this slot; mirror that locally for the UI.
-      const updated = await api.assignToPane(id, slot)
-      set((s) => {
-        const byId = { ...s.byId }
-        if (slot !== null) {
-          for (const t of Object.values(byId)) {
-            if (t.paneSlot === slot && t.id !== id) byId[t.id] = { ...t, paneSlot: null }
-          }
-        }
-        byId[id] = updated
-        return { byId }
-      })
-    } catch (e) {
-      reportError('Could not place the tab', e)
     }
   },
 
