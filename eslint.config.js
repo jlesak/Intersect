@@ -67,6 +67,9 @@ export default tseslint.config(
       'playwright-report/**',
       'test-results/**',
       'e2e-userdata/**',
+      // Git worktrees of this repo checked out for parallel sessions. Their sources are linted in
+      // their own checkout, and their build output would otherwise swamp every run from here.
+      '.claude/worktrees/**',
       '_*.cjs',
       // Gitignored dev scratch specs: present locally, never part of the committed suite.
       'e2e/diag.spec.ts',
