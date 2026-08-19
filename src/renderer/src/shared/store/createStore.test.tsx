@@ -2,6 +2,7 @@ import { render } from '@testing-library/react'
 import { Component, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest'
 import { useShallow } from 'zustand/react/shallow'
+import { captureRendererLog } from '../logging/testLog'
 import { createStore } from './createStore'
 
 interface Item {
@@ -53,10 +54,14 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 describe('createStore', () => {
   let consoleError: MockInstance
   let logged: unknown[][]
+  let records: Array<Record<string, unknown>>
 
   beforeEach(() => {
     caught = undefined
     logged = []
+    records = captureRendererLog()
+    // React reports the throw on the console itself. That output is not the guard's own
+    // diagnostic, and it is captured here only to keep it out of the test run.
     consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       logged.push(args)
     })
@@ -163,13 +168,18 @@ describe('createStore', () => {
         <Probe />
       </Catcher>
     )
+    const diagnostics = (): unknown[] =>
+      records.filter((r) => typeof r.msg === 'string' && r.msg.startsWith('Unstable selector'))
+
     render(tree)
+    const afterFirstRender = diagnostics().length
+    expect(afterFirstRender).toBeGreaterThan(0)
     render(tree)
 
-    const ours = logged.filter(
-      (args) => typeof args[0] === 'string' && args[0].startsWith('Unstable selector')
-    )
-    expect(ours).toHaveLength(1)
+    // Every diagnostic names its own call site, and React replays a failed render to build the
+    // component stack, so one mount can reach the guard from more than one frame. What must hold
+    // is that mounting the same tree again adds nothing at all.
+    expect(diagnostics()).toHaveLength(afterFirstRender)
     expect(messageOf(caught)).toContain('Unstable selector')
   })
 })

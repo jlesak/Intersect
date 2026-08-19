@@ -1,11 +1,12 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { rendererLogger } from '../logging/logger'
 
 /**
- * The marker every caught renderer crash is logged under. Stable on purpose: it is the one string
- * to grep for when a user reports a blank surface, and it carries the component stack that names
- * the feature at fault.
+ * The message every caught renderer crash is logged under. Stable on purpose: it is the one string
+ * to group the log by when a user reports a blank surface, and the record carries the component
+ * stack that names the feature at fault.
  */
-export const RENDERER_CRASH_LOG_PREFIX = '[intersect] renderer crash'
+export const RENDERER_CRASH_LOG_MESSAGE = 'error boundary caught a failure'
 
 /**
  * How far the failure reaches.
@@ -53,13 +54,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
-    // The renderer has no log channel to main, so the devtools console is the only sink. Keep the
-    // component stack attached: without it a minified production error names no feature at all.
-    console.error(
-      `${RENDERER_CRASH_LOG_PREFIX} (${this.props.scope}): ${crashReason(error) || String(error)}`,
-      error,
-      info.componentStack
-    )
+    // Keep the component stack attached: without it a minified production error names no feature
+    // at all, and the scope says how much of the window the failure took with it.
+    rendererLogger().child('renderer').error(RENDERER_CRASH_LOG_MESSAGE, {
+      data: { scope: this.props.scope, componentStack: info.componentStack },
+      err: error
+    })
   }
 
   private readonly retry = (): void => {

@@ -28,6 +28,11 @@ import { usePrInboxStore } from './features/prInbox'
 import { useTodoStore } from './features/todo'
 import { useUsageStore } from './features/usage'
 import { useWorkspacesStore } from './features/workspaces'
+import { initRendererLogging } from './shared/logging/logger'
+
+// Diagnostics come first so that a failure in registration or in the very first render already
+// reaches the log file rather than only the devtools console a user does not have open.
+initRendererLogging()
 
 // Registration is synchronous and must complete before first render so the shell can read the
 // registries. Store hydration is fired after render (non-blocking); slices show their own state.
