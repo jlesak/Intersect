@@ -65,14 +65,19 @@ export interface SyncResult {
 export interface AdoService {
   syncMyPrs(): Promise<SyncResult>
   getThreads(repositoryId: string, prId: number): Promise<PrThread[]>
-  /** Post a new comment thread; null filePath/line anchors it to the PR itself. */
+  /**
+   * Post a new comment thread; null filePath/line anchors it to the PR itself. Resolves with the
+   * created thread id, or with null when the write succeeded but the server's answer carried no
+   * readable id. Rejects only when the comment did not reach Azure DevOps, so a caller may treat a
+   * rejection as "nothing was posted" and safely offer a retry.
+   */
   publishComment(input: {
     repositoryId: string
     prId: number
     filePath: string | null
     line: number | null
     body: string
-  }): Promise<number>
+  }): Promise<number | null>
   /** Post a reply into an existing thread, immediately and under my identity. */
   replyToThread(input: {
     repositoryId: string
@@ -214,7 +219,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
     },
 
     async publishComment(input) {
-      const res = await d.client.callTool<RawThread>('add_pull_request_comment', {
+      const res = await d.client.callTool<AddCommentResult>('add_pull_request_comment', {
         pullRequestId: input.prId,
         repositoryId: input.repositoryId,
         projectId: d.projectId(),
@@ -223,9 +228,15 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         ...(input.line !== null ? { lineNumber: input.line } : {}),
         status: 'active'
       })
-      const threadId = res?.id ?? res?.threadId
+      // Creating a thread answers with the created comment beside the created thread, so the id
+      // lives under `thread`. The flat fallbacks cover a server that hands back the thread itself.
+      const threadId = res?.thread?.id ?? res?.id ?? res?.threadId
       if (typeof threadId !== 'number') {
-        throw new Error('Azure DevOps did not return a thread id for the published comment')
+        // The comment is already live on the pull request at this point, so this is bookkeeping
+        // loss rather than a failed write. Reporting it as a failure would send the caller into a
+        // retry that posts a duplicate.
+        console.warn('Azure DevOps published the comment but returned no thread id', res)
+        return null
       }
       return threadId
     },
@@ -278,6 +289,16 @@ function lastActivity(pr: PullRequest, threads: PrThread[]): number {
 }
 
 // --- raw ADO shapes + defensive mappers -------------------------------------
+
+/**
+ * What `add_pull_request_comment` answers when it opens a new thread: the created comment next to
+ * the created thread. The flat `RawThread` fields are kept as a fallback for a server variant that
+ * returns the thread unwrapped.
+ */
+interface AddCommentResult extends RawThread {
+  thread?: RawThread
+  comment?: { id?: number }
+}
 
 interface RawThread {
   id?: number
