@@ -1,12 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import {
   PRESET_META,
+  type Layout,
   type Preset,
   type SessionLifecycleEvent,
   type SuspendStatus,
   type Tab
 } from '@common/domain'
+import { regroupTabs } from '@common/layout'
 import type { RepoDeps } from './deps'
+import { tx } from './tx'
 
 interface TabRow {
   id: string
@@ -15,6 +18,7 @@ interface TabRow {
   preset: string
   pane_slot: number | null
   sort_order: number
+  last_active_at: number | null
   created_at: number
   resume_session_id: string | null
   session_status: string | null
@@ -28,8 +32,11 @@ function toTab(row: TabRow): Tab {
     workspaceId: row.workspace_id,
     title: row.title,
     preset: row.preset as Preset,
-    paneSlot: row.pane_slot,
+    // Migration 27 could not make the column NOT NULL, so the invariant "every tab is in a
+    // group" is upheld here: a NULL slot reads as group 0.
+    paneSlot: row.pane_slot ?? 0,
     sortOrder: row.sort_order,
+    lastActiveAt: row.last_active_at ?? null,
     resumeSessionId: row.resume_session_id ?? null,
     sessionStatus: (row.session_status as SuspendStatus | null) ?? null,
     suspendReason: row.suspend_reason ?? null,
@@ -38,22 +45,40 @@ function toTab(row: TabRow): Tab {
 }
 
 export interface TabRepo {
+  /** The workspace's tabs in screen order: group by group, and inside a group in bar order. */
   listByWorkspace(workspaceId: string): Tab[]
   getById(id: string): Tab | undefined
-  create(workspaceId: string, preset: Preset, title?: string, resumeSessionId?: string | null): Tab
+  /** Append a tab at the end of `paneSlot`'s group (group 0 when the caller states none). */
+  create(
+    workspaceId: string,
+    preset: Preset,
+    title?: string,
+    resumeSessionId?: string | null,
+    paneSlot?: number
+  ): Tab
   rename(id: string, title: string): Tab
+  /** Delete the tab and close the gap its departure leaves in its group's `sortOrder`. */
   remove(id: string): void
-  reorder(workspaceId: string, orderedIds: string[]): Tab[]
-  setPaneSlot(id: string, slot: number | null): Tab
-  setPaneSlots(assignments: { id: string; paneSlot: number | null }[]): void
+  /**
+   * Move the tab into `slot` at position `index`, renumbering both the group it left and the one
+   * it joined so each stays a dense 0..n-1 sequence. A move inside the same group is a plain
+   * reorder, and `index` clamps into the target group's range. Returns the workspace's full tab
+   * list in (paneSlot, sortOrder) order.
+   */
+  moveToGroup(id: string, slot: number, index: number): Tab[]
+  /**
+   * Persist the group placements a layout change implies (see regroupTabs) and return the
+   * workspace's full tab list in the new order.
+   */
+  regroup(workspaceId: string, from: Layout, to: Layout): Tab[]
+  /** Record that the tab was just activated, which is what makes it its group's visible tab. */
+  touchActive(id: string, at: number): Tab
   /**
    * Persist the Claude session UUID the tab's live session is currently writing, so a
    * respawn after restart resumes the same conversation. Tolerates an unknown tab id
    * (hook events can outlive a deleted tab) as a silent no-op.
    */
   setResumeSessionId(id: string, resumeSessionId: string | null): void
-  /** Clear the given pane slot for every tab of the workspace except `exceptId`. */
-  clearPaneSlot(workspaceId: string, slot: number, exceptId: string): void
   /**
    * Mark the tab `suspended` with a termination reason and append a `suspend` audit event. Two
    * statements, deliberately without its own transaction - the caller (the coordinated shutdown)
@@ -84,8 +109,20 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
 
   const listByWorkspace = (workspaceId: string): Tab[] => {
     const rows = db
-      .prepare('SELECT * FROM tabs WHERE workspace_id = ? ORDER BY sort_order')
+      .prepare(
+        'SELECT * FROM tabs WHERE workspace_id = ? ORDER BY COALESCE(pane_slot, 0), sort_order'
+      )
       .all(workspaceId) as unknown as TabRow[]
+    return rows.map(toTab)
+  }
+
+  /** One group's tabs in bar order. Coalescing matches the read side of the slot invariant. */
+  const listGroup = (workspaceId: string, slot: number): Tab[] => {
+    const rows = db
+      .prepare(
+        'SELECT * FROM tabs WHERE workspace_id = ? AND COALESCE(pane_slot, 0) = ? ORDER BY sort_order'
+      )
+      .all(workspaceId, slot) as unknown as TabRow[]
     return rows.map(toTab)
   }
 
@@ -94,11 +131,13 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
 
     getById,
 
-    create(workspaceId, preset, title, resumeSessionId) {
+    create(workspaceId, preset, title, resumeSessionId, paneSlot = 0) {
       const nextOrder = (
         db
-          .prepare('SELECT COALESCE(MAX(sort_order) + 1, 0) AS n FROM tabs WHERE workspace_id = ?')
-          .get(workspaceId) as { n: number }
+          .prepare(
+            'SELECT COALESCE(MAX(sort_order) + 1, 0) AS n FROM tabs WHERE workspace_id = ? AND COALESCE(pane_slot, 0) = ?'
+          )
+          .get(workspaceId, paneSlot) as { n: number }
       ).n
       const id = deps.newId()
       db.prepare(
@@ -108,7 +147,7 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
         workspaceId,
         title ?? PRESET_META[preset].defaultTitle,
         preset,
-        null,
+        paneSlot,
         nextOrder,
         deps.now(),
         resumeSessionId ?? null
@@ -123,35 +162,54 @@ export function createTabRepo(db: DatabaseSync, deps: RepoDeps): TabRepo {
     },
 
     remove(id) {
-      db.prepare('DELETE FROM tabs WHERE id = ?').run(id)
+      const tab = getById(id)
+      if (!tab) return
+      tx(db, () => {
+        db.prepare('DELETE FROM tabs WHERE id = ?').run(id)
+        const renumber = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ?')
+        listGroup(tab.workspaceId, tab.paneSlot).forEach((t, i) => renumber.run(i, t.id))
+      })
     },
 
-    // Does not open its own transaction; wrap in tx() when composing with other writes.
-    reorder(workspaceId, orderedIds) {
-      const update = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ? AND workspace_id = ?')
-      orderedIds.forEach((id, index) => update.run(index, id, workspaceId))
-      return listByWorkspace(workspaceId)
+    moveToGroup(id, slot, index) {
+      return tx(db, () => {
+        const tab = mustGet(id)
+        const place = db.prepare('UPDATE tabs SET pane_slot = ?, sort_order = ? WHERE id = ?')
+
+        // Removing the tab from the target list first is what makes a same-group move a plain
+        // reorder: the index the caller gave is a position among the other tabs either way.
+        const target = listGroup(tab.workspaceId, slot).filter((t) => t.id !== id)
+        target.splice(Math.min(Math.max(index, 0), target.length), 0, tab)
+        target.forEach((t, i) => place.run(slot, i, t.id))
+
+        if (tab.paneSlot !== slot) {
+          // The tab has already left, so the source group now reads as exactly the tabs that
+          // stay, and renumbering them closes the hole its departure left.
+          listGroup(tab.workspaceId, tab.paneSlot).forEach((t, i) => place.run(tab.paneSlot, i, t.id))
+        }
+
+        return listByWorkspace(tab.workspaceId)
+      })
     },
 
-    setPaneSlot(id, slot) {
+    regroup(workspaceId, from, to) {
+      return tx(db, () => {
+        const place = db.prepare('UPDATE tabs SET pane_slot = ?, sort_order = ? WHERE id = ?')
+        for (const a of regroupTabs(listByWorkspace(workspaceId), from, to)) {
+          place.run(a.paneSlot, a.sortOrder, a.id)
+        }
+        return listByWorkspace(workspaceId)
+      })
+    },
+
+    touchActive(id, at) {
       mustGet(id)
-      db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?').run(slot, id)
+      db.prepare('UPDATE tabs SET last_active_at = ? WHERE id = ?').run(at, id)
       return mustGet(id)
     },
 
     setResumeSessionId(id, resumeSessionId) {
       db.prepare('UPDATE tabs SET resume_session_id = ? WHERE id = ?').run(resumeSessionId, id)
-    },
-
-    setPaneSlots(assignments) {
-      const update = db.prepare('UPDATE tabs SET pane_slot = ? WHERE id = ?')
-      for (const a of assignments) update.run(a.paneSlot, a.id)
-    },
-
-    clearPaneSlot(workspaceId, slot, exceptId) {
-      db.prepare(
-        'UPDATE tabs SET pane_slot = NULL WHERE workspace_id = ? AND pane_slot = ? AND id != ?'
-      ).run(workspaceId, slot, exceptId)
     },
 
     setSuspended(id, reason) {

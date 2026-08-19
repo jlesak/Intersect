@@ -47,18 +47,18 @@ const api: IpcApi = {
   },
   tabs: {
     listByWorkspace: (wsId) => ipcRenderer.invoke(Channel.tabsListByWorkspace, wsId),
-    create: (wsId, preset, resumeSessionId, primaryWorkItem) =>
+    create: (wsId, preset, paneSlot, resumeSessionId, primaryWorkItem) =>
       ipcRenderer.invoke(
         Channel.tabsCreate,
         wsId,
         preset,
+        paneSlot,
         resumeSessionId ?? null,
         primaryWorkItem ?? null
       ),
     rename: (id, title) => ipcRenderer.invoke(Channel.tabsRename, id, title),
     remove: (id) => ipcRenderer.invoke(Channel.tabsRemove, id),
-    reorder: (wsId, orderedIds) => ipcRenderer.invoke(Channel.tabsReorder, wsId, orderedIds),
-    assignToPane: (id, slot) => ipcRenderer.invoke(Channel.tabsAssignToPane, id, slot),
+    moveTab: (id, slot, index) => ipcRenderer.invoke(Channel.tabsMoveTab, id, slot, index),
     setActive: (wsId, tabId) => ipcRenderer.invoke(Channel.tabsSetActive, wsId, tabId)
   },
   workItems: {

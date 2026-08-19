@@ -71,13 +71,26 @@ import type {
  * through the slice-local ipc modules. Because thrown errors only carry their `.message`
  * across the IPC boundary, handlers surface failures as message-only Errors.
  */
+/**
+ * What a layout switch produces: the workspace carrying its new layout, and every tab of that
+ * workspace with the group placement the merge gave it, in (paneSlot, sortOrder) order.
+ */
+export interface LayoutChange {
+  workspace: Workspace
+  tabs: Tab[]
+}
+
 export interface IpcApi {
   workspaces: {
     getState(): Promise<BootState>
     create(folderPath: string, name?: string): Promise<Workspace>
     rename(id: string, name: string): Promise<Workspace>
     remove(id: string): Promise<void>
-    setLayout(id: string, layout: Layout): Promise<Workspace>
+    /**
+     * Switch the split layout. Groups that disappear are merged into the surviving ones, so the
+     * regrouped tabs come back with the workspace and the renderer never has to recompute them.
+     */
+    setLayout(id: string, layout: Layout): Promise<LayoutChange>
     setActive(id: string): Promise<void>
     pickFolder(): Promise<string | null>
     /** Manually place the workspace in a project (null = the Other bucket); wins over inference. */
@@ -125,6 +138,7 @@ export interface IpcApi {
   tabs: {
     listByWorkspace(workspaceId: string): Promise<Tab[]>
     /**
+     * Append a tab at the end of `paneSlot`'s group and make it the workspace's active tab.
      * `resumeSessionId` makes a Claude tab launch `claude --resume <id>` (see Tab.resumeSessionId).
      * `primaryWorkItem` assigns the session's primary work item in the same transaction as the tab
      * itself (the card-launch path), also defaulting the tab title from the item's snapshot.
@@ -132,14 +146,23 @@ export interface IpcApi {
     create(
       workspaceId: string,
       preset: Preset,
+      paneSlot: number,
       resumeSessionId?: string | null,
       primaryWorkItem?: NewWorkItemRef | null
     ): Promise<Tab>
     rename(id: string, title: string): Promise<Tab>
     remove(id: string): Promise<void>
-    reorder(workspaceId: string, orderedIds: string[]): Promise<Tab[]>
-    assignToPane(id: string, slot: number | null): Promise<Tab>
-    setActive(workspaceId: string, tabId: string): Promise<void>
+    /**
+     * Move the tab into group `slot` at position `index` - a drag onto another group's bar, or a
+     * reorder inside one when the tab is already there. Returns the workspace's tabs in their new
+     * (paneSlot, sortOrder) order, both groups renumbered.
+     */
+    moveTab(id: string, slot: number, index: number): Promise<Tab[]>
+    /**
+     * Focus the tab: it becomes the workspace's active tab and its group's visible one. Returns
+     * the tab with its refreshed `lastActiveAt`.
+     */
+    setActive(workspaceId: string, tabId: string): Promise<Tab>
   }
   workItems: {
     /** Every primary ref of the workspace's tabs, each with its freshly computed state. */
@@ -535,8 +558,7 @@ export const Channel = {
   tabsCreate: 'tabs:create',
   tabsRename: 'tabs:rename',
   tabsRemove: 'tabs:remove',
-  tabsReorder: 'tabs:reorder',
-  tabsAssignToPane: 'tabs:assignToPane',
+  tabsMoveTab: 'tabs:moveTab',
   tabsSetActive: 'tabs:setActive',
   // workItems (request/response)
   workItemsListForWorkspace: 'workItems:listForWorkspace',
