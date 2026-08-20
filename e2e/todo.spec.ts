@@ -84,12 +84,30 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   const overdueRow = openRows(win).filter({ hasText: 'Update the dependencies' })
   await expect(overdueRow.locator('.ix-todo-item__due--overdue')).toHaveText(/yesterday/)
 
+  // The rail says how much is late without the list having to be read.
+  await expect(win.locator('.ix-todo-rail__due-line--overdue')).toHaveText('1 overdue')
+
   // Due dates never override insertion/manual order.
   await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText([
     'Ask Marek about the review',
     'Check the deploy logs',
     'Update the dependencies'
   ])
+})
+
+test('the add box reads a due date off the typed words and says so first', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+
+  const input = win.getByPlaceholder('Add a task… (Enter)')
+  await input.fill('Call the vendor tomorrow')
+  await expect(win.locator('.ix-todo__add-hint')).toHaveText(/Call the vendor, due tomorrow/)
+  await input.press('Enter')
+
+  const row = openRows(win).first()
+  await expect(row.locator('.ix-todo-item__text')).toHaveText('Call the vendor')
+  await expect(row.locator('.ix-todo-item__due')).toHaveText(/tomorrow/)
+  await expect(win.locator('.ix-todo__add-hint')).toHaveCount(0)
 })
 
 test('a click only selects a row; the editor waits for a double-click', async () => {

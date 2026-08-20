@@ -2872,6 +2872,19 @@
   color: var(--text-dim);
 }
 
+/* What the deadlines say, in the rail, with the list off screen. */
+.ix-todo-rail__due {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-todo-rail__due-line--overdue {
+  color: var(--danger);
+}
+
 .ix-todo__add {
   display: flex;
   align-items: center;
@@ -2880,6 +2893,16 @@
 }
 .ix-todo__add .ix-input {
   flex: 1;
+}
+/* What the typed date words will do, shown before Enter is pressed: the title that will be
+   stored, and the day it will be pinned to. */
+.ix-todo__add-hint {
+  margin: -12px 0 14px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.ix-todo__add-hint-text {
+  color: var(--text-dim);
 }
 .ix-todo__add .ix-todo__date {
   flex: none;

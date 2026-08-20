@@ -284,6 +284,116 @@ describe('TodoView row activation', () => {
   })
 })
 
+/** What the add box makes of the words it is given, and what it shows before it acts on them. */
+describe('TodoView add box', () => {
+  // 2026-08-07 is a Friday, so every relative wording below is read against that day.
+  const FRIDAY = '2026-08-07'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 7, 7, 12))
+    mocked.list.mockResolvedValue({ open: [], done: [] })
+    mocked.add.mockReset()
+    useTodoStore.setState({
+      status: 'ready',
+      error: null,
+      open: [],
+      done: [],
+      showDone: false,
+      pendingFocusId: null
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    useTodoStore.setState({ status: 'idle', open: [], done: [], pendingFocusId: null })
+  })
+
+  const mount = async (): Promise<HTMLElement> => {
+    await act(async () => {
+      render(<TodoView />)
+    })
+    return screen.getByPlaceholderText('Add a task… (Enter)')
+  }
+
+  const hint = (): string | null =>
+    document.querySelector('.ix-todo__add-hint')?.textContent ?? null
+
+  test('a trailing date word becomes the due day and leaves the title', async () => {
+    const input = await mount()
+
+    fireEvent.change(input, { target: { value: 'call the vendor tomorrow' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mocked.add).toHaveBeenCalledWith('call the vendor', '2026-08-08')
+  })
+
+  test('the whole grammar reaches the add box, not just the words it used to know', async () => {
+    const input = await mount()
+
+    fireEvent.change(input, { target: { value: 'ship the release 3d' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mocked.add).toHaveBeenCalledWith('ship the release', '2026-08-10')
+  })
+
+  test('the hint shows the title and the day before Enter is pressed', async () => {
+    const input = await mount()
+
+    fireEvent.change(input, { target: { value: 'call the vendor tomorrow' } })
+
+    expect(hint()).toContain('call the vendor')
+    expect(hint()).toContain('due tomorrow')
+  })
+
+  test('text that names no day stays whole and raises no hint', async () => {
+    const input = await mount()
+
+    fireEvent.change(input, { target: { value: 'tomorrow is the deadline' } })
+    expect(hint()).toBeNull()
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mocked.add).toHaveBeenCalledWith('tomorrow is the deadline', null)
+  })
+
+  test('a task that is only a date word keeps its text and gets no due day', async () => {
+    const input = await mount()
+
+    fireEvent.change(input, { target: { value: 'tomorrow' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mocked.add).toHaveBeenCalledWith('tomorrow', null)
+  })
+
+  test('a picked date wins, and its presence leaves every word in the title', async () => {
+    const input = await mount()
+
+    fireEvent.click(screen.getByTitle('Add due date'))
+    fireEvent.change(document.querySelector('.ix-todo__date') as HTMLElement, {
+      target: { value: FRIDAY }
+    })
+    fireEvent.change(input, { target: { value: 'call the vendor tomorrow' } })
+
+    // Nothing is being guessed while an explicit day is standing, so nothing is announced either.
+    expect(hint()).toBeNull()
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(mocked.add).toHaveBeenCalledWith('call the vendor tomorrow', FRIDAY)
+  })
+})
+
 /** The menu a row raises at the pointer, and the one thing it can do that the row cannot. */
 describe('TodoView task menu', () => {
   const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }

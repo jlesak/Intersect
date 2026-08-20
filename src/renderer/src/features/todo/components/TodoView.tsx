@@ -5,6 +5,8 @@ import { launchFromTodoTask } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconPlay, IconTrash } from '@renderer/shared/ui/icons'
 import { copyTodoTask } from '../clipboard'
+import { formatDueDay } from '../due'
+import { parseDueFromText } from '../dueInput'
 import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
 
@@ -128,10 +130,16 @@ export function TodoView() {
 
   const menuTask = menu === null ? undefined : [...open, ...done].find((t) => t.id === menu.id)
 
+  // A date picked by hand is an explicit instruction, so it wins and suppresses the reading of the
+  // text entirely: with the picker holding a day, no word is taken out of the title either.
+  const today = dayKeyOf(Date.now())
+  const typedDue = dueDay === '' ? parseDueFromText(text, today) : null
+
   function submit(): void {
     const trimmed = text.trim()
     if (!trimmed) return
-    void useTodoStore.getState().add(trimmed, dueDay || null)
+    const parsed = typedDue ?? { text: trimmed, dueDay: dueDay || null }
+    void useTodoStore.getState().add(parsed.text, parsed.dueDay)
     setText('')
     setDueDay('')
     setShowDate(false)
@@ -241,6 +249,13 @@ export function TodoView() {
             <IconCalendar />
           </button>
         </div>
+
+        {typedDue !== null && typedDue.dueDay !== null && (
+          <div className="ix-todo__add-hint">
+            Adds <span className="ix-todo__add-hint-text">{typedDue.text}</span>, due{' '}
+            {formatDueDay(typedDue.dueDay, today)}
+          </div>
+        )}
 
         {status === 'error' && (
           <div className="ix-todo__error">Could not load tasks{error ? `: ${error}` : ''}</div>
