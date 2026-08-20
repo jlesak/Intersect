@@ -1,4 +1,4 @@
-export { useTimeTrackingStore } from './store'
+export { useTimeTrackingStore, type WeekExportFormat } from './store'
 export {
   formatDayDate,
   formatTotal,
@@ -10,3 +10,4 @@ export {
 } from './time'
 export { registerTimeTrackingFeature } from './register'
 export { TimerControl } from './components/TimerControl'
+export { SidebarTimer } from './components/SidebarTimer'

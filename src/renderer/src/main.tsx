@@ -25,6 +25,7 @@ import { useCommandPaletteStore } from './features/commandPalette'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
+import { useTimeTrackingStore } from './features/timeTracking'
 import { useTodoStore } from './features/todo'
 import { useUsageStore } from './features/usage'
 import { SETTINGS_SECTION_ID } from './features/settings'
@@ -123,6 +124,10 @@ if (!safeMode) {
   // Load the task list at boot: the rail's open-task count and the Dashboard's deadlines both read
   // it without the user ever having opened the TODO section.
   void useTodoStore.getState().load()
+  // Read the running work timer, so a timer left running across a relaunch is on screen wherever
+  // the user opens the app. Deliberately narrower than hydrate(): the week itself is pulled only by
+  // the surfaces that show it.
+  void useTimeTrackingStore.getState().loadTimer()
   // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice).
   wireSessionResume()
   // Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).

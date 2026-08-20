@@ -10,6 +10,7 @@ vi.mock('@renderer/shared/ui/toast', () => ({
 }))
 import * as api from './ipc'
 import { useTimeTrackingStore } from './store'
+import { formatWeekRange } from './time'
 
 const mocked = vi.mocked(api)
 
@@ -38,7 +39,8 @@ const reset = (): void => {
       error: null,
       weekStart: CURRENT_WEEK,
       entries: [],
-      timer: null
+      timer: null,
+      summaryOpen: false
     },
     false
   )
@@ -275,5 +277,124 @@ describe('the work timer', () => {
     mocked.updateTimer.mockResolvedValue(TIMER)
     await useTimeTrackingStore.getState().updateTimer('Refactor validators', 'FID2507-611')
     expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
+  })
+})
+
+describe('the weekly summary panel', () => {
+  test('starts collapsed so the board keeps its full height', () => {
+    expect(useTimeTrackingStore.getState().summaryOpen).toBe(false)
+  })
+
+  test('toggles open and shut', () => {
+    useTimeTrackingStore.getState().toggleSummary()
+    expect(useTimeTrackingStore.getState().summaryOpen).toBe(true)
+    useTimeTrackingStore.getState().toggleSummary()
+    expect(useTimeTrackingStore.getState().summaryOpen).toBe(false)
+  })
+})
+
+describe('copying the week', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+  const RANGE = formatWeekRange(CURRENT_WEEK)
+
+  /** A board already on screen: the week has been read and these are the entries it holds. */
+  const loaded = (...entries: TimeEntry[]): void => {
+    useTimeTrackingStore.setState({ status: 'ready', error: null, entries })
+  }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+  })
+
+  test('puts the shown week on the clipboard as a readable block', async () => {
+    loaded(entry('a', { issueKey: 'FID2507-611', description: 'Refactor', durationMs: 90 * 60_000 }))
+    await useTimeTrackingStore.getState().copyWeek('text')
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date\tIssue\tDescription\tDuration\n${CURRENT_WEEK}\tFID2507-611\tRefactor\t1h 30m\nTotal\t\t\t1h 30m`
+    )
+    expect(toastMocks.push).toHaveBeenCalledWith(`Copied 1 entry as text (${RANGE}).`)
+  })
+
+  test('CSV writes decimal hours a timesheet column can sum', async () => {
+    loaded(entry('a', { issueKey: null, description: 'Sprint review', durationMs: 30 * 60_000 }))
+    await useTimeTrackingStore.getState().copyWeek('csv')
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date,Issue,Description,Duration\n${CURRENT_WEEK},,Sprint review,0.50`
+    )
+    expect(toastMocks.push).toHaveBeenCalledWith(`Copied 1 entry as CSV (${RANGE}).`)
+  })
+
+  // The palette offers the export from every section, so the ordinary case is a renderer where
+  // the board has never been mounted and the week has therefore never been read.
+  test('a copy from a never-loaded store reads the week rather than exporting nothing', async () => {
+    mocked.getWeek.mockResolvedValue([
+      entry('a', { issueKey: 'FID2507-611', description: 'Refactor', durationMs: 90 * 60_000 })
+    ])
+    expect(useTimeTrackingStore.getState().status).toBe('idle')
+
+    await useTimeTrackingStore.getState().copyWeek('csv')
+
+    expect(mocked.getWeek).toHaveBeenCalledWith(CURRENT_WEEK)
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date,Issue,Description,Duration\n${CURRENT_WEEK},FID2507-611,Refactor,1.50`
+    )
+    expect(toastMocks.push).toHaveBeenCalledWith(`Copied 1 entry as CSV (${RANGE}).`)
+  })
+
+  test('a copy after a failed load reads the week again instead of exporting the blank board', async () => {
+    useTimeTrackingStore.setState({ status: 'error', error: 'db gone', entries: [] })
+    mocked.getWeek.mockResolvedValue([
+      entry('a', { issueKey: null, description: 'Sprint review', durationMs: 30 * 60_000 })
+    ])
+
+    await useTimeTrackingStore.getState().copyWeek('csv')
+
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date,Issue,Description,Duration\n${CURRENT_WEEK},,Sprint review,0.50`
+    )
+  })
+
+  test('a week that cannot be read is reported as a failure, never claimed to be empty', async () => {
+    mocked.getWeek.mockRejectedValue(new Error('db gone'))
+
+    await useTimeTrackingStore.getState().copyWeek('csv')
+
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+    expect(toastMocks.push).not.toHaveBeenCalled()
+    expect(toastMocks.reportError).toHaveBeenCalledWith('Could not copy the week as CSV', 'db gone')
+  })
+
+  test('a genuinely empty week says so, and names the week it means', async () => {
+    mocked.getWeek.mockResolvedValue([])
+    await useTimeTrackingStore.getState().copyWeek('csv')
+    expect(clipboard.writeText).toHaveBeenCalledWith('Date,Issue,Description,Duration')
+    expect(toastMocks.push).toHaveBeenCalledWith(
+      `The week ${RANGE} has no entries. Copied the CSV header alone.`
+    )
+  })
+
+  test('a refused clipboard is reported, never an unhandled rejection', async () => {
+    loaded(entry('a'))
+    clipboard.writeText.mockRejectedValue(new Error('denied'))
+    await useTimeTrackingStore.getState().copyWeek('text')
+    expect(toastMocks.reportError).toHaveBeenCalled()
+    expect(toastMocks.push).not.toHaveBeenCalled()
+  })
+})
+
+describe('loadTimer', () => {
+  test('reads the running timer without pulling a week', async () => {
+    mocked.getTimer.mockResolvedValue(TIMER)
+    await useTimeTrackingStore.getState().loadTimer()
+    expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
+    expect(mocked.getWeek).not.toHaveBeenCalled()
+  })
+
+  test('a core that cannot answer leaves the board alone rather than erroring', async () => {
+    mocked.getTimer.mockRejectedValue(new Error('core down'))
+    await useTimeTrackingStore.getState().loadTimer()
+    expect(useTimeTrackingStore.getState().timer).toBeNull()
+    expect(useTimeTrackingStore.getState().status).toBe('idle')
   })
 })

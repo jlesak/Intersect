@@ -1071,6 +1071,15 @@
   font-weight: 700;
   text-align: center;
 }
+/* A marker rather than a count: the rail says a timer is running, the chip below says how long. */
+.ix-rail__badge--dot {
+  min-width: 7px;
+  height: 7px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  align-self: center;
+}
 .ix-pr-vote {
   display: inline-flex;
   align-items: center;
@@ -2841,6 +2850,104 @@
   padding: 0 9px;
 }
 
+/* ---------------- time tracking: the weekly summary and export strip ---------------- */
+/* The header is always on screen, collapsed panel or not: it carries the timesheet export. */
+.ix-tt-summary {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.ix-tt-summary__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+}
+.ix-tt-summary__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+.ix-tt-summary__count {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-right: auto;
+}
+.ix-tt-summary__head .ix-btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+/* Two independent rollups side by side; each scrolls on its own so a long week cannot push the
+   board off the screen. The height cap belongs on the columns rather than on the grid that holds
+   them: a cap on the grid leaves its row track sized to the taller column's content, so the
+   columns keep their full height and draw their surplus rows over the board instead of scrolling.
+   Capping the columns also keeps a short week at its own height, since the row track then follows
+   the taller column up to the cap and stops there. */
+.ix-tt-summary__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-top: 1px solid var(--border);
+}
+.ix-tt-summary__group {
+  background: var(--bg);
+  padding: 8px 20px 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+.ix-tt-summary__group-head {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+}
+.ix-tt-summary__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.ix-tt-summary__label {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The bucket that holds whatever nothing else claimed, in the same italic treatment the cards
+   use for an entry with no issue. */
+.ix-tt-summary__label--catch-all {
+  font-style: italic;
+  color: var(--text-faint);
+}
+.ix-tt-summary__entries {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ix-tt-summary__total {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ix-tt-summary__empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
 /* ---------------- TODO list ---------------- */
 .ix-todo {
   flex: 1;
@@ -2876,14 +2983,44 @@
   color: var(--text-dim);
 }
 
+/* What the deadlines say, in the rail, with the list off screen. */
+.ix-todo-rail__due {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-todo-rail__due-line--overdue {
+  color: var(--danger);
+}
+
 .ix-todo__add {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 6px;
 }
 .ix-todo__add .ix-input {
   flex: 1;
+}
+/* What the typed date words will do, shown before Enter is pressed: the title that will be
+   stored, and the day it will be pinned to. The line holds its place whether it has something
+   to say or not, and stays exactly one line tall, so the list below sits still while the
+   reading of the text changes under the cursor. */
+.ix-todo__add-hint {
+  min-height: 16px;
+  line-height: 16px;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ix-todo__add-hint-text {
+  color: var(--text-dim);
 }
 .ix-todo__add .ix-todo__date {
   flex: none;
@@ -2932,10 +3069,16 @@
 .ix-todo-item--dragging {
   opacity: 0.45;
 }
-/* The row the user was sent here to look at: found, not selected, so the mark expires on its own. */
+/* The row the user was sent here to look at: found, so the mark expires on its own. */
 .ix-todo-item--focused {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+/* The row the user pointed at. Quieter than the arrival mark, and it stays until another is
+   clicked, so the two read as different things when both are on screen. */
+.ix-todo-item--selected {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--border-strong);
 }
 .ix-todo-item__drag,
 .ix-todo-item__drag-spacer {
@@ -3188,10 +3331,11 @@
 }
 
 /* run history */
+/* The children here are one person's runs each, so the gap separates people. */
 .ix-oto-runs {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
 }
 .ix-oto-run {
   display: flex;
@@ -3225,11 +3369,6 @@
   color: var(--status-working);
   background: var(--status-working-soft);
 }
-.ix-oto-run__person {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
 .ix-oto-run__time {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -3248,6 +3387,32 @@
 }
 .ix-oto-run__status--failed {
   color: var(--danger);
+}
+.ix-oto-run__retry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ix-oto-run__retry-error {
+  color: var(--danger);
+  font-size: 11.5px;
+}
+/* One person's runs, under their name, so the last conversation is not buried under everyone
+   else's. */
+.ix-oto-person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ix-oto-person__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ix-oto-person__runs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .ix-oto-run__links {
   display: flex;
@@ -3300,6 +3465,17 @@
 .ix-oto-prep-body ul {
   margin: 0;
   padding-left: 18px;
+}
+
+/* The running work timer in the shell, directly above the usage panel. Present only while a timer
+   runs, so an idle sidebar carries no second Start button. */
+.ix-sidebar__timer {
+  flex: none;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+.ix-sidebar__timer .ix-timer {
+  justify-content: space-between;
 }
 
 /* Claude usage panel: always-visible sidebar block mirroring Claude Code's own /usage. */

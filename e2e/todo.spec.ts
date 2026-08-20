@@ -84,12 +84,65 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   const overdueRow = openRows(win).filter({ hasText: 'Update the dependencies' })
   await expect(overdueRow.locator('.ix-todo-item__due--overdue')).toHaveText(/yesterday/)
 
+  // The rail says how much is late without the list having to be read.
+  await expect(win.locator('.ix-todo-rail__due-line--overdue')).toHaveText('1 overdue')
+
   // Due dates never override insertion/manual order.
   await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText([
     'Ask Marek about the review',
     'Check the deploy logs',
     'Update the dependencies'
   ])
+})
+
+test('the add box reads a due date off the typed words and says so first', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+
+  const input = win.getByPlaceholder('Add a task… (Enter)')
+  await input.fill('Call the vendor tomorrow')
+  await expect(win.locator('.ix-todo__add-hint')).toHaveText(/Call the vendor, due tomorrow/)
+  await input.press('Enter')
+
+  const row = openRows(win).first()
+  await expect(row.locator('.ix-todo-item__text')).toHaveText('Call the vendor')
+  await expect(row.locator('.ix-todo-item__due')).toHaveText(/tomorrow/)
+  // The line keeps its place so the list does not jump; with the box empty it says nothing.
+  await expect(win.locator('.ix-todo__add-hint')).toHaveText('')
+})
+
+test('a click only selects a row; the editor waits for a double-click', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await addTask(win, 'Review the migration')
+
+  const row = openRows(win).first()
+  await row.click()
+  await expect(row).toHaveClass(/ix-todo-item--selected/)
+  await expect(win.locator('.ix-todo-item--editing')).toHaveCount(0)
+
+  await row.dblclick()
+  await expect(win.locator('.ix-todo-item--editing')).toHaveCount(1)
+  await expect(win.locator('.ix-todo-item--selected')).toHaveCount(0)
+})
+
+test('a right-click raises the task menu, and Delete from it removes the row', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await addTask(win, 'keep me')
+  await addTask(win, 'menu victim')
+
+  await openRows(win).filter({ hasText: 'menu victim' }).click({ button: 'right' })
+  await expect(win.locator('.ix-menu__item')).toHaveText([
+    'Start session',
+    'Copy task',
+    'Edit',
+    'Delete'
+  ])
+
+  await win.locator('.ix-menu__item', { hasText: 'Delete' }).click()
+  await expect(win.locator('.ix-menu')).toHaveCount(0)
+  await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText(['keep me'])
 })
 
 test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
@@ -225,7 +278,7 @@ test('pointer and keyboard reorder persist across renderer reload and app restar
   ])
 })
 
-test('a row starts a Claude session on the task without opening its editor', async () => {
+test('a row starts a Claude session that carries the task as its work item', async () => {
   const profileDir = userDataDir()
   const wsDir = tempDir('todo-ws-')
   const { app, win } = await launch(profileDir, { openOther: true })
