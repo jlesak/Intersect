@@ -1067,6 +1067,15 @@
   font-weight: 700;
   text-align: center;
 }
+/* A marker rather than a count: the rail says a timer is running, the chip below says how long. */
+.ix-rail__badge--dot {
+  min-width: 7px;
+  height: 7px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  align-self: center;
+}
 .ix-pr-vote {
   display: inline-flex;
   align-items: center;
@@ -2837,6 +2846,104 @@
   padding: 0 9px;
 }
 
+/* ---------------- time tracking: the weekly summary and export strip ---------------- */
+/* The header is always on screen, collapsed panel or not: it carries the timesheet export. */
+.ix-tt-summary {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.ix-tt-summary__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+}
+.ix-tt-summary__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+.ix-tt-summary__count {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-right: auto;
+}
+.ix-tt-summary__head .ix-btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+/* Two independent rollups side by side; each scrolls on its own so a long week cannot push the
+   board off the screen. The height cap belongs on the columns rather than on the grid that holds
+   them: a cap on the grid leaves its row track sized to the taller column's content, so the
+   columns keep their full height and draw their surplus rows over the board instead of scrolling.
+   Capping the columns also keeps a short week at its own height, since the row track then follows
+   the taller column up to the cap and stops there. */
+.ix-tt-summary__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-top: 1px solid var(--border);
+}
+.ix-tt-summary__group {
+  background: var(--bg);
+  padding: 8px 20px 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+.ix-tt-summary__group-head {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+}
+.ix-tt-summary__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.ix-tt-summary__label {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The bucket that holds whatever nothing else claimed, in the same italic treatment the cards
+   use for an entry with no issue. */
+.ix-tt-summary__label--catch-all {
+  font-style: italic;
+  color: var(--text-faint);
+}
+.ix-tt-summary__entries {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ix-tt-summary__total {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ix-tt-summary__empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
 /* ---------------- TODO list ---------------- */
 .ix-todo {
   flex: 1;
@@ -3296,6 +3403,17 @@
 .ix-oto-prep-body ul {
   margin: 0;
   padding-left: 18px;
+}
+
+/* The running work timer in the shell, directly above the usage panel. Present only while a timer
+   runs, so an idle sidebar carries no second Start button. */
+.ix-sidebar__timer {
+  flex: none;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+.ix-sidebar__timer .ix-timer {
+  justify-content: space-between;
 }
 
 /* Claude usage panel: always-visible sidebar block mirroring Claude Code's own /usage. */

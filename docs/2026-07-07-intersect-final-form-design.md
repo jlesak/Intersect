@@ -4,6 +4,12 @@ Vysokoúrovňová produktová specifikace cílové podoby celé aplikace. Datum:
 Status: **schváleno** (původní interview + Lavish review; 2026-07-11 doplněno schváleným
 Watchtower copy/inspiration review a aktualizovanou roadmapou).
 
+> **Doplněno 2026-08-20:** Time tracking je nativní a nativní zůstane. Zmínky o Togglu a o
+> end-of-day reconcile do Togglu níže v textu popisují původní záměr a jsou překonané schváleným
+> rozhodnutím. Vazba projektu na Toggl je z domény i z databáze odstraněná. Intersect vede vlastní
+> worklog, běžící časovač, týdenní přehled podle issue a podle projektu a export týdne do schránky
+> pro firemní timesheet.
+
 Vychází z: implementovaného stavu (workspaces + terminály, command palette, attention notifikace,
 session search, PR Inbox, My Work, time tracking), otevřených issues #4 #5 #7 #8, analýzy 6 měsíců
 Claude Code historie uživatele (6 237 promptů, 326 spuštění CLI) a výzkumu 25+ nástrojů v kategoriích

@@ -6,12 +6,14 @@ import { useAgentRuntimeStore } from '../agentRuntimeStore'
 import { formatTotal, formatWeekRange, groupByDay, totalMs } from '../time'
 import { DayColumn } from './DayColumn'
 import { TimerControl } from './TimerControl'
+import { WeekSummary } from './WeekSummary'
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 
 /**
  * The Time Tracking section's main region: a topbar (week navigation + weekly total) over the
- * five-weekday board. Loads the current week on first mount, mirroring how SessionsView hydrates.
+ * weekly summary and the five-weekday board. Loads the current week on first mount, mirroring how
+ * SessionsView hydrates.
  */
 export function TimeTrackingView() {
   const weekStart = useTimeTrackingStore((s) => s.weekStart)
@@ -80,6 +82,8 @@ export function TimeTrackingView() {
             </button>
           </div>
         )}
+
+        <WeekSummary />
 
         <div className="ix-tt__board">
           {days.map((day, i) => (

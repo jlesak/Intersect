@@ -2,16 +2,24 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 vi.mock('./ipc')
 vi.mock('./agentRuntimeIpc')
-import { dayKeyOf } from '@common/week'
+import type { TimeEntry } from '@common/domain'
+import { dayKeyOf, weekStartOf } from '@common/week'
 import {
   __resetCaptureRegistryForTests,
   matchCapture
 } from '@renderer/shared/registries/captureRegistry'
-import { __resetCommandRegistryForTests } from '@renderer/shared/registries/commandRegistry'
-import { __resetSidebarRegistryForTests } from '@renderer/shared/registries/sidebarRegistry'
+import {
+  __resetCommandRegistryForTests,
+  getCommand
+} from '@renderer/shared/registries/commandRegistry'
+import {
+  __resetSidebarRegistryForTests,
+  getSidebarSections
+} from '@renderer/shared/registries/sidebarRegistry'
 import { useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 import { registerTimeTrackingFeature } from './register'
+import { useTimeTrackingStore } from './store'
 
 const mocked = vi.mocked(api)
 
@@ -99,5 +107,51 @@ describe('the time: capture', () => {
     await capture('time: sprint review')
     expect(mocked.addManual).not.toHaveBeenCalled()
     expect(messages()).toEqual([])
+  })
+})
+
+describe('the week export commands', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  const WEEK = weekStartOf(Date.now())
+  const LOGGED: TimeEntry = {
+    id: 'a',
+    source: 'manual',
+    day: WEEK,
+    description: 'Sprint review',
+    issueKey: 'FID2507-611',
+    durationMs: 30 * 60_000
+  }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    // The state a fresh renderer is in: the app boots on a project workspace, so nothing has
+    // mounted the board and the week has never been read. The command has to read it itself.
+    useTimeTrackingStore.setState({ status: 'idle', error: null, entries: [], weekStart: WEEK })
+    mocked.getWeek.mockResolvedValue([LOGGED])
+  })
+
+  test('copy as text reads the week itself, so an unvisited board still exports', async () => {
+    await getCommand('timeTracking.copyWeekText')!.handler()
+    expect(mocked.getWeek).toHaveBeenCalledWith(WEEK)
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date\tIssue\tDescription\tDuration\n${WEEK}\tFID2507-611\tSprint review\t30m\nTotal\t\t\t30m`
+    )
+    expect(messages().some((m) => m.includes('no entries'))).toBe(false)
+  })
+
+  test('copy as CSV puts the same week on the clipboard as columns', async () => {
+    await getCommand('timeTracking.copyWeekCsv')!.handler()
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      `Date,Issue,Description,Duration\n${WEEK},FID2507-611,Sprint review,0.50`
+    )
+  })
+})
+
+describe('the sidebar section', () => {
+  test('carries a running-timer marker, so the icon rail can show one too', () => {
+    const section = getSidebarSections().find((s) => s.id === 'timeTracking')
+    expect(section?.badge).toBeTypeOf('function')
   })
 })

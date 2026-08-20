@@ -56,64 +56,68 @@ const MONDAY_LONG_GAPS = [8, 9, 7, 9, 8, 9, 6, 7]
 const MONDAY_SHORT_GAPS = [5, 7]
 const TUESDAY_IDLE_GAPS = [60]
 
+/** Write one session file into a fixture tree. */
+function writeSession(projectsDir: string, folder: string, id: string, lines: object[]): void {
+  const dir = join(projectsDir, folder)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'))
+}
+
+/**
+ * One session file: an untimestamped title record, then alternating user/assistant records placed
+ * at the running sum of `gapMinutes` after `startHour`. Several records per session is what lets
+ * the fixture dictate an exact active time - two records alone can only ever express one gap.
+ */
+function session(
+  title: string,
+  day: string,
+  startHour: number,
+  gapMinutes: number[],
+  gitBranch: string
+): object[] {
+  const records: object[] = [
+    { type: 'ai-title', aiTitle: title },
+    {
+      type: 'user',
+      message: { role: 'user', content: 'do the work' },
+      timestamp: isoAt(day, startHour),
+      cwd: '/tmp/proj',
+      gitBranch,
+      isMeta: false
+    }
+  ]
+  let minute = 0
+  gapMinutes.forEach((gap, i) => {
+    minute += gap
+    const timestamp = isoAt(day, startHour, minute)
+    records.push(
+      i % 2 === 0
+        ? {
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+            timestamp,
+            cwd: '/tmp/proj'
+          }
+        : {
+            type: 'user',
+            message: { role: 'user', content: 'keep going' },
+            timestamp,
+            cwd: '/tmp/proj',
+            isMeta: false
+          }
+    )
+  })
+  return records
+}
+
 /**
  * A fixture `~/.claude/projects`-shaped tree with sessions at known weekdays/durations/branches of
  * the current week, so the board has deterministic auto entries without touching real user data.
  */
 function buildProjectsFixture(): string {
   const projectsDir = tempDir('intersect-tt-')
-  const write = (folder: string, id: string, lines: object[]): void => {
-    const dir = join(projectsDir, folder)
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'))
-  }
-
-  /**
-   * One session file: an untimestamped title record, then alternating user/assistant records placed
-   * at the running sum of `gapMinutes` after `startHour`. Several records per session is what lets
-   * the fixture dictate an exact active time - two records alone can only ever express one gap.
-   */
-  const session = (
-    title: string,
-    day: string,
-    startHour: number,
-    gapMinutes: number[],
-    gitBranch: string
-  ): object[] => {
-    const records: object[] = [
-      { type: 'ai-title', aiTitle: title },
-      {
-        type: 'user',
-        message: { role: 'user', content: 'do the work' },
-        timestamp: isoAt(day, startHour),
-        cwd: '/tmp/proj',
-        gitBranch,
-        isMeta: false
-      }
-    ]
-    let minute = 0
-    gapMinutes.forEach((gap, i) => {
-      minute += gap
-      const timestamp = isoAt(day, startHour, minute)
-      records.push(
-        i % 2 === 0
-          ? {
-              type: 'assistant',
-              message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
-              timestamp,
-              cwd: '/tmp/proj'
-            }
-          : {
-              type: 'user',
-              message: { role: 'user', content: 'keep going' },
-              timestamp,
-              cwd: '/tmp/proj',
-              isMeta: false
-            }
-      )
-    })
-    return records
-  }
+  const write = (folder: string, id: string, lines: object[]): void =>
+    writeSession(projectsDir, folder, id, lines)
 
   write(
     'proj-a',
@@ -145,6 +149,25 @@ function buildProjectsFixture(): string {
   return projectsDir
 }
 
+/**
+ * A fixture week spread over `issues` distinct issue keys, one Monday session each. The summary
+ * panel is height-capped, so only a rollup with more buckets than fit can show whether the column
+ * scrolls inside the panel or draws its surplus rows over the board below.
+ */
+function buildManyIssuesFixture(issues: number): string {
+  const projectsDir = tempDir('intersect-tt-wide-')
+  for (let i = 0; i < issues; i++) {
+    const key = 600 + i
+    writeSession(
+      projectsDir,
+      'proj-a',
+      `eeeeeeee-0000-0000-0000-${String(i).padStart(12, '0')}`,
+      session(`Work item ${key}`, MONDAY, 8, [5], `feature/fid2507-${key}-work`)
+    )
+  }
+  return projectsDir
+}
+
 /** Boot the app against the fixture tree; the harness default would show an empty projects dir. */
 async function launchWithFixture(
   profileDir: string,
@@ -158,6 +181,12 @@ async function openTimeTracking(win: Page): Promise<void> {
 }
 
 const dayColumn = (win: Page, day: string): Locator => win.locator(`.ix-tt__day[data-day="${day}"]`)
+
+// The timer is mounted on several surfaces at once (the section topbar, the Dashboard zone, and
+// the app shell while one runs), so every locator here names the surface it means.
+const topbarTimer = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__action')
+const topbarElapsed = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__elapsed')
+const shellTimer = (win: Page): Locator => win.locator('.ix-sidebar__timer')
 
 /** A day's nth card, needed wherever a column holds more than one. */
 const cardAt = (column: Locator, index: number): Locator =>
@@ -345,28 +374,35 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
   const first = await launch(profileDir)
   await openTimeTracking(first.win)
 
-  // Nothing has been started, so the control offers exactly one action.
-  await expect(first.win.locator('.ix-timer__action')).toHaveText('Start')
-  await first.win.locator('.ix-timer__action').click()
-  await expect(first.win.locator('.ix-timer__action')).toHaveText('Stop')
-  await expect(first.win.locator('.ix-timer__elapsed')).toBeVisible()
+  // Nothing has been started, so the control offers exactly one action, and the shell carries no
+  // chip at all.
+  await expect(topbarTimer(first.win)).toHaveText('Start')
+  await expect(shellTimer(first.win)).toHaveCount(0)
+  await topbarTimer(first.win).click()
+  await expect(topbarTimer(first.win)).toHaveText('Stop')
+  await expect(topbarElapsed(first.win)).toBeVisible()
   await first.app.close()
 
   // The timer is durable state, not renderer state: it is still running after a full restart.
   const second = await launch(profileDir)
   await openTimeTracking(second.win)
-  await expect(second.win.locator('.ix-timer__action')).toHaveText('Stop')
+  await expect(topbarTimer(second.win)).toHaveText('Stop')
 
   // A start-then-stop under a second is treated as a misclick and discarded, and a relaunch takes
   // well under that, so the span has to be given time to cross the floor deliberately. Waiting on
   // the ticking figure to reach two seconds is the wait itself: it measures elapsed time from the
   // durable start, so past this point the stop below is guaranteed to reach the logging path.
-  await expect(second.win.locator('.ix-timer__elapsed')).toHaveText(
+  await expect(topbarElapsed(second.win)).toHaveText(
     /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d(:\d\d)?)$/
   )
 
-  await second.win.locator('.ix-timer__action').click()
-  await expect(second.win.locator('.ix-timer__action')).toHaveText('Start')
+  // The shell chip is the whole point of a running timer being visible outside its own section:
+  // it counts alongside the topbar and offers the same Stop.
+  await expect(shellTimer(second.win).locator('.ix-timer__action')).toHaveText('Stop')
+
+  await topbarTimer(second.win).click()
+  await expect(topbarTimer(second.win)).toHaveText('Start')
+  await expect(shellTimer(second.win)).toHaveCount(0)
 
   // Stopping logged the span as an ordinary card on today's column, editable like any other. It
   // was started without a description, so it carries the neutral fallback label. The board only
@@ -376,4 +412,94 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
     await expect(today.locator('.ix-tt-card')).toHaveCount(1)
     await expect(today.locator('.ix-tt-card__title')).toHaveValue('Timed work')
   }
+})
+
+test('the weekly summary rolls the board up two ways and copies the week for a timesheet', async () => {
+  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
+  await openTimeTracking(win)
+
+  // Collapsed at first so the board keeps its full height, with the export reachable either way.
+  const summary = win.locator('.ix-tt-summary')
+  await expect(summary.locator('.ix-tt-summary__body')).toHaveCount(0)
+  await expect(summary.locator('.ix-tt-summary__count')).toHaveText('2 issues · 0 projects')
+
+  await summary.locator('.ix-tt-summary__toggle').click()
+
+  // A short week sits at its own content height: the panel's cap bounds it rather than padding it
+  // out to a fixed block of empty space above the board.
+  expect(
+    await summary.locator('.ix-tt-summary__body').evaluate((el) => el.getBoundingClientRect().height)
+  ).toBeLessThan(240)
+
+  // Per issue: the same figures the cards carry, heaviest first, with the unattributed Tuesday
+  // session in its own named bucket rather than dropped.
+  const byIssue = summary.locator('[data-rollup="By issue"]')
+  await expect(byIssue.locator('.ix-tt-summary__label')).toHaveText([
+    'FID2507-611',
+    'FID2507-650',
+    'No issue'
+  ])
+  await expect(byIssue.locator('.ix-tt-summary__total')).toHaveText(['1h 3m', '12m', '10m'])
+
+  // No project is bound in this profile, so every card is unclaimed and the single bucket has to
+  // equal the weekly grand total in the topbar. That agreement is the panel's own self-check.
+  const byProject = summary.locator('[data-rollup="By project"]')
+  await expect(byProject.locator('.ix-tt-summary__label')).toHaveText(['Other'])
+  await expect(byProject.locator('.ix-tt-summary__total')).toHaveText(['1h 25m'])
+  await expect(win.locator('.ix-tt__total')).toHaveText('1h 25m total')
+
+  // Copying writes the real system clipboard, so whatever the developer had in it is put back
+  // afterwards. Durations are decimal hours here: a timesheet column has to add up.
+  const before = await app.evaluate(({ clipboard }) => clipboard.readText())
+  await summary.getByRole('button', { name: 'Copy CSV' }).click()
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(
+      [
+        'Date,Issue,Description,Duration',
+        `${MONDAY},FID2507-611,Lock owner on the card,1.05`,
+        `${MONDAY},FID2507-650,Rail spacing pass,0.20`,
+        `${TUESDAY},,Board scaffolding,0.17`
+      ].join('\n')
+    )
+  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), before)
+})
+
+test('a rollup taller than the summary panel scrolls inside it instead of spilling over the board', async () => {
+  // Fourteen buckets is an ordinary week for anyone splitting their time across a sprint, and it
+  // is comfortably more than the capped panel can show at once.
+  const ISSUES = 14
+  const { win } = await launchWithFixture(userDataDir(), buildManyIssuesFixture(ISSUES))
+  await openTimeTracking(win)
+  await win.locator('.ix-tt-summary__toggle').click()
+
+  const byIssue = win.locator('[data-rollup="By issue"]')
+  await expect(byIssue.locator('.ix-tt-summary__row')).toHaveCount(ISSUES)
+
+  const layout = await win.evaluate(() => {
+    const group = document.querySelector('[data-rollup="By issue"]') as HTMLElement
+    const body = document.querySelector('.ix-tt-summary__body') as HTMLElement
+    const board = document.querySelector('.ix-tt__board') as HTMLElement
+    group.scrollTop = 99_999
+    return {
+      overflows: group.scrollHeight > group.clientHeight,
+      scrolledTo: group.scrollTop,
+      groupBottom: group.getBoundingClientRect().bottom,
+      bodyBottom: body.getBoundingClientRect().bottom,
+      boardTop: board.getBoundingClientRect().top,
+      lastRowBottom: [...group.querySelectorAll('.ix-tt-summary__row')]
+        .at(-1)!
+        .getBoundingClientRect().bottom
+    }
+  })
+
+  // The column is a real scroller: shorter than its own content, and it moves when scrolled.
+  expect(layout.overflows).toBe(true)
+  expect(layout.scrolledTo).toBeGreaterThan(0)
+
+  // It stays inside the panel, so no row is ever drawn where the weekday board will cover it, and
+  // scrolling to the end really does bring the last bucket into the panel.
+  expect(layout.groupBottom).toBeLessThanOrEqual(layout.bodyBottom + 1)
+  expect(layout.groupBottom).toBeLessThanOrEqual(layout.boardTop + 1)
+  expect(layout.lastRowBottom).toBeLessThanOrEqual(layout.groupBottom + 1)
 })

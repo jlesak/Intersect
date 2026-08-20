@@ -8,9 +8,13 @@ import { addDays, weekStartOf } from '@common/week'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
-import { loggedEntryNotice } from './time'
+import { formatWeekRange, loggedEntryNotice } from './time'
+import { weekAsCsv, weekAsText } from './weekExport'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
+
+/** The two shapes the shown week can be copied in. */
+export type WeekExportFormat = 'text' | 'csv'
 
 interface TimeTrackingState {
   status: Status
@@ -21,6 +25,11 @@ interface TimeTrackingState {
   entries: TimeEntry[]
   /** The work timer currently running, or null. Elapsed time is derived from it, never stored. */
   timer: RunningTimer | null
+  /**
+   * Whether the weekly summary panel is expanded. Session-lived on purpose: the board is the
+   * primary surface, so every visit starts with it at full height.
+   */
+  summaryOpen: boolean
   /** First-open load of the current week (no-op unless idle). */
   hydrate(): Promise<void>
   loadWeek(weekStart: string): Promise<void>
@@ -36,6 +45,19 @@ interface TimeTrackingState {
   addManual(input: NewManualTimeEntry): Promise<boolean>
   updateEntry(entry: TimeEntry, update: TimeEntryUpdate): Promise<void>
   removeEntry(entry: TimeEntry): Promise<void>
+  /** Show or hide the weekly summary panel. */
+  toggleSummary(): void
+  /**
+   * Put the shown week on the clipboard for a company timesheet, as a readable tab-separated
+   * block or as CSV. Reads the week first whenever it has not been loaded, so the export covers
+   * the week itself rather than whichever surface happened to mount.
+   */
+  copyWeek(format: WeekExportFormat): Promise<void>
+  /**
+   * Read the running timer without loading a week. Called at boot so a timer left running across
+   * a relaunch is on screen wherever the user happens to open the app.
+   */
+  loadTimer(): Promise<void>
   startTimer(description: string, issueKey: string | null): Promise<void>
   updateTimer(description: string, issueKey: string | null): Promise<void>
   /** Stop and log the span, then re-read the week so the new entry is on the board. */
@@ -89,6 +111,50 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     weekStart: weekStartOf(Date.now()),
     entries: [],
     timer: null,
+    summaryOpen: false,
+
+    toggleSummary() {
+      set((s) => ({ summaryOpen: !s.summaryOpen }))
+    },
+
+    async copyWeek(format) {
+      const label = format === 'csv' ? 'CSV' : 'text'
+      // The palette offers this from every section, so the export cannot assume a board has ever
+      // been on screen. Reading whatever happens to be in memory would put an empty timesheet on
+      // the clipboard, so an unread week is read here first. A retry after a failed load belongs
+      // here too: the alternative is exporting the blank board that failure left behind.
+      if (get().status !== 'ready') await get().loadWeek(get().weekStart)
+
+      const { status, entries, error, weekStart } = get()
+      if (status !== 'ready') {
+        reportError(`Could not copy the week as ${label}`, error ?? 'the week could not be read')
+        return
+      }
+
+      try {
+        await navigator.clipboard.writeText(
+          format === 'csv' ? weekAsCsv(entries) : weekAsText(entries)
+        )
+      } catch (e) {
+        reportError(`Could not copy the week as ${label}`, e)
+        return
+      }
+      // Nothing on screen changes when a copy succeeds, so the confirmation is the only evidence
+      // the user gets that the clipboard now holds their week. It names the range because the
+      // palette copies a week the user may not be looking at.
+      const range = formatWeekRange(weekStart)
+      useToastStore
+        .getState()
+        .push(
+          entries.length === 0
+            ? `The week ${range} has no entries. Copied the ${label} header alone.`
+            : `Copied ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} as ${label} (${range}).`
+        )
+    },
+
+    async loadTimer() {
+      await loadTimer()
+    },
 
     async hydrate() {
       if (get().status !== 'idle') return
