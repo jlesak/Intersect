@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
+import type { TodoTask } from '@common/domain'
+import { dayKeyOf } from '@common/week'
 import { launchFromTodoTask } from '@renderer/features/workItems'
-import { IconCalendar } from '@renderer/shared/ui/icons'
+import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
+import { IconCalendar, IconPencil, IconPlay, IconTrash } from '@renderer/shared/ui/icons'
+import { copyTodoTask } from '../clipboard'
 import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
 
@@ -24,6 +28,15 @@ function moveId(ids: string[], id: string, insertionIndex: number): string[] {
 const FOCUS_MARK_MS = 2500
 
 /**
+ * Getting a task out of the app as text. The one thing a TODO row offers that has no button of
+ * its own, which is why both the pointer menu and the action bar's overflow carry it.
+ */
+const copyEntry = (task: TodoTask): MenuEntry => ({
+  label: 'Copy task',
+  onClick: () => void copyTodoTask(task, dayKeyOf(Date.now()))
+})
+
+/**
  * The TODO section's main region. Open tasks use persisted manual ordering; pointer and keyboard
  * interactions both submit the complete order through the optimistic store.
  */
@@ -40,6 +53,7 @@ export function TodoView() {
   const [showDate, setShowDate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [armedId, setArmedId] = useState<string | null>(null)
   const [reorderStatus, setReorderStatus] = useState('')
@@ -77,6 +91,42 @@ export function TodoView() {
   function forget(id: string): void {
     setSelectedId((current) => (current === id ? null : current))
   }
+
+  function openEditor(id: string): void {
+    // The editor is where the row is worked on, so pointing at it is spent.
+    setSelectedId(null)
+    setEditingId(id)
+  }
+
+  function removeTask(id: string): void {
+    forget(id)
+    void useTodoStore.getState().remove(id)
+  }
+
+  /**
+   * What a right-click on a task raises: everything the row can do, at the pointer, without
+   * aiming at a 12px icon, plus the copy the row itself has no path to. A done task keeps only
+   * what still applies, matching the two buttons its own row shows.
+   */
+  function menuEntriesFor(task: TodoTask, done: boolean): MenuEntry[] {
+    const remove: MenuEntry = {
+      label: 'Delete',
+      icon: <IconTrash />,
+      danger: true,
+      onClick: () => removeTask(task.id)
+    }
+    if (done) return [copyEntry(task), { separator: true }, remove]
+    return [
+      { label: 'Start session', icon: <IconPlay />, onClick: () => launchFromTodoTask(task) },
+      { separator: true },
+      copyEntry(task),
+      { separator: true },
+      { label: 'Edit', icon: <IconPencil />, onClick: () => openEditor(task.id) },
+      remove
+    ]
+  }
+
+  const menuTask = menu === null ? undefined : [...open, ...done].find((t) => t.id === menu.id)
 
   function submit(): void {
     const trimmed = text.trim()
@@ -220,16 +270,15 @@ export function TodoView() {
                   forget(task.id)
                   void useTodoStore.getState().toggleDone(task.id, true)
                 }}
-                onDelete={() => {
-                  forget(task.id)
-                  void useTodoStore.getState().remove(task.id)
-                }}
+                onDelete={() => removeTask(task.id)}
                 onSelect={() => setSelectedId(task.id)}
-                onStartEdit={() => {
-                  // The editor is where the row is worked on, so pointing at it is spent.
-                  setSelectedId(null)
-                  setEditingId(task.id)
+                onStartEdit={() => openEditor(task.id)}
+                onContextMenu={(x, y) => {
+                  // The menu addresses one task, so the row it was raised on says which.
+                  setSelectedId(task.id)
+                  setMenu({ x, y, id: task.id })
                 }}
+                overflow={[copyEntry(task)]}
                 onCancelEdit={() => setEditingId(null)}
                 onSave={(patch) => {
                   setEditingId(null)
@@ -266,13 +315,23 @@ export function TodoView() {
                   task={task}
                   done
                   onToggle={() => void useTodoStore.getState().toggleDone(task.id, false)}
-                  onDelete={() => void useTodoStore.getState().remove(task.id)}
+                  onDelete={() => removeTask(task.id)}
+                  onContextMenu={(x, y) => setMenu({ x, y, id: task.id })}
                 />
               ))}
             </div>
           </div>
         )}
       </div>
+
+      {menu && menuTask && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          entries={menuEntriesFor(menuTask, menuTask.doneAt !== null)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }

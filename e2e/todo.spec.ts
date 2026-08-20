@@ -107,6 +107,25 @@ test('a click only selects a row; the editor waits for a double-click', async ()
   await expect(win.locator('.ix-todo-item--selected')).toHaveCount(0)
 })
 
+test('a right-click raises the task menu, and Delete from it removes the row', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await addTask(win, 'keep me')
+  await addTask(win, 'menu victim')
+
+  await openRows(win).filter({ hasText: 'menu victim' }).click({ button: 'right' })
+  await expect(win.locator('.ix-menu__item')).toHaveText([
+    'Start session',
+    'Copy task',
+    'Edit',
+    'Delete'
+  ])
+
+  await win.locator('.ix-menu__item', { hasText: 'Delete' }).click()
+  await expect(win.locator('.ix-menu')).toHaveCount(0)
+  await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText(['keep me'])
+})
+
 test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
   const { win } = await launch(userDataDir())
   await openTodo(win)

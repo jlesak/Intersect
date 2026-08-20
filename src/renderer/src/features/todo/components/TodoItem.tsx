@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
 import type { TodoTask, TodoTaskPatch } from '@common/domain'
 import { dayKeyOf } from '@common/week'
+import type { MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { RowActions } from '@renderer/shared/ui/RowActions'
 import { formatDueDay, isOverdue } from '../due'
@@ -41,6 +42,7 @@ export function TodoItem({
   onSave,
   onStartSession,
   onContextMenu,
+  overflow,
   focused,
   rowRef,
   drag
@@ -61,6 +63,8 @@ export function TodoItem({
   onStartSession?(): void
   /** Lets the embedding list attach a per-row menu at the pointer. */
   onContextMenu?(x: number, y: number): void
+  /** What the action bar hides behind its overflow: what the bar does not already show. */
+  overflow?: MenuEntry[]
   /** Marks the row the user was sent here to look at, so it stands out on arrival. */
   focused?: boolean
   /** Lets the embedding list hold on to the row element so it can scroll it into view. */
@@ -236,7 +240,10 @@ export function TodoItem({
       </span>
       <span className="ix-todo-item__actions">
         {onStartSession && !done && (
-          <RowActions primary={{ label: 'Start session', onClick: onStartSession }} />
+          <RowActions
+            primary={{ label: 'Start session', onClick: onStartSession }}
+            overflow={overflow}
+          />
         )}
         {!done && (
           <button

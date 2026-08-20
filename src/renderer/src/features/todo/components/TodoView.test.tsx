@@ -283,3 +283,117 @@ describe('TodoView row activation', () => {
     expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
   })
 })
+
+/** The menu a row raises at the pointer, and the one thing it can do that the row cannot. */
+describe('TodoView task menu', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    const done = [task('z', { doneAt: 1000 })]
+    mocked.list.mockResolvedValue({ open: OPEN, done })
+    useTodoStore.setState({
+      status: 'ready',
+      error: null,
+      open: OPEN,
+      done,
+      showDone: true,
+      pendingFocusId: null
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    useTodoStore.setState({ status: 'idle', open: [], done: [], showDone: false })
+  })
+
+  const mount = async (): Promise<void> => {
+    await act(async () => {
+      render(<TodoView />)
+    })
+  }
+
+  const menuLabels = (): string[] =>
+    screen.queryAllByRole('menuitem').map((item) => item.textContent ?? '')
+
+  const rightClick = (text: string): void => {
+    fireEvent.contextMenu(rowOf(text) as HTMLElement, { clientX: 40, clientY: 60 })
+  }
+
+  test('a right-click raises the row’s whole repertoire at the pointer', async () => {
+    await mount()
+
+    rightClick('Task b')
+
+    expect(menuLabels()).toEqual(['Start session', 'Copy task', 'Edit', 'Delete'])
+  })
+
+  test('the menu says which task it addresses by selecting that row', async () => {
+    await mount()
+
+    rightClick('Task b')
+
+    expect(rowOf('Task b')?.className).toContain('ix-todo-item--selected')
+  })
+
+  test('Copy puts the task on the clipboard and closes the menu', async () => {
+    await mount()
+
+    rightClick('Task b')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy task' }))
+
+    expect(clipboard.writeText).toHaveBeenCalledWith('Task b')
+    expect(menuLabels()).toEqual([])
+  })
+
+  test('Start session from the menu launches that task', async () => {
+    const launch = vi.mocked(launchFromTodoTask)
+    launch.mockReset()
+    await mount()
+
+    rightClick('Task b')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Start session' }))
+
+    expect(launch).toHaveBeenCalledTimes(1)
+    expect(launch.mock.calls[0][0].id).toBe('b')
+  })
+
+  test('Edit from the menu opens the inline editor and drops the selection', async () => {
+    await mount()
+
+    rightClick('Task b')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+    expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(0)
+  })
+
+  test('Delete from the menu removes that task', async () => {
+    await mount()
+
+    rightClick('Task b')
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+    })
+
+    expect(mocked.remove).toHaveBeenCalledWith('b')
+  })
+
+  test('a done task’s menu keeps only what still applies to it', async () => {
+    await mount()
+
+    rightClick('Task z')
+
+    expect(menuLabels()).toEqual(['Copy task', 'Delete'])
+  })
+
+  test('the action bar’s overflow carries the copy alone, never a second set of its own buttons', async () => {
+    await mount()
+
+    fireEvent.click(within(rowOf('Task b') as HTMLElement).getByRole('button', { name: 'More actions' }))
+
+    expect(menuLabels()).toEqual(['Copy task'])
+  })
+})
