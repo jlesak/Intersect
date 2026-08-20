@@ -2882,18 +2882,22 @@
   font-size: 11.5px;
 }
 /* Two independent rollups side by side; each scrolls on its own so a long week cannot push the
-   board off the screen. */
+   board off the screen. The height cap belongs on the columns rather than on the grid that holds
+   them: a cap on the grid leaves its row track sized to the taller column's content, so the
+   columns keep their full height and draw their surplus rows over the board instead of scrolling.
+   Capping the columns also keeps a short week at its own height, since the row track then follows
+   the taller column up to the cap and stops there. */
 .ix-tt-summary__body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
   background: var(--border);
   border-top: 1px solid var(--border);
-  max-height: 240px;
 }
 .ix-tt-summary__group {
   background: var(--bg);
   padding: 8px 20px 10px;
+  max-height: 240px;
   overflow: auto;
 }
 .ix-tt-summary__group-head {

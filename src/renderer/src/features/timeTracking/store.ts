@@ -8,7 +8,7 @@ import { addDays, weekStartOf } from '@common/week'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
-import { loggedEntryNotice } from './time'
+import { formatWeekRange, loggedEntryNotice } from './time'
 import { weekAsCsv, weekAsText } from './weekExport'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
@@ -49,7 +49,8 @@ interface TimeTrackingState {
   toggleSummary(): void
   /**
    * Put the shown week on the clipboard for a company timesheet, as a readable tab-separated
-   * block or as CSV.
+   * block or as CSV. Reads the week first whenever it has not been loaded, so the export covers
+   * the week itself rather than whichever surface happened to mount.
    */
   copyWeek(format: WeekExportFormat): Promise<void>
   /**
@@ -117,8 +118,19 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     },
 
     async copyWeek(format) {
-      const entries = get().entries
       const label = format === 'csv' ? 'CSV' : 'text'
+      // The palette offers this from every section, so the export cannot assume a board has ever
+      // been on screen. Reading whatever happens to be in memory would put an empty timesheet on
+      // the clipboard, so an unread week is read here first. A retry after a failed load belongs
+      // here too: the alternative is exporting the blank board that failure left behind.
+      if (get().status !== 'ready') await get().loadWeek(get().weekStart)
+
+      const { status, entries, error, weekStart } = get()
+      if (status !== 'ready') {
+        reportError(`Could not copy the week as ${label}`, error ?? 'the week could not be read')
+        return
+      }
+
       try {
         await navigator.clipboard.writeText(
           format === 'csv' ? weekAsCsv(entries) : weekAsText(entries)
@@ -128,13 +140,15 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
         return
       }
       // Nothing on screen changes when a copy succeeds, so the confirmation is the only evidence
-      // the user gets that the clipboard now holds their week.
+      // the user gets that the clipboard now holds their week. It names the range because the
+      // palette copies a week the user may not be looking at.
+      const range = formatWeekRange(weekStart)
       useToastStore
         .getState()
         .push(
           entries.length === 0
-            ? `The shown week has no entries. Copied the ${label} header alone.`
-            : `Copied ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} as ${label}.`
+            ? `The week ${range} has no entries. Copied the ${label} header alone.`
+            : `Copied ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} as ${label} (${range}).`
         )
     },
 
