@@ -140,6 +140,8 @@ describe('system handlers - reveal', () => {
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
     await h.revealPath(claudeFile)
@@ -154,10 +156,47 @@ describe('system handlers - reveal', () => {
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
     await expect(h.revealPath('/etc/passwd')).rejects.toThrow(/Blocked reveal path/)
     expect(revealInFolder).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The escape a user takes when the app cannot start at all. It reveals one directory - the profile
+ * main resolved for itself at startup - and takes no argument, so the renderer names no path and
+ * there is no traversal surface to defend.
+ */
+describe('system handlers - reveal the user data directory', () => {
+  const deps = (openPath: (path: string) => Promise<string>) => ({
+    openExternal: vi.fn(async () => {}),
+    revealInFolder: vi.fn(),
+    restartApp: vi.fn(),
+    retryCore: vi.fn(),
+    quitApp: vi.fn(),
+    userDataDir: '/Users/someone/Library/Application Support/Intersect',
+    openPath: vi.fn(openPath),
+    adoOrgUrl: async () => ''
+  })
+
+  test('opens the directory main resolved at startup', async () => {
+    const d = deps(async () => '')
+    await createSystemHandlers(d).revealUserData()
+    expect(d.openPath).toHaveBeenCalledExactlyOnceWith(
+      '/Users/someone/Library/Application Support/Intersect'
+    )
+  })
+
+  test('a refusal from the shell surfaces as an Error rather than an empty success', async () => {
+    // shell.openPath answers with a message instead of throwing, so a handler that ignored the
+    // return value would report success while nothing opened.
+    const d = deps(async () => 'The operation could not be completed')
+    await expect(createSystemHandlers(d).revealUserData()).rejects.toThrow(
+      /could not be completed/
+    )
   })
 })
 
@@ -170,6 +209,8 @@ describe('system handlers', () => {
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
     await h.openExternal('https://jira.skoda.vwgroup.com/browse/FID2507-611')
@@ -184,6 +225,8 @@ describe('system handlers', () => {
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
     await expect(h.openExternal('http://jira.skoda.vwgroup.com/x')).rejects.toThrow(/Blocked external URL/)
@@ -200,6 +243,8 @@ describe('system handlers', () => {
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
     await expect(h.openExternal('https://jira.skoda.vwgroup.com/x')).rejects.toThrow(/no browser/)
@@ -223,6 +268,8 @@ describe('system handlers - the Azure DevOps organisation is resolved per call',
       restartApp: vi.fn(),
       retryCore: vi.fn(),
       quitApp: vi.fn(),
+      userDataDir: '/profile',
+      openPath: vi.fn(async () => ''),
       adoOrgUrl
     }),
     openExternal
@@ -280,6 +327,8 @@ describe('registerSystemHandlers', () => {
         restartApp,
         retryCore,
         quitApp,
+        userDataDir: '/profile',
+        openPath: vi.fn(async () => ''),
         adoOrgUrl: async () => ''
       })
     )
@@ -290,7 +339,8 @@ describe('registerSystemHandlers', () => {
         Channel.systemRevealPath,
         Channel.systemRestartApp,
         Channel.systemRetryCore,
-        Channel.systemQuitApp
+        Channel.systemQuitApp,
+        Channel.systemRevealUserData
       ].sort()
     )
     await registered.get(Channel.systemOpenExternal)!({}, 'https://jira.skoda.vwgroup.com/browse/A-1')

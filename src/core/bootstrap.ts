@@ -69,6 +69,7 @@ import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
 import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentRuntime.ipc'
 import { createPaletteHandlers, paletteWireRoutes } from './api/palette.ipc'
+import { createSystemCoreHandlers, systemWireRoutes } from './api/system.ipc'
 import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
 import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
 import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ipc'
@@ -771,7 +772,8 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     oneOnOneWireRoutes(oneOnOneHandlers),
     settingsWireRoutes(settingsHandlers),
     agentToolingWireRoutes(agentToolingHandlers),
-    usageWireRoutes(usageHandlers)
+    usageWireRoutes(usageHandlers),
+    systemWireRoutes(createSystemCoreHandlers({ db, workspaces, tabs, appState }))
   )
   assertRoutesCoverBridge(routes)
   const dispatch = createDispatch(mergeRoutes(routes, focusRoute))

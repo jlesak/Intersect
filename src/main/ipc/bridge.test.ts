@@ -60,7 +60,8 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
       [Channel.systemRevealPath]: (path: string) => `revealed:${path}`,
       [Channel.systemRestartApp]: () => 'restarted',
       [Channel.systemRetryCore]: () => 'retried',
-      [Channel.systemQuitApp]: () => 'quit'
+      [Channel.systemQuitApp]: () => 'quit',
+      [Channel.systemRevealUserData]: () => 'revealed:userData'
     },
     sendToRenderer: (channel, payload) => rendered.push({ channel, payload }),
     showNotification: (request) => notifications.push(request),

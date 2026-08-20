@@ -3875,6 +3875,12 @@
   background: var(--bg);
   z-index: 500;
 }
+/* The confirmation is raised from the window fallback, which covers the viewport at z-index 500.
+   The dialog portals to the body, so it has to out-stack that surface explicitly or it opens
+   behind the very card that asked for it. */
+.ix-overlay--above-crash {
+  z-index: 600;
+}
 .ix-crash__card {
   display: flex;
   flex-direction: column;
@@ -3886,6 +3892,9 @@
   background: var(--panel);
   color: var(--text);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* The escalated card is much taller than the plain one, and a thrown value can be any length. */
+  max-height: 100%;
+  overflow-y: auto;
 }
 .ix-crash__card h1 {
   margin: 0;
@@ -3905,6 +3914,77 @@
   display: flex;
   gap: 8px;
   margin-top: 2px;
+}
+/* The escalated tail: shown only once the app has failed with no successful render in between,
+   so it reads as further information on the same card rather than as a second diagnosis. */
+.ix-crash__evidence {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.ix-crash__escapes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ix-crash__escapes li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+/* Each escape carries its own cost in the line under it; that line is what makes the ordering
+   from harmless to permanent judgeable rather than merely stated. */
+.ix-crash__escapes span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ix-crash__escapes .ix-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ix-crash__escapes .ix-btn:disabled:hover {
+  background: var(--panel-2);
+}
+/* The confirmation's kept/cleared enumeration: the only place the blast radius is stated. */
+.ix-crash__list-lead {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.ix-crash__list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.ix-crash__list li {
+  margin-bottom: 2px;
+}
+
+/* Safe mode's standing reminder. Pinned bottom-left so it clears the toaster's corner, and always
+   carrying the way out - a session that hides the crash must never be mistaken for a normal one. */
+.ix-safemode {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 520px;
+  padding: 8px 12px;
+  border: 1px solid var(--status-waiting);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ix-safemode__text {
+  font-size: 12.5px;
+  color: var(--text-dim);
 }
 
 /* --- Agent Tooling settings pane (read-only Claude Code config / skills / agents browser) --- */

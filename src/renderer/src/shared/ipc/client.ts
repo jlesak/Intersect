@@ -9,3 +9,12 @@ export function ipc(): IpcApi {
   if (!api) throw new Error('window.intersect is unavailable - preload did not load')
   return api
 }
+
+/**
+ * Whether the preload bridge attached at all, answered without constructing a call. The crash
+ * fallback needs this: it must decide whether an IPC-backed action is worth offering while it is
+ * itself the last surface on screen, and `ipc()` throwing there would leave a blank window.
+ */
+export function hasIpcBridge(): boolean {
+  return Boolean((window as unknown as { intersect?: IpcApi }).intersect)
+}

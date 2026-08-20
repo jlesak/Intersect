@@ -1,8 +1,14 @@
+import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CommandPalette } from '@renderer/features/commandPalette'
 import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
 import { WorkItemPickerHost } from '@renderer/features/workItems'
 import { selectSelectedWorkspace, useWorkspacesStore } from '@renderer/features/workspaces'
+import {
+  clearUnrecoveredCrash,
+  CRASH_SETTLE_MS,
+  reloadWindow
+} from '@renderer/shared/recovery/bootRecovery'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { Toaster } from '@renderer/shared/ui/Toaster'
@@ -25,10 +31,21 @@ import { resolveShellContext, useShellStore } from './shellStore'
 export function App() {
   const context = useShellStore((s) => s.context)
   const collapsed = useShellStore((s) => s.sidebarCollapsed)
+  const safeMode = useShellStore((s) => s.safeMode)
   const projects = useProjectsStore(useShallow(selectActiveProjects))
   const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
   const sections = getSidebarSections()
   const resolved = resolveShellContext(context, projects, sections, selectedWorkspace)
+
+  // Withdraw the crash marker only once the tree has stayed up for a while. Clearing it on mount
+  // alone would be too generous: a shell that renders and then throws seconds later on the same
+  // persisted value would clear it on every boot, and the window fallback would never learn that
+  // reloading has stopped helping. A crash inside the settle window unmounts this and the timer
+  // goes with it, which is exactly the case the marker exists to record.
+  useEffect(() => {
+    const settled = setTimeout(clearUnrecoveredCrash, CRASH_SETTLE_MS)
+    return () => clearTimeout(settled)
+  }, [])
 
   let main = <div className="ix-main" />
   let mainKey = 'empty'
@@ -56,10 +73,31 @@ export function App() {
       >
         {main}
       </ErrorBoundary>
+      {safeMode && <SafeModeBanner />}
       <Toaster />
       <CommandPalette />
       <WorkItemPickerHost />
       <CoreStatusOverlay />
+    </div>
+  )
+}
+
+/**
+ * The standing reminder that this launch is not a normal one. Safe mode hides the crash rather
+ * than resolving it, so a user who simply carries on working in it would later report that
+ * Intersect lost their terminals and their session resume. Naming the state and keeping the way
+ * out in reach is what stops that.
+ */
+function SafeModeBanner() {
+  return (
+    <div className="ix-safemode" role="status">
+      <span className="ix-safemode__text">
+        Safe mode: the saved session and workspace state were not restored. The next launch is an
+        ordinary one.
+      </span>
+      <button type="button" className="ix-btn" onClick={reloadWindow}>
+        Exit safe mode
+      </button>
     </div>
   )
 }

@@ -6,8 +6,20 @@ import {
   __resetSidebarRegistryForTests,
   registerSidebarSection
 } from '@renderer/shared/registries/sidebarRegistry'
+import {
+  CRASH_SETTLE_MS,
+  markUnrecoveredCrash,
+  readUnrecoveredCrash,
+  reloadWindow
+} from '@renderer/shared/recovery/bootRecovery'
 import { App } from './App'
 import { useShellStore } from './shellStore'
+
+// A real reload would throw the document away mid-test; everything else in the module stays real.
+vi.mock('@renderer/shared/recovery/bootRecovery', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@renderer/shared/recovery/bootRecovery')>()),
+  reloadWindow: vi.fn()
+}))
 
 // Monaco cannot run under jsdom and must stay out of every bundle a test can reach, so the raw
 // editor is driven through its stand-in.
@@ -218,5 +230,145 @@ describe('an unsaved raw JSON edit across a sidebar navigation', () => {
     await waitForRawEditor()
 
     expect(rawEditor()?.value).toBe('{ "model": "opus" }')
+  })
+})
+
+/**
+ * The clear rule behind the crash marker. A shell that merely mounts has proved nothing: the very
+ * failures this exists to catch happen a moment after the tree comes up. Only a tree that stays
+ * alive for the settle window earns the marker's withdrawal.
+ */
+describe('withdrawing the crash marker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    window.localStorage.clear()
+    __resetSidebarRegistryForTests()
+    registerSidebarSection({
+      id: 'healthy',
+      order: 0,
+      label: 'Healthy',
+      icon: Icon,
+      mainComponent: Healthy
+    })
+    ;(window as { intersect?: unknown }).intersect = {
+      system: { onCoreStatus: () => () => {} },
+      projects: { list: () => Promise.resolve([]) }
+    }
+    useShellStore.setState({ context: { kind: 'section', id: 'healthy' }, sidebarCollapsed: false })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    __resetSidebarRegistryForTests()
+    delete (window as { intersect?: unknown }).intersect
+    useShellStore.setState({ context: null, sidebarCollapsed: false, safeMode: false })
+    window.localStorage.clear()
+  })
+
+  test('a shell that stays up past the settle window withdraws it', () => {
+    markUnrecoveredCrash(Date.now())
+    render(<App />)
+    expect(readUnrecoveredCrash()).not.toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(CRASH_SETTLE_MS)
+    })
+
+    expect(readUnrecoveredCrash()).toBeNull()
+  })
+
+  test('a shell that goes down inside the window leaves it standing', () => {
+    markUnrecoveredCrash(Date.now())
+    const { unmount } = render(<App />)
+
+    act(() => {
+      vi.advanceTimersByTime(CRASH_SETTLE_MS - 1)
+    })
+    unmount()
+    act(() => {
+      vi.advanceTimersByTime(CRASH_SETTLE_MS)
+    })
+
+    // Mounting and then throwing is exactly the shape of a crash on persisted state, so a marker
+    // cleared on mount alone would disable the escalation for the case that most needs it.
+    expect(readUnrecoveredCrash()).not.toBeNull()
+  })
+})
+
+/**
+ * Safe mode hides the crash rather than resolving it, so the session it produces must never pass
+ * for a normal one.
+ */
+describe('the safe mode session', () => {
+  let listProjects: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    __resetSidebarRegistryForTests()
+    registerSidebarSection({
+      id: 'healthy',
+      order: 0,
+      label: 'Healthy',
+      icon: Icon,
+      mainComponent: Healthy
+    })
+    listProjects = vi.fn(() => Promise.resolve([]))
+    ;(window as { intersect?: unknown }).intersect = {
+      system: { onCoreStatus: () => () => {} },
+      projects: { list: listProjects }
+    }
+    useShellStore.setState({
+      context: { kind: 'section', id: 'healthy' },
+      sidebarCollapsed: false,
+      safeMode: true
+    })
+  })
+
+  afterEach(() => {
+    __resetSidebarRegistryForTests()
+    delete (window as { intersect?: unknown }).intersect
+    useShellStore.setState({ context: null, sidebarCollapsed: false, safeMode: false })
+    vi.mocked(reloadWindow).mockClear()
+  })
+
+  test('a banner names the state and keeps the way out in reach', () => {
+    render(<App />)
+
+    const banner = document.querySelector('.ix-safemode')
+    expect(banner?.textContent).toContain('the saved session and workspace state were not restored')
+
+    const exit = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Exit safe mode'
+    )
+    act(() => {
+      exit?.click()
+    })
+    // Leaving is a plain reload: the request that produced this session was consumed at boot, so
+    // the next launch is an ordinary one with nothing left to undo.
+    expect(reloadWindow).toHaveBeenCalledOnce()
+  })
+
+  test('an ordinary session shows no banner', () => {
+    useShellStore.setState({ safeMode: false })
+    render(<App />)
+    expect(document.querySelector('.ix-safemode')).toBeNull()
+  })
+
+  test('the rail offers no project pins and no Other bucket to fall back into', () => {
+    render(<App />)
+
+    const railLabels = [...document.querySelectorAll('.ix-rail__label')].map((e) => e.textContent)
+    expect(railLabels).toContain('Healthy')
+    expect(railLabels).not.toContain('Other')
+    // The rail renders outside the shell's region boundary, so a project row that cannot be drawn
+    // takes the whole window down on every boot. Safe mode does not read them at all.
+    expect(listProjects).not.toHaveBeenCalled()
+  })
+
+  test('an ordinary session does load the projects the rail pins', async () => {
+    useShellStore.setState({ safeMode: false })
+    await act(async () => {
+      render(<App />)
+    })
+    expect(listProjects).toHaveBeenCalled()
   })
 })

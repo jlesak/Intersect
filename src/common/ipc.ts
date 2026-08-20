@@ -423,6 +423,19 @@ export interface IpcApi {
     /** Quit the app through the coordinated shutdown path (same as Cmd+Q). */
     quitApp(): Promise<void>
     /**
+     * Open the app's user-data directory in the OS file manager, so a user whose app cannot start
+     * can inspect or remove the profile by hand. Takes no argument: the directory is the one main
+     * already resolved at startup, which keeps the renderer out of every path decision.
+     */
+    revealUserData(): Promise<void>
+    /**
+     * Clear the view state a boot restores - every workspace's pane layout and active tab, the tab
+     * grouping across panes, every project's pane divider positions, and the remembered workspace.
+     * Tabs, terminals, workspaces, projects, settings and every cache are left untouched. Runs in
+     * one transaction, so a failure part-way leaves the previous state whole.
+     */
+    resetViewState(): Promise<void>
+    /**
      * The core service process's lifecycle as seen by main. Fired on every change and once
      * with the current status when the renderer loads, so a reload lands in the right state.
      */
@@ -678,6 +691,8 @@ export const Channel = {
   systemRestartApp: 'system:restartApp',
   systemRetryCore: 'system:retryCore',
   systemQuitApp: 'system:quitApp',
+  systemRevealUserData: 'system:revealUserData',
+  systemResetViewState: 'system:resetViewState',
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',

@@ -22,7 +22,8 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<ChannelName> = new Set<ChannelN
   Channel.systemRevealPath,
   Channel.systemRestartApp,
   Channel.systemRetryCore,
-  Channel.systemQuitApp
+  Channel.systemQuitApp,
+  Channel.systemRevealUserData
 ])
 
 /**

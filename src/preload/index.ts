@@ -232,6 +232,8 @@ const api: IpcApi = {
     restartApp: () => ipcRenderer.invoke(Channel.systemRestartApp),
     retryCore: () => ipcRenderer.invoke(Channel.systemRetryCore),
     quitApp: () => ipcRenderer.invoke(Channel.systemQuitApp),
+    revealUserData: () => ipcRenderer.invoke(Channel.systemRevealUserData),
+    resetViewState: () => ipcRenderer.invoke(Channel.systemResetViewState),
     onCoreStatus: (cb) => {
       const listener = (_e: unknown, status: CoreStatus): void => cb(status)
       ipcRenderer.on(Channel.systemCoreStatus, listener)

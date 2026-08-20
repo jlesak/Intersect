@@ -6,12 +6,19 @@ export function Dialog({
   title,
   children,
   actions,
-  onClose
+  onClose,
+  overlayClass
 }: {
   title: string
   children: ReactNode
   actions: ReactNode
   onClose: () => void
+  /**
+   * Extra class on the overlay. It exists for the one case the default stacking cannot serve: a
+   * dialog raised from a surface that already covers the viewport has to out-stack that surface,
+   * and the dialog portals to the body, so no ancestor selector can reach it.
+   */
+  overlayClass?: string
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -22,7 +29,7 @@ export function Dialog({
   }, [onClose])
 
   return createPortal(
-    <div className="ix-overlay" onMouseDown={onClose}>
+    <div className={overlayClass ? `ix-overlay ${overlayClass}` : 'ix-overlay'} onMouseDown={onClose}>
       <div className="ix-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
         <h2 className="ix-dialog__title">{title}</h2>
         <div className="ix-dialog__body">{children}</div>

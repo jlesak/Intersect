@@ -261,6 +261,8 @@ function wireCore(userDataDir: string, logger: Logger): void {
     },
     retryCore: () => host?.retry(),
     quitApp: () => app.quit(),
+    userDataDir,
+    openPath: (path) => shell.openPath(path),
     // The core owns the settings, so the organisation the allowlist has to admit is asked for over
     // the bridge at the moment a link is opened.
     adoOrgUrl: async () => {
@@ -280,7 +282,8 @@ function wireCore(userDataDir: string, logger: Logger): void {
       [Channel.systemRevealPath]: system.revealPath,
       [Channel.systemRestartApp]: system.restartApp,
       [Channel.systemRetryCore]: system.retryCore,
-      [Channel.systemQuitApp]: system.quitApp
+      [Channel.systemQuitApp]: system.quitApp,
+      [Channel.systemRevealUserData]: system.revealUserData
     },
     sendToRenderer: (channel, payload) => sendToRenderer(channel, payload),
     showNotification: showCoreNotification,
