@@ -407,6 +407,23 @@ describe('the raw editor buffer', () => {
     expect(rawEditor()?.value).toBe('{ "verbose": false }')
   })
 
+  /** The file the panel is pointed at, which is the file its buffer belongs to. */
+  const targetFile = (): string =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="Raw editor target file"]')!.value
+
+  test('reopening the editor comes back to the file the edit was parked for', async () => {
+    await openRawEditor()
+    await selectFile('global-local')
+    await type('{ "verbose": false }')
+
+    await clickButton('Close raw JSON editor')
+    await clickButton('Edit raw JSON…')
+    await waitForRawEditor()
+
+    expect(targetFile()).toBe('global-local')
+    expect(rawEditor()?.value).toBe('{ "verbose": false }')
+  })
+
   test('typing back to what the file holds leaves nothing parked', async () => {
     await openRawEditor()
     await type('{ "model": "haiku" }')

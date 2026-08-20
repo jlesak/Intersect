@@ -773,11 +773,11 @@ function AdvancedSection({
   onEdit?: (request: ConfigEditRequest) => void
 }) {
   // An unsaved raw edit parked for this scope is what the user was last doing here, so the panel
-  // opens on it and on the file it belongs to. A restored buffer nobody can see is the same loss
-  // with extra steps. Read once at mount: the parked text changes on every keystroke, and this
-  // component has no business re-rendering for that.
-  const [parked] = useState(() => selectRawDraftForScope(useAgentToolingStore.getState(), scope))
-  const [rawOpen, setRawOpen] = useState(parked !== null)
+  // opens on it. Read once at mount: the parked text changes on every keystroke, and this
+  // component has no business re-rendering for that. From here on the toggle is the user's.
+  const [rawOpen, setRawOpen] = useState(
+    () => selectRawDraftForScope(useAgentToolingStore.getState(), scope) !== null
+  )
   const emit = (edit: ConfigEdit): void => onEdit?.({ scope, source: target, edit })
   return (
     <div className="ix-at-section">
@@ -790,7 +790,7 @@ function AdvancedSection({
               {rawOpen ? 'Close raw JSON editor' : 'Edit raw JSON…'}
             </button>
           </div>
-          {rawOpen && <RawEditPanel scope={scope} initialSource={parked?.source} onEdit={onEdit} />}
+          {rawOpen && <RawEditPanel scope={scope} onEdit={onEdit} />}
         </>
       )}
       {advanced.length === 0 ? (
@@ -925,20 +925,22 @@ function formatAge(from: number, now: number): string {
  */
 function RawEditPanel({
   scope,
-  initialSource,
   onEdit
 }: {
   scope: AgentToolingScope
-  initialSource?: ConfigSource
   onEdit: (request: ConfigEditRequest) => void
 }) {
   const sources: ConfigSource[] =
     scope.kind === 'global'
       ? ['global', 'global-local']
       : ['project', 'project-local', 'mcp-file']
-  const [source, setSource] = useState<ConfigSource>(
-    initialSource && sources.includes(initialSource) ? initialSource : sources[0]
-  )
+  // The panel opens on the file the scope's parked edit belongs to, read as it opens: a buffer
+  // restored into a file selector pointing somewhere else is the same loss with extra steps, and
+  // the panel is mounted and unmounted every time the user works the toggle above it.
+  const [source, setSource] = useState<ConfigSource>(() => {
+    const parked = selectRawDraftForScope(useAgentToolingStore.getState(), scope)
+    return parked && sources.includes(parked.source) ? parked.source : sources[0]
+  })
   const [target, setTarget] = useState<RawTarget | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
