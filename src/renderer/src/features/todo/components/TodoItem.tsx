@@ -156,7 +156,17 @@ export function TodoItem({
               onSelect?.()
             }
       }
-      onDoubleClick={!done ? onStartEdit : undefined}
+      onDoubleClick={
+        done
+          ? undefined
+          : (e) => {
+              // A double-press on one of the row's own buttons belongs to that button, and one
+              // in a menu the row raised elsewhere in the document is not the row's at all.
+              const target = e.target as HTMLElement
+              if (!e.currentTarget.contains(target) || target.closest('button') !== null) return
+              onStartEdit?.()
+            }
+      }
       onKeyDown={
         done
           ? undefined

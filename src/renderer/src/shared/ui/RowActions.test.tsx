@@ -6,9 +6,9 @@ import { RowActions } from './RowActions'
 const names = (): string[] => screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '')
 
 /** The bar as a row embeds it: inside the activatable row it belongs to. */
-function inRow(bar: ReactNode, onRowClick: () => void) {
+function inRow(bar: ReactNode, onRowClick: () => void, onRowDoubleClick?: () => void) {
   return render(
-    <div role="button" tabIndex={0} onClick={onRowClick}>
+    <div role="button" tabIndex={0} onClick={onRowClick} onDoubleClick={onRowDoubleClick}>
       <span>FID2507-1</span>
       {bar}
     </div>
@@ -96,6 +96,25 @@ describe('RowActions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
 
     expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  test('a double-press on a bar button never activates the row behind it either', () => {
+    const onRowDoubleClick = vi.fn()
+    inRow(
+      <RowActions
+        primary={{ label: 'Start session', onClick: vi.fn() }}
+        external={{ label: 'Jira', onClick: vi.fn() }}
+        overflow={[{ label: 'Copy link', onClick: vi.fn() }]}
+      />,
+      vi.fn(),
+      onRowDoubleClick
+    )
+
+    fireEvent.dblClick(screen.getByRole('button', { name: 'Start session' }))
+    fireEvent.dblClick(screen.getByRole('button', { name: 'Jira' }))
+    fireEvent.dblClick(screen.getByRole('button', { name: 'More actions' }))
+
+    expect(onRowDoubleClick).not.toHaveBeenCalled()
   })
 
   test('the bar stays revealed while its own menu is open, which lives outside the row', () => {

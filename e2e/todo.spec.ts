@@ -107,7 +107,8 @@ test('the add box reads a due date off the typed words and says so first', async
   const row = openRows(win).first()
   await expect(row.locator('.ix-todo-item__text')).toHaveText('Call the vendor')
   await expect(row.locator('.ix-todo-item__due')).toHaveText(/tomorrow/)
-  await expect(win.locator('.ix-todo__add-hint')).toHaveCount(0)
+  // The line keeps its place so the list does not jump; with the box empty it says nothing.
+  await expect(win.locator('.ix-todo__add-hint')).toHaveText('')
 })
 
 test('a click only selects a row; the editor waits for a double-click', async () => {

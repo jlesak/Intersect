@@ -14,7 +14,7 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 /**
  * The new-run form: workflow type, person, and (for Process only) the VTT recording via
  * drag-and-drop or the native picker. All state is component-local; submitting hands the input
- * to the store, and a validation error from main lands inline.
+ * to the store, a started run closes the form, and a validation error from main lands inline.
  *
  * The person field offers everyone the history already knows, so a name used before is picked
  * instead of typed again slightly differently. A new person still has to be typeable, so free
@@ -56,6 +56,9 @@ function NewRunForm({ people }: { people: string[] }) {
         person,
         vttPath: type === 'process' ? vttPath : null
       })
+      // The form has done its job, so it stands down. This is the form's own call to make: a run
+      // started from the history leaves it open, holding whatever was already typed into it.
+      useOneOnOneStore.getState().setShowForm(false)
     } catch (err) {
       setFormError(message(err))
     } finally {

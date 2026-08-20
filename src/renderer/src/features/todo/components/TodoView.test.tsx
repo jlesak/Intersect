@@ -282,6 +282,34 @@ describe('TodoView row activation', () => {
     expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(0)
     expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
   })
+
+  test('a double-press on one of the row’s own controls stays with that control', async () => {
+    await mount()
+
+    const row = rowOf('Task b') as HTMLElement
+    const editorsAfterDoublePress = (control: Element): number => {
+      fireEvent.dblClick(control)
+      return document.querySelectorAll('.ix-todo-item--editing').length
+    }
+
+    expect({
+      grip: editorsAfterDoublePress(within(row).getByRole('button', { name: /Move Task b/ })),
+      check: editorsAfterDoublePress(within(row).getByTitle('Mark as done')),
+      launch: editorsAfterDoublePress(within(row).getByRole('button', { name: 'Start session' })),
+      overflow: editorsAfterDoublePress(within(row).getByRole('button', { name: 'More actions' })),
+      trash: editorsAfterDoublePress(within(row).getByTitle('Delete'))
+    }).toEqual({ grip: 0, check: 0, launch: 0, overflow: 0, trash: 0 })
+  })
+
+  test('a double-click on the row’s own text still opens the editor', async () => {
+    await mount()
+
+    fireEvent.dblClick(
+      (rowOf('Task b') as HTMLElement).querySelector('.ix-todo-item__text') as HTMLElement
+    )
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+  })
 })
 
 /** What the add box makes of the words it is given, and what it shows before it acts on them. */
@@ -316,6 +344,7 @@ describe('TodoView add box', () => {
     return screen.getByPlaceholderText('Add a task… (Enter)')
   }
 
+  /** The hint's text, or null when the line itself is missing from the page. */
   const hint = (): string | null =>
     document.querySelector('.ix-todo__add-hint')?.textContent ?? null
 
@@ -350,11 +379,28 @@ describe('TodoView add box', () => {
     expect(hint()).toContain('due tomorrow')
   })
 
+  test('the hint keeps its line whether or not a day was read, so the list holds still', async () => {
+    const input = await mount()
+
+    // "thu" names a day, "thur" names none, "thursday" names one again. The line stays either
+    // way, so spelling the word out does not shove the task list up and down under the cursor.
+    expect(hint()).toBe('')
+
+    fireEvent.change(input, { target: { value: 'standup thu' } })
+    expect(hint()).toContain('standup')
+
+    fireEvent.change(input, { target: { value: 'standup thur' } })
+    expect(hint()).toBe('')
+
+    fireEvent.change(input, { target: { value: 'standup thursday' } })
+    expect(hint()).toContain('standup')
+  })
+
   test('text that names no day stays whole and raises no hint', async () => {
     const input = await mount()
 
     fireEvent.change(input, { target: { value: 'tomorrow is the deadline' } })
-    expect(hint()).toBeNull()
+    expect(hint()).toBe('')
 
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter' })
@@ -384,7 +430,7 @@ describe('TodoView add box', () => {
     fireEvent.change(input, { target: { value: 'call the vendor tomorrow' } })
 
     // Nothing is being guessed while an explicit day is standing, so nothing is announced either.
-    expect(hint()).toBeNull()
+    expect(hint()).toBe('')
 
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter' })

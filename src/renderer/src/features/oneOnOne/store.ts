@@ -14,8 +14,12 @@ interface OneOnOneState {
   load(): Promise<void>
   setShowForm(show: boolean): void
   /**
-   * Start a run: on success the new `running` run tops the history and the form closes. A
-   * validation failure from main is re-thrown so the form can show it inline.
+   * Start a run: on success the new `running` run tops the history. A validation failure from
+   * main is re-thrown so whoever asked can show it inline.
+   *
+   * Whether the new-run form is open is left alone, because a run can be started from the
+   * history as well, and closing the form there would throw away a recording and a name the
+   * user had already picked.
    */
   start(input: OtoStartInput): Promise<void>
   /** Listen for finished runs pushed from main; returns an unsubscribe fn. */
@@ -63,7 +67,7 @@ export const useOneOnOneStore = createStore<OneOnOneState>()((set, get) => ({
 
   async start(input) {
     const run = await api.start(input)
-    set((s) => ({ runs: upsertRun(s.runs, run), showForm: false }))
+    set((s) => ({ runs: upsertRun(s.runs, run) }))
   },
 
   subscribe() {

@@ -58,9 +58,14 @@ function dayOffsetOut(word: string, today: string): string | null {
  * A date written out rather than named.
  *
  * `yyyy-mm-dd` is the app's own day key and means exactly one day, so it is honoured as typed,
- * past days included. `d.m` (padding and a trailing dot optional) is the form the rows themselves
- * print, so a user can type back what they read; it means the coming occurrence of that day,
- * rolling into next year once it has passed.
+ * past days included. Two dotted parts mean the coming occurrence of that day, rolling into next
+ * year once it has passed, in either of the two shapes that say "date" on sight: the zero-padded
+ * `dd.mm` the rows themselves print, so a user can type back what they read, and any `d.m.` that
+ * closes with a dot.
+ *
+ * A bare unpadded `d.m` is left alone, because at the end of a task line it is far more often a
+ * version, a decimal or a dotted reference - "bump the client to 1.2", "ubuntu 22.4" - than the
+ * 1st of February. Writing `1.2.` or `01.02` says the date was meant.
  *
  * `d/m` is refused. The slash form reads as two different days depending on where the person
  * writing it grew up, and guessing wrong would set a deadline nobody typed.
@@ -68,7 +73,7 @@ function dayOffsetOut(word: string, today: string): string | null {
 function dayWritten(word: string, today: string): string | null {
   if (/^\d{4}-\d{2}-\d{2}$/.test(word)) return isRealDay(word) ? word : null
 
-  const dayMonth = /^(\d{1,2})\.(\d{1,2})\.?$/.exec(word)
+  const dayMonth = /^(\d{2})\.(\d{2})$/.exec(word) ?? /^(\d{1,2})\.(\d{1,2})\.$/.exec(word)
   if (!dayMonth) return null
 
   const day = pad(Number(dayMonth[1]))

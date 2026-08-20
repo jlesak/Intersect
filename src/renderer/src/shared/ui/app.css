@@ -2889,17 +2889,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 6px;
 }
 .ix-todo__add .ix-input {
   flex: 1;
 }
 /* What the typed date words will do, shown before Enter is pressed: the title that will be
-   stored, and the day it will be pinned to. */
+   stored, and the day it will be pinned to. The line holds its place whether it has something
+   to say or not, and stays exactly one line tall, so the list below sits still while the
+   reading of the text changes under the cursor. */
 .ix-todo__add-hint {
-  margin: -12px 0 14px;
+  min-height: 16px;
+  line-height: 16px;
+  margin-bottom: 4px;
   color: var(--text-faint);
   font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ix-todo__add-hint-text {
   color: var(--text-dim);
@@ -3250,11 +3257,6 @@
 .ix-oto-run__type--prep {
   color: var(--status-working);
   background: var(--status-working-soft);
-}
-.ix-oto-run__person {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
 }
 .ix-oto-run__time {
   margin-left: auto;

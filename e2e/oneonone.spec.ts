@@ -83,7 +83,7 @@ test('a process run goes running -> done and shows the Notion link and Slack con
   const card = win.locator('.ix-oto-run')
   await expect(card).toHaveCount(1)
   await expect(card.locator('.ix-oto-run__type')).toHaveText(/processing/i)
-  await expect(card.locator('.ix-oto-run__person')).toHaveText('Marek K.')
+  await expect(win.locator('.ix-oto-person__name')).toHaveText('Marek K.')
   await expect(card.locator('.ix-oto-run__status')).toHaveText(
     /Running in background \(Claude Code session\)…/
   )
@@ -133,7 +133,7 @@ test('the run history persists across a relaunch', async () => {
   await openOneOnOne(second.win)
   const card = second.win.locator('.ix-oto-run')
   await expect(card).toHaveCount(1)
-  await expect(card.locator('.ix-oto-run__person')).toHaveText('Tereza N.')
+  await expect(second.win.locator('.ix-oto-person__name')).toHaveText('Tereza N.')
   await expect(card.locator('.ix-oto-run__status--done')).toHaveText(/Done/)
   await expect(card.locator('.ix-oto-prep-body .ix-markdown h2').first()).toHaveText('Previous 1:1')
 })

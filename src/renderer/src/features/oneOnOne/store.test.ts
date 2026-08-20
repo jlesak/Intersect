@@ -60,14 +60,15 @@ describe('showForm', () => {
 })
 
 describe('start', () => {
-  test('prepends the new running run and closes the form', async () => {
+  test('prepends the new running run and leaves the form as it found it', async () => {
     useOneOnOneStore.setState({ status: 'ready', runs: [run('old')], showForm: true })
     mocked.start.mockResolvedValue(run('new'))
     await useOneOnOneStore.getState().start({ type: 'prep', person: 'Tereza N.' })
     expect(mocked.start).toHaveBeenCalledWith({ type: 'prep', person: 'Tereza N.' })
     const s = useOneOnOneStore.getState()
     expect(s.runs.map((r) => r.id)).toEqual(['new', 'old'])
-    expect(s.showForm).toBe(false)
+    // Closing the form belongs to the form, so a run started from anywhere else keeps it open.
+    expect(s.showForm).toBe(true)
   })
 
   test('a validation failure is re-thrown and keeps the form open', async () => {

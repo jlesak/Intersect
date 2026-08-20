@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { OtoRun } from '@common/domain'
 
@@ -9,7 +9,12 @@ import { OneOnOneView } from './OneOnOneView'
 
 const mocked = vi.mocked(api)
 
-const run = (id: string, person: string, createdAt: number): OtoRun => ({
+const run = (
+  id: string,
+  person: string,
+  createdAt: number,
+  over: Partial<OtoRun> = {}
+): OtoRun => ({
   id,
   type: 'prep',
   person,
@@ -21,7 +26,8 @@ const run = (id: string, person: string, createdAt: number): OtoRun => ({
   resultMarkdown: null,
   error: null,
   createdAt,
-  finishedAt: createdAt + 1000
+  finishedAt: createdAt + 1000,
+  ...over
 })
 
 const RUNS = [
@@ -91,5 +97,86 @@ describe('OneOnOneView', () => {
 
     expect(offeredPeople()).toEqual([])
     expect(headings()).toEqual([])
+  })
+
+  test('a person is named once, by their group, rather than again on every card', async () => {
+    await mount()
+
+    // Marek's two runs spell him "Marek K." and "marek k". The group heading settles which of
+    // the two the section shows, so neither card says it a second time.
+    const marek = document.querySelectorAll('.ix-oto-person')[1] as HTMLElement
+    expect(marek.querySelectorAll('.ix-oto-run')).toHaveLength(2)
+    expect(marek.textContent?.match(/[Mm]arek [Kk]/g) ?? []).toHaveLength(1)
+  })
+})
+
+/** What the new-run form survives while it is standing. */
+describe('OneOnOneView new-run form', () => {
+  const FAILED = run('f', 'Marek K.', 500, {
+    type: 'process',
+    status: 'failed',
+    vttPath: '/recordings/marek.vtt',
+    error: 'Stubbed workflow failure',
+    finishedAt: 600
+  })
+
+  const personField = (): HTMLInputElement =>
+    screen.getByPlaceholderText('e.g. Marek K.') as HTMLInputElement
+
+  beforeEach(() => {
+    mocked.start.mockReset()
+    mocked.list.mockResolvedValue([FAILED])
+    useOneOnOneStore.setState({ status: 'ready', error: null, runs: [FAILED], showForm: true })
+  })
+
+  afterEach(() => {
+    useOneOnOneStore.setState({ status: 'idle', runs: [], showForm: false })
+  })
+
+  const mount = async (): Promise<void> => {
+    await act(async () => {
+      render(<OneOnOneView />)
+    })
+  }
+
+  test('a retry from the history leaves the open form, and what was typed into it, standing', async () => {
+    mocked.start.mockResolvedValue({ ...FAILED, id: 'f2', status: 'running', error: null })
+    await mount()
+    fireEvent.change(personField(), { target: { value: 'Tereza N.' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    })
+
+    expect(useOneOnOneStore.getState().showForm).toBe(true)
+    expect(document.querySelector('.ix-oto-form')).not.toBeNull()
+    expect(personField().value).toBe('Tereza N.')
+  })
+
+  test('the form closes once its own submit has started a run', async () => {
+    mocked.start.mockResolvedValue(run('new', 'Tereza N.', 900, { status: 'running' }))
+    await mount()
+    fireEvent.change(personField(), { target: { value: 'Tereza N.' } })
+
+    await act(async () => {
+      fireEvent.submit(document.querySelector('.ix-oto-form') as HTMLElement)
+    })
+
+    expect(useOneOnOneStore.getState().showForm).toBe(false)
+    expect(document.querySelector('.ix-oto-form')).toBeNull()
+  })
+
+  test('a refused submit keeps the form open with its answer inline', async () => {
+    mocked.start.mockRejectedValue(new Error('Person must not be empty'))
+    await mount()
+
+    await act(async () => {
+      fireEvent.submit(document.querySelector('.ix-oto-form') as HTMLElement)
+    })
+
+    expect(useOneOnOneStore.getState().showForm).toBe(true)
+    expect(document.querySelector('.ix-oto-form__error')?.textContent).toBe(
+      'Person must not be empty'
+    )
   })
 })

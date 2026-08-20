@@ -250,12 +250,19 @@ export function TodoView() {
           </button>
         </div>
 
-        {typedDue !== null && typedDue.dueDay !== null && (
-          <div className="ix-todo__add-hint">
-            Adds <span className="ix-todo__add-hint-text">{typedDue.text}</span>, due{' '}
-            {formatDueDay(typedDue.dueDay, today)}
-          </div>
-        )}
+        {/*
+          The line is always here, empty or not. What the typed words mean changes with almost
+          every keystroke - "thu" names a day, "thur" names none, "thursday" names one again -
+          and a line that came and went would shove the task list up and down under the cursor.
+        */}
+        <div className="ix-todo__add-hint">
+          {typedDue !== null && typedDue.dueDay !== null && (
+            <>
+              Adds <span className="ix-todo__add-hint-text">{typedDue.text}</span>, due{' '}
+              {formatDueDay(typedDue.dueDay, today)}
+            </>
+          )}
+        </div>
 
         {status === 'error' && (
           <div className="ix-todo__error">Could not load tasks{error ? `: ${error}` : ''}</div>

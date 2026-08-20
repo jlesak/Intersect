@@ -167,24 +167,54 @@ describe('parseDueFromText, written-out dates', () => {
     expect(parse('ticket 2026-13-45')).toEqual({ text: 'ticket 2026-13-45', dueDay: null })
   })
 
-  test('"d.m" means the coming occurrence of that day', () => {
+  test('the padded "dd.mm" the rows print means the coming occurrence of that day', () => {
     expect(parse('pay it 12.11')).toEqual({ text: 'pay it', dueDay: '2026-11-12' })
   })
 
-  test('"d.m" already past this year rolls into the next one', () => {
-    expect(parse('pay it 3.7')).toEqual({ text: 'pay it', dueDay: '2027-07-03' })
+  test('a written day already past this year rolls into the next one', () => {
+    expect(parse('pay it 03.07')).toEqual({ text: 'pay it', dueDay: '2027-07-03' })
   })
 
-  test('the padded, trailing-dot form the rows print is accepted back', () => {
+  test('the trailing-dot form is accepted whether or not its parts are padded', () => {
     expect(parse('pay it 03.07.')).toEqual({ text: 'pay it', dueDay: '2027-07-03' })
+    expect(parse('pay it 3.7.')).toEqual({ text: 'pay it', dueDay: '2027-07-03' })
   })
 
   test('today’s own date resolves to today rather than a year out', () => {
-    expect(parse('pay it 7.8')).toEqual({ text: 'pay it', dueDay: FRIDAY })
+    expect(parse('pay it 07.08')).toEqual({ text: 'pay it', dueDay: FRIDAY })
   })
 
   test('a day that does not exist is left in the text', () => {
-    expect(parse('pay it 31.2')).toEqual({ text: 'pay it 31.2', dueDay: null })
+    expect(parse('pay it 31.02')).toEqual({ text: 'pay it 31.02', dueDay: null })
+  })
+
+  test('a bare two-part number is a version, and keeps both its digits and the title', () => {
+    // Every one of these is a real day if the padding is ignored, which is why the padding is
+    // not ignored: a trailing "1.2" is far more often a client version than the 1st of February.
+    expect(parse('bump the client to 1.2')).toEqual({ text: 'bump the client to 1.2', dueDay: null })
+    expect(parse('bump the client to 3.11')).toEqual({
+      text: 'bump the client to 3.11',
+      dueDay: null
+    })
+    expect(parse('bump the client to 22.4')).toEqual({
+      text: 'bump the client to 22.4',
+      dueDay: null
+    })
+    expect(parse('bump the client to 12.1')).toEqual({
+      text: 'bump the client to 12.1',
+      dueDay: null
+    })
+  })
+
+  test('the same numbers name a day once they are written the way a date is', () => {
+    expect(parse('bump the client to 1.2.')).toEqual({
+      text: 'bump the client to',
+      dueDay: '2027-02-01'
+    })
+    expect(parse('bump the client to 01.02')).toEqual({
+      text: 'bump the client to',
+      dueDay: '2027-02-01'
+    })
   })
 
   test('the slash form is refused, because it means two different days', () => {
@@ -193,6 +223,6 @@ describe('parseDueFromText, written-out dates', () => {
 
   test('a task that is only a written date keeps its text and gets no due day', () => {
     expect(parse('2026-09-01')).toEqual({ text: '2026-09-01', dueDay: null })
-    expect(parse('3.7')).toEqual({ text: '3.7', dueDay: null })
+    expect(parse('03.07')).toEqual({ text: '03.07', dueDay: null })
   })
 })
