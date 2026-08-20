@@ -14,9 +14,10 @@ export interface RowAction {
  * revealed by hovering or focusing the row, so what the row can do is advertised on the row
  * instead of waiting behind a right-click.
  *
- * Every press stops inside the bar, so a button never also activates the row it sits in. That
- * covers the overflow menu too: it is portalled out of the row in the DOM and stays a child of
- * the bar in the React tree, which is the tree React bubbles synthetic events along.
+ * Every press stops inside the bar, single or double, so a button never also activates the row
+ * it sits in. That covers the overflow menu too: it is portalled out of the row in the DOM and
+ * stays a child of the bar in the React tree, which is the tree React bubbles synthetic events
+ * along.
  *
  * While the menu stands the bar marks itself open, because the pointer has left the row for a
  * menu that lives elsewhere and the reveal has to survive that.
@@ -45,6 +46,7 @@ export function RowActions({
     <span
       className={`ix-rowactions${menuAt ? ' ix-rowactions--open' : ''}`}
       onClick={contain}
+      onDoubleClick={contain}
       onKeyDown={contain}
     >
       <button

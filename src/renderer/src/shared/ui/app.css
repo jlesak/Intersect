@@ -2979,14 +2979,44 @@
   color: var(--text-dim);
 }
 
+/* What the deadlines say, in the rail, with the list off screen. */
+.ix-todo-rail__due {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.ix-todo-rail__due-line--overdue {
+  color: var(--danger);
+}
+
 .ix-todo__add {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 6px;
 }
 .ix-todo__add .ix-input {
   flex: 1;
+}
+/* What the typed date words will do, shown before Enter is pressed: the title that will be
+   stored, and the day it will be pinned to. The line holds its place whether it has something
+   to say or not, and stays exactly one line tall, so the list below sits still while the
+   reading of the text changes under the cursor. */
+.ix-todo__add-hint {
+  min-height: 16px;
+  line-height: 16px;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ix-todo__add-hint-text {
+  color: var(--text-dim);
 }
 .ix-todo__add .ix-todo__date {
   flex: none;
@@ -3035,10 +3065,16 @@
 .ix-todo-item--dragging {
   opacity: 0.45;
 }
-/* The row the user was sent here to look at: found, not selected, so the mark expires on its own. */
+/* The row the user was sent here to look at: found, so the mark expires on its own. */
 .ix-todo-item--focused {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+/* The row the user pointed at. Quieter than the arrival mark, and it stays until another is
+   clicked, so the two read as different things when both are on screen. */
+.ix-todo-item--selected {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--border-strong);
 }
 .ix-todo-item__drag,
 .ix-todo-item__drag-spacer {
@@ -3291,10 +3327,11 @@
 }
 
 /* run history */
+/* The children here are one person's runs each, so the gap separates people. */
 .ix-oto-runs {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
 }
 .ix-oto-run {
   display: flex;
@@ -3328,11 +3365,6 @@
   color: var(--status-working);
   background: var(--status-working-soft);
 }
-.ix-oto-run__person {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
 .ix-oto-run__time {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -3351,6 +3383,32 @@
 }
 .ix-oto-run__status--failed {
   color: var(--danger);
+}
+.ix-oto-run__retry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ix-oto-run__retry-error {
+  color: var(--danger);
+  font-size: 11.5px;
+}
+/* One person's runs, under their name, so the last conversation is not buried under everyone
+   else's. */
+.ix-oto-person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ix-oto-person__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ix-oto-person__runs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .ix-oto-run__links {
   display: flex;

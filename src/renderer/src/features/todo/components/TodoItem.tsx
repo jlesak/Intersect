@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
 import type { TodoTask, TodoTaskPatch } from '@common/domain'
 import { dayKeyOf } from '@common/week'
+import type { MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { RowActions } from '@renderer/shared/ui/RowActions'
 import { formatDueDay, isOverdue } from '../due'
@@ -21,20 +22,27 @@ export interface TodoItemDrag {
 /**
  * One TODO row, including inline editing and accessible manual-order controls for open tasks.
  *
- * An open row is a tab stop whose Enter opens the same inline editor a click opens, and the bar it
- * reveals carries the session launch, so the row can be worked entirely from the keyboard.
+ * A plain click only points at a task: it selects the row and takes keyboard focus. Editing waits
+ * for a gesture the user has to mean - the pencil, a double-click, or Enter on the focused row -
+ * so pointing at a row, or starting a drag from it, can never put it into the editor.
+ *
+ * An open row is a tab stop, and the bar it reveals carries the session launch, so the row can be
+ * worked entirely from the keyboard.
  */
 export function TodoItem({
   task,
   done,
   editing,
+  selected,
   onToggle,
   onDelete,
+  onSelect,
   onStartEdit,
   onCancelEdit,
   onSave,
   onStartSession,
   onContextMenu,
+  overflow,
   focused,
   rowRef,
   drag
@@ -42,15 +50,21 @@ export function TodoItem({
   task: TodoTask
   done: boolean
   editing?: boolean
+  /** Marks the row the user last pointed at. Persists until another row takes the selection. */
+  selected?: boolean
   onToggle(): void
   onDelete(): void
+  /** The row was pointed at. Given for open tasks; a done one is a record rather than a target. */
+  onSelect?(): void
   onStartEdit?(): void
   onCancelEdit?(): void
   onSave?(patch: TodoTaskPatch): void
   /** Starts a Claude session on this task. Given for open tasks; a done one has no work left. */
   onStartSession?(): void
-  /** Lets the embedding list attach a per-row menu (e.g. session launch) at the pointer. */
+  /** Lets the embedding list attach a per-row menu at the pointer. */
   onContextMenu?(x: number, y: number): void
+  /** What the action bar hides behind its overflow: what the bar does not already show. */
+  overflow?: MenuEntry[]
   /** Marks the row the user was sent here to look at, so it stands out on arrival. */
   focused?: boolean
   /** Lets the embedding list hold on to the row element so it can scroll it into view. */
@@ -128,11 +142,31 @@ export function TodoItem({
       ref={rowRef}
       className={`ix-todo-item${done ? ' ix-todo-item--done' : ''}${
         drag?.dragging ? ' ix-todo-item--dragging' : ''
-      }${focused ? ' ix-todo-item--focused' : ''}`}
+      }${focused ? ' ix-todo-item--focused' : ''}${selected ? ' ix-todo-item--selected' : ''}`}
       role="listitem"
       tabIndex={done ? undefined : 0}
       draggable={drag?.draggable ?? false}
-      onClick={!done ? onStartEdit : undefined}
+      onClick={
+        done
+          ? undefined
+          : (e) => {
+              // Taking focus with the selection lets the keyboard carry on from the row the mouse
+              // just pointed at.
+              e.currentTarget.focus()
+              onSelect?.()
+            }
+      }
+      onDoubleClick={
+        done
+          ? undefined
+          : (e) => {
+              // A double-press on one of the row's own buttons belongs to that button, and one
+              // in a menu the row raised elsewhere in the document is not the row's at all.
+              const target = e.target as HTMLElement
+              if (!e.currentTarget.contains(target) || target.closest('button') !== null) return
+              onStartEdit?.()
+            }
+      }
       onKeyDown={
         done
           ? undefined
@@ -216,7 +250,10 @@ export function TodoItem({
       </span>
       <span className="ix-todo-item__actions">
         {onStartSession && !done && (
-          <RowActions primary={{ label: 'Start session', onClick: onStartSession }} />
+          <RowActions
+            primary={{ label: 'Start session', onClick: onStartSession }}
+            overflow={overflow}
+          />
         )}
         {!done && (
           <button

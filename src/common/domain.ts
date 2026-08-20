@@ -824,7 +824,10 @@ export type OtoRunStatus = (typeof OTO_RUN_STATUSES)[number]
 export interface OtoRun {
   id: string
   type: OtoRunType
-  /** Free-text person name typed into the form (no persistent people list by design). */
+  /**
+   * Free-text person name as the form was given it. There is no people table by design; the form
+   * offers the names the run history already holds, and this field records what was really run.
+   */
   person: string
   /** Absolute path of the VTT recording; null for `prep` runs. */
   vttPath: string | null
