@@ -129,6 +129,21 @@ describe('renderer import graph', () => {
     ).toEqual(['src/renderer/src/features/prInbox/components/DiffViewer.tsx', 'monaco-editor'])
   })
 
+  it('resolves specifiers across hops, aliases and barrels', () => {
+    // The control above matches on the entry file's own first import, so it returns before a
+    // specifier is ever resolved and it survives a resolver that always answers null. This one
+    // needs several hops to succeed: a bare alias, a directory-to-index barrel, and relative
+    // files. A resolver that stops working fails here loudly instead of reporting an empty graph.
+    const isXterm = (specifier: string): boolean => specifier === '@xterm/xterm'
+    expect(findStaticPath('src/renderer/src/main.tsx', isXterm)).toEqual([
+      'src/renderer/src/main.tsx',
+      'src/renderer/src/app/registerFeatures.ts',
+      'src/renderer/src/features/terminal/index.ts',
+      'src/renderer/src/features/terminal/terminalController.ts',
+      '@xterm/xterm'
+    ])
+  })
+
   it('keeps Monaco out of the PR inbox barrel', () => {
     // Consumers across the app import this barrel for the store and its selectors. Reaching the
     // editor from here puts it in their chunks and in their tests.

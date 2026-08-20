@@ -2,9 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { JiraIssue } from '@common/domain'
 
-// The card reaches the My Work store, which reaches the PR inbox barrel and through it monaco -
-// and monaco cannot initialise under jsdom.
-vi.mock('monaco-editor', () => ({ editor: {} }))
 vi.mock('@renderer/features/workItems', () => ({ launchFromJiraIssue: vi.fn() }))
 
 import { launchFromJiraIssue } from '@renderer/features/workItems'
