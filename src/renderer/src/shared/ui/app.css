@@ -3842,16 +3842,21 @@
 
 /* --- Caught render failure (ErrorBoundary): the core-failure visual language, two reaches --- */
 
-/* The card is centred on both axes. The direction is declared here rather than inherited, because
-   the contained variant also carries .ix-main - the shell's own main slot, which already sizes that
-   variant (so it needs no rules of its own) and whose column direction would otherwise be what
-   decides which axis align-items and justify-content each mean. */
+/* The card is centred on both axes. The direction is declared here rather than left to inherit, so
+   align-items and justify-content keep meaning the same axis wherever a crash surface is mounted. */
 .ix-crash {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+/* Contained reach: claim the height of the slot the boundary occupies, which is what gives
+   justify-content something to centre the card within. A region boundary sits anywhere from the
+   shell's main area to a pane nested well inside one, and where the container's own height is
+   indefinite this resolves to auto, leaving the card at its natural size. */
+.ix-crash--region {
+  min-height: 100%;
 }
 /* Last resort: the shell is gone, so cover the viewport the way a blocking overlay would. */
 .ix-crash--window {

@@ -46,8 +46,14 @@ export function App() {
   return (
     <div className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}>
       <Sidebar />
-      {/* Keyed by context so navigating away from a crashed view always lands on a fresh mount. */}
-      <ErrorBoundary key={mainKey} scope="region">
+      {/* Keyed by context so navigating away from a crashed view always lands on a fresh mount.
+          The sidebar is outside the boundary, so a crash here leaves it live and the recovery
+          line can send the user straight to it. */}
+      <ErrorBoundary
+        key={mainKey}
+        scope="region"
+        recovery="The rest of the app is unaffected. Pick another project or section in the sidebar, or retry this one."
+      >
         {main}
       </ErrorBoundary>
       <Toaster />
