@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import {
   activateAction,
+  createUnattendedShutdown,
+  isUserPresenceInput,
   quitDecision,
+  shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
   shouldZeroDockBadge
 } from './lifecycle'
@@ -36,6 +39,23 @@ describe('activateAction', () => {
   })
 })
 
+describe('shouldConfirmQuit', () => {
+  test('asks when live sessions exist and somebody is there to answer', () => {
+    expect(shouldConfirmQuit({ liveCount: 1, unattended: false })).toBe(true)
+    expect(shouldConfirmQuit({ liveCount: 7, unattended: false })).toBe(true)
+  })
+
+  test('an unattended shutdown proceeds to the suspend teardown without asking', () => {
+    expect(shouldConfirmQuit({ liveCount: 1, unattended: true })).toBe(false)
+    expect(shouldConfirmQuit({ liveCount: 7, unattended: true })).toBe(false)
+  })
+
+  test('with no live sessions there is nothing to confirm, attended or not', () => {
+    expect(shouldConfirmQuit({ liveCount: 0, unattended: false })).toBe(false)
+    expect(shouldConfirmQuit({ liveCount: 0, unattended: true })).toBe(false)
+  })
+})
+
 describe('quitDecision', () => {
   test('with no live sessions the quit proceeds without a dialog', () => {
     expect(quitDecision(0, null)).toBe('quit')
@@ -64,5 +84,61 @@ describe('shouldZeroDockBadge', () => {
   test('leaves the canonical badge alone in the healthy states', () => {
     expect(shouldZeroDockBadge({ state: 'starting' })).toBe(false)
     expect(shouldZeroDockBadge({ state: 'ready' })).toBe(false)
+  })
+})
+
+describe('createUnattendedShutdown', () => {
+  test('a fresh app has no shutdown in flight', () => {
+    expect(createUnattendedShutdown().isUnattended()).toBe(false)
+  })
+
+  test('the power-off signal raises the claim for the quit that follows', () => {
+    const shutdown = createUnattendedShutdown()
+    shutdown.arm()
+    expect(shutdown.isUnattended()).toBe(true)
+  })
+
+  test('evidence of a person withdraws a claim the shutdown never came back for', () => {
+    const shutdown = createUnattendedShutdown()
+    shutdown.arm()
+    shutdown.disarm()
+    expect(shutdown.isUnattended()).toBe(false)
+  })
+
+  test('disarm reports the transition, so a present user is logged once', () => {
+    const shutdown = createUnattendedShutdown()
+    expect(shutdown.disarm()).toBe(false)
+    shutdown.arm()
+    expect(shutdown.disarm()).toBe(true)
+    expect(shutdown.disarm()).toBe(false)
+  })
+
+  test('a second power-off raises the claim again', () => {
+    const shutdown = createUnattendedShutdown()
+    shutdown.arm()
+    shutdown.disarm()
+    shutdown.arm()
+    expect(shutdown.isUnattended()).toBe(true)
+  })
+})
+
+describe('isUserPresenceInput', () => {
+  test('a key or button going down takes a hand', () => {
+    expect(isUserPresenceInput('keyDown')).toBe(true)
+    expect(isUserPresenceInput('rawKeyDown')).toBe(true)
+    expect(isUserPresenceInput('char')).toBe(true)
+    expect(isUserPresenceInput('mouseDown')).toBe(true)
+  })
+
+  test('pointer traffic proves nothing, because closing windows produce it on their own', () => {
+    expect(isUserPresenceInput('mouseMove')).toBe(false)
+    expect(isUserPresenceInput('mouseEnter')).toBe(false)
+    expect(isUserPresenceInput('mouseLeave')).toBe(false)
+  })
+
+  test('the tail of an interaction says nothing the press did not already say', () => {
+    expect(isUserPresenceInput('keyUp')).toBe(false)
+    expect(isUserPresenceInput('mouseUp')).toBe(false)
+    expect(isUserPresenceInput('undefined')).toBe(false)
   })
 })
