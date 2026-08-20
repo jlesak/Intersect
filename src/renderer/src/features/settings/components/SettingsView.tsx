@@ -7,7 +7,7 @@ import {
 } from '@common/domain'
 import { formatAccelerator, SHORTCUT_ACTIONS } from '@common/shortcuts'
 import { ProjectsPane } from '@renderer/features/projects'
-import { AgentToolingPane } from '@renderer/features/agentTooling'
+import { AgentToolingPane, selectHasRawDraft, useAgentToolingStore } from '@renderer/features/agentTooling'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { useSettingsStore } from '../store'
 
@@ -42,12 +42,17 @@ const PANES: Record<CategoryId, ComponentType> = {
 
 /**
  * The Settings section's main region: a left sub-navigation over the categories, content on the
- * right. Leaving a category discards its pane: store-backed fields survive that, because they
- * persist as they change, but text a pane holds in an editor buffer of its own until the user
- * commits it - the raw JSON editor above all - is lost.
+ * right. Leaving a category discards its pane, and every field a pane shows is store-backed, so
+ * what is on screen survives that. The raw JSON editor holds a whole hand-edited document, which
+ * it keeps in the Agent Tooling store for the same reason.
  */
 export function SettingsView() {
-  const [category, setCategory] = useState<CategoryId>('projects')
+  // That parked edit outlives this view as well, so Settings opens on the category holding it
+  // rather than on the default one, which would leave the user's work out of sight.
+  const [category, setCategory] = useState<CategoryId>(() =>
+    selectHasRawDraft(useAgentToolingStore.getState()) ? 'agentTooling' : 'projects'
+  )
+  const rawEditParked = useAgentToolingStore(selectHasRawDraft)
 
   useEffect(() => {
     void useSettingsStore.getState().load()
@@ -65,8 +70,16 @@ export function SettingsView() {
               type="button"
               className={`ix-settings__nav-btn${category === c.id ? ' ix-settings__nav-btn--active' : ''}`}
               onClick={() => setCategory(c.id)}
+              title={
+                c.id === 'agentTooling' && rawEditParked
+                  ? 'Unsaved raw JSON edit waiting here'
+                  : undefined
+              }
             >
               {c.label}
+              {c.id === 'agentTooling' && rawEditParked && (
+                <span className="ix-settings__nav-dot" aria-hidden="true" />
+              )}
             </button>
           ))}
         </nav>

@@ -12,12 +12,20 @@ import type {
   HookEntry,
   McpServerEntry,
   PermissionEntry,
+  RawTargetView,
   SkillCatalogItem
 } from '@common/domain'
 import { useProjectsStore, selectActiveProjects } from '@renderer/features/projects'
 import { fuzzyFilter } from '@renderer/shared/fuzzy'
 import { Dialog } from '@renderer/shared/ui/Dialog'
-import { useAgentToolingStore, type PendingPreview, type LastUndo } from '../store'
+import {
+  rawDraftKey,
+  selectRawDraft,
+  selectRawDraftForScope,
+  useAgentToolingStore,
+  type PendingPreview,
+  type LastUndo
+} from '../store'
 import * as api from '../ipc'
 
 // Monaco is heavy; it must never load until an editor is actually opened, so both editor
@@ -118,6 +126,16 @@ export function AgentToolingPane() {
   // The selector derives a fresh array on every call, so it must be compared shallowly - an
   // unstable snapshot would make React re-render this pane without end.
   const projects = useProjectsStore(useShallow(selectActiveProjects))
+  // The file an unsaved raw edit is parked for, or null. A primitive, so typing in the editor
+  // (which re-parks on every keystroke) never re-renders the pane.
+  const rawDraftFile = useAgentToolingStore((s) => selectRawDraftForScope(s, s.scope)?.source ?? null)
+  // An unsaved edit outlives every unmount, so the pane opens on the tab that holds it. Read once:
+  // the user's own tab choice from here on is theirs to keep.
+  const [initialTab] = useState<AtTab>(() =>
+    selectRawDraftForScope(useAgentToolingStore.getState(), useAgentToolingStore.getState().scope)
+      ? 'advanced'
+      : 'overview'
+  )
 
   useEffect(() => {
     void useProjectsStore.getState().load()
@@ -145,6 +163,8 @@ export function AgentToolingPane() {
         onScopeChange={onScopeChange}
         onReveal={(path) => void useAgentToolingStore.getState().reveal(path)}
         onEdit={(request) => void useAgentToolingStore.getState().preview(request)}
+        initialTab={initialTab}
+        rawDraftFile={rawDraftFile}
       />
       {pendingPreview && (
         <ConfirmSaveDialog
@@ -183,7 +203,8 @@ export function AgentToolingPaneBody({
   onScopeChange,
   onReveal,
   onEdit,
-  initialTab = 'overview'
+  initialTab = 'overview',
+  rawDraftFile = null
 }: {
   status: Status
   error: string | null
@@ -196,6 +217,8 @@ export function AgentToolingPaneBody({
   onReveal: (path: string) => void
   onEdit?: (request: ConfigEditRequest) => void
   initialTab?: AtTab
+  /** The file an unsaved raw edit is parked for, marked on the tab that leads back to it. */
+  rawDraftFile?: ConfigSource | null
 }) {
   const [tab, setTab] = useState<AtTab>(initialTab)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -262,8 +285,14 @@ export function AgentToolingPaneBody({
             tabIndex={t === tab ? 0 : -1}
             className={`ix-ctx__tab${t === tab ? ' ix-ctx__tab--active' : ''}`}
             onClick={() => setTab(t)}
+            title={
+              t === 'advanced' && rawDraftFile
+                ? `Unsaved raw JSON edit of ${SOURCE_LABELS[rawDraftFile]}`
+                : undefined
+            }
           >
             {TAB_LABELS[t]}
+            {t === 'advanced' && rawDraftFile && <span className="ix-at-tab__dot" aria-hidden="true" />}
           </button>
         ))}
       </div>
@@ -743,7 +772,12 @@ function AdvancedSection({
   target: ConfigSource
   onEdit?: (request: ConfigEditRequest) => void
 }) {
-  const [rawOpen, setRawOpen] = useState(false)
+  // An unsaved raw edit parked for this scope is what the user was last doing here, so the panel
+  // opens on it and on the file it belongs to. A restored buffer nobody can see is the same loss
+  // with extra steps. Read once at mount: the parked text changes on every keystroke, and this
+  // component has no business re-rendering for that.
+  const [parked] = useState(() => selectRawDraftForScope(useAgentToolingStore.getState(), scope))
+  const [rawOpen, setRawOpen] = useState(parked !== null)
   const emit = (edit: ConfigEdit): void => onEdit?.({ scope, source: target, edit })
   return (
     <div className="ix-at-section">
@@ -756,7 +790,7 @@ function AdvancedSection({
               {rawOpen ? 'Close raw JSON editor' : 'Edit raw JSON…'}
             </button>
           </div>
-          {rawOpen && <RawEditPanel scope={scope} onEdit={onEdit} />}
+          {rawOpen && <RawEditPanel scope={scope} initialSource={parked?.source} onEdit={onEdit} />}
         </>
       )}
       {advanced.length === 0 ? (
@@ -803,6 +837,11 @@ function AdvancedSection({
   )
 }
 
+/**
+ * Every add-form in this pane, this one included, holds a single-line draft that costs seconds to
+ * retype, so all six are left to die with their unmount. The raw editor's whole hand-edited
+ * document is the one buffer in the pane worth keeping alive across one.
+ */
 function AdvancedAdd({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
@@ -835,34 +874,85 @@ function AdvancedAdd({ onAdd }: { onAdd: (key: string, value: string) => void })
   )
 }
 
+/** One target file as the raw editor holds it: what it starts from, and what it is measured against. */
+interface RawTarget {
+  /** The text the buffer starts from: the file on disk, or an unsaved edit being restored. */
+  seed: string
+  /** The bytes on disk right now, so dirty means "differs from the file". */
+  current: string
+  /** The bytes this edit was forked from, and the guard they were read under. */
+  origin: { baseline: string; revision: string }
+  /** Set when a restored edit was forked from bytes the file no longer holds. */
+  stale: { startedAt: number } | null
+}
+
 /**
- * The guarded raw-JSON editor for one target file: it reads the current bytes on open, hands
- * user-edited text back only through the preview -> confirm -> save pipeline, and reloads on
- * demand. A per-scope selector chooses which layered file to edit.
+ * The target as it should be opened: the file on disk, or the unsaved edit parked for it. A parked
+ * edit that has become identical to the file has nothing left to protect and is dropped.
+ */
+function openTarget(view: RawTargetView, scope: AgentToolingScope, source: ConfigSource): RawTarget {
+  const store = useAgentToolingStore.getState()
+  const parked = selectRawDraft(store, scope, source)
+  const origin = { baseline: view.content, revision: view.revision }
+  if (!parked || parked.content === view.content) {
+    if (parked) store.discardRawDraft(scope, source)
+    return { seed: view.content, current: view.content, origin, stale: null }
+  }
+  return {
+    seed: parked.content,
+    current: view.content,
+    origin: { baseline: parked.baseline, revision: parked.revision },
+    // A matching revision means the file is exactly where the edit left it, so there is nothing
+    // to report. A different one means the edit is forked from bytes that are gone.
+    stale: parked.revision === view.revision ? null : { startedAt: parked.updatedAt }
+  }
+}
+
+/** How old a parked edit is, so the stale notice can say what it is asking about. */
+function formatAge(from: number, now: number): string {
+  const minutes = Math.max(0, Math.round((now - from) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
+}
+
+/**
+ * The guarded raw-JSON editor for one target file: it reads the current bytes on open, restores
+ * any unsaved edit parked for that file, keeps every keystroke parked in the store so the edit
+ * outlives this component, and hands the text back only through the preview -> confirm -> save
+ * pipeline. A per-scope selector chooses which layered file to edit.
  */
 function RawEditPanel({
   scope,
+  initialSource,
   onEdit
 }: {
   scope: AgentToolingScope
+  initialSource?: ConfigSource
   onEdit: (request: ConfigEditRequest) => void
 }) {
   const sources: ConfigSource[] =
     scope.kind === 'global'
       ? ['global', 'global-local']
       : ['project', 'project-local', 'mcp-file']
-  const [source, setSource] = useState<ConfigSource>(sources[0])
-  const [content, setContent] = useState<string | null>(null)
+  const [source, setSource] = useState<ConfigSource>(
+    initialSource && sources.includes(initialSource) ? initialSource : sources[0]
+  )
+  const [target, setTarget] = useState<RawTarget | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const [dialog, setDialog] = useState<'none' | 'reload' | 'disk'>('none')
 
   useEffect(() => {
     let cancelled = false
-    setContent(null)
+    setTarget(null)
     setLoadError(null)
+    setDialog('none')
     api
       .readRaw(scope, source)
       .then((view) => {
-        if (!cancelled) setContent(view.content)
+        if (!cancelled) setTarget(openTarget(view, scope, source))
       })
       .catch((e) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
@@ -870,14 +960,34 @@ function RawEditPanel({
     return () => {
       cancelled = true
     }
-  }, [scope, source])
+  }, [scope, source, reloadNonce])
+
+  /** Keeps the buffer outside the component tree, where no unmount can reach it. */
+  const park = (content: string): void => {
+    if (!target) return
+    const store = useAgentToolingStore.getState()
+    if (content === target.current) store.discardRawDraft(scope, source)
+    else
+      store.parkRawDraft({
+        scope,
+        source,
+        content,
+        baseline: target.origin.baseline,
+        revision: target.origin.revision,
+        updatedAt: Date.now()
+      })
+  }
 
   const reload = (): void => {
-    setContent(null)
-    api
-      .readRaw(scope, source)
-      .then((view) => setContent(view.content))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
+    useAgentToolingStore.getState().discardRawDraft(scope, source)
+    setDialog('none')
+    setReloadNonce((n) => n + 1)
+  }
+
+  // Reloading is the one action that throws an edit away, so it is the one action that asks first.
+  const requestReload = (): void => {
+    if (selectRawDraft(useAgentToolingStore.getState(), scope, source)) setDialog('reload')
+    else reload()
   }
 
   return (
@@ -898,15 +1008,86 @@ function RawEditPanel({
         </select>
       </label>
       {loadError && <div className="ix-at-error">{loadError}</div>}
-      {content !== null && (
+      {target?.stale && (
+        <div className="ix-at-stale" role="status">
+          <div className="ix-at-stale__text">
+            <strong>{SOURCE_LABELS[source]}</strong> changed on disk while this edit was parked.
+            Your text, last touched {formatAge(target.stale.startedAt, Date.now())}, is kept exactly
+            as you left it. Saving it replaces what the file holds now.
+          </div>
+          <div className="ix-at-stale__actions">
+            <button type="button" className="ix-btn ix-btn--ghost" onClick={() => setDialog('disk')}>
+              Show what changed on disk
+            </button>
+            <button type="button" className="ix-btn ix-btn--ghost" onClick={requestReload}>
+              Discard my edit and reload
+            </button>
+          </div>
+        </div>
+      )}
+      {target && (
         <Suspense fallback={<div className="ix-at-editorloading">Loading editor…</div>}>
+          {/* Keyed per file and per reload, so a reload always builds a fresh buffer. Without it a
+              reload of a file whose bytes never changed would leave the edited buffer standing. */}
           <RawJsonEditor
-            initialContent={content}
+            key={`${rawDraftKey(scope, source)}#${reloadNonce}`}
+            seed={target.seed}
+            baseline={target.current}
             busy={false}
-            onReload={reload}
+            onChange={park}
+            onReload={requestReload}
             onPreview={(text) => onEdit({ scope, source, edit: { kind: 'raw', content: text } })}
           />
         </Suspense>
+      )}
+      {dialog === 'reload' && (
+        <Dialog
+          title="Discard this raw edit?"
+          onClose={() => setDialog('none')}
+          actions={
+            <>
+              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => setDialog('none')}>
+                Keep editing
+              </button>
+              <button type="button" className="ix-btn ix-btn--danger" onClick={reload}>
+                Discard and reload
+              </button>
+            </>
+          }
+        >
+          <div className="ix-at-confirm">
+            Reloading replaces the buffer with the file on disk. The unsaved edit in it is dropped,
+            and this is the only action that drops it: leaving Settings, switching category or
+            closing the editor all keep it.
+          </div>
+        </Dialog>
+      )}
+      {dialog === 'disk' && target && (
+        <Dialog
+          title="What changed on disk"
+          onClose={() => setDialog('none')}
+          actions={
+            <button type="button" className="ix-btn ix-btn--primary" onClick={() => setDialog('none')}>
+              Close
+            </button>
+          }
+        >
+          <div className="ix-at-confirm">
+            <div className="ix-at-confirm__meta">
+              <div>
+                <span className="ix-at-confirm__label">Left</span>
+                <span>the file as it was when this edit started</span>
+              </div>
+              <div>
+                <span className="ix-at-confirm__label">Right</span>
+                <span className="ix-at-mono">{SOURCE_LABELS[source]} on disk now</span>
+              </div>
+            </div>
+            <Suspense fallback={<div className="ix-at-editorloading">Loading diff…</div>}>
+              <ConfigDiffEditor current={target.origin.baseline} proposed={target.current} />
+            </Suspense>
+          </div>
+        </Dialog>
       )}
     </div>
   )
