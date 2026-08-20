@@ -30,6 +30,58 @@ export function activateAction(opts: {
 }
 
 /**
+ * Whether a renderer input event is strong enough evidence that a person is at the machine.
+ *
+ * A key or button going down takes a hand. Cursor motion and the enter and leave events that come
+ * with it arrive whenever the window under the pointer changes, which is something a shutdown
+ * produces by itself as the windows of other apps disappear, so presence is read from presses only.
+ */
+export function isUserPresenceInput(type: string): boolean {
+  return type === 'keyDown' || type === 'rawKeyDown' || type === 'char' || type === 'mouseDown'
+}
+
+/** A power-off signal, held for as long as it still describes what is happening. */
+export interface UnattendedShutdown {
+  /** The system signalled a power-off, so the quit it delivers should skip the confirmation. */
+  arm(): void
+  /** Withdraw the claim on evidence of a person, and report whether one was standing. */
+  disarm(): boolean
+  /** Whether a signalled power-off is still the best account of the quit about to happen. */
+  isUnattended(): boolean
+}
+
+/**
+ * The claim that a quit has nobody in front of it, kept alive only while it is provable.
+ *
+ * The system's power-off signal raises the claim, and it holds for the quit that a logout, restart
+ * or shut down delivers next. It expires the moment a person turns out to be at the machine, which
+ * is what an abandoned power-off looks like from inside the app: macOS broadcasts the signal to
+ * every running app before it asks any of them to quit, one app refusing aborts the whole sequence,
+ * and every app that was never asked keeps running with the claim already raised. The abort has no
+ * counter-notification, so a claim left standing would skip the suspend confirmation on every quit
+ * for the rest of the app's life.
+ *
+ * `disarm` is therefore wired to acts only a person performs: a Dock activation, and a key or
+ * button press inside the window. Window focus is deliberately excluded, because macOS promotes a
+ * new frontmost app as each app terminates, so the shutdown sequence raises focus by itself and
+ * reading it as evidence would put an unanswerable confirmation back in front of a real logout.
+ */
+export function createUnattendedShutdown(): UnattendedShutdown {
+  let unattended = false
+  return {
+    arm(): void {
+      unattended = true
+    },
+    disarm(): boolean {
+      if (!unattended) return false
+      unattended = false
+      return true
+    },
+    isUnattended: (): boolean => unattended
+  }
+}
+
+/**
  * Whether a quit must put the suspend confirmation in front of a person first.
  *
  * The confirmation exists to guard live Claude sessions from a teardown the user did not intend, so

@@ -76,3 +76,33 @@ test('an ordinary quit still waits for the answer, and Cancel keeps everything r
   await app.close()
   expect(hasExited(proc), 'the app would not quit after a cancelled one').toBe(true)
 })
+
+test('a shutdown that never took the app leaves the next quit guarded again', async () => {
+  const wsDir = tempDir('abortedws-')
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, wsDir)
+  const promptCount = await stubQuitConfirmCancel(app)
+  await openClaudeTab(win)
+
+  // A logout broadcasts the power-off to every app before it asks any of them to quit, and one
+  // app refusing aborts the whole sequence. macOS announces the broadcast and never the abort, so
+  // this is the state the app is left in: signalled, and still running with no quit request.
+  await signalSystemShutdown(app)
+  // A click and a keystroke, which are the part no shutdown sequence can fake.
+  await win.locator('.xterm').click()
+  await win.keyboard.press('Escape')
+
+  const proc = app.process()
+  await app.evaluate(({ app: electronApp }) => electronApp.quit())
+
+  await expect
+    .poll(promptCount, {
+      message: 'the quit skipped the confirmation on a shutdown that never happened'
+    })
+    .toBe(1)
+  expect(hasExited(proc), 'the sessions were torn down with no chance to cancel').toBe(false)
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+
+  await stubQuitConfirm(app)
+  await app.close()
+})

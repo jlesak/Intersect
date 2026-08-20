@@ -28,6 +28,8 @@ import { createSystemHandlers } from './ipc/system.ipc'
 import { appMenuTemplate } from './menu'
 import {
   activateAction,
+  createUnattendedShutdown,
+  isUserPresenceInput,
   quitDecision,
   shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
@@ -58,9 +60,11 @@ let coreStatus: CoreStatus = { state: 'starting' }
 // Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
 // neither veto the quit nor create new windows.
 let quitting = false
-// Set by the system's power-off signal: the machine is logging out, restarting or shutting down,
-// so the quit that follows has nobody in front of it to answer the suspend confirmation.
-let unattendedShutdown = false
+// Raised by the system's power-off signal: the machine is logging out, restarting or shutting
+// down, so the quit that follows has nobody in front of it to answer the suspend confirmation.
+// Withdrawn again by `markUserPresent`, because a power-off can be abandoned before it ever
+// reaches this app and the claim has to expire with it.
+const unattendedShutdown = createUnattendedShutdown()
 // Assigned once the app is ready and the user data directory is known, which is the earliest
 // moment a file-backed logger can exist. Every call site stays optional so a failure before that
 // point cannot turn into a second failure inside the reporting itself.
@@ -69,6 +73,17 @@ let log: Logger | null = null
 /** The one place the Dock badge is written: the count of sessions awaiting interaction. */
 function setDockBadge(count: number): void {
   app.dock?.setBadge(count > 0 ? String(count) : '')
+}
+
+/**
+ * Record that somebody is demonstrably at the machine, which withdraws any standing power-off
+ * claim. Every call site is an act a shutdown sequence cannot perform on its own, so a logout that
+ * was aborted before this app was asked to quit leaves the suspend confirmation armed.
+ */
+function markUserPresent(): void {
+  if (unattendedShutdown.disarm()) {
+    log?.info('user present after a signalled shutdown, the suspend confirmation is armed again')
+  }
 }
 
 /** Fire-and-forget send to the renderer, guarded against a destroyed window. */
@@ -137,6 +152,11 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
     host?.notify(WINDOW_FOCUS_CHANGED, [{ focused: false }])
+  })
+
+  // A key or button press inside the window is a person, and a shutdown sequence cannot make one.
+  mainWindow.webContents.on('input-event', (_event, input) => {
+    if (isUserPresenceInput(input.type)) markUserPresent()
   })
 
   // The attention pipeline in the core suppresses alerts for the session the user is looking
@@ -305,6 +325,7 @@ app.whenReady().then(() => {
   // the still-running core sessions. `mainWindow` is assigned synchronously in createWindow,
   // so a burst of activations cannot create a second window.
   app.on('activate', () => {
+    markUserPresent()
     const hasLiveWindow = mainWindow !== null && !mainWindow.isDestroyed()
     const action = activateAction({ hasLiveWindow, quitting })
     if (action === 'focus') mainWindow!.focus()
@@ -313,15 +334,20 @@ app.whenReady().then(() => {
 
   // The one signal that says a quit will have nobody in front of it. On macOS this is
   // NSWorkspaceWillPowerOffNotification, which the system posts when the user asks to log out,
-  // restart or shut down, and loginwindow only sends its quit request afterwards - so the flag is
-  // always set before before-quit reads it. Registering the listener is also what instantiates
+  // restart or shut down, and loginwindow only sends its quit request afterwards - so the claim is
+  // always raised before before-quit reads it. Registering the listener is also what instantiates
   // powerMonitor, which is what installs the native handler, so it earns its place twice.
+  //
+  // The same broadcast reaches apps whose quit request never arrives, because any one app refusing
+  // aborts the sequence. So the claim it raises is a standing one that user presence withdraws:
+  // this listener states what the system just asked for, and the presence hooks state the moment
+  // that account stopped being true.
   //
   // The default is deliberately left in place. Preventing it tells the system the app stopped the
   // shutdown, which turns the quit request that follows into a no-op and leaves the app to drive
   // its own exit; the shutdown is exactly what should proceed here.
   powerMonitor.on('shutdown', () => {
-    unattendedShutdown = true
+    unattendedShutdown.arm()
     log?.info('system shutdown signalled, the quit will not wait for a suspend answer')
   })
 })
@@ -350,7 +376,9 @@ app.on('before-quit', (event) => {
  * An answer is waited for with no deadline, because elapsed time cannot tell a user who is thinking
  * from a machine that is logging out, and guessing wrong here discards a Cancel on the one dialog
  * that guards live work. The escape is the system's own power-off signal, which says outright that
- * this quit belongs to a shutdown; that quit takes the suspend teardown directly.
+ * this quit belongs to a shutdown; that quit takes the suspend teardown directly. The signal holds
+ * only until somebody proves they are here, so an abandoned power-off hands the next quit its
+ * dialog back.
  */
 async function confirmAndQuit(): Promise<void> {
   let live: LiveClaudeSession[] = []
@@ -361,7 +389,8 @@ async function confirmAndQuit(): Promise<void> {
     live = []
   }
 
-  if (shouldConfirmQuit({ liveCount: live.length, unattended: unattendedShutdown })) {
+  const unattended = unattendedShutdown.isUnattended()
+  if (shouldConfirmQuit({ liveCount: live.length, unattended })) {
     const lines = live.map((s) => `  - ${s.title} (${s.workspace})`).join('\n')
     const options = {
       type: 'question' as const,
