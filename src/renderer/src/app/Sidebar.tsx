@@ -27,14 +27,23 @@ export function Sidebar() {
   const sections = getSidebarSections()
   const context = useShellStore((s) => s.context)
   const collapsed = useShellStore((s) => s.sidebarCollapsed)
+  const safeMode = useShellStore((s) => s.safeMode)
   const toggleSidebar = useShellStore((s) => s.toggleSidebar)
   const projects = useProjectsStore(useShallow(selectActiveProjects))
   const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
 
-  // The rail owns project pins, so it also owns kicking off the projects load.
+  // The rail owns project pins, so it also owns kicking off the projects load. Safe mode leaves
+  // them unloaded, because the rail renders outside the shell's region boundary and a project row
+  // the renderer cannot draw takes the whole window with it on every boot.
+  //
+  // The gate on the pins below is what holds that guarantee. The projects store is shared and any
+  // other surface may fill it a tick later - Settings, the section safe mode lands on, opens on
+  // its projects category and loads the rows from a mount effect - so the rail decides what it
+  // draws from the flag itself, whoever filled the store.
   useEffect(() => {
+    if (safeMode) return
     void useProjectsStore.getState().load()
-  }, [])
+  }, [safeMode])
 
   const resolved = resolveShellContext(context, projects, sections, selectedWorkspace)
   const activeSectionId = resolved?.kind === 'section' ? resolved.id : null
@@ -83,10 +92,11 @@ export function Sidebar() {
 
       <div className="ix-rail">
         {aboveProjects.map(railButton)}
-        {projects.map((p) => (
-          <ProjectPin key={p.id} project={p} resolved={resolved} collapsed={collapsed} />
-        ))}
-        <OtherPin resolved={resolved} collapsed={collapsed} />
+        {!safeMode &&
+          projects.map((p) => (
+            <ProjectPin key={p.id} project={p} resolved={resolved} collapsed={collapsed} />
+          ))}
+        {!safeMode && <OtherPin resolved={resolved} collapsed={collapsed} />}
         {belowProjects.map(railButton)}
       </div>
 

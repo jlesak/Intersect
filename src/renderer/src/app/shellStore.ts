@@ -25,6 +25,13 @@ interface ShellState {
   /** When true the sidebar shrinks to its icon rail only (labels and the section panel hidden). */
   sidebarCollapsed: boolean
   toggleSidebar(): void
+  /**
+   * Whether this launch was asked to skip restoring session and workspace state - the escape a
+   * user takes when the app crashes the same way on every ordinary boot. Set once at boot, before
+   * the first render, and never changed afterwards: leaving safe mode is a plain reload, because
+   * the request that produced it was consumed the moment it was read.
+   */
+  safeMode: boolean
 }
 
 export const useShellStore = createStore<ShellState>()((set) => ({
@@ -41,7 +48,8 @@ export const useShellStore = createStore<ShellState>()((set) => ({
   sidebarCollapsed: false,
   toggleSidebar() {
     set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
-  }
+  },
+  safeMode: false
 }))
 
 /**

@@ -1,5 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import {
+  markUnrecoveredCrash,
+  readUnrecoveredCrash,
+  type UnrecoveredCrash
+} from '../recovery/bootRecovery'
 import { rendererLogger } from '../logging/logger'
+import { CrashEscapes } from './RecoveryEscapes'
 
 /**
  * The message every caught renderer crash is logged under. Stable on purpose: it is the one string
@@ -31,6 +37,13 @@ interface ErrorBoundaryState {
    */
   hasError: boolean
   error: unknown
+  /**
+   * The crash recorded before this one, captured at the moment this failure was caught. It is held
+   * in state rather than read while rendering because `componentDidCatch` records this crash
+   * immediately afterwards, and a later re-render would then read the card's own evidence back and
+   * escalate a first crash into a repeat.
+   */
+  previousCrash: UnrecoveredCrash | null
 }
 
 /**
@@ -49,23 +62,34 @@ function crashReason(error: unknown): string {
  * re-mounts the subtree from scratch, which is enough whenever the cause was transient state.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false, error: null }
+  state: ErrorBoundaryState = { hasError: false, error: null, previousCrash: null }
 
   static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
-    return { hasError: true, error }
+    // Reading persisted state is the one thing this may do beyond deriving from the error: it is
+    // idempotent, it cannot throw, and it has to happen before the record of this crash is written.
+    return { hasError: true, error, previousCrash: readUnrecoveredCrash() }
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
+    const windowScope = this.props.scope === 'window'
     // Keep the component stack attached: without it a minified production error names no feature
-    // at all, and the scope says how much of the window the failure took with it.
+    // at all, and the scope says how much of the window the failure took with it. `repeat` is what
+    // makes a boot-deterministic failure legible in the log file rather than just on screen.
     rendererLogger().child('renderer').error(RENDERER_CRASH_LOG_MESSAGE, {
-      data: { scope: this.props.scope, componentStack: info.componentStack },
+      data: {
+        scope: this.props.scope,
+        componentStack: info.componentStack,
+        repeat: windowScope && this.state.previousCrash !== null
+      },
       err: error
     })
+    // Only a window-scope failure is worth remembering. A region catch means the window did render,
+    // so a reload is still a reasonable thing to offer and this boot counts as a success.
+    if (windowScope) markUnrecoveredCrash()
   }
 
   private readonly retry = (): void => {
-    this.setState({ hasError: false, error: null })
+    this.setState({ hasError: false, error: null, previousCrash: null })
   }
 
   render(): ReactNode {
@@ -73,7 +97,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const reason = crashReason(this.state.error)
     const props = this.props
     return props.scope === 'window' ? (
-      <WindowCrash reason={reason} onRetry={this.retry} />
+      <WindowCrash
+        reason={reason}
+        previousCrash={this.state.previousCrash}
+        onRetry={this.retry}
+      />
     ) : (
       <RegionCrash reason={reason} recovery={props.recovery} onRetry={this.retry} />
     )
@@ -81,11 +109,25 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 }
 
 /**
- * The whole-window failure surface: the app shell itself is gone, so all this can offer is a retry
- * and a reload. Both re-render from the state that was already loaded, so neither is promised as a
+ * The whole-window failure surface. On a first failure it offers a retry and a reload, and says
+ * plainly that both re-render from the state that was already loaded, so neither is promised as a
  * cure - a failure caused by that state comes straight back.
+ *
+ * When the app has already failed once with no successful render since, that promise has been
+ * tested and broken, and the card grows a tail of real ways out. The card itself is the same one
+ * throughout: the user has already read it, and the escalation reads as further information rather
+ * than as a second, different diagnosis. Reload keeps its place at the front, because a failure
+ * that does turn out to have been transient is still best answered by trying again.
  */
-function WindowCrash({ reason, onRetry }: { reason: string; onRetry: () => void }) {
+function WindowCrash({
+  reason,
+  previousCrash,
+  onRetry
+}: {
+  reason: string
+  previousCrash: UnrecoveredCrash | null
+  onRetry: () => void
+}) {
   return (
     <div className="ix-crash ix-crash--window" role="alertdialog" aria-modal="true">
       <div className="ix-crash__card">
@@ -107,6 +149,7 @@ function WindowCrash({ reason, onRetry }: { reason: string; onRetry: () => void 
             Try again
           </button>
         </div>
+        {previousCrash && <CrashEscapes previousCrash={previousCrash} />}
       </div>
     </div>
   )

@@ -94,6 +94,16 @@ export interface SystemHandlerDeps {
   /** Quit through the coordinated shutdown path (app.quit); injected for tests. */
   quitApp: () => void
   /**
+   * The app's user-data directory, resolved once at startup. Held here rather than asked for per
+   * call because the renderer must never name a path for this channel.
+   */
+  userDataDir: string
+  /**
+   * Open a directory in the OS file manager (Electron's shell.openPath), which answers with an
+   * empty string on success and a message on failure.
+   */
+  openPath: (path: string) => Promise<string>
+  /**
    * The Azure DevOps organisation URL the user has configured, empty when there is none. Asked per
    * call rather than captured, so the allowlist tracks the server the app is currently pointed at.
    */
@@ -116,7 +126,10 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
  * The system surface main implements (getPathForFile lives entirely in preload, off IPC;
  * onCoreStatus is a preload-side push subscription).
  */
-export type SystemHandlers = Omit<IpcApi['system'], 'getPathForFile' | 'onCoreStatus'>
+export type SystemHandlers = Omit<
+  IpcApi['system'],
+  'getPathForFile' | 'onCoreStatus' | 'resetViewState'
+>
 
 /** System-level handlers: the allowlist-guarded bridge to the default browser + recovery. */
 export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
@@ -145,6 +158,14 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
     quitApp: () =>
       surface(async () => {
         deps.quitApp()
+      }),
+    revealUserData: () =>
+      surface(async () => {
+        // No argument crosses the boundary, so there is no path for a renderer to traverse with
+        // and nothing for `isRevealablePath` to have to defend. The one directory this can open is
+        // the one main resolved for itself at startup.
+        const failure = await deps.openPath(deps.userDataDir)
+        if (failure) throw new Error(failure)
       })
   }
 }
@@ -155,4 +176,5 @@ export function registerSystemHandlers(ipcMain: IpcMain, h: SystemHandlers): voi
   ipcMain.handle(Channel.systemRestartApp, () => h.restartApp())
   ipcMain.handle(Channel.systemRetryCore, () => h.retryCore())
   ipcMain.handle(Channel.systemQuitApp, () => h.quitApp())
+  ipcMain.handle(Channel.systemRevealUserData, () => h.revealUserData())
 }

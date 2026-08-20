@@ -12,6 +12,27 @@ afterEach(() => {
 // renderer test asserts on anything drawn, so an inert context is enough.
 HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext
 
+// Node 25 defines a `localStorage` global of its own, and it wins over the one jsdom would have
+// installed. Without a storage file behind it that global is an inert object carrying none of the
+// Storage methods, so any read throws a TypeError instead of returning a value. The renderer keeps
+// its crash-recovery markers there, so tests need a store that behaves like the browser's: a real
+// in-memory Storage, replacing the global outright.
+const webStorage = new Map<string, string>()
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  writable: true,
+  value: {
+    getItem: (key: string): string | null => webStorage.get(key) ?? null,
+    setItem: (key: string, value: string): void => void webStorage.set(key, String(value)),
+    removeItem: (key: string): void => void webStorage.delete(key),
+    clear: (): void => webStorage.clear(),
+    key: (index: number): string | null => [...webStorage.keys()][index] ?? null,
+    get length(): number {
+      return webStorage.size
+    }
+  }
+})
+
 // jsdom implements no layout, so it ships no scrollIntoView at all. Any component that keeps a
 // selected row in view calls it from an effect, where the resulting TypeError fails the test for a
 // reason that has nothing to do with the behaviour under test. Scrolling is not observable here.
