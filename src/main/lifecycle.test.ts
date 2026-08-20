@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   activateAction,
   quitDecision,
+  shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
   shouldZeroDockBadge
 } from './lifecycle'
@@ -33,6 +34,23 @@ describe('activateAction', () => {
   test('never creates windows while the app is quitting', () => {
     expect(activateAction({ hasLiveWindow: false, quitting: true })).toBe('none')
     expect(activateAction({ hasLiveWindow: true, quitting: true })).toBe('none')
+  })
+})
+
+describe('shouldConfirmQuit', () => {
+  test('asks when live sessions exist and somebody is there to answer', () => {
+    expect(shouldConfirmQuit({ liveCount: 1, unattended: false })).toBe(true)
+    expect(shouldConfirmQuit({ liveCount: 7, unattended: false })).toBe(true)
+  })
+
+  test('an unattended shutdown proceeds to the suspend teardown without asking', () => {
+    expect(shouldConfirmQuit({ liveCount: 1, unattended: true })).toBe(false)
+    expect(shouldConfirmQuit({ liveCount: 7, unattended: true })).toBe(false)
+  })
+
+  test('with no live sessions there is nothing to confirm, attended or not', () => {
+    expect(shouldConfirmQuit({ liveCount: 0, unattended: false })).toBe(false)
+    expect(shouldConfirmQuit({ liveCount: 0, unattended: true })).toBe(false)
   })
 })
 

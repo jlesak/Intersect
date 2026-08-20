@@ -7,6 +7,7 @@ import {
   Menu,
   MessageChannelMain,
   Notification,
+  powerMonitor,
   shell,
   utilityProcess
 } from 'electron'
@@ -28,6 +29,7 @@ import { appMenuTemplate } from './menu'
 import {
   activateAction,
   quitDecision,
+  shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
   shouldZeroDockBadge
 } from './lifecycle'
@@ -56,6 +58,9 @@ let coreStatus: CoreStatus = { state: 'starting' }
 // Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
 // neither veto the quit nor create new windows.
 let quitting = false
+// Set by the system's power-off signal: the machine is logging out, restarting or shutting down,
+// so the quit that follows has nobody in front of it to answer the suspend confirmation.
+let unattendedShutdown = false
 // Assigned once the app is ready and the user data directory is known, which is the earliest
 // moment a file-backed logger can exist. Every call site stays optional so a failure before that
 // point cannot turn into a second failure inside the reporting itself.
@@ -305,15 +310,30 @@ app.whenReady().then(() => {
     if (action === 'focus') mainWindow!.focus()
     if (action === 'create') createWindow()
   })
+
+  // The one signal that says a quit will have nobody in front of it. On macOS this is
+  // NSWorkspaceWillPowerOffNotification, which the system posts when the user asks to log out,
+  // restart or shut down, and loginwindow only sends its quit request afterwards - so the flag is
+  // always set before before-quit reads it. Registering the listener is also what instantiates
+  // powerMonitor, which is what installs the native handler, so it earns its place twice.
+  //
+  // The default is deliberately left in place. Preventing it tells the system the app stopped the
+  // shutdown, which turns the quit request that follows into a no-op and leaves the app to drive
+  // its own exit; the shutdown is exactly what should proceed here.
+  powerMonitor.on('shutdown', () => {
+    unattendedShutdown = true
+    log?.info('system shutdown signalled, the quit will not wait for a suspend answer')
+  })
 })
 
-// Coordinated shutdown with a suspend-confirm guard. Cmd+Q / the Quit menu / system:quitApp all
-// funnel through before-quit. When live Claude sessions exist we confirm first: the core's
-// shutdown marks them `suspended` before it tears anything down, and the next launch resumes them
-// in fresh processes - so this is an intentional suspend, not a claim that shell/dev-server
-// process trees were frozen. We preventDefault synchronously (keeping the ordering valid), then
-// query the canonical live list and, if any, show a modal. Cancel changes nothing and leaves
-// `quitting` false so a later quit re-prompts. Ordinary window close never reaches here.
+// Coordinated shutdown with a suspend-confirm guard. Cmd+Q / the Quit menu / system:quitApp / the
+// system's own quit request at logout all funnel through before-quit. When live Claude sessions
+// exist and a person is there we confirm first: the core's shutdown marks them `suspended` before
+// it tears anything down, and the next launch resumes them in fresh processes - so this is an
+// intentional suspend, and it says nothing about shell/dev-server process trees having been frozen.
+// We preventDefault synchronously (keeping the ordering valid), then query the canonical live list
+// and, if any, show a modal. Cancel changes nothing and leaves `quitting` false so a later quit
+// re-prompts. Ordinary window close never reaches here.
 app.on('before-quit', (event) => {
   if (quitting || !host) return
   event.preventDefault()
@@ -321,10 +341,16 @@ app.on('before-quit', (event) => {
 })
 
 /**
- * Query the core for live Claude sessions, confirm the suspend with the user when any are running,
- * and proceed to the coordinated teardown only when the decision is to quit. Both the live-session
- * query and the modal are async, which before-quit already made safe by vetoing the default quit;
- * a modal that blocked the main loop would also stall the shutdown it is supposed to guard.
+ * Query the core for live Claude sessions, confirm the suspend with the user when any are running
+ * and somebody is there to answer, and proceed to the coordinated teardown only when the decision is
+ * to quit. Both the live-session query and the modal are async, which before-quit already made safe
+ * by vetoing the default quit; a modal that blocked the main loop would also stall the shutdown it
+ * is supposed to guard.
+ *
+ * An answer is waited for with no deadline, because elapsed time cannot tell a user who is thinking
+ * from a machine that is logging out, and guessing wrong here discards a Cancel on the one dialog
+ * that guards live work. The escape is the system's own power-off signal, which says outright that
+ * this quit belongs to a shutdown; that quit takes the suspend teardown directly.
  */
 async function confirmAndQuit(): Promise<void> {
   let live: LiveClaudeSession[] = []
@@ -335,8 +361,7 @@ async function confirmAndQuit(): Promise<void> {
     live = []
   }
 
-  let response: number | null = null
-  if (live.length > 0) {
+  if (shouldConfirmQuit({ liveCount: live.length, unattended: unattendedShutdown })) {
     const lines = live.map((s) => `  - ${s.title} (${s.workspace})`).join('\n')
     const options = {
       type: 'question' as const,
@@ -348,6 +373,7 @@ async function confirmAndQuit(): Promise<void> {
       detail: `${lines}\n\nThey will be suspended and can resume on next launch.`
     }
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    let response: number | null = null
     try {
       const answer = win
         ? await dialog.showMessageBox(win, options)
@@ -358,9 +384,13 @@ async function confirmAndQuit(): Promise<void> {
       // and process alive, exactly as Cancel would.
       return
     }
+    if (quitDecision(live.length, response) === 'stay') return
+  } else if (live.length > 0) {
+    log?.info('quitting without the suspend confirmation', {
+      data: { liveSessions: live.length }
+    })
   }
 
-  if (quitDecision(live.length, response) === 'stay') return
   quitting = true
   void host!.shutdown().finally(() => app.exit(0))
 }

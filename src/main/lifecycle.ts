@@ -30,6 +30,21 @@ export function activateAction(opts: {
 }
 
 /**
+ * Whether a quit must put the suspend confirmation in front of a person first.
+ *
+ * The confirmation exists to guard live Claude sessions from a teardown the user did not intend, so
+ * it is shown whenever such sessions exist and somebody is present to answer it. An unattended
+ * shutdown has nobody: the OS is logging out or powering off, and a dialog raised there is answered
+ * by no one, which wedges the quit and takes the logout down with it. That quit proceeds straight to
+ * the same teardown the confirmation guards, which is safe because the teardown marks every live
+ * session `suspended` with its resume id before it kills anything and the next launch brings them
+ * back. `unattended` must come from a real system signal, so that a slow answer stays an answer.
+ */
+export function shouldConfirmQuit(opts: { liveCount: number; unattended: boolean }): boolean {
+  return opts.liveCount > 0 && !opts.unattended
+}
+
+/**
  * Whether a confirmed quit should proceed to teardown or leave the app alive, extracted pure so
  * the Electron dialog glue in index.ts stays testable without a window. With no live Claude
  * sessions there is nothing to confirm - the quit proceeds. Otherwise the modal decides: response
