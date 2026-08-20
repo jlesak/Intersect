@@ -9,8 +9,14 @@ import type {
   SkillCatalogItem
 } from '@common/domain'
 import { useProjectsStore } from '@renderer/features/projects'
-import { useAgentToolingStore } from '../store'
+import { selectRawDraft, useAgentToolingStore } from '../store'
 import { AgentToolingPane, AgentToolingPaneBody } from './AgentToolingPane'
+
+// Monaco cannot run under jsdom and must stay out of every bundle a test can reach, so the raw
+// editor is driven through its stand-in.
+vi.mock('./RawJsonEditor', async () => ({
+  RawJsonEditor: (await import('./rawEditorTestkit')).RawJsonEditorStub
+}))
 
 const config: EffectiveConfig = {
   scope: { kind: 'global' },
@@ -285,5 +291,177 @@ describe('AgentToolingPane container', () => {
     const scope = document.querySelector<HTMLSelectElement>('select[aria-label="Scope"]')
     const options = [...(scope?.querySelectorAll('option') ?? [])].map((o) => o.textContent)
     expect(options).toEqual(['Global (~/.claude)', 'SPOT'])
+  })
+})
+
+/**
+ * The raw editor holds a whole hand-edited settings document. Two of the ways to lose it never
+ * unmount anything: changing the file selector re-runs the read that built the buffer, and
+ * reloading replaces it on purpose. The first has to keep every file's edit, the second is the
+ * only action allowed to throw one away.
+ */
+describe('the raw editor buffer', () => {
+  const files: Record<string, string> = {
+    global: '{ "model": "opus" }',
+    'global-local': '{ "verbose": true }'
+  }
+
+  afterEach(() => {
+    delete (window as { intersect?: unknown }).intersect
+    useProjectsStore.setState({ status: 'idle', error: null, projects: [], overrides: [] })
+    useAgentToolingStore.setState({
+      status: 'idle',
+      error: null,
+      config: null,
+      skills: [],
+      agents: [],
+      rawDrafts: {}
+    })
+  })
+
+  function stubBridge(): void {
+    ;(window as { intersect?: unknown }).intersect = {
+      projects: { list: () => Promise.resolve([]), listOverrides: () => Promise.resolve([]) },
+      agentTooling: {
+        getEffectiveConfig: () => Promise.resolve(config),
+        listSkills: () => Promise.resolve([]),
+        listAgents: () => Promise.resolve([]),
+        readRaw: (scope: AgentToolingScope, source: string) =>
+          Promise.resolve({
+            scope,
+            source,
+            path: `/home/.claude/${source}.json`,
+            exists: true,
+            global: true,
+            content: files[source] ?? '{}',
+            revision: `rev-${source}`
+          })
+      }
+    }
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+
+  async function clickButton(label: string): Promise<void> {
+    const button = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === label
+    )
+    if (!button) throw new Error(`no button labelled "${label}"`)
+    await act(async () => {
+      fireEvent.click(button)
+    })
+  }
+
+  const rawEditor = (): HTMLTextAreaElement | null =>
+    document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Raw JSON"]')
+
+  async function waitForRawEditor(): Promise<HTMLTextAreaElement> {
+    for (let i = 0; i < 20 && !rawEditor(); i++) await settle()
+    const box = rawEditor()
+    if (!box) throw new Error('the raw editor never opened')
+    return box
+  }
+
+  /** Mounts the pane and opens the raw editor on the Advanced tab. */
+  async function openRawEditor(): Promise<HTMLTextAreaElement> {
+    stubBridge()
+    await act(async () => {
+      renderClient(<AgentToolingPane />)
+    })
+    await clickButton('Advanced')
+    await clickButton('Edit raw JSON…')
+    return waitForRawEditor()
+  }
+
+  async function type(text: string): Promise<void> {
+    await act(async () => {
+      fireEvent.change(rawEditor()!, { target: { value: text } })
+    })
+  }
+
+  async function selectFile(label: string): Promise<void> {
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Raw editor target file"]'
+    )!
+    await act(async () => {
+      fireEvent.change(select, { target: { value: label } })
+    })
+    await waitForRawEditor()
+  }
+
+  test('each layered file keeps its own edit as the selector moves between them', async () => {
+    await openRawEditor()
+    await type('{ "model": "haiku" }')
+
+    await selectFile('global-local')
+    expect(rawEditor()?.value).toBe('{ "verbose": true }')
+    await type('{ "verbose": false }')
+
+    await selectFile('global')
+    expect(rawEditor()?.value).toBe('{ "model": "haiku" }')
+    await selectFile('global-local')
+    expect(rawEditor()?.value).toBe('{ "verbose": false }')
+  })
+
+  /** The file the panel is pointed at, which is the file its buffer belongs to. */
+  const targetFile = (): string =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="Raw editor target file"]')!.value
+
+  test('reopening the editor comes back to the file the edit was parked for', async () => {
+    await openRawEditor()
+    await selectFile('global-local')
+    await type('{ "verbose": false }')
+
+    await clickButton('Close raw JSON editor')
+    await clickButton('Edit raw JSON…')
+    await waitForRawEditor()
+
+    expect(targetFile()).toBe('global-local')
+    expect(rawEditor()?.value).toBe('{ "verbose": false }')
+  })
+
+  test('typing back to what the file holds leaves nothing parked', async () => {
+    await openRawEditor()
+    await type('{ "model": "haiku" }')
+    await type(files.global)
+
+    expect(selectRawDraft(useAgentToolingStore.getState(), { kind: 'global' }, 'global')).toBeNull()
+  })
+
+  test('reloading asks first, and keeps the edit when the answer is no', async () => {
+    await openRawEditor()
+    await type('{ "model": "haiku" }')
+
+    await clickButton('Reload from disk')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Discard')
+
+    await clickButton('Keep editing')
+    expect(rawEditor()?.value).toBe('{ "model": "haiku" }')
+    expect(
+      selectRawDraft(useAgentToolingStore.getState(), { kind: 'global' }, 'global')
+    ).not.toBeNull()
+  })
+
+  test('reloading drops the edit once the user confirms it', async () => {
+    await openRawEditor()
+    await type('{ "model": "haiku" }')
+
+    await clickButton('Reload from disk')
+    await clickButton('Discard and reload')
+    await waitForRawEditor()
+
+    expect(rawEditor()?.value).toBe(files.global)
+    expect(selectRawDraft(useAgentToolingStore.getState(), { kind: 'global' }, 'global')).toBeNull()
+  })
+
+  test('an untouched buffer reloads without a question', async () => {
+    await openRawEditor()
+
+    await clickButton('Reload from disk')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 })
