@@ -1,8 +1,12 @@
 /* App chrome: sidebar + main (tab bar over split stage). */
 
+/* Two columns and two rows: sidebar and main across the top, and a full-width strip underneath
+   that only safe mode ever fills. Being a row in the grid, that strip can cover nothing; empty,
+   it collapses to nothing itself. */
 .ix-app {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: 1fr auto;
   height: 100vh;
   overflow: hidden;
 }
@@ -744,7 +748,7 @@
   flex-direction: column;
   gap: 8px;
   z-index: 300;
-  max-width: 380px;
+  max-width: var(--toaster-w);
 }
 .ix-toast {
   padding: 10px 13px;
@@ -3875,10 +3879,10 @@
   background: var(--bg);
   z-index: 500;
 }
-/* The confirmation is raised from the window fallback, which covers the viewport at z-index 500.
-   The dialog portals to the body, so it has to out-stack that surface explicitly or it opens
-   behind the very card that asked for it. */
-.ix-overlay--above-crash {
+/* The reset confirmation is raised from the window fallback, which covers the viewport at z-index
+   500, and from the safe-mode session's own dialog. The dialog portals to the body, so it has to
+   out-stack whatever asked for it explicitly or it opens behind that surface. */
+.ix-overlay--topmost {
   z-index: 600;
 }
 .ix-crash__card {
@@ -3965,26 +3969,34 @@
   margin-bottom: 2px;
 }
 
-/* Safe mode's standing reminder. Pinned bottom-left so it clears the toaster's corner, and always
-   carrying the way out - a session that hides the crash must never be mistaken for a normal one. */
+/* Safe mode's standing reminder, always carrying the ways out - a session that hides the crash
+   must never be mistaken for a normal one, and the ways out are what the session is for.
+   It takes the shell grid's own bottom row, across both columns. An overlay pinned to an edge
+   covers whatever the layout pins to the same edge, and the sidebar's footer rail holds Settings,
+   the section safe mode lands the user on; a row covers nothing, at every window size and in the
+   collapsed rail alike. */
 .ix-safemode {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 250;
+  grid-row: 2;
+  grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  max-width: 520px;
-  padding: 8px 12px;
-  border: 1px solid var(--status-waiting);
-  border-radius: var(--radius-sm);
+  justify-content: space-between;
+  gap: 8px 16px;
+  /* The right padding holds the toaster's column open. Toasts are fixed to that corner and
+     out-stack the layout, so a toast would otherwise sit on the strip's own buttons - and this
+     strip is the one surface a safe-mode session cannot afford to have covered. */
+  padding: 8px calc(var(--toaster-w) + 32px) 8px 14px;
+  border-top: 1px solid var(--status-waiting);
   background: var(--panel);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 .ix-safemode__text {
   font-size: 12.5px;
   color: var(--text-dim);
+}
+.ix-safemode__actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* --- Agent Tooling settings pane (read-only Claude Code config / skills / agents browser) --- */

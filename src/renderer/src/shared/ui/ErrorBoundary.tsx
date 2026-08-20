@@ -5,7 +5,7 @@ import {
   type UnrecoveredCrash
 } from '../recovery/bootRecovery'
 import { rendererLogger } from '../logging/logger'
-import { CrashEscapes } from './CrashEscapes'
+import { CrashEscapes } from './RecoveryEscapes'
 
 /**
  * The message every caught renderer crash is logged under. Stable on purpose: it is the one string

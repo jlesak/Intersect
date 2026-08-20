@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CommandPalette } from '@renderer/features/commandPalette'
 import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
@@ -10,7 +10,9 @@ import {
   reloadWindow
 } from '@renderer/shared/recovery/bootRecovery'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
+import { Dialog } from '@renderer/shared/ui/Dialog'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
+import { RecoveryEscapes } from '@renderer/shared/ui/RecoveryEscapes'
 import { Toaster } from '@renderer/shared/ui/Toaster'
 import { CoreStatusOverlay } from './CoreStatusOverlay'
 import { Sidebar } from './Sidebar'
@@ -42,10 +44,16 @@ export function App() {
   // persisted value would clear it on every boot, and the window fallback would never learn that
   // reloading has stopped helping. A crash inside the settle window unmounts this and the timer
   // goes with it, which is exactly the case the marker exists to record.
+  //
+  // A safe-mode session withdraws nothing. It comes up without the saved state, which is evidence
+  // about safe mode alone, so counting it as a success would hand the user the plain card on the
+  // very next ordinary crash after they had already earned the ways out. The marker keeps standing
+  // until an ordinary launch stays up and earns its removal.
   useEffect(() => {
+    if (safeMode) return
     const settled = setTimeout(clearUnrecoveredCrash, CRASH_SETTLE_MS)
     return () => clearTimeout(settled)
-  }, [])
+  }, [safeMode])
 
   let main = <div className="ix-main" />
   let mainKey = 'empty'
@@ -87,17 +95,46 @@ export function App() {
  * than resolving it, so a user who simply carries on working in it would later report that
  * Intersect lost their terminals and their session resume. Naming the state and keeping the way
  * out in reach is what stops that.
+ *
+ * The recovery options ride along because this session is where the diagnosis lands: an app that
+ * comes up here and went down on the launch before it points straight at the saved state, and that
+ * is the moment to act. A button opens them, so the strip itself stays a line of text and each
+ * escape keeps the sentence naming what it costs.
  */
 function SafeModeBanner() {
+  const [showingOptions, setShowingOptions] = useState(false)
   return (
     <div className="ix-safemode" role="status">
       <span className="ix-safemode__text">
         Safe mode: the saved session and workspace state were not restored. The next launch is an
         ordinary one.
       </span>
-      <button type="button" className="ix-btn" onClick={reloadWindow}>
-        Exit safe mode
-      </button>
+      <div className="ix-safemode__actions">
+        <button type="button" className="ix-btn" onClick={() => setShowingOptions(true)}>
+          Recovery options
+        </button>
+        <button type="button" className="ix-btn" onClick={reloadWindow}>
+          Exit safe mode
+        </button>
+      </div>
+
+      {showingOptions && (
+        <Dialog
+          title="Recovery options"
+          onClose={() => setShowingOptions(false)}
+          actions={
+            <button type="button" className="ix-btn" onClick={() => setShowingOptions(false)}>
+              Close
+            </button>
+          }
+        >
+          <p className="ix-crash__list-lead">
+            This launch left the saved session and workspace state alone. If the ordinary launch
+            before it went down, that state is what these act on, least destructive first.
+          </p>
+          <RecoveryEscapes offerSafeMode={false} />
+        </Dialog>
+      )}
     </div>
   )
 }

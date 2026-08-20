@@ -32,9 +32,13 @@ export function Sidebar() {
   const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
 
   // The rail owns project pins, so it also owns kicking off the projects load. Safe mode leaves
-  // them unloaded: the rail renders outside the shell's region boundary, so a project row the
-  // renderer cannot draw takes the whole window with it on every boot, and skipping the load is
-  // what makes safe mode safe against that.
+  // them unloaded, because the rail renders outside the shell's region boundary and a project row
+  // the renderer cannot draw takes the whole window with it on every boot.
+  //
+  // The gate on the pins below is what holds that guarantee. The projects store is shared and any
+  // other surface may fill it a tick later - Settings, the section safe mode lands on, opens on
+  // its projects category and loads the rows from a mount effect - so the rail decides what it
+  // draws from the flag itself, whoever filled the store.
   useEffect(() => {
     if (safeMode) return
     void useProjectsStore.getState().load()
@@ -87,9 +91,10 @@ export function Sidebar() {
 
       <div className="ix-rail">
         {aboveProjects.map(railButton)}
-        {projects.map((p) => (
-          <ProjectPin key={p.id} project={p} resolved={resolved} collapsed={collapsed} />
-        ))}
+        {!safeMode &&
+          projects.map((p) => (
+            <ProjectPin key={p.id} project={p} resolved={resolved} collapsed={collapsed} />
+          ))}
         {!safeMode && <OtherPin resolved={resolved} collapsed={collapsed} />}
         {belowProjects.map(railButton)}
       </div>

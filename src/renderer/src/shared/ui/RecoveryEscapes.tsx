@@ -9,21 +9,25 @@ import {
 import { Dialog } from './Dialog'
 
 /**
- * The extra offer a window-scope crash earns once the app has failed twice with no successful
- * render in between. Reloading has demonstrably not worked by then, so the card stops being only
- * a report and starts being a way out.
+ * The ways out of a failure that persisted state is causing, ordered least to most destructive.
  *
- * The three escapes run least to most destructive. Safe mode is first because it destroys nothing
- * and is also the better diagnostic: an app that boots without its saved session and workspace
- * state implicates that state, and an app that still crashes has just saved the user from paying
- * for a reset that would not have helped. Reset comes second and is the only one that discards
- * anything. Revealing the profile directory is last, because it invites deleting everything.
+ * Safe mode is first because it destroys nothing and is also the better diagnostic: an app that
+ * boots without its saved session and workspace state implicates that state, and an app that still
+ * crashes has just saved the user from paying for a reset that would not have helped. Reset comes
+ * second and is the only one that discards anything. Revealing the profile directory is last,
+ * because it invites deleting everything.
  *
- * Nothing here happens on its own. The detection behind this card can prove only that retrying has
- * not worked; it cannot prove that persisted state is the cause, so every step is a click and the
- * one irreversible step is a click plus a confirmation that names what goes.
+ * Nothing here happens on its own. The detection behind the crash card can prove only that
+ * retrying has not worked; it cannot prove that persisted state is the cause, so every step is a
+ * click and the one irreversible step is a click plus a confirmation that names what goes.
+ *
+ * The same list serves the crash card and the running safe-mode session. A user watching safe mode
+ * come up holds the strongest evidence there is that the saved state is at fault, so that is the
+ * moment the remedy has to be within reach - offering it only on a crash screen would mean
+ * leaving safe mode and crashing again to act on what safe mode just proved. `offerSafeMode` is
+ * what drops the first escape for the surface already running it.
  */
-export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCrash }) {
+export function RecoveryEscapes({ offerSafeMode }: { offerSafeMode: boolean }) {
   const [confirmingReset, setConfirmingReset] = useState(false)
   const [running, setRunning] = useState<'reset' | 'reveal' | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -66,17 +70,18 @@ export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCras
 
   return (
     <>
-      <p className="ix-crash__evidence">{evidenceLine(previousCrash)}</p>
       <ul className="ix-crash__escapes">
-        <li>
-          <button type="button" className="ix-btn" onClick={startSafeMode}>
-            Start in safe mode
-          </button>
-          <span>
-            Reloads without restoring the saved session or workspace state, and lands on Settings.
-            Nothing is deleted, and the next launch is an ordinary one.
-          </span>
-        </li>
+        {offerSafeMode && (
+          <li>
+            <button type="button" className="ix-btn" onClick={startSafeMode}>
+              Start in safe mode
+            </button>
+            <span>
+              Reloads without restoring the saved session or workspace state, and lands on Settings.
+              Nothing is deleted, and the next launch is an ordinary one.
+            </span>
+          </li>
+        )}
         <li>
           <button
             type="button"
@@ -109,8 +114,9 @@ export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCras
 
       {!bridged && (
         <p className="ix-crash__reason">
-          The bridge to Intersect&apos;s background processes did not load, so the last two options
-          cannot run. Safe mode still works.
+          {offerSafeMode
+            ? "The bridge to Intersect's background processes did not load, so the last two options cannot run. Safe mode still works."
+            : "The bridge to Intersect's background processes did not load, so neither option can run."}
         </p>
       )}
       {failure && <p className="ix-crash__reason">{failure}</p>}
@@ -118,7 +124,7 @@ export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCras
       {confirmingReset && (
         <Dialog
           title="Reset view and layout state?"
-          overlayClass="ix-overlay--above-crash"
+          overlayClass="ix-overlay--topmost"
           onClose={() => setConfirmingReset(false)}
           actions={
             <>
@@ -165,14 +171,32 @@ export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCras
 }
 
 /**
- * What the marker actually proves, and no more: the app has not rendered since that failure, so
- * reloading has already been tried. It says nothing about frequency or about a loop, because the
- * marker is evidence of neither.
+ * The extra offer a window-scope crash earns once the app has failed twice with no successful
+ * render in between. Reloading has demonstrably not worked by then, so the card stops being only
+ * a report and starts being a way out.
+ */
+export function CrashEscapes({ previousCrash }: { previousCrash: UnrecoveredCrash }) {
+  return (
+    <>
+      <p className="ix-crash__evidence">{evidenceLine(previousCrash)}</p>
+      <RecoveryEscapes offerSafeMode />
+    </>
+  )
+}
+
+/**
+ * What the marker actually proves, and no more: no ordinary launch has stayed up since that
+ * failure, so reloading has already been tried. A safe-mode session in between keeps the marker,
+ * because coming up without the saved state says nothing about coming up with it, so the line
+ * speaks of ordinary launches. It says nothing about frequency or about a loop, because the marker
+ * is evidence of neither.
  */
 function evidenceLine(crash: UnrecoveredCrash): string {
   const at = clockTime(crash.at)
-  const since = at ? `The last failure was at ${at}, and Intersect` : 'Intersect'
-  return `${since} has not rendered successfully since, so reloading has already been tried. The ways out below run from harmless to permanent.`
+  const lead = at
+    ? `The last failure was at ${at}, and no ordinary launch has stayed up since.`
+    : 'No ordinary launch has stayed up since the last failure.'
+  return `${lead} Reloading has already been tried. The ways out below run from harmless to permanent.`
 }
 
 /** The crash time as a wall clock, or null when the recorded value cannot be shown as one. */

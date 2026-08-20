@@ -46,6 +46,9 @@
 
   --dur: 150ms;
   --sidebar-w: 244px;
+  /* The toaster's column. Named because the toaster floats over the bottom-right corner and
+     out-stacks the layout, so anything the layout puts along that edge has to keep clear of it. */
+  --toaster-w: 380px;
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 

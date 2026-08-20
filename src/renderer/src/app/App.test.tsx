@@ -1,6 +1,11 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { DEFAULT_PR_REVIEW_PROMPT, type AppSettings, type EffectiveConfig } from '@common/domain'
+import {
+  DEFAULT_PR_REVIEW_PROMPT,
+  type AppSettings,
+  type EffectiveConfig,
+  type Project
+} from '@common/domain'
 import { registerSettingsFeature, SETTINGS_SECTION_ID } from '@renderer/features/settings'
 import {
   __resetSidebarRegistryForTests,
@@ -295,14 +300,32 @@ describe('withdrawing the crash marker', () => {
   })
 })
 
+const ALPHA: Project = {
+  id: 'p-alpha',
+  name: 'Alpha',
+  sortOrder: 0,
+  archived: false,
+  repoPaths: ['/repos/alpha'],
+  jiraJql: null,
+  jiraBoardUrl: null,
+  adoRepositories: []
+}
+
 /**
  * Safe mode hides the crash rather than resolving it, so the session it produces must never pass
  * for a normal one.
+ *
+ * Every test here lands on the real Settings section, because that is the one safe mode pins the
+ * shell to. A stand-in section would keep the settings tree - and the project load its default
+ * pane fires - out of the run, which is exactly the traffic these guarantees are about.
  */
 describe('the safe mode session', () => {
   let listProjects: ReturnType<typeof vi.fn>
+  let revealUserData: ReturnType<typeof vi.fn>
+  let resetViewState: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
+    window.localStorage.clear()
     __resetSidebarRegistryForTests()
     registerSidebarSection({
       id: 'healthy',
@@ -311,64 +334,151 @@ describe('the safe mode session', () => {
       icon: Icon,
       mainComponent: Healthy
     })
-    listProjects = vi.fn(() => Promise.resolve([]))
+    registerSettingsFeature()
+    listProjects = vi.fn(() => Promise.resolve([ALPHA]))
+    revealUserData = vi.fn(() => Promise.resolve())
+    resetViewState = vi.fn(() => Promise.resolve())
     ;(window as { intersect?: unknown }).intersect = {
-      system: { onCoreStatus: () => () => {} },
-      projects: { list: listProjects }
+      system: { onCoreStatus: () => () => {}, revealUserData, resetViewState },
+      settings: { get: () => Promise.resolve(SETTINGS) },
+      projects: { list: listProjects, listOverrides: () => Promise.resolve([]) },
+      agentTooling: {
+        getEffectiveConfig: () => Promise.resolve(EMPTY_CONFIG),
+        listSkills: () => Promise.resolve([]),
+        listAgents: () => Promise.resolve([])
+      }
     }
     useShellStore.setState({
-      context: { kind: 'section', id: 'healthy' },
+      context: { kind: 'section', id: SETTINGS_SECTION_ID },
       sidebarCollapsed: false,
       safeMode: true
     })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     __resetSidebarRegistryForTests()
     delete (window as { intersect?: unknown }).intersect
     useShellStore.setState({ context: null, sidebarCollapsed: false, safeMode: false })
     vi.mocked(reloadWindow).mockClear()
+    window.localStorage.clear()
+    const { useProjectsStore } = await import('@renderer/features/projects')
+    useProjectsStore.setState({ projects: [] })
   })
 
-  test('a banner names the state and keeps the way out in reach', () => {
-    render(<App />)
+  const railLabels = (): (string | null)[] =>
+    [...document.querySelectorAll('.ix-rail__label')].map((e) => e.textContent)
+
+  const button = (label: string): HTMLButtonElement => {
+    const found = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === label
+    )
+    if (!found) throw new Error(`no button labelled "${label}"`)
+    return found
+  }
+
+  test('a banner names the state and keeps the way out in reach', async () => {
+    await act(async () => {
+      render(<App />)
+    })
 
     const banner = document.querySelector('.ix-safemode')
     expect(banner?.textContent).toContain('the saved session and workspace state were not restored')
 
-    const exit = [...document.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Exit safe mode'
-    )
     act(() => {
-      exit?.click()
+      button('Exit safe mode').click()
     })
     // Leaving is a plain reload: the request that produced this session was consumed at boot, so
     // the next launch is an ordinary one with nothing left to undo.
     expect(reloadWindow).toHaveBeenCalledOnce()
   })
 
-  test('an ordinary session shows no banner', () => {
+  test('an ordinary session shows no banner', async () => {
     useShellStore.setState({ safeMode: false })
-    render(<App />)
+    await act(async () => {
+      render(<App />)
+    })
     expect(document.querySelector('.ix-safemode')).toBeNull()
   })
 
-  test('the rail offers no project pins and no Other bucket to fall back into', () => {
-    render(<App />)
+  test('the rail draws no project pins even after the landing pane loads the projects', async () => {
+    await act(async () => {
+      render(<App />)
+    })
 
-    const railLabels = [...document.querySelectorAll('.ix-rail__label')].map((e) => e.textContent)
-    expect(railLabels).toContain('Healthy')
-    expect(railLabels).not.toContain('Other')
+    // Settings opens on its projects category, which loads the rows whatever the rail decided.
+    expect(listProjects).toHaveBeenCalled()
+    const { useProjectsStore } = await import('@renderer/features/projects')
+    expect(useProjectsStore.getState().projects).toHaveLength(1)
+
     // The rail renders outside the shell's region boundary, so a project row that cannot be drawn
-    // takes the whole window down on every boot. Safe mode does not read them at all.
-    expect(listProjects).not.toHaveBeenCalled()
+    // takes the whole window down on every boot. Safe mode never draws one.
+    expect(document.querySelectorAll('.ix-rail__btn--project')).toHaveLength(0)
+    expect(railLabels()).not.toContain('Alpha')
+    expect(railLabels()).not.toContain('Other')
+    expect(railLabels()).toContain('Settings')
   })
 
-  test('an ordinary session does load the projects the rail pins', async () => {
+  test('an ordinary session does draw the project pins the rail owns', async () => {
     useShellStore.setState({ safeMode: false })
     await act(async () => {
       render(<App />)
     })
     expect(listProjects).toHaveBeenCalled()
+    expect(document.querySelectorAll('.ix-rail__btn--project')).toHaveLength(1)
+    expect(railLabels()).toContain('Alpha')
+  })
+
+  test('the banner reaches the escapes the crash card offered, without another crash', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    await act(async () => {
+      button('Recovery options').click()
+    })
+
+    await act(async () => {
+      button('Reveal data folder').click()
+    })
+    expect(revealUserData).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      button('Reset view and layout state').click()
+    })
+    await act(async () => {
+      button('Reset and reload').click()
+    })
+    expect(resetViewState).toHaveBeenCalledOnce()
+  })
+
+  test('safe mode is not offered again from inside safe mode', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+    await act(async () => {
+      button('Recovery options').click()
+    })
+
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim())
+    expect(labels).not.toContain('Start in safe mode')
+  })
+
+  test('the crash marker stands through a safe mode session', async () => {
+    vi.useFakeTimers()
+    try {
+      markUnrecoveredCrash(Date.now())
+      render(<App />)
+
+      act(() => {
+        vi.advanceTimersByTime(CRASH_SETTLE_MS * 2)
+      })
+
+      // A safe-mode boot proves only that the app comes up without its saved state, so it is no
+      // evidence that an ordinary launch would. Withdrawing the marker here would hand the user
+      // the plain card on the very next ordinary crash, after they had already earned the escapes.
+      expect(readUnrecoveredCrash()).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

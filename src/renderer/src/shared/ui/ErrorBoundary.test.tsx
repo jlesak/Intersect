@@ -319,8 +319,9 @@ describe('a window crash that has already happened once', () => {
       'Reveal data folder'
     ])
     const card = document.querySelector('.ix-crash__card')?.textContent ?? ''
-    // The claim is exactly what the marker proves, and nothing about frequency or a loop.
-    expect(card).toContain('has not rendered successfully since')
+    // The claim is exactly what the marker proves, and nothing about frequency or a loop. It
+    // speaks of ordinary launches because a safe-mode session in between keeps the marker.
+    expect(card).toContain('no ordinary launch has stayed up since')
     expect(card).toContain('Intersect could not render')
   })
 
@@ -366,7 +367,7 @@ describe('a window crash that has already happened once', () => {
 
     // The window fallback covers the viewport, so a confirmation on the default stacking would
     // open behind the card that asked for it and the user would face a dead, dimmed screen.
-    expect(document.querySelector('.ix-overlay')?.className).toContain('ix-overlay--above-crash')
+    expect(document.querySelector('.ix-overlay')?.className).toContain('ix-overlay--topmost')
     const dialog = document.querySelector('.ix-dialog')?.textContent ?? ''
     expect(dialog).toContain('Cleared, permanently')
     expect(dialog).toContain('pane layout')
