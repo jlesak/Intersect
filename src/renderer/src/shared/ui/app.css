@@ -144,15 +144,21 @@
   min-height: 0;
 }
 
-/* tab bar */
+/* tab bar: one strip per pane, so the grid layout puts four of them on screen at once. Everything
+   here is sized for that - 32px tall, with paddings and type to match. */
 .ix-tabbar {
   display: flex;
   align-items: stretch;
-  height: 42px;
-  padding: 0 8px 0 0;
+  height: 32px;
+  padding: 0 6px 0 0;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+/* The group the user is working in. A lit left edge says which pane the new-tab shortcut and the
+   tab accelerators will act on, without tinting the strip enough to compete with the terminal. */
+.ix-tabbar--focused {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .ix-tabs {
   display: flex;
@@ -161,6 +167,25 @@
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+/* The insert point a dragged tab would land at. Zero net width, so the tabs it sits between do
+   not shuffle sideways while the pointer moves along the strip. */
+.ix-tabs__drop {
+  flex: none;
+  align-self: stretch;
+  width: 2px;
+  margin: 0 -1px;
+  background: var(--accent);
+}
+/* The bar's spoken-only channel, where a keyboard move announces where the tab went. Clipped
+   rather than hidden, because display:none would take it out of the accessibility tree too. */
+.ix-tabbar__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .ix-tabbar__tools {
   display: flex;
@@ -175,9 +200,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 200px;
-  padding: 0 8px 0 13px;
+  gap: 6px;
+  max-width: 180px;
+  padding: 0 6px 0 10px;
   border: none;
   border-right: 1px solid var(--border);
   background: transparent;
@@ -207,12 +232,26 @@
 .ix-tab--active::before {
   background: var(--accent);
 }
+/* Only the focused group's shown tab gets the cyan line. The other panes keep showing a terminal,
+   so their tab stays lifted out of the strip; it just stops claiming the signal colour. Written
+   against a class the bar puts on itself only in a split, because the negated form also matched
+   the single layout's one bar and muted the very tab the user was typing into. */
+.ix-tabbar--unfocused .ix-tab--active::before {
+  background: var(--border-strong);
+}
+.ix-tabbar--unfocused .ix-tab--active .ix-tab__preset {
+  color: var(--text-dim);
+}
+/* The tab under the pointer while it is being dragged somewhere else. */
+.ix-tab--dragging {
+  opacity: 0.4;
+}
 .ix-tab__preset {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  padding: 2px 4px;
+  padding: 1px 3px;
   border-radius: 3px;
   background: var(--panel-3);
   color: var(--text-dim);
@@ -221,7 +260,7 @@
   color: var(--accent);
 }
 .ix-tab__title {
-  font-size: 12.5px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -230,15 +269,15 @@
   background: var(--bg);
   border: 1px solid var(--accent);
   border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 12.5px;
+  padding: 0 5px;
+  font-size: 12px;
 }
 .ix-tab__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border: none;
   border-radius: 4px;
   background: transparent;
@@ -286,6 +325,32 @@
   display: flex;
   flex-direction: column;
 }
+/* The pane a dragged tab would land in, marked over the whole pane so the answer to "which pane"
+   is legible from anywhere in the split. An overlay laid on top of the pane rather than a
+   background behind it: the tab strip and the terminal are both opaque and would bury anything
+   painted underneath them. A ring plus a wash rather than a fill, and blind to the pointer, so
+   the terminal stays readable and the drop still lands where it was aimed. */
+.ix-pane--drop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+/* Everything under the pane's own tab bar. The bar is fixed height, so the body takes the rest and
+   is what the terminal (or the empty state) measures itself against.
+
+   Positioned, so that what a pane overlays - the find bar above all - is placed against the
+   terminal area rather than against the pane, whose top edge is now the top of the tab strip. */
+.ix-pane__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ix-pane__host {
   flex: 1;
   min-height: 0;
@@ -295,11 +360,17 @@
   width: 100%;
   height: 100%;
 }
-.ix-pane--empty {
+/* An empty group. Compact enough to stay legible in a quarter of the stage, where four of these
+   can be on screen together. */
+.ix-pane__empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   color: var(--text-faint);
-  gap: 10px;
   text-align: center;
 }
 /* Interrupted-session bar: the xterm (with the death notice in its scrollback) stays visible;

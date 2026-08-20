@@ -603,6 +603,62 @@ const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec(`ALTER TABLE draft_comment ADD COLUMN source_commit_id TEXT;`)
     }
+  },
+  {
+    // Per-pane tab groups. `pane_slot` stops meaning "which pane, or nowhere" and starts meaning
+    // "which group", so every tab needs one and `sort_order` becomes a position inside a group.
+    //
+    // `pane_slot` stays nullable in SQL: SQLite cannot add NOT NULL to an existing column, and
+    // rebuilding `tabs` would cascade-delete `work_item_ref` rows through its ON DELETE CASCADE
+    // foreign key while PRAGMA foreign_keys is ON. tabRepo enforces the invariant instead - every
+    // write supplies a slot and every read coalesces NULL to 0.
+    version: 27,
+    up(db) {
+      db.exec(`ALTER TABLE tabs ADD COLUMN last_active_at INTEGER;`)
+
+      // One timestamp for every placed tab, so no migrated tab silently outranks another inside
+      // its group and `visibleTabOf` falls back to bar order to break the tie.
+      const stampedAt = Date.now()
+
+      // The tabs holding a pane today are the ones on screen today, and stamping them keeps them
+      // on screen after the merge.
+      db.prepare('UPDATE tabs SET last_active_at = ? WHERE pane_slot IS NOT NULL').run(stampedAt)
+
+      // Each workspace's active tab is stamped as well, which covers `single` workspaces where no
+      // tab carries a slot at all. It is stamped one tick later so that it strictly wins the group
+      // it ends up in: the active tab drives the focused group and the attention report, and an
+      // active tab its own pane does not render is a disagreement that survives until the user
+      // clicks something. Both steps run before any slot is normalized, so an active tab always
+      // ends up stamped whichever pane it did or did not hold.
+      db.prepare(
+        `UPDATE tabs SET last_active_at = ?
+         WHERE id IN (SELECT active_tab_id FROM workspaces WHERE active_tab_id IS NOT NULL)`
+      ).run(stampedAt + 1)
+
+      // Only now that the stamps are placed does the unplaced state disappear: every tab that
+      // belonged to no pane joins group 0.
+      db.exec(`UPDATE tabs SET pane_slot = 0 WHERE pane_slot IS NULL;`)
+
+      // Renumber `sort_order` densely from 0 inside each (workspace, group). Ranking in JavaScript
+      // over rows already read keeps every position computed against the pre-migration order,
+      // which a correlated UPDATE against the table it is rewriting would not guarantee.
+      const rows = db
+        .prepare(
+          'SELECT id, workspace_id, pane_slot FROM tabs ORDER BY workspace_id, pane_slot, sort_order, rowid'
+        )
+        .all() as unknown as { id: string; workspace_id: string; pane_slot: number }[]
+      const renumber = db.prepare('UPDATE tabs SET sort_order = ? WHERE id = ?')
+      let group = ''
+      let index = 0
+      for (const row of rows) {
+        const key = `${row.workspace_id} ${row.pane_slot}`
+        if (key !== group) {
+          group = key
+          index = 0
+        }
+        renumber.run(index++, row.id)
+      }
+    }
   }
 ]
 

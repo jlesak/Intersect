@@ -1,8 +1,13 @@
-import { act, render as renderClient } from '@testing-library/react'
+import { act, fireEvent, render as renderClient } from '@testing-library/react'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { AgentToolingScope, EffectiveConfig, SkillCatalogItem } from '@common/domain'
+import type {
+  AgentCatalogItem,
+  AgentToolingScope,
+  EffectiveConfig,
+  SkillCatalogItem
+} from '@common/domain'
 import { useProjectsStore } from '@renderer/features/projects'
 import { useAgentToolingStore } from '../store'
 import { AgentToolingPane, AgentToolingPaneBody } from './AgentToolingPane'
@@ -22,23 +27,26 @@ const config: EffectiveConfig = {
 
 const noop = (): void => {}
 
+const propsWith = (
+  over: Partial<React.ComponentProps<typeof AgentToolingPaneBody>>
+): React.ComponentProps<typeof AgentToolingPaneBody> => ({
+  status: 'ready',
+  error: null,
+  scope: { kind: 'global' } as AgentToolingScope,
+  config,
+  skills: [],
+  agents: [],
+  projects: [{ id: 'p1', name: 'SPOT' }],
+  onScopeChange: noop,
+  onReveal: noop,
+  ...over
+})
+
 const render = (
   over: Partial<React.ComponentProps<typeof AgentToolingPaneBody>> = {}
 ): HTMLDivElement => {
   const host = document.createElement('div')
-  const props: React.ComponentProps<typeof AgentToolingPaneBody> = {
-    status: 'ready',
-    error: null,
-    scope: { kind: 'global' } as AgentToolingScope,
-    config,
-    skills: [],
-    agents: [],
-    projects: [{ id: 'p1', name: 'SPOT' }],
-    onScopeChange: noop,
-    onReveal: noop,
-    ...over
-  }
-  host.innerHTML = renderToStaticMarkup(React.createElement(AgentToolingPaneBody, props))
+  host.innerHTML = renderToStaticMarkup(React.createElement(AgentToolingPaneBody, propsWith(over)))
   return host
 }
 
@@ -144,6 +152,82 @@ describe('AgentToolingPaneBody', () => {
     expect(host.querySelector('.ix-at-remove')).toBeNull()
     // Add controls are still available.
     expect(host.querySelectorAll('.ix-at-add').length).toBe(3)
+  })
+})
+
+/**
+ * Both catalogs hand their searchable fields to the shared matcher in priority order, and the
+ * matcher charges a hit for every field it sits past the first. These tests pin the priority each
+ * catalog asked for: what the user is reading outranks the metadata beside it.
+ */
+describe('catalog search ranking', () => {
+  const skill = (over: Partial<SkillCatalogItem>): SkillCatalogItem => ({
+    name: 'skill',
+    source: { kind: 'user', label: 'User' },
+    path: '/home/.claude/skills/skill/SKILL.md',
+    description: '',
+    external: false,
+    ...over
+  })
+
+  const agent = (over: Partial<AgentCatalogItem>): AgentCatalogItem => ({
+    name: 'agent',
+    source: { kind: 'user', label: 'User' },
+    path: '/home/.claude/agents/agent.md',
+    description: '',
+    model: '',
+    tools: '',
+    external: false,
+    ...over
+  })
+
+  /** Types a query into one catalog's search box and reads back the item names it leaves, in order. */
+  function searchNames(
+    over: Partial<React.ComponentProps<typeof AgentToolingPaneBody>>,
+    searchLabel: string,
+    query: string
+  ): string[] {
+    const { container } = renderClient(<AgentToolingPaneBody {...propsWith(over)} />)
+    const box = container.querySelector<HTMLInputElement>(`input[aria-label="${searchLabel}"]`)!
+    fireEvent.change(box, { target: { value: query } })
+    return [...container.querySelectorAll('.ix-at-item__name')].map((n) => n.textContent ?? '')
+  }
+
+  test('a skill named for the query outranks one whose scope badge merely reads the same', () => {
+    // Both hits are identical in shape - "user" starts the text and runs whole - so only the field
+    // that carried them differs: the name the user is recalling against the scope badge beside it.
+    const skills = [
+      skill({ name: 'brainstorming', description: 'Explore intent before implementation' }),
+      skill({
+        name: 'user-prefs',
+        description: 'Records preferences',
+        source: { kind: 'project', label: 'Project' }
+      })
+    ]
+    expect(searchNames({ initialTab: 'skills', skills }, 'Search skills', 'user')).toEqual([
+      'user-prefs',
+      'brainstorming'
+    ])
+  })
+
+  test('an agent named for the query leads, and one that only lists it as a tool trails', () => {
+    // Every tools line is a comma list of generic verbs, so a short query hits almost all of them.
+    // All three hits below start their text and run whole; the field order decides.
+    const agents = [
+      agent({ name: 'planner', description: 'Plans the work', tools: 'Read, Bash' }),
+      agent({ name: 'triage', description: 'Reads open pull requests', tools: 'Write, Bash' }),
+      agent({
+        name: 'reader',
+        description: 'Summarises a file',
+        tools: 'Grep',
+        source: { kind: 'project', label: 'Project' }
+      })
+    ]
+    expect(searchNames({ initialTab: 'agents', agents }, 'Search agents', 'read')).toEqual([
+      'reader',
+      'triage',
+      'planner'
+    ])
   })
 })
 
