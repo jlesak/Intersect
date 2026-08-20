@@ -173,6 +173,45 @@ test('failed mode shows the error on the card', async () => {
   await expect(win.locator('.ix-oto-run__link')).toHaveCount(0)
 })
 
+test('a failed run starts again from its own card, and the failure stays in the history', async () => {
+  const profileDir = userDataDir()
+  const { win } = await launch(profileDir, { env: { INTERSECT_E2E_OTO: 'failed' } })
+  await openOneOnOne(win)
+
+  await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
+  await win.locator('#oto-type').selectOption('prep')
+  await win.getByPlaceholder('e.g. Marek K.').fill('Tereza N.')
+  await win.locator('.ix-oto-form__actions .ix-btn--primary', { hasText: 'Start' }).click()
+  await expect(win.locator('.ix-oto-run__status--failed')).toHaveCount(1)
+
+  // The card still holds the type and the person the form was given, so Retry needs no re-entry.
+  await win.locator('.ix-oto-run .ix-btn', { hasText: 'Retry' }).click()
+  await expect(win.locator('.ix-oto-run')).toHaveCount(2)
+  await expect(win.locator('.ix-oto-run__type')).toHaveText([/preparation/i, /preparation/i])
+  await expect(win.locator('.ix-oto-run__status--failed')).toHaveCount(2)
+
+  // Both runs are the same person, so the history keeps them under one name.
+  await expect(win.locator('.ix-oto-person__name')).toHaveText(['Tereza N.'])
+})
+
+test('the person field offers a name the run history already used', async () => {
+  const profileDir = userDataDir()
+  const { win } = await launch(profileDir)
+  await openOneOnOne(win)
+
+  await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
+  await win.locator('#oto-type').selectOption('prep')
+  await win.getByPlaceholder('e.g. Marek K.').fill('Tereza N.')
+  await win.locator('.ix-oto-form__actions .ix-btn--primary', { hasText: 'Start' }).click()
+  await expect(win.locator('.ix-oto-run__status--done')).toHaveText(/Done/)
+
+  // The next run is offered that person instead of asking for the spelling again.
+  await win.locator('.ix-oto__head .ix-btn--primary', { hasText: 'New' }).click()
+  await expect(win.locator('#oto-person')).toHaveAttribute('list', 'oto-people')
+  await expect(win.locator('#oto-people option')).toHaveCount(1)
+  await expect(win.locator('#oto-people option')).toHaveAttribute('value', 'Tereza N.')
+})
+
 test('an empty person is rejected inline and no run starts', async () => {
   const profileDir = userDataDir()
   const { win } = await launch(profileDir)

@@ -3213,10 +3213,11 @@
 }
 
 /* run history */
+/* The children here are one person's runs each, so the gap separates people. */
 .ix-oto-runs {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
 }
 .ix-oto-run {
   display: flex;
@@ -3273,6 +3274,32 @@
 }
 .ix-oto-run__status--failed {
   color: var(--danger);
+}
+.ix-oto-run__retry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ix-oto-run__retry-error {
+  color: var(--danger);
+  font-size: 11.5px;
+}
+/* One person's runs, under their name, so the last conversation is not buried under everyone
+   else's. */
+.ix-oto-person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ix-oto-person__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ix-oto-person__runs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .ix-oto-run__links {
   display: flex;

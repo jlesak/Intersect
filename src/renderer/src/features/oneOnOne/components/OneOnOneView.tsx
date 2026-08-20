@@ -1,9 +1,13 @@
-import { useEffect, useState, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
 import type { OtoRunType } from '@common/domain'
 import { IconPlus } from '@renderer/shared/ui/icons'
 import * as api from '../ipc'
+import { groupRunsByPerson, peopleFromRuns } from '../people'
 import { useOneOnOneStore } from '../store'
 import { RunCard } from './RunCard'
+
+/** The id the person field and its list of known people agree on. */
+const PEOPLE_LIST_ID = 'oto-people'
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -11,8 +15,12 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
  * The new-run form: workflow type, person, and (for Process only) the VTT recording via
  * drag-and-drop or the native picker. All state is component-local; submitting hands the input
  * to the store, and a validation error from main lands inline.
+ *
+ * The person field offers everyone the history already knows, so a name used before is picked
+ * instead of typed again slightly differently. A new person still has to be typeable, so free
+ * text stays accepted.
  */
-function NewRunForm() {
+function NewRunForm({ people }: { people: string[] }) {
   const [type, setType] = useState<OtoRunType>('process')
   const [person, setPerson] = useState('')
   const [vttPath, setVttPath] = useState<string | null>(null)
@@ -75,10 +83,16 @@ function NewRunForm() {
           <input
             id="oto-person"
             className="ix-input"
+            list={PEOPLE_LIST_ID}
             placeholder="e.g. Marek K."
             value={person}
             onChange={(e) => setPerson(e.target.value)}
           />
+          <datalist id={PEOPLE_LIST_ID}>
+            {people.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </div>
       </div>
 
@@ -139,13 +153,18 @@ function NewRunForm() {
 
 /**
  * The 1:1 section's main region: head (title + New button), the collapsed-by-default new-run
- * form, and the persistent run history.
+ * form, and the persistent run history gathered per person.
  */
 export function OneOnOneView() {
   const status = useOneOnOneStore((s) => s.status)
   const error = useOneOnOneStore((s) => s.error)
   const runs = useOneOnOneStore((s) => s.runs)
   const showForm = useOneOnOneStore((s) => s.showForm)
+
+  // Both build fresh objects, so they derive from the stable slice here rather than inside a
+  // selector, which the store factory's double-call guard would reject.
+  const people = useMemo(() => peopleFromRuns(runs), [runs])
+  const groups = useMemo(() => groupRunsByPerson(runs), [runs])
 
   useEffect(() => {
     void useOneOnOneStore.getState().load()
@@ -168,7 +187,7 @@ export function OneOnOneView() {
           )}
         </div>
 
-        {showForm && <NewRunForm />}
+        {showForm && <NewRunForm people={people} />}
 
         {status === 'error' && (
           <div className="ix-oto__error">Could not load the run history{error ? `: ${error}` : ''}</div>
@@ -187,8 +206,15 @@ export function OneOnOneView() {
             <>
               <div className="ix-eyebrow">Run history</div>
               <div className="ix-oto-runs">
-                {runs.map((run) => (
-                  <RunCard key={run.id} run={run} />
+                {groups.map((group) => (
+                  <div key={group.key} className="ix-oto-person">
+                    <div className="ix-oto-person__name">{group.person}</div>
+                    <div className="ix-oto-person__runs">
+                      {group.runs.map((run) => (
+                        <RunCard key={run.id} run={run} />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </>
