@@ -233,6 +233,47 @@ export async function stubQuitConfirm(app: ElectronApplication): Promise<void> {
   })
 }
 
+/**
+ * Answer the quit confirmation with "Cancel", and report how many times it was raised.
+ *
+ * Cancel is what makes a quit assertion sharp. Under this stub the only way an app can exit is by
+ * never having asked, so "the process is gone" states, on its own, that the confirmation was
+ * skipped. The count says the same thing from the other side and is readable for as long as the app
+ * is alive, which under Cancel is exactly the case where it is wanted.
+ */
+export async function stubQuitConfirmCancel(
+  app: ElectronApplication
+): Promise<() => Promise<number>> {
+  await app.evaluate(({ dialog }) => {
+    const state = globalThis as unknown as { __quitPrompts: number }
+    state.__quitPrompts = 0
+    ;(dialog as unknown as { showMessageBox: unknown }).showMessageBox = async () => {
+      state.__quitPrompts += 1
+      return { response: 1, checkboxChecked: false }
+    }
+  })
+  return () => app.evaluate(() => (globalThis as unknown as { __quitPrompts: number }).__quitPrompts)
+}
+
+/**
+ * Raise the system's genuine power-off signal inside the running app.
+ *
+ * `postWorkspaceNotification` posts NSWorkspaceWillPowerOffNotification, the very notification macOS
+ * posts when the user asks to log out, restart or shut down, so the whole native chain runs: the
+ * workspace observer, Electron's shutdown handler, and the JavaScript listener that reads it. The
+ * call resolves on that listener firing, which reproduces the ordering a real logout provides -
+ * the signal lands before the system's quit request does, so a quit that follows already knows.
+ */
+export async function signalSystemShutdown(app: ElectronApplication): Promise<void> {
+  await app.evaluate(
+    ({ powerMonitor, systemPreferences }) =>
+      new Promise<void>((resolve) => {
+        powerMonitor.once('shutdown', () => resolve())
+        systemPreferences.postWorkspaceNotification('NSWorkspaceWillPowerOffNotification', {})
+      })
+  )
+}
+
 /** Add a workspace through the folder picker and wait for it to become the active one. */
 export async function addWorkspace(
   win: Page,
