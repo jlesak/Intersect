@@ -159,6 +159,12 @@ async function openTimeTracking(win: Page): Promise<void> {
 
 const dayColumn = (win: Page, day: string): Locator => win.locator(`.ix-tt__day[data-day="${day}"]`)
 
+// The timer is mounted on several surfaces at once (the section topbar, the Dashboard zone, and
+// the app shell while one runs), so every locator here names the surface it means.
+const topbarTimer = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__action')
+const topbarElapsed = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__elapsed')
+const shellTimer = (win: Page): Locator => win.locator('.ix-sidebar__timer')
+
 /** A day's nth card, needed wherever a column holds more than one. */
 const cardAt = (column: Locator, index: number): Locator =>
   column.locator('.ix-tt-card').nth(index)
@@ -345,28 +351,35 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
   const first = await launch(profileDir)
   await openTimeTracking(first.win)
 
-  // Nothing has been started, so the control offers exactly one action.
-  await expect(first.win.locator('.ix-timer__action')).toHaveText('Start')
-  await first.win.locator('.ix-timer__action').click()
-  await expect(first.win.locator('.ix-timer__action')).toHaveText('Stop')
-  await expect(first.win.locator('.ix-timer__elapsed')).toBeVisible()
+  // Nothing has been started, so the control offers exactly one action, and the shell carries no
+  // chip at all.
+  await expect(topbarTimer(first.win)).toHaveText('Start')
+  await expect(shellTimer(first.win)).toHaveCount(0)
+  await topbarTimer(first.win).click()
+  await expect(topbarTimer(first.win)).toHaveText('Stop')
+  await expect(topbarElapsed(first.win)).toBeVisible()
   await first.app.close()
 
   // The timer is durable state, not renderer state: it is still running after a full restart.
   const second = await launch(profileDir)
   await openTimeTracking(second.win)
-  await expect(second.win.locator('.ix-timer__action')).toHaveText('Stop')
+  await expect(topbarTimer(second.win)).toHaveText('Stop')
 
   // A start-then-stop under a second is treated as a misclick and discarded, and a relaunch takes
   // well under that, so the span has to be given time to cross the floor deliberately. Waiting on
   // the ticking figure to reach two seconds is the wait itself: it measures elapsed time from the
   // durable start, so past this point the stop below is guaranteed to reach the logging path.
-  await expect(second.win.locator('.ix-timer__elapsed')).toHaveText(
+  await expect(topbarElapsed(second.win)).toHaveText(
     /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d(:\d\d)?)$/
   )
 
-  await second.win.locator('.ix-timer__action').click()
-  await expect(second.win.locator('.ix-timer__action')).toHaveText('Start')
+  // The shell chip is the whole point of a running timer being visible outside its own section:
+  // it counts alongside the topbar and offers the same Stop.
+  await expect(shellTimer(second.win).locator('.ix-timer__action')).toHaveText('Stop')
+
+  await topbarTimer(second.win).click()
+  await expect(topbarTimer(second.win)).toHaveText('Start')
+  await expect(shellTimer(second.win)).toHaveCount(0)
 
   // Stopping logged the span as an ordinary card on today's column, editable like any other. It
   // was started without a description, so it carries the neutral fallback label. The board only
@@ -376,4 +389,49 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
     await expect(today.locator('.ix-tt-card')).toHaveCount(1)
     await expect(today.locator('.ix-tt-card__title')).toHaveValue('Timed work')
   }
+})
+
+test('the weekly summary rolls the board up two ways and copies the week for a timesheet', async () => {
+  const { app, win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
+  await openTimeTracking(win)
+
+  // Collapsed at first so the board keeps its full height, with the export reachable either way.
+  const summary = win.locator('.ix-tt-summary')
+  await expect(summary.locator('.ix-tt-summary__body')).toHaveCount(0)
+  await expect(summary.locator('.ix-tt-summary__count')).toHaveText('2 issues · 0 projects')
+
+  await summary.locator('.ix-tt-summary__toggle').click()
+
+  // Per issue: the same figures the cards carry, heaviest first, with the unattributed Tuesday
+  // session in its own named bucket rather than dropped.
+  const byIssue = summary.locator('[data-rollup="By issue"]')
+  await expect(byIssue.locator('.ix-tt-summary__label')).toHaveText([
+    'FID2507-611',
+    'FID2507-650',
+    'No issue'
+  ])
+  await expect(byIssue.locator('.ix-tt-summary__total')).toHaveText(['1h 3m', '12m', '10m'])
+
+  // No project is bound in this profile, so every card is unclaimed and the single bucket has to
+  // equal the weekly grand total in the topbar. That agreement is the panel's own self-check.
+  const byProject = summary.locator('[data-rollup="By project"]')
+  await expect(byProject.locator('.ix-tt-summary__label')).toHaveText(['Other'])
+  await expect(byProject.locator('.ix-tt-summary__total')).toHaveText(['1h 25m'])
+  await expect(win.locator('.ix-tt__total')).toHaveText('1h 25m total')
+
+  // Copying writes the real system clipboard, so whatever the developer had in it is put back
+  // afterwards. Durations are decimal hours here: a timesheet column has to add up.
+  const before = await app.evaluate(({ clipboard }) => clipboard.readText())
+  await summary.getByRole('button', { name: 'Copy CSV' }).click()
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(
+      [
+        'Date,Issue,Description,Duration',
+        `${MONDAY},FID2507-611,Lock owner on the card,1.05`,
+        `${MONDAY},FID2507-650,Rail spacing pass,0.20`,
+        `${TUESDAY},,Board scaffolding,0.17`
+      ].join('\n')
+    )
+  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), before)
 })

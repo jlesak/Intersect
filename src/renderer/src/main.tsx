@@ -25,6 +25,7 @@ import { useCommandPaletteStore } from './features/commandPalette'
 import { useMyWorkStore } from './features/myWork'
 import { useOneOnOneStore } from './features/oneOnOne'
 import { usePrInboxStore } from './features/prInbox'
+import { useTimeTrackingStore } from './features/timeTracking'
 import { useTodoStore } from './features/todo'
 import { useUsageStore } from './features/usage'
 import { useWorkspacesStore } from './features/workspaces'
@@ -73,6 +74,10 @@ useMyWorkStore.getState().subscribe()
 // Load the last captured Claude usage snapshot and keep listening for fresh ones pushed from main.
 void useUsageStore.getState().hydrate()
 useUsageStore.getState().subscribe()
+// Read the running work timer at boot, so a timer left running across a relaunch is on screen
+// wherever the user opens the app. Deliberately narrower than hydrate(): the week itself is pulled
+// only by the surfaces that show it.
+void useTimeTrackingStore.getState().loadTimer()
 // Load the task list at boot: the rail's open-task count and the Dashboard's deadlines both read it
 // without the user ever having opened the TODO section.
 void useTodoStore.getState().load()

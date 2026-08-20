@@ -7,8 +7,14 @@ import {
   __resetCaptureRegistryForTests,
   matchCapture
 } from '@renderer/shared/registries/captureRegistry'
-import { __resetCommandRegistryForTests } from '@renderer/shared/registries/commandRegistry'
-import { __resetSidebarRegistryForTests } from '@renderer/shared/registries/sidebarRegistry'
+import {
+  __resetCommandRegistryForTests,
+  getCommand
+} from '@renderer/shared/registries/commandRegistry'
+import {
+  __resetSidebarRegistryForTests,
+  getSidebarSections
+} from '@renderer/shared/registries/sidebarRegistry'
 import { useToastStore } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
 import { registerTimeTrackingFeature } from './register'
@@ -99,5 +105,33 @@ describe('the time: capture', () => {
     await capture('time: sprint review')
     expect(mocked.addManual).not.toHaveBeenCalled()
     expect(messages()).toEqual([])
+  })
+})
+
+describe('the week export commands', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+  })
+
+  test('copy as text puts the shown week on the clipboard in its readable form', async () => {
+    await getCommand('timeTracking.copyWeekText')!.handler()
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      'Date\tIssue\tDescription\tDuration\nTotal\t\t\t0m'
+    )
+  })
+
+  test('copy as CSV puts the shown week on the clipboard as columns', async () => {
+    await getCommand('timeTracking.copyWeekCsv')!.handler()
+    expect(clipboard.writeText).toHaveBeenCalledWith('Date,Issue,Description,Duration')
+  })
+})
+
+describe('the sidebar section', () => {
+  test('carries a running-timer marker, so the icon rail can show one too', () => {
+    const section = getSidebarSections().find((s) => s.id === 'timeTracking')
+    expect(section?.badge).toBeTypeOf('function')
   })
 })

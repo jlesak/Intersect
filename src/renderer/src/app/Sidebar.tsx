@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Project } from '@common/domain'
 import { projectStatus, useAttentionStore } from '@renderer/features/attention'
 import { selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
+import { SidebarTimer } from '@renderer/features/timeTracking'
 import { SidebarUsage } from '@renderer/features/usage'
 import {
   selectSelectedWorkspace,
@@ -18,8 +19,8 @@ import { resolveShellContext, useShellStore, type ShellContext } from './shellSt
  * The app sidebar in the approved rail order: Dashboard on top, then the project pins (with an
  * aggregated session-status dot per project) and the virtual Other bucket, then the global
  * sections (1:1, TODO, Time, ...), with utility sections (Settings) pinned to the bottom.
- * Below the rail lives only the active context's own body: a project's workspace list, or the
- * active global section's panel. A collapse toggle shrinks everything to the icon rails alone.
+ * Below the rail lives the active context's own body (a project's workspace list, or the active
+ * global section's panel), then the running work timer and the Claude usage panel. A collapse toggle shrinks everything to the icon rails alone.
  * Context resolution mirrors App.tsx via `resolveShellContext`.
  */
 export function Sidebar() {
@@ -97,6 +98,7 @@ export function Sidebar() {
         <SectionBody key={activeSectionId} />
       )}
 
+      {!collapsed && <SidebarTimer />}
       {!collapsed && <SidebarUsage />}
 
       {footSections.length > 0 && <div className="ix-rail__foot">{footSections.map(railButton)}</div>}

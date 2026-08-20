@@ -4,6 +4,7 @@ import { registerCommand } from '@renderer/shared/registries/commandRegistry'
 import { registerSidebarSection } from '@renderer/shared/registries/sidebarRegistry'
 import { IconClock } from '@renderer/shared/ui/icons'
 import { SidebarTimeTracking } from './components/SidebarTimeTracking'
+import { TimerRailBadge } from './components/SidebarTimer'
 import { TimeTrackingView } from './components/TimeTrackingView'
 import { useToastStore } from '@renderer/shared/ui/toast'
 import { parseTimeCapture } from './captureInput'
@@ -12,8 +13,8 @@ import { useTimeTrackingStore } from './store'
 import { useAgentRuntimeStore } from './agentRuntimeStore'
 
 /**
- * Registers the Time Tracking sidebar section (owning the main area), its refresh command, and the
- * `time:` quick capture. A captured span is always logged to today: the point of capturing one is
+ * Registers the Time Tracking sidebar section (owning the main area), its refresh and week-export
+ * commands, and the `time:` quick capture. A captured span is always logged to today: the point of capturing one is
  * that the work just happened.
  */
 export function registerTimeTrackingFeature(): void {
@@ -22,6 +23,7 @@ export function registerTimeTrackingFeature(): void {
     order: 12,
     label: 'Time Tracking',
     icon: IconClock,
+    badge: TimerRailBadge,
     component: SidebarTimeTracking,
     mainComponent: TimeTrackingView
   })
@@ -37,6 +39,20 @@ export function registerTimeTrackingFeature(): void {
         useAgentRuntimeStore.getState().refresh()
       ])
     }
+  })
+  registerCommand({
+    id: 'timeTracking.copyWeekText',
+    title: 'Copy Week as Text',
+    group: 'Time Tracking',
+    keywords: ['worklog', 'timesheet', 'export', 'clipboard', 'paste'],
+    handler: () => useTimeTrackingStore.getState().copyWeek('text')
+  })
+  registerCommand({
+    id: 'timeTracking.copyWeekCsv',
+    title: 'Copy Week as CSV',
+    group: 'Time Tracking',
+    keywords: ['worklog', 'timesheet', 'export', 'clipboard', 'spreadsheet'],
+    handler: () => useTimeTrackingStore.getState().copyWeek('csv')
   })
   registerCapture({
     prefix: 'time:',
