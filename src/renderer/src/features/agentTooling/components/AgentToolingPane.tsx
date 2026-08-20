@@ -15,8 +15,8 @@ import type {
   SkillCatalogItem
 } from '@common/domain'
 import { useProjectsStore, selectActiveProjects } from '@renderer/features/projects'
+import { fuzzyFilter } from '@renderer/shared/fuzzy'
 import { Dialog } from '@renderer/shared/ui/Dialog'
-import { fuzzyFilter } from '../fuzzy'
 import { useAgentToolingStore, type PendingPreview, type LastUndo } from '../store'
 import * as api from '../ipc'
 

@@ -1,9 +1,13 @@
-import { type ElectronApplication, type Page } from '@playwright/test'
+import { type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import {
+  addWorkspace,
   connectedAdo,
   expect,
   launch as launchApp,
   openRailSection,
+  stubOpenExternal,
+  stubQuitConfirm,
+  tempDir,
   test,
   userDataDir
 } from './harness'
@@ -259,4 +263,103 @@ test('with no pull requests needing attention the radar shows a neutral empty me
   await expect(win.locator('.ix-mw-pr-empty')).toHaveText('No pull requests need your attention.')
   // The Jira half is unaffected by the empty PR radar.
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
+})
+
+/** The card of one issue on the board, by the key it shows. */
+const cardOf = (win: Page, key: string): Locator =>
+  win.locator('.ix-mw-card2').filter({ has: win.locator('.ix-mw-key', { hasText: key }) })
+
+test('a card keeps its actions out of the way until the pointer is on it', async () => {
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const card = cardOf(win, 'FID2507-1')
+  const bar = card.locator('.ix-rowactions')
+
+  await expect(bar).toHaveCSS('opacity', '0')
+
+  await card.hover()
+
+  await expect(bar).toHaveCSS('opacity', '1')
+  await expect(card.getByRole('button', { name: 'Start session' })).toBeVisible()
+
+  // The bar floats over the card's bottom line, so it has to fit inside the card: a bar wider than
+  // its card would hang over the neighbouring column.
+  const cardBox = (await card.boundingBox())!
+  const barBox = (await bar.boundingBox())!
+  expect(barBox.x).toBeGreaterThanOrEqual(cardBox.x)
+  expect(barBox.x + barBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height)
+})
+
+test('a card reveals its actions to the keyboard too, without a pointer anywhere near it', async () => {
+  const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const card = cardOf(win, 'FID2507-1')
+
+  await card.focus()
+
+  await expect(card.locator('.ix-rowactions')).toHaveCSS('opacity', '1')
+})
+
+test('the card’s Jira button opens the issue in the browser', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const opened = await stubOpenExternal(app)
+  const card = cardOf(win, 'FID2507-1')
+
+  await card.hover()
+  await card.getByRole('button', { name: 'Jira' }).click()
+
+  await expect.poll(opened).toEqual(['https://jira.skoda.vwgroup.com/browse/FID2507-1'])
+})
+
+test('Cmd+Enter on a focused card opens the issue in the browser', async () => {
+  const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
+  const opened = await stubOpenExternal(app)
+
+  await cardOf(win, 'FID2507-1').focus()
+  await win.keyboard.press('Meta+Enter')
+
+  await expect.poll(opened).toEqual(['https://jira.skoda.vwgroup.com/browse/FID2507-1'])
+})
+
+test('the card’s Start session button opens a Claude tab carrying the issue', async () => {
+  // The workspace has to exist before the launch: with no folder bound to the issue's project the
+  // session is homed in the selected workspace, and a profile with none can host nothing.
+  const { app, win } = await launchApp(userDataDir(), {
+    env: { ...connectedAdo(), INTERSECT_E2E_JIRA: 'board' },
+    openOther: true
+  })
+  await addWorkspace(win, app, tempDir('mywork-ws-'))
+  await stubQuitConfirm(app)
+  await openRailSection(win, 'My Work', '.ix-mywork')
+
+  const card = cardOf(win, 'FID2507-1')
+  await card.hover()
+  await card.getByRole('button', { name: 'Start session' }).click()
+
+  // The tab and its terminal exist whether or not `claude` is installed on this machine, and the
+  // chip proves the session was opened on the issue rather than on nothing.
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-tab__workitem')).toHaveText('FID2507-1')
+  await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
+
+  // A live session makes quitting prompt; this close walks the real teardown with it answered.
+  await app.close()
+})
+
+test('a PR radar row starts a session without leaving the review a click away', async () => {
+  const { app, win } = await launchApp(userDataDir(), {
+    env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' },
+    openOther: true
+  })
+  await addWorkspace(win, app, tempDir('mywork-pr-ws-'))
+  await stubQuitConfirm(app)
+  await openRailSection(win, 'My Work', '.ix-mywork')
+
+  const row = win.locator('.ix-mw-row', { hasText: 'Fix PTY backpressure on large output' })
+  await row.hover()
+  await row.getByRole('button', { name: 'Start session' }).click()
+
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-tab__workitem')).toHaveText('!502')
+
+  await app.close()
 })

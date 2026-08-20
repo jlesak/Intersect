@@ -173,6 +173,72 @@ input {
   color: var(--text);
 }
 
+/* --- work-item row action bar ---
+   The hover/focus-revealed strip of actions a work-item row offers: a filled primary, an optional
+   link out, and an optional overflow. Hidden by default; each hosting row owns the rule that
+   reveals it, alongside the rule that reveals its other hover-only controls. */
+.ix-rowactions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+/* The overflow menu is portalled out of the row, so hover and focus both leave while it stands. */
+.ix-rowactions--open,
+.ix-rowactions:focus-within {
+  opacity: 1;
+}
+.ix-rowactions__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  /* Shrinkable, so a bar on a narrow card ellipsizes its label rather than hanging over the
+     column beside it. */
+  min-width: 0;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.ix-rowactions__btn > svg {
+  flex: none;
+}
+.ix-rowactions__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ix-rowactions__btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+.ix-rowactions__btn--primary:hover {
+  background: var(--accent-hover);
+}
+.ix-rowactions__btn--ghost:hover,
+.ix-rowactions__btn--more:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.ix-rowactions__btn--more {
+  flex: none;
+  padding: 0 3px;
+}
+.ix-rowactions__out {
+  font-size: 9px;
+}
+
 /* --- chips ---
    The single chip/badge grammar for the whole app: a quiet mono pill. Feature code
    adds semantic modifiers (color/border/background only) on top of this base. */

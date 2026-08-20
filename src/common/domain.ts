@@ -65,17 +65,24 @@ export const PROJECT_ASSIGNMENT_SOURCES = ['auto', 'manual'] as const
 export type ProjectAssignmentSource = (typeof PROJECT_ASSIGNMENT_SOURCES)[number]
 
 /**
- * A tab belongs to a workspace and, when placed, occupies one pane slot of the current
- * layout. `preset` decides how its PTY is launched. `paneSlot` is null when the tab lives
- * only in the tab bar (not shown in a pane under the current layout).
+ * A tab belongs to a workspace and to exactly one pane group of the current layout.
+ * `preset` decides how its PTY is launched. `paneSlot` is the group index (0 under `single`),
+ * and `sortOrder` is the tab's position inside that group, so a group's bar is its tabs sorted
+ * by `sortOrder`. Every tab always lives in some group; there is no unplaced state.
  */
 export interface Tab {
   id: string
   workspaceId: string
   title: string
   preset: Preset
-  paneSlot: number | null
+  paneSlot: number
   sortOrder: number
+  /**
+   * When this tab was last activated (epoch ms), or null if it never has been. The greatest
+   * value inside a group picks the tab that group currently shows, so which terminal each pane
+   * displays survives a restart without a second source of truth.
+   */
+  lastActiveAt: number | null
   /**
    * The Claude Code session UUID this tab resumes on spawn (`claude --resume <id>`), or null for a
    * fresh tab. It is the session id from `~/.claude/projects`, distinct from Intersect's own

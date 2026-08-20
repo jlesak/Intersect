@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { JiraBoardSnapshot, JiraIssueSnapshot } from '@common/domain'
+import type { JiraBoardSnapshot, JiraIssueSnapshot, PullRequest } from '@common/domain'
 import type { MyWorkChangedEvent } from '@common/ipc'
 
 vi.mock('./ipc')
@@ -8,8 +8,17 @@ vi.mock('./ipc')
 // which of the two was asked for.
 const prInboxSync = vi.hoisted(() => vi.fn(async () => {}))
 const prInboxSyncIfStale = vi.hoisted(() => vi.fn(async () => {}))
+// The organisation the PR-inbox slice holds, which is what a browsable pull-request page is
+// composed from. Mutable so a test can run with it configured and with it blank.
+const prInbox = vi.hoisted(() => ({ adoOrgUrl: '' }))
 vi.mock('@renderer/features/prInbox', () => ({
-  usePrInboxStore: { getState: () => ({ sync: prInboxSync, syncIfStale: prInboxSyncIfStale }) }
+  usePrInboxStore: {
+    getState: () => ({
+      sync: prInboxSync,
+      syncIfStale: prInboxSyncIfStale,
+      adoOrgUrl: prInbox.adoOrgUrl
+    })
+  }
 }))
 import * as api from './ipc'
 import { formatRelativeTime, groupByColumn, useMyWorkStore } from './store'
@@ -358,6 +367,92 @@ describe('openIssue', () => {
     mocked.openExternal.mockRejectedValue(new Error('blocked'))
     useMyWorkStore.getState().openIssue(issue('A-1'))
     // Flush the rejection through the catch handler.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+})
+
+describe('copyIssueLink', () => {
+  const clipboard = { writeText: vi.fn<(text: string) => Promise<void>>() }
+
+  beforeEach(() => {
+    clipboard.writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+  })
+
+  test('puts the issue’s browsable link on the clipboard', async () => {
+    await useMyWorkStore.getState().copyIssueLink(issue('FID2507-611'))
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      'https://jira.skoda.vwgroup.com/browse/FID2507-611'
+    )
+  })
+
+  test('a refused clipboard is reported, never an unhandled rejection', async () => {
+    clipboard.writeText.mockRejectedValue(new Error('denied'))
+    await useMyWorkStore.getState().copyIssueLink(issue('A-1'))
+  })
+})
+
+describe('openPrExternal', () => {
+  /**
+   * A pull request as Azure DevOps really hands it over: its `url` is the REST resource, which
+   * answers JSON. The page a person can read is composed from the configured organisation plus
+   * the project, repository and number.
+   */
+  const target = (over: Partial<PullRequest> = {}): PullRequest => ({
+    prId: 501,
+    repositoryId: 'repo-1',
+    repositoryName: 'e2e-repo',
+    projectId: 'e2e-project',
+    title: 'Fix the sync',
+    description: '',
+    authorId: 'u1',
+    authorName: 'Jan Lesak',
+    createdAt: 1000,
+    status: 'active',
+    sourceRefName: 'refs/heads/feature',
+    targetRefName: 'refs/heads/main',
+    sourceCommitId: 'a',
+    targetCommitId: 'b',
+    url: 'https://devops.example/e2e/_apis/git/repositories/e2e-repo/pullRequests/501',
+    role: 'reviewer',
+    myVote: null,
+    myReviewerId: null,
+    reviewers: [],
+    newChangesSinceMyReview: false,
+    activeThreadCount: 0,
+    lastActivityAt: 1000,
+    ...over
+  })
+
+  beforeEach(() => {
+    prInbox.adoOrgUrl = 'https://devops.example/e2e'
+  })
+
+  test('opens the pull request page, composed from the configured organisation', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    useMyWorkStore.getState().openPrExternal(target())
+    expect(mocked.openExternal).toHaveBeenCalledWith(
+      'https://devops.example/e2e/e2e-project/_git/e2e-repo/pullrequest/501'
+    )
+  })
+
+  test('leaves the payload’s REST resource alone, since it answers JSON', () => {
+    mocked.openExternal.mockResolvedValue(undefined)
+    const pr = target()
+    useMyWorkStore.getState().openPrExternal(pr)
+    expect(mocked.openExternal).not.toHaveBeenCalledWith(pr.url)
+  })
+
+  test('an unconfigured organisation opens nothing rather than a broken address', () => {
+    prInbox.adoOrgUrl = ''
+    mocked.openExternal.mockResolvedValue(undefined)
+    useMyWorkStore.getState().openPrExternal(target())
+    expect(mocked.openExternal).not.toHaveBeenCalled()
+  })
+
+  test('a failed open is swallowed into a toast, never an unhandled rejection', async () => {
+    mocked.openExternal.mockRejectedValue(new Error('blocked'))
+    useMyWorkStore.getState().openPrExternal(target())
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 })

@@ -11,8 +11,8 @@ import { ProjectContextView } from './ProjectContextView'
 // stands in for it, and the terminal slice's remaining entry points are inert, so what this mount
 // exercises is the context view's own subscription to the project's workspaces.
 vi.mock('@renderer/features/terminal', () => ({
-  SplitStage: ({ tabs }: { tabs: Tab[] }) => (
-    <div data-testid="split-stage" data-tab-count={tabs.length} />
+  SplitStage: ({ layout }: { layout: string }) => (
+    <div data-testid="split-stage" data-layout={layout} />
   ),
   installTerminalFindShortcut: () => () => {},
   disposeSession: () => {},
@@ -57,6 +57,7 @@ const TAB: Tab = {
   preset: 'shell',
   paneSlot: 0,
   sortOrder: 0,
+  lastActiveAt: null,
   resumeSessionId: null,
   sessionStatus: null,
   suspendReason: null,
