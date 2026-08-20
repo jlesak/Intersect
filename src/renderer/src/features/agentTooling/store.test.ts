@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type {
   AgentCatalogItem,
+  AgentToolingScope,
   ConfigEditRequest,
   ConfigPreview,
   EffectiveConfig,
@@ -15,7 +16,13 @@ vi.mock('@renderer/shared/ui/toast', () => ({
 }))
 import * as api from './ipc'
 import { reportError } from '@renderer/shared/ui/toast'
-import { scopesEqual, useAgentToolingStore } from './store'
+import {
+  scopesEqual,
+  selectRawDraft,
+  selectRawDraftForScope,
+  useAgentToolingStore,
+  type RawDraft
+} from './store'
 
 const mocked = vi.mocked(api)
 
@@ -80,7 +87,8 @@ const reset = (): void =>
       agents: [],
       pendingPreview: null,
       saving: false,
-      lastUndo: null
+      lastUndo: null,
+      rawDrafts: {}
     },
     false
   )
@@ -314,5 +322,117 @@ describe('scopesEqual', () => {
     expect(
       scopesEqual({ kind: 'project', projectId: 'p1' }, { kind: 'project', projectId: 'p2' })
     ).toBe(false)
+  })
+})
+
+describe('raw drafts', () => {
+  const globalScope: AgentToolingScope = { kind: 'global' }
+  const projectScope: AgentToolingScope = { kind: 'project', projectId: 'p1' }
+
+  const draft = (over: Partial<RawDraft> = {}): RawDraft => ({
+    scope: globalScope,
+    source: 'global',
+    content: '{ "model": "opus" }',
+    baseline: '{}',
+    revision: 'rev-1',
+    updatedAt: 1,
+    ...over
+  })
+
+  const rawRequest = (content: string): ConfigEditRequest => ({
+    scope: globalScope,
+    source: 'global',
+    edit: { kind: 'raw', content }
+  })
+
+  test('a parked buffer is handed back for its own scope and file only', () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    const s = useAgentToolingStore.getState()
+    expect(selectRawDraft(s, globalScope, 'global')?.content).toBe('{ "model": "opus" }')
+    expect(selectRawDraft(s, globalScope, 'global-local')).toBeNull()
+    expect(selectRawDraft(s, projectScope, 'global')).toBeNull()
+  })
+
+  test('parking again replaces the buffer for that file', () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.getState().parkRawDraft(draft({ content: '{ "model": "sonnet" }' }))
+    const s = useAgentToolingStore.getState()
+    expect(selectRawDraft(s, globalScope, 'global')?.content).toBe('{ "model": "sonnet" }')
+    expect(Object.keys(s.rawDrafts).length).toBe(1)
+  })
+
+  test('discarding drops one buffer and leaves every other one parked', () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.getState().parkRawDraft(draft({ source: 'global-local' }))
+    useAgentToolingStore.getState().discardRawDraft(globalScope, 'global')
+    const s = useAgentToolingStore.getState()
+    expect(selectRawDraft(s, globalScope, 'global')).toBeNull()
+    expect(selectRawDraft(s, globalScope, 'global-local')).not.toBeNull()
+  })
+
+  test('a committed raw save drops the buffer it was made from', async () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.setState(
+      { pendingPreview: { request: rawRequest('{ "model": "opus" }'), preview: preview() } },
+      false
+    )
+    mocked.commitSave.mockResolvedValue({ ok: true, path: '/home/u/.claude/settings.json' })
+    await useAgentToolingStore.getState().commit()
+    expect(selectRawDraft(useAgentToolingStore.getState(), globalScope, 'global')).toBeNull()
+  })
+
+  test('a save of another kind to the same file keeps the raw buffer parked', async () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.setState({ pendingPreview: { request: editRequest, preview: preview() } }, false)
+    mocked.commitSave.mockResolvedValue({ ok: true, path: '/home/u/.claude/settings.json' })
+    await useAgentToolingStore.getState().commit()
+    expect(selectRawDraft(useAgentToolingStore.getState(), globalScope, 'global')?.content).toBe(
+      '{ "model": "opus" }'
+    )
+  })
+
+  test('a raw save the user has typed past leaves the newer text parked', async () => {
+    useAgentToolingStore.getState().parkRawDraft(draft({ content: '{ "model": "haiku" }' }))
+    useAgentToolingStore.setState(
+      { pendingPreview: { request: rawRequest('{ "model": "opus" }'), preview: preview() } },
+      false
+    )
+    mocked.commitSave.mockResolvedValue({ ok: true, path: '/home/u/.claude/settings.json' })
+    await useAgentToolingStore.getState().commit()
+    expect(selectRawDraft(useAgentToolingStore.getState(), globalScope, 'global')?.content).toBe(
+      '{ "model": "haiku" }'
+    )
+  })
+
+  test('a rejected raw save keeps the buffer, so nothing is lost to a failed write', async () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.setState(
+      { pendingPreview: { request: rawRequest('{ "model": "opus" }'), preview: preview() } },
+      false
+    )
+    mocked.commitSave.mockResolvedValue({
+      ok: false,
+      path: '/home/u/.claude/settings.json',
+      reason: 'changed-externally'
+    })
+    await useAgentToolingStore.getState().commit()
+    expect(selectRawDraft(useAgentToolingStore.getState(), globalScope, 'global')).not.toBeNull()
+  })
+
+  test('a scope switch keeps every parked buffer, because returning must restore it', async () => {
+    useAgentToolingStore.getState().parkRawDraft(draft())
+    useAgentToolingStore.getState().setScope(projectScope)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(selectRawDraft(useAgentToolingStore.getState(), globalScope, 'global')).not.toBeNull()
+  })
+
+  test('the scope answers with its most recently touched buffer', () => {
+    useAgentToolingStore.getState().parkRawDraft(draft({ updatedAt: 10 }))
+    useAgentToolingStore.getState().parkRawDraft(draft({ source: 'global-local', updatedAt: 20 }))
+    useAgentToolingStore.getState().parkRawDraft(draft({ scope: projectScope, source: 'project', updatedAt: 30 }))
+    const s = useAgentToolingStore.getState()
+    expect(selectRawDraftForScope(s, globalScope)?.source).toBe('global-local')
+    expect(selectRawDraftForScope(s, projectScope)?.source).toBe('project')
   })
 })

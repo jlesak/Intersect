@@ -4,6 +4,7 @@ import type {
   AgentToolingScope,
   ConfigEditRequest,
   ConfigPreview,
+  ConfigSource,
   EffectiveConfig,
   SkillCatalogItem
 } from '@common/domain'
@@ -25,6 +26,68 @@ export function scopesEqual(a: AgentToolingScope, b: AgentToolingScope): boolean
 export interface PendingPreview {
   request: ConfigEditRequest
   preview: ConfigPreview
+}
+
+/**
+ * A raw-editor buffer kept outside the component tree, so a hand-edited settings document survives
+ * every unmount the shell performs: leaving Settings for another sidebar section, switching
+ * category or sub-tab, closing the editor, a scope switch, the refresh after a save, and a render
+ * crash caught by an error boundary. It lives in renderer memory for the session: closing the
+ * window, quitting, reloading and restarting all drop it.
+ */
+export interface RawDraft {
+  scope: AgentToolingScope
+  source: ConfigSource
+  /** The editor text as the user last left it. */
+  content: string
+  /** The on-disk bytes the edit was forked from, so a file that moved underneath is detectable. */
+  baseline: string
+  /** The revision guard `readRaw` answered for those bytes. */
+  revision: string
+  /** When the edit was last touched, so a stale-buffer notice can say how old it is. */
+  updatedAt: number
+}
+
+/** The identity of one parked buffer: one raw editor per scope and target file. */
+export function rawDraftKey(scope: AgentToolingScope, source: ConfigSource): string {
+  const where = scope.kind === 'global' ? 'global' : `project:${scope.projectId}`
+  return `${where}::${source}`
+}
+
+/** The buffer parked for one target file, or null when that file has no unsaved edit. */
+export function selectRawDraft(
+  state: { rawDrafts: Record<string, RawDraft> },
+  scope: AgentToolingScope,
+  source: ConfigSource
+): RawDraft | null {
+  return state.rawDrafts[rawDraftKey(scope, source)] ?? null
+}
+
+/**
+ * The scope's most recently touched buffer, which is the file the pane reopens on. A scope can
+ * hold one buffer per layered file; the last one edited is the one the user was working in.
+ */
+export function selectRawDraftForScope(
+  state: { rawDrafts: Record<string, RawDraft> },
+  scope: AgentToolingScope
+): RawDraft | null {
+  let best: RawDraft | null = null
+  for (const draft of Object.values(state.rawDrafts)) {
+    if (!scopesEqual(draft.scope, scope)) continue
+    if (!best || draft.updatedAt >= best.updatedAt) best = draft
+  }
+  return best
+}
+
+/**
+ * True while the browsed scope holds an unsaved raw edit, for the surfaces outside the raw panel
+ * that have to point the user back at it.
+ */
+export function selectHasRawDraft(state: {
+  scope: AgentToolingScope
+  rawDrafts: Record<string, RawDraft>
+}): boolean {
+  return selectRawDraftForScope(state, state.scope) !== null
 }
 
 /** A just-committed save that can still be undone, and the backup it left behind. */
@@ -56,6 +119,8 @@ interface AgentToolingState {
   saving: boolean
   /** The most recent successful save, offered a one-shot Undo until dismissed or superseded. */
   lastUndo: LastUndo | null
+  /** Unsaved raw-editor buffers, one per scope and target file, keyed by `rawDraftKey`. */
+  rawDrafts: Record<string, RawDraft>
   /** Switch scope and refetch; a no-op when the scope is unchanged. */
   setScope(scope: AgentToolingScope): void
   /**
@@ -78,6 +143,10 @@ interface AgentToolingState {
   undo(): Promise<void>
   /** Dismiss the one-shot Undo affordance. */
   dismissUndo(): void
+  /** Keep an unsaved raw-editor buffer for its target file, replacing whatever that file held. */
+  parkRawDraft(draft: RawDraft): void
+  /** Drop one target file's parked buffer, for a save, a reload, or an explicit discard. */
+  discardRawDraft(scope: AgentToolingScope, source: ConfigSource): void
 }
 
 export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) => {
@@ -97,6 +166,7 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
     pendingPreview: null,
     saving: false,
     lastUndo: null,
+    rawDrafts: {},
 
     setScope(scope) {
       if (scopesEqual(get().scope, scope)) return
@@ -172,6 +242,13 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
           pendingPreview: null,
           lastUndo: { path: result.path, backupPath: result.backupPath }
         })
+        // The written text now is what is on disk, so the buffer it came from has nothing left to
+        // protect. Leaving it parked would restore the pre-save text on the next open and read as
+        // the save having been reverted. A buffer the user has typed past since the preview stays.
+        const { scope, source, edit } = pending.request
+        if (edit.kind === 'raw' && selectRawDraft(get(), scope, source)?.content === edit.content) {
+          get().discardRawDraft(scope, source)
+        }
         useToastStore
           .getState()
           .push(result.backupPath ? `Saved. Backup: ${result.backupPath}` : 'Saved.')
@@ -204,6 +281,18 @@ export const useAgentToolingStore = createStore<AgentToolingState>()((set, get) 
 
     dismissUndo() {
       set({ lastUndo: null })
+    },
+
+    parkRawDraft(draft) {
+      set({ rawDrafts: { ...get().rawDrafts, [rawDraftKey(draft.scope, draft.source)]: draft } })
+    },
+
+    discardRawDraft(scope, source) {
+      const key = rawDraftKey(scope, source)
+      if (!(key in get().rawDrafts)) return
+      const rest = { ...get().rawDrafts }
+      delete rest[key]
+      set({ rawDrafts: rest })
     }
   }
 })

@@ -3404,6 +3404,16 @@
   background: var(--panel-2);
   color: var(--text);
 }
+.ix-settings__nav-btn .ix-settings__nav-dot,
+.ix-at-tabs .ix-at-tab__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
 .ix-settings__body {
   min-width: 0;
   overflow-y: auto;
@@ -4211,6 +4221,24 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
+}
+/* A restored edit whose file moved on disk underneath it. */
+.ix-at-stale {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--accent, var(--border));
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2, var(--panel));
+}
+.ix-at-stale__text {
+  font-size: 12.5px;
+}
+.ix-at-stale__actions {
+  display: flex;
+  gap: 8px;
 }
 .ix-at-editorloading {
   padding: 12px;
