@@ -1,9 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. No editor
-// is ever rendered here - only the store the PR targets read.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 import type { PullRequest, SessionSummary, Workspace } from '@common/domain'
 import { filterCommands, useCommandPaletteStore } from '@renderer/features/commandPalette'
 import { usePrInboxStore } from '@renderer/features/prInbox'

@@ -5,9 +5,6 @@ import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useMyWorkStore } from '../store'
 import { PrRadar } from './PrRadar'
 
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. The radar
-// never renders an editor, so an inert stand-in is enough to import the barrel's store.
-vi.mock('monaco-editor', () => ({ editor: {} }))
 vi.mock('@renderer/features/workItems', () => ({ launchFromPullRequest: vi.fn() }))
 
 import { launchFromPullRequest } from '@renderer/features/workItems'

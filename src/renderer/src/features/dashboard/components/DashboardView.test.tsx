@@ -10,11 +10,6 @@ import type {
   Workspace
 } from '@common/domain'
 import { weekStartOf } from '@common/week'
-
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. No zone
-// renders an editor, so an inert stand-in is enough to read a PR selector.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 import { useAttentionStore } from '@renderer/features/attention'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useSettingsStore } from '@renderer/features/settings'

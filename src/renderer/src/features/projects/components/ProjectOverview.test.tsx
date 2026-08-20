@@ -5,10 +5,6 @@ import { usePrInboxStore } from '@renderer/features/prInbox'
 import { useProjectsStore } from '../store'
 import { ProjectOverview } from './ProjectOverview'
 
-// The PR-inbox barrel transitively imports monaco, which cannot initialise under jsdom. This
-// panel never renders an editor, so an inert stand-in is enough to import the barrel's store.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 const project: Project = {
   id: 'p1',
   name: 'SPOT',

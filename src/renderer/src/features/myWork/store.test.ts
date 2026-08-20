@@ -4,8 +4,8 @@ import type { MyWorkChangedEvent } from '@common/ipc'
 
 vi.mock('./ipc')
 // The store fans a shared refresh out to the prInbox slice; stub its store so these tests stay
-// isolated from that slice (and from the heavyweight components its barrel re-exports). Both the
-// loud sync and the guarded one are stubbed, so a test can tell which of the two was asked for.
+// isolated from that slice. Both the loud sync and the guarded one are stubbed, so a test can tell
+// which of the two was asked for.
 const prInboxSync = vi.hoisted(() => vi.fn(async () => {}))
 const prInboxSyncIfStale = vi.hoisted(() => vi.fn(async () => {}))
 // The organisation the PR-inbox slice holds, which is what a browsable pull-request page is

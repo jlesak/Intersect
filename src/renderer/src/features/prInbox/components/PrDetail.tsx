@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { lazy, Suspense, useEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PrChangeFile } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
@@ -10,13 +10,19 @@ import {
   selectSelectedPr,
   usePrInboxStore
 } from '../store'
-import { DiffViewer } from './DiffViewer'
 import { DraftCard } from './DraftCard'
 import { escapeShouldGoBack } from './escapeNav'
 import { FileTree } from './FileTree'
 import { OverviewTab } from './OverviewTab'
 import { PrVoteButtons } from './PrVoteButtons'
 import { ReviewTerminal } from './ReviewTerminal'
+
+// The diff viewer carries Monaco, by a wide margin the heaviest thing the renderer can load, and
+// this is its only render site. Reaching it lazily keeps the editor in a chunk of its own, fetched
+// when a reviewer first opens a diff. Everything else that imports this feature - the sidebar
+// registration, the dashboard, My Work, the projects panes - only ever wanted the PR store, and
+// now that is all they get.
+const DiffViewer = lazy(() => import('./DiffViewer').then((m) => ({ default: m.DiffViewer })))
 
 const shortRef = (ref: string): string => ref.replace(/^refs\/heads\//, '')
 const canonicalPath = (path: string): string => `/${path.trim().replace(/^\/+/, '')}`
@@ -109,15 +115,17 @@ function ChangesView() {
       </div>
       <div className="ix-pr-content">
         <div className="ix-pr-diff-wrap">
-          <DiffViewer
-            diff={fileDiff}
-            loading={diffLoading}
-            drafts={drafts}
-            threads={threads}
-            pendingReveal={pendingReveal}
-            onRevealDone={() => usePrInboxStore.getState().clearReveal()}
-            currentSourceCommitId={pr.sourceCommitId}
-          />
+          <Suspense fallback={<div className="ix-pr-diff__placeholder">Loading diff…</div>}>
+            <DiffViewer
+              diff={fileDiff}
+              loading={diffLoading}
+              drafts={drafts}
+              threads={threads}
+              pendingReveal={pendingReveal}
+              onRevealDone={() => usePrInboxStore.getState().clearReveal()}
+              currentSourceCommitId={pr.sourceCommitId}
+            />
+          </Suspense>
         </div>
         <DraftRecoveryList
           title="Drafts whose file is no longer in this diff"

@@ -11,10 +11,6 @@ import {
 import { Sidebar } from './Sidebar'
 import { useShellStore } from './shellStore'
 
-// The projects barrel reaches the project context view, whose panels transitively import monaco.
-// The sidebar renders no editor, so an inert stand-in is enough to import the barrel's store.
-vi.mock('monaco-editor', () => ({ editor: {} }))
-
 const Icon = () => <span />
 
 function workspace(id: string, over: Partial<Workspace> = {}): Workspace {
