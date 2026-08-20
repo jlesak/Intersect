@@ -155,15 +155,16 @@ describe('TodoView row actions', () => {
     expect(within(rowOf('Task z') as HTMLElement).queryByRole('button', { name: 'Start session' })).toBeNull()
   })
 
-  test('pressing the launch never also opens the row’s inline editor', async () => {
+  test('pressing the launch stays inside the bar, so the row is neither selected nor edited', async () => {
     await mount()
 
     fireEvent.click(within(rowOf('Task b') as HTMLElement).getByRole('button', { name: 'Start session' }))
 
+    expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(0)
     expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
   })
 
-  test('Enter on a focused row opens its inline editor, as clicking it does', async () => {
+  test('Enter on a focused row opens its inline editor, as double-clicking it does', async () => {
     await mount()
 
     fireEvent.keyDown(rowOf('Task b') as HTMLElement, { key: 'Enter' })
@@ -185,5 +186,100 @@ describe('TodoView row actions', () => {
     await mount()
 
     expect((rowOf('Task b') as HTMLElement).tabIndex).toBe(0)
+  })
+})
+
+/**
+ * Which gesture does what to a row. A click is an incidental gesture and only points at a task;
+ * editing waits for one the user has to mean.
+ */
+describe('TodoView row activation', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    mocked.list.mockResolvedValue({ open: OPEN, done: [] })
+    useTodoStore.setState({
+      status: 'ready',
+      error: null,
+      open: OPEN,
+      done: [],
+      showDone: false,
+      pendingFocusId: null
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    useTodoStore.setState({ status: 'idle', open: [], done: [], pendingFocusId: null })
+  })
+
+  const mount = async (): Promise<void> => {
+    await act(async () => {
+      render(<TodoView />)
+    })
+  }
+
+  test('a plain click selects the row and leaves the editor closed', async () => {
+    await mount()
+
+    fireEvent.click(rowOf('Task b') as HTMLElement)
+
+    expect(rowOf('Task b')?.className).toContain('ix-todo-item--selected')
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
+  })
+
+  test('a click also moves keyboard focus to the row, so Enter picks up from there', async () => {
+    await mount()
+
+    fireEvent.click(rowOf('Task b') as HTMLElement)
+
+    expect(document.activeElement).toBe(rowOf('Task b'))
+  })
+
+  test('a double-click opens the inline editor', async () => {
+    await mount()
+
+    fireEvent.dblClick(rowOf('Task b') as HTMLElement)
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+    expect(screen.getByDisplayValue('Task b')).toBeTruthy()
+  })
+
+  test('selecting a second row deselects the first', async () => {
+    await mount()
+
+    fireEvent.click(rowOf('Task a') as HTMLElement)
+    fireEvent.click(rowOf('Task c') as HTMLElement)
+
+    expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(1)
+    expect(rowOf('Task c')?.className).toContain('ix-todo-item--selected')
+  })
+
+  test('the pencil still opens the editor', async () => {
+    await mount()
+
+    fireEvent.click(within(rowOf('Task b') as HTMLElement).getByTitle('Edit'))
+
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+    expect(screen.getByDisplayValue('Task b')).toBeTruthy()
+  })
+
+  test('opening the editor drops the selection, so a row is never both at once', async () => {
+    await mount()
+
+    const row = rowOf('Task b') as HTMLElement
+    fireEvent.click(row)
+    fireEvent.dblClick(row)
+
+    expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(0)
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(1)
+  })
+
+  test('the drag grip points at nothing: it neither selects the row nor edits it', async () => {
+    await mount()
+
+    fireEvent.click(within(rowOf('Task b') as HTMLElement).getByRole('button', { name: /Move Task b/ }))
+
+    expect(document.querySelectorAll('.ix-todo-item--selected')).toHaveLength(0)
+    expect(document.querySelectorAll('.ix-todo-item--editing')).toHaveLength(0)
   })
 })

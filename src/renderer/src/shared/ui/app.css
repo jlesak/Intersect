@@ -2928,10 +2928,16 @@
 .ix-todo-item--dragging {
   opacity: 0.45;
 }
-/* The row the user was sent here to look at: found, not selected, so the mark expires on its own. */
+/* The row the user was sent here to look at: found, so the mark expires on its own. */
 .ix-todo-item--focused {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+/* The row the user pointed at. Quieter than the arrival mark, and it stays until another is
+   clicked, so the two read as different things when both are on screen. */
+.ix-todo-item--selected {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--border-strong);
 }
 .ix-todo-item__drag,
 .ix-todo-item__drag-spacer {

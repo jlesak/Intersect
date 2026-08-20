@@ -39,6 +39,7 @@ export function TodoView() {
   const [dueDay, setDueDay] = useState('')
   const [showDate, setShowDate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [armedId, setArmedId] = useState<string | null>(null)
   const [reorderStatus, setReorderStatus] = useState('')
@@ -71,6 +72,11 @@ export function TodoView() {
     window.addEventListener('mouseup', disarm)
     return () => window.removeEventListener('mouseup', disarm)
   }, [armedId])
+
+  /** Drop a task from the renderer-only marks, for a row that is leaving the open list. */
+  function forget(id: string): void {
+    setSelectedId((current) => (current === id ? null : current))
+  }
 
   function submit(): void {
     const trimmed = text.trim()
@@ -204,14 +210,26 @@ export function TodoView() {
                 task={task}
                 done={false}
                 editing={editingId === task.id}
+                selected={selectedId === task.id}
                 focused={markedId === task.id}
                 rowRef={(el) => {
                   if (el) rowsRef.current.set(task.id, el)
                   else rowsRef.current.delete(task.id)
                 }}
-                onToggle={() => void useTodoStore.getState().toggleDone(task.id, true)}
-                onDelete={() => void useTodoStore.getState().remove(task.id)}
-                onStartEdit={() => setEditingId(task.id)}
+                onToggle={() => {
+                  forget(task.id)
+                  void useTodoStore.getState().toggleDone(task.id, true)
+                }}
+                onDelete={() => {
+                  forget(task.id)
+                  void useTodoStore.getState().remove(task.id)
+                }}
+                onSelect={() => setSelectedId(task.id)}
+                onStartEdit={() => {
+                  // The editor is where the row is worked on, so pointing at it is spent.
+                  setSelectedId(null)
+                  setEditingId(task.id)
+                }}
                 onCancelEdit={() => setEditingId(null)}
                 onSave={(patch) => {
                   setEditingId(null)

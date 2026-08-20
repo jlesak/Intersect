@@ -21,15 +21,21 @@ export interface TodoItemDrag {
 /**
  * One TODO row, including inline editing and accessible manual-order controls for open tasks.
  *
- * An open row is a tab stop whose Enter opens the same inline editor a click opens, and the bar it
- * reveals carries the session launch, so the row can be worked entirely from the keyboard.
+ * A plain click only points at a task: it selects the row and takes keyboard focus. Editing waits
+ * for a gesture the user has to mean - the pencil, a double-click, or Enter on the focused row -
+ * so pointing at a row, or starting a drag from it, can never put it into the editor.
+ *
+ * An open row is a tab stop, and the bar it reveals carries the session launch, so the row can be
+ * worked entirely from the keyboard.
  */
 export function TodoItem({
   task,
   done,
   editing,
+  selected,
   onToggle,
   onDelete,
+  onSelect,
   onStartEdit,
   onCancelEdit,
   onSave,
@@ -42,14 +48,18 @@ export function TodoItem({
   task: TodoTask
   done: boolean
   editing?: boolean
+  /** Marks the row the user last pointed at. Persists until another row takes the selection. */
+  selected?: boolean
   onToggle(): void
   onDelete(): void
+  /** The row was pointed at. Given for open tasks; a done one is a record rather than a target. */
+  onSelect?(): void
   onStartEdit?(): void
   onCancelEdit?(): void
   onSave?(patch: TodoTaskPatch): void
   /** Starts a Claude session on this task. Given for open tasks; a done one has no work left. */
   onStartSession?(): void
-  /** Lets the embedding list attach a per-row menu (e.g. session launch) at the pointer. */
+  /** Lets the embedding list attach a per-row menu at the pointer. */
   onContextMenu?(x: number, y: number): void
   /** Marks the row the user was sent here to look at, so it stands out on arrival. */
   focused?: boolean
@@ -128,11 +138,21 @@ export function TodoItem({
       ref={rowRef}
       className={`ix-todo-item${done ? ' ix-todo-item--done' : ''}${
         drag?.dragging ? ' ix-todo-item--dragging' : ''
-      }${focused ? ' ix-todo-item--focused' : ''}`}
+      }${focused ? ' ix-todo-item--focused' : ''}${selected ? ' ix-todo-item--selected' : ''}`}
       role="listitem"
       tabIndex={done ? undefined : 0}
       draggable={drag?.draggable ?? false}
-      onClick={!done ? onStartEdit : undefined}
+      onClick={
+        done
+          ? undefined
+          : (e) => {
+              // Taking focus with the selection lets the keyboard carry on from the row the mouse
+              // just pointed at.
+              e.currentTarget.focus()
+              onSelect?.()
+            }
+      }
+      onDoubleClick={!done ? onStartEdit : undefined}
       onKeyDown={
         done
           ? undefined

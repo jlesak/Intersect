@@ -92,6 +92,21 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   ])
 })
 
+test('a click only selects a row; the editor waits for a double-click', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await addTask(win, 'Review the migration')
+
+  const row = openRows(win).first()
+  await row.click()
+  await expect(row).toHaveClass(/ix-todo-item--selected/)
+  await expect(win.locator('.ix-todo-item--editing')).toHaveCount(0)
+
+  await row.dblclick()
+  await expect(win.locator('.ix-todo-item--editing')).toHaveCount(1)
+  await expect(win.locator('.ix-todo-item--selected')).toHaveCount(0)
+})
+
 test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
   const { win } = await launch(userDataDir())
   await openTodo(win)
@@ -225,7 +240,7 @@ test('pointer and keyboard reorder persist across renderer reload and app restar
   ])
 })
 
-test('a row starts a Claude session on the task without opening its editor', async () => {
+test('a row starts a Claude session that carries the task as its work item', async () => {
   const profileDir = userDataDir()
   const wsDir = tempDir('todo-ws-')
   const { app, win } = await launch(profileDir, { openOther: true })
