@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import type { DraftComment } from '@common/domain'
-import { Dialog } from '@renderer/shared/ui/Dialog'
 import { usePrInboxStore } from '../store'
 
 /**
- * One draft review comment. Approve publishes it to Azure DevOps under my identity (an outward,
- * irreversible action, so it goes through an explicit confirm). Edit rewrites the body in place;
- * Discard drops it. A published draft is frozen - only its status shows.
+ * One draft review comment. Approve posts it to Azure DevOps under my identity straight away: the
+ * card already shows the exact body and anchor that will be published, and reading a draft is the
+ * decision, so a confirm on top of it only adds a click to every finding. Edit rewrites the body in
+ * place; Discard drops it. A published draft is frozen - only its status shows.
  */
 interface DraftCardProps {
   draft: DraftComment
@@ -21,7 +21,6 @@ interface DraftCardProps {
 export function DraftCard({ draft, inline = false, positionOutdated = false, stale = false }: DraftCardProps) {
   const [editing, setEditing] = useState(false)
   const [body, setBody] = useState(draft.body)
-  const [confirming, setConfirming] = useState(false)
   const [publishing, setPublishing] = useState(false)
 
   const published = draft.status === 'published'
@@ -100,9 +99,20 @@ export function DraftCard({ draft, inline = false, positionOutdated = false, sta
             <button
               type="button"
               className="ix-btn ix-btn--primary"
+              data-testid="pr-draft-approve"
               disabled={published || inFlight || publishing || stale}
-              title={stale ? 'This draft is anchored to an older PR source commit.' : undefined}
-              onClick={() => setConfirming(true)}
+              title={
+                stale
+                  ? 'This draft is anchored to an older PR source commit.'
+                  : `Posts this comment on ${draft.filePath}:${draft.line} to the pull request.`
+              }
+              onClick={() => {
+                setPublishing(true)
+                void usePrInboxStore
+                  .getState()
+                  .publishDraft(draft.id)
+                  .finally(() => setPublishing(false))
+              }}
             >
               {published ? 'Published' : stale ? 'Stale' : 'Approve'}
             </button>
@@ -127,40 +137,6 @@ export function DraftCard({ draft, inline = false, positionOutdated = false, sta
           </>
         )}
       </div>
-
-      {confirming && (
-        <Dialog
-          title="Publish to Azure DevOps?"
-          onClose={() => setConfirming(false)}
-          actions={
-            <>
-              <button type="button" className="ix-btn ix-btn--ghost" onClick={() => setConfirming(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="ix-btn ix-btn--primary"
-                disabled={publishing}
-                onClick={() => {
-                  setPublishing(true)
-                  setConfirming(false)
-                  void usePrInboxStore
-                    .getState()
-                    .publishDraft(draft.id)
-                    .finally(() => setPublishing(false))
-                }}
-              >
-                Publish
-              </button>
-            </>
-          }
-        >
-          <p style={{ margin: 0 }}>
-            This posts the comment on <strong>{draft.filePath}:{draft.line}</strong> to the pull
-            request under your identity. This cannot be undone from Intersect.
-          </p>
-        </Dialog>
-      )}
     </div>
   )
 }
