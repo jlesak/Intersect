@@ -1283,6 +1283,8 @@
   direction: rtl;
   text-align: left;
 }
+/* The diff owns the height here, so this column never scrolls as a whole: it hands the remaining
+   space to the diff and lets Monaco scroll inside it. */
 .ix-pr-content {
   display: flex;
   flex-direction: column;
@@ -1290,14 +1292,14 @@
   min-width: 0;
   min-height: 0;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* ---------------- PR review inbox: diff ---------------- */
+/* Fills whatever the detail pane has left, down to a floor that keeps a short window readable. */
 .ix-pr-diff-wrap {
-  height: 55vh;
-  min-height: 300px;
-  flex: none;
+  flex: 1;
+  min-height: 240px;
 }
 .ix-pr-diff {
   display: flex;
@@ -1325,8 +1327,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 55vh;
-  min-height: 300px;
+  height: 100%;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
   color: var(--text-faint);
@@ -1667,12 +1668,17 @@
   font-size: 11.5px;
   line-height: 1.4;
 }
+/* Drafts whose file left the diff. They share the column with the diff, so they are capped and
+   scroll on their own rather than pushing the diff out of the pane. */
 .ix-pr-drafts--recovery {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid var(--border);
+  flex: none;
+  max-height: 35%;
+  overflow-y: auto;
 }
 .ix-pr-draft__edit {
   height: auto;

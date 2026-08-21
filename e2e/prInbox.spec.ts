@@ -457,3 +457,54 @@ test('a PR-level comment publishes from the overview composer', async () => {
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
   await expect(win.getByTestId('pr-thread')).toContainText('Please rebase onto main.')
 })
+
+test('the diff fills the height the window gives it', async () => {
+  const { win } = await launch('radar')
+
+  await openPrReview(win)
+  await win.getByTestId('pr-sync').click()
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await win.getByTestId('pr-tab-files').click()
+  await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
+
+  // Reading a diff is what this pane is for, so the editor gets every pixel below the tab strip.
+  // Only the pane's own 16px of bottom padding may sit under it; a fixed-height diff used to leave
+  // most of a tall window empty. Only a real browser can say how tall the box ended up.
+  const laidOut = await win.locator('.ix-pr-diff-wrap').evaluate((el) => ({
+    gapBelow: Math.round(window.innerHeight - el.getBoundingClientRect().bottom),
+    height: Math.round(el.getBoundingClientRect().height)
+  }))
+  expect(laidOut.gapBelow).toBeLessThanOrEqual(20)
+  expect(laidOut.height).toBeGreaterThan(0.5 * (await win.evaluate(() => window.innerHeight)))
+})
+
+test('approving a draft posts it to the pull request on the first click', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await expect(first.win.getByTestId('pr-card')).toHaveCount(3)
+  await first.app.close()
+
+  seedDraft(profileDir)
+
+  const { win } = await launchApp(profileDir, { env })
+  await openPrReview(win)
+  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await win.getByTestId('pr-continue-review').click()
+  const draft = win.getByTestId('pr-draft')
+  await expect(draft).toContainText('Seeded review finding.')
+
+  // The card already carries the body and the anchor, so the click publishes. Nothing stands
+  // between it and Azure DevOps: the draft leaves the diff and the board signal clears.
+  await draft.getByTestId('pr-draft-approve').click()
+  await expect(win.getByTestId('pr-draft')).toHaveCount(0)
+  await win.getByTestId('pr-back').click()
+  await expect(
+    win
+      .getByTestId('pr-card')
+      .filter({ hasText: 'Fix PTY backpressure' })
+      .getByTestId('pr-card-unfinished-review')
+  ).toHaveCount(0)
+})
