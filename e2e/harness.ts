@@ -127,6 +127,24 @@ export interface LaunchOptions {
 }
 
 /**
+ * The environment the app under test inherits, with `ELECTRON_RUN_AS_NODE` dropped.
+ *
+ * Any terminal hosted inside an Electron app - VS Code's integrated terminal among them - exports
+ * that variable to its children, and it makes the Electron binary boot as plain Node, which then
+ * rejects the debugging port Playwright passes it. Forwarding it turns every spec in the suite into
+ * `bad option: --remote-debugging-port=0`, which reads like a broken build rather than a borrowed
+ * variable, so it is stripped here instead.
+ */
+function inheritedEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key === 'ELECTRON_RUN_AS_NODE' || value === undefined) continue
+    env[key] = value
+  }
+  return env
+}
+
+/**
  * Launch the built app against a profile directory and wait until its shell has mounted.
  *
  * Session data is pointed at an empty fixture directory unless the caller supplies its own.
@@ -152,7 +170,7 @@ export async function launch(
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${profileDir}`],
     env: {
-      ...process.env,
+      ...inheritedEnv(),
       INTERSECT_E2E: '1',
       INTERSECT_CLAUDE_PROJECTS_DIR: tempDir('intersect-empty-projects-'),
       ...opts.env
