@@ -442,9 +442,15 @@ export interface IpcApi {
     onCoreStatus(cb: (status: CoreStatus) => void): () => void
   }
   usage: {
-    /** The last captured Claude Code rate-limit snapshot, or null if none has arrived yet. */
+    /** The freshest rate-limit snapshot the core holds, or null if it has none yet. */
     get(): Promise<ClaudeUsage | null>
-    /** Fired whenever a fresh statusline snapshot is captured. */
+    /**
+     * Query the live usage from Anthropic and return the freshest snapshot known afterwards.
+     * Resolves the snapshot already held when the query is unavailable, so a failure reads as
+     * "nothing new" rather than as an error the panel would have to render.
+     */
+    refresh(): Promise<ClaudeUsage | null>
+    /** Fired whenever the freshest snapshot changes. */
     onUsageChanged(cb: (usage: ClaudeUsage | null) => void): () => void
   }
   shortcuts: {
@@ -696,6 +702,7 @@ export const Channel = {
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',
+  usageRefresh: 'usage:refresh',
   usageChanged: 'usage:changed',
   // shortcuts (main -> renderer broadcast)
   shortcutInvoked: 'shortcut:invoked'

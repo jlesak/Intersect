@@ -1,4 +1,5 @@
 import type { ClaudeUsageWindow } from '@common/domain'
+import { IconRefresh } from '@renderer/shared/ui/icons'
 import {
   formatCapturedAt,
   formatFiveHourReset,
@@ -38,18 +39,36 @@ function UsageRow({
 
 /**
  * Always-visible sidebar panel mirroring Claude Code's own `/usage`: the 5h session window and the
- * weekly window, each with a meter, its used percent, and its reset time - fed from the statusline
- * snapshot the app-managed usage-statusline script captures on every Claude Code render. Shows a
- * quiet hint until the first snapshot arrives (no Claude Code session has run since install).
+ * weekly window, each with a meter, its used percent, and its reset time. Shows a quiet hint until
+ * a source produces a snapshot.
+ *
+ * Two sources feed it. The statusline snapshot moves only when a Claude session runs inside this
+ * app, so it can sit days out of date. The refresh button queries Anthropic directly, which covers
+ * every session on the account.
  */
 export function SidebarUsage() {
   const usage = useUsageStore((s) => s.usage)
+  const refreshing = useUsageStore((s) => s.refreshing)
 
   return (
     <div className="ix-usage">
       <div className="ix-usage__head">
         <span className="ix-eyebrow">Claude usage</span>
-        {usage && <span className="ix-usage__asof">as of {formatCapturedAt(usage.capturedAt)}</span>}
+        <div className="ix-usage__head-right">
+          {usage && (
+            <span className="ix-usage__asof">as of {formatCapturedAt(usage.capturedAt)}</span>
+          )}
+          <button
+            type="button"
+            className={`ix-usage__refresh${refreshing ? ' ix-usage__refresh--busy' : ''}`}
+            title="Query the current usage from Anthropic"
+            aria-label="Refresh Claude usage"
+            disabled={refreshing}
+            onClick={() => void useUsageStore.getState().refresh()}
+          >
+            <IconRefresh width={11} height={11} />
+          </button>
+        </div>
       </div>
       {usage ? (
         <>

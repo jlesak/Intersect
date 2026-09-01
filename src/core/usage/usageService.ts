@@ -20,7 +20,8 @@ export interface UsageServiceDeps {
 }
 
 export interface UsageService {
-  /** The last captured usage snapshot, or null if none has arrived (or it failed to parse). */
+  /** The current usage snapshot, re-read off disk so a caller can force a refresh past a watch
+   *  event the OS never delivered. Null if none has arrived (or it failed to parse). */
   get(): ClaudeUsage | null
   /** Fired whenever a fresh snapshot is read off disk. Returns an unsubscribe fn. */
   onChange(cb: (usage: ClaudeUsage | null) => void): () => void
@@ -86,25 +87,34 @@ export function createUsageService(deps: UsageServiceDeps): UsageService {
     }
   }
 
-  let lastRaw = readRaw()
-  let current = parseSnapshot(lastRaw)
+  let lastRaw: string | null = null
+  let current: ClaudeUsage | null = null
 
-  // The watched directory also hosts the SQLite DB and settings JSONs, so most fs.watch events
-  // fire for writes that have nothing to do with the snapshot file. Comparing raw content before
-  // notifying skips those: an unrelated write re-reads an identical file, and pushing that as a
-  // fresh object identity would otherwise trigger a pointless re-render in the renderer.
-  const refresh = debounce(() => {
+  /**
+   * Re-reads the file and publishes the result to listeners, but only when the raw content really
+   * changed. The watched directory also hosts the SQLite DB and settings JSONs, so most fs.watch
+   * events fire for writes that have nothing to do with the snapshot file; comparing raw content
+   * first skips those, since pushing an identical snapshot under a fresh object identity would
+   * trigger a pointless re-render in the renderer.
+   */
+  function readAndNotify(): ClaudeUsage | null {
     const raw = readRaw()
-    if (raw === lastRaw) return
-    lastRaw = raw
-    current = parseSnapshot(raw)
-    for (const cb of listeners) cb(current)
-  }, deps.debounceMs ?? 150)
+    if (raw !== lastRaw) {
+      lastRaw = raw
+      current = parseSnapshot(raw)
+      for (const cb of listeners) cb(current)
+    }
+    return current
+  }
+
+  readAndNotify()
+
+  const refresh = debounce(readAndNotify, deps.debounceMs ?? 150)
 
   const watcher = fs.watch(dirname(deps.snapshotPath), () => refresh())
 
   return {
-    get: () => current,
+    get: readAndNotify,
     onChange(cb) {
       listeners.add(cb)
       return () => listeners.delete(cb)
