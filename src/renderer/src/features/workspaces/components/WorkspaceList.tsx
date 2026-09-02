@@ -52,7 +52,7 @@ export function WorkspaceList({ projectScope }: { projectScope?: string | null }
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="ix-sidebar__body">
       <div className="ix-sidebar__section">
         <span className="ix-eyebrow">Claude Code</span>
       </div>

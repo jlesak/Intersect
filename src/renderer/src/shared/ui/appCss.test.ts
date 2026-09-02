@@ -41,3 +41,28 @@ describe('the safe mode banner in the shell layout', () => {
     expect(ruleBody('.ix-app')).toMatch(/grid-template-rows:\s*1fr auto/)
   })
 })
+
+/**
+ * The sidebar's middle slot must never be squeezed small enough to push its own footer out of its
+ * box, because the panels below it paint later and then cover the footer's button - which stops
+ * receiving clicks while still looking perfectly normal. The two declarations that prevent that
+ * are easy to remove while tidying, and nothing else in the run would notice until a short-window
+ * spec failed somewhere unrelated, so they are pinned here.
+ */
+describe('the sidebar middle slot', () => {
+  const body = ruleBody('.ix-sidebar__body')
+
+  test('it keeps a floor under itself', () => {
+    // `min-height: 0` is the exact declaration that caused the overlap; min-content is the fix.
+    expect(body).toMatch(/min-height:\s*min-content/)
+    expect(body).not.toMatch(/min-height:\s*0/)
+  })
+
+  test('it clips, so nothing inside it can paint over a sibling panel', () => {
+    expect(body).toMatch(/overflow:\s*hidden/)
+  })
+
+  test('the sidebar scrolls rather than covering a control it cannot fit', () => {
+    expect(ruleBody('.ix-sidebar')).toMatch(/overflow-y:\s*auto/)
+  })
+})

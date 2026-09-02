@@ -18,6 +18,38 @@
   background: var(--panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+  /*
+   * Last resort for a window too short for the pinned panels. The rail, the timer and the usage
+   * panel do not shrink, so past some height there is genuinely not enough room - and the choice
+   * is between scrolling to a control and having it covered by the panel below. Scrolling wins:
+   * every control stays reachable, which a covered one is not.
+   */
+  overflow-y: auto;
+}
+/*
+ * The sidebar's middle slot: whichever section body is showing (workspaces, My Work, Todo, ...).
+ *
+ * It takes what the pinned panels above and below leave, and stops there. Deliberately no
+ * `min-height: 0`: that let the flex algorithm squeeze the slot below the header and footer it has
+ * to show, and the footer - which holds the only button in it - then painted outside this box,
+ * underneath the usage panel below, which swallowed every click on it.
+ *
+ * `min-height: min-content` is the floor, spelled out rather than left to the flex algorithm's own
+ * content-based minimum, because `overflow: hidden` sets that minimum to zero - so the two
+ * together would silently reintroduce the squeeze and merely clip the button away instead of
+ * covering it. Unreachable either way. With the floor in place the sidebar overflows instead, and
+ * scrolls. The value tracks the header and footer, so it needs no upkeep when either changes.
+ *
+ * `overflow: hidden` then makes the guarantee structural rather than arithmetic: nothing in here
+ * can paint over a sibling however it grows. Menus and popovers are portalled, so clipping here
+ * does not reach them. The inner list is what scrolls.
+ */
+.ix-sidebar__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min-content;
+  overflow: hidden;
 }
 .ix-wordmark {
   display: flex;

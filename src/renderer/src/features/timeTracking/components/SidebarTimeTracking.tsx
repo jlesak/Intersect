@@ -12,7 +12,7 @@ export function SidebarTimeTracking() {
   const thisWeek = useTimeTrackingStore((s) => s.weekStart) === weekStartOf(Date.now())
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="ix-sidebar__body">
       <div className="ix-sidebar__section">
         <span className="ix-eyebrow">
           {count} entries {thisWeek ? 'this week' : 'in shown week'}
