@@ -10,6 +10,7 @@ import {
 } from '@playwright/test'
 import { closeRegisteredApps, registerApp } from '../tooling/e2eApps'
 import { appEntry } from '../tooling/e2eFreshness'
+import { launchEnv } from '../tooling/e2eLaunchEnv'
 
 /**
  * Shared E2E harness. Every spec drove its own copy of these helpers, so a single navigation
@@ -151,12 +152,11 @@ export async function launch(
 ): Promise<{ app: ElectronApplication; win: Page; errors: string[] }> {
   const app = await electron.launch({
     args: [APP_ENTRY, `--user-data-dir=${profileDir}`],
-    env: {
-      ...process.env,
+    env: launchEnv({
       INTERSECT_E2E: '1',
       INTERSECT_CLAUDE_PROJECTS_DIR: tempDir('intersect-empty-projects-'),
       ...opts.env
-    }
+    })
   })
   registerApp(app)
   const win = await app.firstWindow()
