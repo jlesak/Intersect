@@ -970,6 +970,42 @@ export interface ClaudeUsage {
   capturedAt: number
 }
 
+/**
+ * Whether the user has let the app read Claude Code's own OAuth credentials in order to query
+ * their live usage from Anthropic.
+ *
+ * This is gated rather than assumed because the read is visible and startling: on macOS the
+ * credentials live in the Keychain under Claude Code's name, so the first read makes the OS put up
+ * an authorization dialog naming a different app. Asking first means the user meets that dialog
+ * already knowing what asked for it and why.
+ *
+ * `unasked` is the state of a fresh install, and it is not the same as `declined`: nothing has
+ * been read, but the panel still owes the user the question.
+ */
+export const USAGE_LIVE_CONSENTS = ['unasked', 'granted', 'declined'] as const
+export type UsageLiveConsent = (typeof USAGE_LIVE_CONSENTS)[number]
+
+/**
+ * How the most recent live query went, so the panel can tell three situations apart that all leave
+ * the snapshot unchanged:
+ *
+ * - `ok` - Anthropic answered and the snapshot is current.
+ * - `unavailable` - the query was allowed but produced nothing: no Claude Code sign-in, an expired
+ *   token, a denied Keychain prompt, an unreachable endpoint. Worth a hint, since the user granted
+ *   consent and would otherwise see a button that silently does nothing.
+ * - `not-allowed` - consent is not granted, so nothing was attempted and no credential was read.
+ */
+export type UsageLiveStatus = 'ok' | 'unavailable' | 'not-allowed'
+
+/**
+ * The result of a live query: the freshest snapshot known afterwards (which may be the one already
+ * held, or none at all) plus how the query itself went.
+ */
+export interface UsageRefresh {
+  usage: ClaudeUsage | null
+  live: UsageLiveStatus
+}
+
 // ---------------------------------------------------------------------------
 // Agent Tooling - read-only browser of the effective Claude Code configuration,
 // skills, and agents (global scope or one bound Project).

@@ -20,23 +20,32 @@ const live: ClaudeUsage = {
 }
 
 beforeEach(() => {
-  useUsageStore.setState({ usage: null, refreshing: false }, false)
+  useUsageStore.setState({ usage: null, consent: 'unasked', live: null, refreshing: false }, false)
   vi.clearAllMocks()
-  // Most tests care about one call path; the other resolves to "nothing new" by default.
+  // Most tests care about one call path; the others answer "nothing new" by default. Consent
+  // defaults to granted so the refresh tests are not all gated behind answering the question.
   mocked.get.mockResolvedValue(null)
-  mocked.refresh.mockResolvedValue(null)
+  mocked.liveConsent.mockResolvedValue('granted')
+  mocked.refresh.mockResolvedValue({ usage: null, live: 'unavailable' })
+  mocked.setConsent.mockResolvedValue({ usage: null, live: 'not-allowed' })
 })
 
 describe('hydrate', () => {
-  test('fetches the current snapshot', async () => {
+  test('applies the snapshot the core reports', async () => {
     mocked.get.mockResolvedValue(snapshot)
     await useUsageStore.getState().hydrate()
     expect(useUsageStore.getState().usage).toEqual(snapshot)
   })
 
+  test('reads the consent answer, which decides whether the panel asks or shows meters', async () => {
+    mocked.liveConsent.mockResolvedValue('unasked')
+    await useUsageStore.getState().hydrate()
+    expect(useUsageStore.getState().consent).toBe('unasked')
+  })
+
   test('follows the cached read with a live query, so boot corrects a stale snapshot', async () => {
     mocked.get.mockResolvedValue(snapshot)
-    mocked.refresh.mockResolvedValue(live)
+    mocked.refresh.mockResolvedValue({ usage: live, live: 'ok' })
     await useUsageStore.getState().hydrate()
     expect(mocked.refresh).toHaveBeenCalledTimes(1)
     expect(useUsageStore.getState().usage).toEqual(live)
@@ -48,25 +57,39 @@ describe('hydrate', () => {
     expect(useUsageStore.getState().usage).toBeNull()
   })
 
-  test('falls back to null (never throws) when the IPC call fails', async () => {
-    mocked.get.mockRejectedValue(new Error('preload unavailable'))
+  test('leaves usage null when the read fails', async () => {
+    mocked.get.mockRejectedValue(new Error('core unavailable'))
     await expect(useUsageStore.getState().hydrate()).resolves.toBeUndefined()
     expect(useUsageStore.getState().usage).toBeNull()
+  })
+
+  test('does not query live when the boot read failed', async () => {
+    mocked.get.mockRejectedValue(new Error('core unavailable'))
+    await useUsageStore.getState().hydrate()
+    expect(mocked.refresh).not.toHaveBeenCalled()
   })
 })
 
 describe('refresh', () => {
   test('applies the live snapshot the core returns', async () => {
-    mocked.refresh.mockResolvedValue(live)
+    mocked.refresh.mockResolvedValue({ usage: live, live: 'ok' })
     await useUsageStore.getState().refresh()
     expect(useUsageStore.getState().usage).toEqual(live)
+    expect(useUsageStore.getState().live).toBe('ok')
   })
 
   test('keeps the snapshot it had when the live query offers nothing', async () => {
     useUsageStore.setState({ usage: snapshot }, false)
-    mocked.refresh.mockResolvedValue(null)
+    mocked.refresh.mockResolvedValue({ usage: null, live: 'unavailable' })
     await useUsageStore.getState().refresh()
     expect(useUsageStore.getState().usage).toEqual(snapshot)
+    expect(useUsageStore.getState().live).toBe('unavailable')
+  })
+
+  test('records that the core turned the query down for want of consent', async () => {
+    mocked.refresh.mockResolvedValue({ usage: null, live: 'not-allowed' })
+    await useUsageStore.getState().refresh()
+    expect(useUsageStore.getState().live).toBe('not-allowed')
   })
 
   test('keeps the snapshot it had when the IPC call fails', async () => {
@@ -77,9 +100,9 @@ describe('refresh', () => {
   })
 
   test('flags itself busy while the query is in flight, and clears the flag after', async () => {
-    let release: (usage: ClaudeUsage | null) => void = () => {}
+    let release: (result: { usage: ClaudeUsage | null; live: 'ok' }) => void = () => {}
     mocked.refresh.mockReturnValue(
-      new Promise<ClaudeUsage | null>((resolve) => {
+      new Promise((resolve) => {
         release = resolve
       })
     )
@@ -87,7 +110,7 @@ describe('refresh', () => {
     const pending = useUsageStore.getState().refresh()
     expect(useUsageStore.getState().refreshing).toBe(true)
 
-    release(live)
+    release({ usage: live, live: 'ok' })
     await pending
     expect(useUsageStore.getState().refreshing).toBe(false)
   })
@@ -99,6 +122,76 @@ describe('refresh', () => {
   })
 })
 
+describe('setConsent', () => {
+  test('a yes is recorded and applies the snapshot the immediate query returns', async () => {
+    mocked.setConsent.mockResolvedValue({ usage: live, live: 'ok' })
+    await useUsageStore.getState().setConsent(true)
+
+    expect(mocked.setConsent).toHaveBeenCalledWith(true)
+    expect(useUsageStore.getState().consent).toBe('granted')
+    expect(useUsageStore.getState().usage).toEqual(live)
+    expect(useUsageStore.getState().live).toBe('ok')
+  })
+
+  test('a no is recorded and queries nothing', async () => {
+    await useUsageStore.getState().setConsent(false)
+
+    expect(mocked.setConsent).toHaveBeenCalledWith(false)
+    expect(useUsageStore.getState().consent).toBe('declined')
+    expect(mocked.refresh).not.toHaveBeenCalled()
+  })
+
+  test('closes the question on the click, before the round trip finishes', async () => {
+    let release: (result: { usage: ClaudeUsage | null; live: 'ok' }) => void = () => {}
+    mocked.setConsent.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      })
+    )
+
+    const pending = useUsageStore.getState().setConsent(true)
+    // The OS credentials prompt happens inside this window; the question must not still be up.
+    expect(useUsageStore.getState().consent).toBe('granted')
+    expect(useUsageStore.getState().refreshing).toBe(true)
+
+    release({ usage: live, live: 'ok' })
+    await pending
+    expect(useUsageStore.getState().refreshing).toBe(false)
+  })
+
+  test('a no shows no busy state, since nothing is queried', async () => {
+    const pending = useUsageStore.getState().setConsent(false)
+    expect(useUsageStore.getState().refreshing).toBe(false)
+    await pending
+  })
+
+  test('reports unavailable when consent was granted but the query still came back empty', async () => {
+    mocked.setConsent.mockResolvedValue({ usage: null, live: 'unavailable' })
+    await useUsageStore.getState().setConsent(true)
+
+    expect(useUsageStore.getState().consent).toBe('granted')
+    expect(useUsageStore.getState().live).toBe('unavailable')
+  })
+
+  test('keeps the answer as clicked when the round trip fails', async () => {
+    mocked.setConsent.mockRejectedValue(new Error('core unavailable'))
+    await expect(useUsageStore.getState().setConsent(true)).resolves.toBeUndefined()
+
+    expect(useUsageStore.getState().consent).toBe('granted')
+    expect(useUsageStore.getState().refreshing).toBe(false)
+  })
+
+  test('a user who declined can change their mind', async () => {
+    await useUsageStore.getState().setConsent(false)
+    expect(useUsageStore.getState().consent).toBe('declined')
+
+    mocked.setConsent.mockResolvedValue({ usage: live, live: 'ok' })
+    await useUsageStore.getState().setConsent(true)
+    expect(useUsageStore.getState().consent).toBe('granted')
+    expect(useUsageStore.getState().usage).toEqual(live)
+  })
+})
+
 describe('subscribe', () => {
   test('applies a pushed snapshot to the store', () => {
     let pushed: ((usage: ClaudeUsage | null) => void) | undefined
@@ -107,21 +200,18 @@ describe('subscribe', () => {
       return () => {}
     })
 
-    const unsubscribe = useUsageStore.getState().subscribe()
-    expect(mocked.onUsageChanged).toHaveBeenCalledTimes(1)
-
+    useUsageStore.getState().subscribe()
     pushed?.(snapshot)
-    expect(useUsageStore.getState().usage).toEqual(snapshot)
 
-    unsubscribe()
+    expect(useUsageStore.getState().usage).toEqual(snapshot)
   })
 
-  test('returns the ipc layer own unsubscribe fn', () => {
-    const fakeUnsubscribe = vi.fn()
-    mocked.onUsageChanged.mockReturnValue(fakeUnsubscribe)
+  test('returns the unsubscribe fn the bridge handed back', () => {
+    const off = vi.fn()
+    mocked.onUsageChanged.mockReturnValue(off)
 
-    const unsubscribe = useUsageStore.getState().subscribe()
-    unsubscribe()
-    expect(fakeUnsubscribe).toHaveBeenCalledTimes(1)
+    useUsageStore.getState().subscribe()()
+
+    expect(off).toHaveBeenCalledTimes(1)
   })
 })

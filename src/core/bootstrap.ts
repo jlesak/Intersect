@@ -57,6 +57,7 @@ import { createUsageService } from './usage/usageService'
 import { createUsageApi } from './usage/usageApi'
 import { createUsageSource } from './usage/usageSource'
 import { parseAccessToken, readClaudeCredentials } from './usage/claudeCredentials'
+import { createUsageConsentStore } from './usage/usageConsent'
 import { createUsageHandlers, usageWireRoutes } from './api/usage.ipc'
 import { createSessionNotifier } from './sessionNotifier'
 import { createNotifyGate } from './notifyGate'
@@ -683,7 +684,10 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   })
   const usage = createUsageSource({
     file: usageFile ?? { get: () => null, onChange: () => () => {} },
-    fetchLive: () => usageApi.fetchUsage()
+    fetchLive: () => usageApi.fetchUsage(),
+    // Gates the live query. Until the user answers, readToken above is never reached, so nothing
+    // touches Claude Code's credentials and the OS raises no dialog.
+    consent: createUsageConsentStore(appState)
   })
   const usageHandlers = createUsageHandlers({ usage })
   usage.onChange((snapshot) => emitPush(Channel.usageChanged, snapshot))

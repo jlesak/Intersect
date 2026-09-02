@@ -3542,6 +3542,61 @@
   font-size: 11.5px;
   color: var(--text-faint);
 }
+/*
+ * The live-usage consent question. It sits inside the panel rather than in a modal on purpose: it
+ * is about this panel's own contents, and a modal at boot is the kind of interruption that gets
+ * dismissed unread - which here would mean dismissing the feature.
+ */
+.ix-usage__consent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.ix-usage__consent-text {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.ix-usage__consent-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.ix-usage__consent-actions {
+  display: flex;
+  gap: 6px;
+}
+/* The sidebar is narrow, so the shared button shrinks here and the pair splits the width. */
+.ix-usage__consent-actions .ix-btn {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+/* A quiet way back for a user who said no, and the only affordance left in that state. */
+.ix-usage__enable {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ix-usage__enable:hover {
+  color: var(--text);
+}
+.ix-usage__note {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.ix-usage__note code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
 .ix-usage__row {
   display: flex;
   flex-direction: column;

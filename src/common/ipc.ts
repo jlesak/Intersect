@@ -53,6 +53,8 @@ import type {
   TodoTask,
   TodoTaskPatch,
   UnfinishedDraftReview,
+  UsageLiveConsent,
+  UsageRefresh,
   NewWorkItemRef,
   WorkItemCandidateGroup,
   WorkItemRef,
@@ -445,11 +447,15 @@ export interface IpcApi {
     /** The freshest rate-limit snapshot the core holds, or null if it has none yet. */
     get(): Promise<ClaudeUsage | null>
     /**
-     * Query the live usage from Anthropic and return the freshest snapshot known afterwards.
-     * Resolves the snapshot already held when the query is unavailable, so a failure reads as
-     * "nothing new" rather than as an error the panel would have to render.
+     * Query the live usage from Anthropic and report the freshest snapshot known afterwards plus
+     * how the query went. Reports the snapshot already held when the query is unavailable, so a
+     * failure reads as "nothing new" rather than as an error that blanks the panel.
      */
-    refresh(): Promise<ClaudeUsage | null>
+    refresh(): Promise<UsageRefresh>
+    /** Whether the user has allowed the live query to read Claude Code's credentials. */
+    liveConsent(): Promise<UsageLiveConsent>
+    /** Record the user's answer to that question, querying straight away when it is yes. */
+    setLiveConsent(granted: boolean): Promise<UsageRefresh>
     /** Fired whenever the freshest snapshot changes. */
     onUsageChanged(cb: (usage: ClaudeUsage | null) => void): () => void
   }
@@ -703,6 +709,8 @@ export const Channel = {
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',
   usageRefresh: 'usage:refresh',
+  usageLiveConsent: 'usage:liveConsent',
+  usageSetLiveConsent: 'usage:setLiveConsent',
   usageChanged: 'usage:changed',
   // shortcuts (main -> renderer broadcast)
   shortcutInvoked: 'shortcut:invoked'
