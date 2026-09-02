@@ -3495,8 +3495,43 @@
 }
 .ix-usage__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+}
+.ix-usage__head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-usage__refresh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.ix-usage__refresh:hover {
+  color: var(--text);
+}
+.ix-usage__refresh--busy {
+  color: var(--text-dim);
+  cursor: default;
+  animation: ix-usage-spin 900ms linear infinite;
+}
+@keyframes ix-usage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ix-usage__refresh:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .ix-usage__asof {
   font-family: var(--font-mono);
