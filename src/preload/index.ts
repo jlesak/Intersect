@@ -243,6 +243,8 @@ const api: IpcApi = {
   usage: {
     get: () => ipcRenderer.invoke(Channel.usageGet),
     refresh: () => ipcRenderer.invoke(Channel.usageRefresh),
+    liveConsent: () => ipcRenderer.invoke(Channel.usageLiveConsent),
+    setLiveConsent: (granted) => ipcRenderer.invoke(Channel.usageSetLiveConsent, granted),
     onUsageChanged: (cb) => {
       const listener = (_e: unknown, usage: ClaudeUsage | null): void => cb(usage)
       ipcRenderer.on(Channel.usageChanged, listener)

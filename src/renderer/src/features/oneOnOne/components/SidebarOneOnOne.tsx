@@ -8,7 +8,7 @@ export function SidebarOneOnOne() {
   const running = useOneOnOneStore((s) => s.runs.filter((r) => r.status === 'running').length)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="ix-sidebar__body">
       <div className="ix-sidebar__section">
         <span className="ix-eyebrow">
           {running} running {running === 1 ? 'workflow' : 'workflows'}

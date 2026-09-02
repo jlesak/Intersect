@@ -1,4 +1,5 @@
-import type { ClaudeUsage } from '@common/domain'
+import type { ClaudeUsage, UsageLiveConsent, UsageRefresh } from '@common/domain'
+import type { UsageConsentStore } from './usageConsent'
 
 export interface UsageSourceDeps {
   /** The statusline snapshot file: what app-launched Claude sessions captured. */
@@ -8,13 +9,19 @@ export interface UsageSourceDeps {
   }
   /** The live query against Anthropic, resolving null when it is unavailable. */
   fetchLive(): Promise<ClaudeUsage | null>
+  /** The user's answer on whether the live query may read Claude Code's credentials. */
+  consent: UsageConsentStore
 }
 
 export interface UsageSource {
   /** The freshest snapshot either source has produced, or null if neither has produced one. */
   get(): ClaudeUsage | null
-  /** Query the live API, then return the freshest snapshot known afterwards. */
-  refresh(): Promise<ClaudeUsage | null>
+  /** Query the live API if consent allows, then report the freshest snapshot and how it went. */
+  refresh(): Promise<UsageRefresh>
+  /** The user's current answer on the live query. */
+  consent(): UsageLiveConsent
+  /** Record the user's answer, querying straight away when it is yes. */
+  setConsent(granted: boolean): Promise<UsageRefresh>
   /** Fired whenever the freshest snapshot changes. Returns an unsubscribe fn. */
   onChange(cb: (usage: ClaudeUsage | null) => void): () => void
 }
@@ -26,8 +33,14 @@ export interface UsageSource {
  * `capturedAt` wins, so a refresh cannot be undone by a stale file push arriving afterwards, and a
  * genuinely fresh statusline capture is not held back by an older live reading.
  *
- * Keeping this in the core means the renderer never has to reason about which source it is looking
- * at: it gets one snapshot, and one refresh that either improves on it or leaves it alone.
+ * It also owns the gate on the live source. Reading Claude Code's credentials is not something to
+ * do on the app's own initiative, so until the user has said yes the live query is never attempted
+ * and `fetchLive` is never called - which is the difference between the OS raising a credentials
+ * dialog the user was warned about and one that appears out of nowhere at boot.
+ *
+ * Keeping all of this in the core means the renderer never has to reason about which source it is
+ * looking at: it gets one snapshot, one answer on whether live is allowed, and one refresh that
+ * either improves on the snapshot or leaves it alone.
  */
 export function createUsageSource(deps: UsageSourceDeps): UsageSource {
   const listeners = new Set<(usage: ClaudeUsage | null) => void>()
@@ -41,19 +54,33 @@ export function createUsageSource(deps: UsageSourceDeps): UsageSource {
     for (const cb of listeners) cb(current)
   }
 
+  // Re-reading the file here keeps the on-demand read the file service already does: a watch
+  // event the OS never delivered still gets noticed, it just cannot beat a newer live reading.
+  function read(): ClaudeUsage | null {
+    adopt(deps.file.get())
+    return current
+  }
+
+  async function refresh(): Promise<UsageRefresh> {
+    if (deps.consent.get() !== 'granted') return { usage: read(), live: 'not-allowed' }
+    read()
+    const live = await deps.fetchLive()
+    adopt(live)
+    return { usage: current, live: live ? 'ok' : 'unavailable' }
+  }
+
   deps.file.onChange((usage) => adopt(usage))
 
   return {
-    // Re-reading the file here keeps the on-demand read the file service already does: a watch
-    // event the OS never delivered still gets noticed, it just cannot beat a newer live reading.
-    get() {
-      adopt(deps.file.get())
-      return current
-    },
+    get: read,
+    refresh,
+    consent: () => deps.consent.get(),
 
-    async refresh() {
-      adopt(await deps.fetchLive())
-      return current
+    // Querying immediately on a yes means the user sees the panel fill in as the answer to the
+    // question they just answered, rather than having to find the refresh button afterwards.
+    async setConsent(granted) {
+      deps.consent.set(granted ? 'granted' : 'declined')
+      return granted ? refresh() : { usage: read(), live: 'not-allowed' }
     },
 
     onChange(cb) {

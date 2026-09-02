@@ -29,7 +29,7 @@ export function SidebarTodo() {
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="ix-sidebar__body">
       <div className="ix-sidebar__section">
         <span className="ix-eyebrow">
           {count} open {count === 1 ? 'task' : 'tasks'}
