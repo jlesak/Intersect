@@ -26,6 +26,8 @@ export interface ReviewManagerDeps {
   onDraft: (draft: DraftComment) => void
   /** Read when each review starts so Settings changes apply without restarting Intersect. */
   reviewPrompt: () => string
+  /** Likewise for the model the review runs on (`claude --model`). */
+  reviewModel: () => string
   /** Absolute path to the built draft MCP server (out/main/draftServer.js). */
   draftServerPath: string
   /** Test seam; production uses node:net createServer. */
@@ -158,7 +160,8 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         const spec = buildReviewSpawnSpec({
           worktreePath,
           mcpConfigPath,
-          prompt: d.reviewPrompt()
+          prompt: d.reviewPrompt(),
+          model: d.reviewModel()
         })
         const proc = d.spawn({
           file: spec.file,

@@ -11,7 +11,11 @@
  * has loaded and immediately before `claude` starts. ANTHROPIC_/CLAUDE_ auth vars are preserved by
  * both layers so the session can authenticate. The only extra runtime input is Intersect's local
  * draft MCP server plus review guidance.
+ *
+ * The model is always stated explicitly (`--model`), so a review never inherits whatever model the
+ * user's own Claude configuration happens to default to.
  */
+import { DEFAULT_PR_REVIEW_MODEL } from '@common/domain'
 import { buildSpawn } from '../pty/shell'
 
 export const REVIEW_SYSTEM_PROMPT =
@@ -27,6 +31,11 @@ export interface ReviewSpawnOptions {
   worktreePath: string
   mcpConfigPath: string
   prompt: string
+  /**
+   * The model to review on, passed to `claude --model`. A blank value falls back to the default
+   * rather than emitting an empty flag, which `claude` rejects.
+   */
+  model?: string
   /** Deterministic override for tests; production resolves $SHELL. */
   shell?: string
   /** Environment to sanitize and pass to the login shell; defaults to process.env. */
@@ -43,6 +52,11 @@ export interface SpawnSpec {
 }
 
 const REVIEW_PROMPT_ENV = 'INTERSECT_REVIEW_PROMPT'
+/**
+ * Exported so a test can hold the name itself to the one rule that matters: both scrub layers
+ * work by name, so a rename into a credential-shaped name would silently unset the model.
+ */
+export const REVIEW_MODEL_ENV = 'INTERSECT_REVIEW_MODEL'
 const REVIEW_MCP_CONFIG_ENV = 'INTERSECT_REVIEW_MCP_CONFIG'
 const REVIEW_SYSTEM_PROMPT_ENV = 'INTERSECT_REVIEW_SYSTEM_PROMPT'
 
@@ -51,7 +65,7 @@ function assertEnvironmentValue(name: string, value: string): void {
 }
 
 /** Substrings that mark a variable name as credential-shaped, at a `_`/start/end boundary. */
-const SECRET_ENV_TOKENS = ['PAT', 'TOKEN', 'SECRET', 'PASSWORD']
+export const SECRET_ENV_TOKENS = ['PAT', 'TOKEN', 'SECRET', 'PASSWORD']
 
 /** Keys that must never enter the review session's environment (Azure DevOps PAT and any secret). */
 const SECRET_ENV = new RegExp(`^AZURE_DEVOPS_|(^|_)(${SECRET_ENV_TOKENS.join('|')})($|_)`, 'i')
@@ -98,10 +112,13 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
 
   assertEnvironmentValue('Review prompt', opts.prompt)
   assertEnvironmentValue('Review MCP config path', opts.mcpConfigPath)
+  const model = opts.model?.trim() || DEFAULT_PR_REVIEW_MODEL
+  assertEnvironmentValue('Review model', model)
 
   const scrub = buildSecretScrubCommand(shellSpec.file)
   const initialCommand =
-    `${scrub}; ${shellSpec.initialCommand} --mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+    `${scrub}; ${shellSpec.initialCommand} --model "$${REVIEW_MODEL_ENV}" ` +
+    `--mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
     `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
 
   return {
@@ -111,6 +128,7 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
     initialCommand,
     env: {
       ...stripSecrets(shellSpec.env),
+      [REVIEW_MODEL_ENV]: model,
       [REVIEW_MCP_CONFIG_ENV]: opts.mcpConfigPath,
       [REVIEW_SYSTEM_PROMPT_ENV]: REVIEW_SYSTEM_PROMPT,
       [REVIEW_PROMPT_ENV]: opts.prompt

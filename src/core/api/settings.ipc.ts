@@ -130,7 +130,10 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
         if (typeof review?.prompt !== 'string') {
           throw new Error('Review prompt must be a string')
         }
-        d.settings.setReview({ prompt: review.prompt })
+        if (typeof review?.model !== 'string') {
+          throw new Error('Review model must be a string')
+        }
+        d.settings.setReview({ prompt: review.prompt, model: review.model })
         return current()
       }),
 

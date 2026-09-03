@@ -1,6 +1,7 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
+  DEFAULT_PR_REVIEW_MODEL,
   DEFAULT_PR_REVIEW_PROMPT,
   type AppSettings,
   type EffectiveConfig,
@@ -109,7 +110,7 @@ const SETTINGS: AppSettings = {
   ado: { orgUrl: '', project: '', repository: '', pat: '' },
   adoFallback: { orgUrl: '', project: '', hasPat: false },
   appearance: { terminalFontSize: 12.5 },
-  review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+  review: { prompt: DEFAULT_PR_REVIEW_PROMPT, model: DEFAULT_PR_REVIEW_MODEL },
   session: { autoResume: true }
 }
 

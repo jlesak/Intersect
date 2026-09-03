@@ -79,11 +79,27 @@ describe('settingsRepo', () => {
 
   test('review prompt round-trips verbatim, including whitespace and the user language', () => {
     const prompt = '  Review this in English.\n\nZachovej přesné mezery.  \n'
-    repo.setReview({ prompt })
-    expect(repo.getReview()).toEqual({ prompt })
+    repo.setReview({ prompt, model: 'opus' })
+    expect(repo.getReview()).toEqual({ prompt, model: 'opus' })
 
-    repo.setReview({ prompt: '' })
-    expect(repo.getReview()).toEqual({ prompt: '' })
+    repo.setReview({ prompt: '', model: 'opus' })
+    expect(repo.getReview()).toEqual({ prompt: '', model: 'opus' })
+  })
+
+  test('review model defaults to opus and never yields a blank value', () => {
+    expect(repo.getReview().model).toBe('opus')
+
+    repo.setReview({ prompt: 'p', model: '  claude-opus-5  ' })
+    expect(repo.getReview().model).toBe('claude-opus-5')
+
+    repo.setReview({ prompt: 'p', model: '   ' })
+    expect(repo.getReview().model).toBe('opus')
+
+    db.prepare('UPDATE app_state SET value = ? WHERE key = ?').run(
+      JSON.stringify({ prompt: 'p', model: 7 }),
+      'settings.review'
+    )
+    expect(repo.getReview().model).toBe('opus')
   })
 
   test('review prompt falls back when the document is missing, corrupt, or non-string', () => {
@@ -129,10 +145,10 @@ describe('settingsRepo', () => {
   test('saving one category does not touch the others', () => {
     repo.setAdo({ orgUrl: 'https://x', project: 'p', repository: 'r', pat: 't' })
     repo.setNotifications({ ...DEFAULT_NOTIFICATION_SETTINGS, enabled: false })
-    repo.setReview({ prompt: 'My review prompt' })
+    repo.setReview({ prompt: 'My review prompt', model: 'opus' })
     expect(repo.getSavedAdo()?.orgUrl).toBe('https://x')
     expect(repo.getAppearance()).toEqual(DEFAULT_APPEARANCE_SETTINGS)
     expect(repo.getNotifications().enabled).toBe(false)
-    expect(repo.getReview()).toEqual({ prompt: 'My review prompt' })
+    expect(repo.getReview()).toEqual({ prompt: 'My review prompt', model: 'opus' })
   })
 })

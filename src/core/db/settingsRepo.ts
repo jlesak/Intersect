@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import {
+  DEFAULT_PR_REVIEW_MODEL,
   DEFAULT_PR_REVIEW_PROMPT,
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
@@ -33,7 +34,8 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
 }
 
 export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = {
-  prompt: DEFAULT_PR_REVIEW_PROMPT
+  prompt: DEFAULT_PR_REVIEW_PROMPT,
+  model: DEFAULT_PR_REVIEW_MODEL
 }
 
 /** The approved default: a confirmed quit resumes its suspended claude sessions automatically. */
@@ -117,12 +119,18 @@ export function createSettingsRepo(db: DatabaseSync): SettingsRepo {
     },
 
     getReview() {
-      const prompt = read(REVIEW_KEY)?.prompt
-      return { prompt: typeof prompt === 'string' ? prompt : DEFAULT_REVIEW_SETTINGS.prompt }
+      const raw = read(REVIEW_KEY)
+      const prompt = raw?.prompt
+      // A blank model would spawn `claude --model ""`, which claude rejects; treat it as unset.
+      const model = typeof raw?.model === 'string' ? raw.model.trim() : ''
+      return {
+        prompt: typeof prompt === 'string' ? prompt : DEFAULT_REVIEW_SETTINGS.prompt,
+        model: model || DEFAULT_REVIEW_SETTINGS.model
+      }
     },
 
     setReview(review) {
-      write(REVIEW_KEY, review)
+      write(REVIEW_KEY, { prompt: review.prompt, model: review.model.trim() })
     },
 
     getSession() {

@@ -908,9 +908,18 @@ export const DEFAULT_PR_REVIEW_PROMPT =
   'každý komentář zaznamenej nástrojem record_draft_comment (jedno volání na jeden komentář, ' +
   'česky). Nic nepublikuj.'
 
+/**
+ * The model every PR review starts on. A review is the app's most demanding reasoning task, so it
+ * must never inherit whatever a user's Claude configuration happens to default to. Accepted values
+ * are whatever `claude --model` accepts: an alias (`opus`, `sonnet`, `haiku`) or a full model id.
+ */
+export const DEFAULT_PR_REVIEW_MODEL = 'opus'
+
 export interface ReviewSettings {
   /** Preserved verbatim: users may replace the prompt with any language, whitespace, or content. */
   prompt: string
+  /** Passed to `claude --model`. Blank is stored as the default, never as an empty flag. */
+  model: string
 }
 
 /**
