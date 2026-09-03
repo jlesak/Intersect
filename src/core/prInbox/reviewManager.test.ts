@@ -396,6 +396,33 @@ describe('reviewManager', () => {
     expect(h.manager.listLive()).toHaveLength(MAX_CONCURRENT_REVIEWS)
   })
 
+  test('the cap holds when the starts interleave, not only when they are sequential', async () => {
+    // A start reaches the live map only after its worktree exists, which is a git fetch away. Two
+    // clicks inside that window must not both pass a check that counts only what has landed.
+    let releaseWorktrees = (): void => {}
+    const held = new Promise<void>((resolve) => (releaseWorktrees = resolve))
+    vi.mocked(h.worktrees.createWorktree).mockImplementation(async (input) => {
+      await held
+      const path = join(h.root, `wt-${input.prId}`)
+      await mkdir(path, { recursive: true })
+      return path
+    })
+
+    const starts = Array.from({ length: MAX_CONCURRENT_REVIEWS + 2 }, (_, i) =>
+      h.manager.start({ ...basePr, prId: 200 + i }, '# ctx', 80, 24)
+    )
+    releaseWorktrees()
+    const outcomes = await Promise.allSettled(starts)
+
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(MAX_CONCURRENT_REVIEWS)
+    expect(h.manager.listLive()).toHaveLength(MAX_CONCURRENT_REVIEWS)
+    for (const refused of outcomes.filter((o) => o.status === 'rejected')) {
+      expect((refused as PromiseRejectedResult).reason).toMatchObject({
+        message: expect.stringMatching(/already running/i)
+      })
+    }
+  })
+
   test('a finished review frees its slot under the cap', async () => {
     const sessions: ReviewSession[] = []
     for (let i = 0; i < MAX_CONCURRENT_REVIEWS; i++) {

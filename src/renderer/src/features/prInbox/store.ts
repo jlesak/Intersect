@@ -197,6 +197,14 @@ interface PrInboxState {
 }
 
 /**
+ * Sessions forgotten since the last hydrate. `hydrate` asks main which reviews are running and then
+ * awaits the answer; a session that exits inside that window is missing from the store but still
+ * present in the answer, and applying the answer as-is would resurrect it. Cleared by each hydrate,
+ * which is the moment the store and main agree again.
+ */
+const forgottenSessions = new Set<string>()
+
+/**
  * Forget one review session: the pull request it held and the view state that went with it. Used
  * both when main reports the PTY exited and when ending one fails, so a pull request is never left
  * looking busy with nothing behind it.
@@ -205,6 +213,7 @@ function forgetReviewSession(
   set: (fn: (s: PrInboxState) => Partial<PrInboxState>) => void,
   sessionId: string
 ): void {
+  forgottenSessions.add(sessionId)
   set((s) => {
     const liveReviews = Object.fromEntries(
       Object.entries(s.liveReviews).filter(([, id]) => id !== sessionId)
@@ -413,22 +422,37 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
               unfinishedReviewsStatus: 'error',
               unfinishedReviewsError: message(unfinishedR.reason)
             }
-      // Reviews outlive the renderer: main keeps every PTY across a window reload, so what is
-      // running there - not what this store last remembered - is the truth about which pull
-      // requests are busy. A failure here leaves the badges off rather than inventing sessions.
-      const live: Partial<PrInboxState> =
-        liveR.status === 'fulfilled'
-          ? {
-              liveReviews: Object.fromEntries(
-                liveR.value.map((session) => [prKey(session.repositoryId, session.prId), session.id])
-              )
-            }
-          : {}
       // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
       // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
       // board that has never synced at all, however fresh the cache actually is.
       await stamp
-      set({ ...board, ...unfinished, ...live })
+      // Reviews outlive the renderer: main keeps every PTY across a window reload, so what is
+      // running there - not what this store last remembered - is the truth about which pull
+      // requests are busy. A failure to read it leaves the badges off rather than inventing
+      // sessions.
+      //
+      // The answer describes the moment it was taken, and this store moved on while it travelled:
+      // a session that exited meanwhile is dropped, and one started meanwhile wins, so neither a
+      // dead review nor a lost binding survives the round trip.
+      const reported =
+        liveR.status === 'fulfilled'
+          ? liveR.value.filter((session) => !forgottenSessions.has(session.id))
+          : []
+      forgottenSessions.clear()
+      set((s) => ({
+        ...board,
+        ...unfinished,
+        ...(liveR.status === 'fulfilled'
+          ? {
+              liveReviews: {
+                ...Object.fromEntries(
+                  reported.map((session) => [prKey(session.repositoryId, session.prId), session.id])
+                ),
+                ...s.liveReviews
+              }
+            }
+          : {})
+      }))
     },
 
     async sync(opts) {

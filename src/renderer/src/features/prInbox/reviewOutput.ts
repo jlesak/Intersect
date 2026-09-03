@@ -11,6 +11,12 @@
  * appended, never the buffer length, so a terminal that mounts after the buffer was trimmed can
  * still tell what it has already rendered - a length-based cursor would rewind on every trim and
  * replay the whole tail again.
+ *
+ * A trim cuts the stream wherever the limit falls, which can be inside an escape sequence, and a
+ * terminal mounted after that redraws one briefly garbled screen. Cutting on a line boundary would
+ * not help: the colours and modes a terminal was left in were set by sequences the trim discarded
+ * either way, so the only real fix is to replay from the start - which is the unbounded buffer this
+ * limit exists to prevent. It costs one imperfect repaint per megabyte of review output.
  */
 
 /** Characters kept per session. xterm's own scrollback is 5000 lines, well inside this. */

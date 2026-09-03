@@ -236,6 +236,43 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().liveReviews).toEqual({ 'repo:2': 'rs-9' })
   })
 
+  test('a review that exits while hydrate is in flight is not resurrected by its answer', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    const session = {
+      id: 'rs-9',
+      prId: 1,
+      repositoryId: 'repo',
+      repoDir: '/clone',
+      worktreePath: '/wt',
+      status: 'running' as const,
+      createdAt: 0
+    }
+    mocked.listActiveReviews.mockImplementation(async () => {
+      // The PTY exits while main's answer is on its way back.
+      usePrInboxStore.setState({ liveReviews: { 'repo:1': 'rs-9' } })
+      const off = usePrInboxStore.getState().subscribe()
+      emitReviewExit({ sessionId: 'rs-9', exitCode: 0 })
+      off()
+      return [session]
+    })
+
+    await usePrInboxStore.getState().hydrate()
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({})
+  })
+
+  test('a review started while hydrate is in flight survives its answer', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1), pr('repo', 2)])
+    mocked.listActiveReviews.mockImplementation(async () => {
+      usePrInboxStore.setState({ liveReviews: { 'repo:2': 'rs-new' } })
+      return []
+    })
+
+    await usePrInboxStore.getState().hydrate()
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({ 'repo:2': 'rs-new' })
+  })
+
   test('a failed live-review read leaves the badges off rather than inventing sessions', async () => {
     mocked.list.mockResolvedValue([pr('repo', 1)])
     mocked.listActiveReviews.mockRejectedValue(new Error('main is not answering'))

@@ -108,7 +108,11 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
       if (starting.has(key)) {
         throw new Error(`A review of pull request ${pr.prId} is already starting.`)
       }
-      if (live.size >= MAX_CONCURRENT_REVIEWS) {
+      // Starts in flight count too. A start reaches `live` only after resolving the clone, waiting
+      // for the boot sweep and creating a worktree - a git fetch, so seconds at least - and two
+      // clicks inside that window would otherwise both pass a check that counts only what has
+      // already landed.
+      if (live.size + starting.size >= MAX_CONCURRENT_REVIEWS) {
         throw new Error(
           `${MAX_CONCURRENT_REVIEWS} reviews are already running. End one before starting another.`
         )
