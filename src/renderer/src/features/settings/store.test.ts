@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { DEFAULT_PR_REVIEW_PROMPT, type AppSettings } from '@common/domain'
+import {
+  DEFAULT_PR_REVIEW_MODEL,
+  DEFAULT_PR_REVIEW_PROMPT,
+  type AppSettings
+} from '@common/domain'
 
 vi.mock('./ipc')
 vi.mock('@renderer/shared/ui/toast')
@@ -13,7 +17,7 @@ const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   ado: { orgUrl: 'https://devops.example.com', project: 'SPOT', repository: 'app', pat: 'pat-1' },
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },
   appearance: { terminalFontSize: 14 },
-  review: { prompt: 'Review precisely.' },
+  review: { prompt: 'Review precisely.', model: 'sonnet' },
   session: { autoResume: true },
   ...over
 })
@@ -27,7 +31,7 @@ const reset = (): void => {
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: '', project: '', hasPat: false },
       terminalFontSize: 12.5,
-      review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+      review: { prompt: DEFAULT_PR_REVIEW_PROMPT, model: DEFAULT_PR_REVIEW_MODEL },
       autoResume: true,
       adoTest: { status: 'idle' }
     },
@@ -55,7 +59,7 @@ describe('load', () => {
     expect(s.ado.orgUrl).toBe('https://devops.example.com')
     expect(s.adoFallback).toEqual({ orgUrl: 'https://fallback', project: 'FB', hasPat: true })
     expect(s.terminalFontSize).toBe(14)
-    expect(s.review).toEqual({ prompt: 'Review precisely.' })
+    expect(s.review).toEqual({ prompt: 'Review precisely.', model: 'sonnet' })
   })
 
   test('sets error status when the IPC call fails', async () => {
@@ -122,7 +126,7 @@ describe('review prompt', () => {
 
     expect(useSettingsStore.getState().review.prompt).toBe(prompt)
     expect(mocked.setReview).toHaveBeenCalledTimes(1)
-    expect(mocked.setReview).toHaveBeenCalledWith({ prompt })
+    expect(mocked.setReview).toHaveBeenCalledWith({ prompt, model: DEFAULT_PR_REVIEW_MODEL })
     await pending
   })
 
@@ -135,21 +139,46 @@ describe('review prompt', () => {
     ]
 
     expect(mocked.setReview).toHaveBeenCalledTimes(3)
-    expect(mocked.setReview).toHaveBeenNthCalledWith(1, { prompt: 'first' })
-    expect(mocked.setReview).toHaveBeenNthCalledWith(2, { prompt: 'second' })
-    expect(mocked.setReview).toHaveBeenNthCalledWith(3, { prompt: 'poslední' })
+    const model = DEFAULT_PR_REVIEW_MODEL
+    expect(mocked.setReview).toHaveBeenNthCalledWith(1, { prompt: 'first', model })
+    expect(mocked.setReview).toHaveBeenNthCalledWith(2, { prompt: 'second', model })
+    expect(mocked.setReview).toHaveBeenNthCalledWith(3, { prompt: 'poslední', model })
     await Promise.all(saves)
   })
 
-  test('reset restores and immediately persists the shared default', async () => {
+  test('reset restores and immediately persists the shared defaults', async () => {
     await useSettingsStore.getState().setReviewPrompt('custom')
+    await useSettingsStore.getState().setReviewModel('haiku')
     mocked.setReview.mockClear()
-    const pending = useSettingsStore.getState().resetReviewPrompt()
+    const pending = useSettingsStore.getState().resetReviewDefaults()
 
-    expect(useSettingsStore.getState().review.prompt).toBe(DEFAULT_PR_REVIEW_PROMPT)
+    expect(useSettingsStore.getState().review).toEqual({
+      prompt: DEFAULT_PR_REVIEW_PROMPT,
+      model: DEFAULT_PR_REVIEW_MODEL
+    })
     expect(mocked.setReview).toHaveBeenCalledTimes(1)
-    expect(mocked.setReview).toHaveBeenCalledWith({ prompt: DEFAULT_PR_REVIEW_PROMPT })
+    expect(mocked.setReview).toHaveBeenCalledWith({
+      prompt: DEFAULT_PR_REVIEW_PROMPT,
+      model: DEFAULT_PR_REVIEW_MODEL
+    })
     await pending
+  })
+
+  test('saving the model keeps the prompt, and saving the prompt keeps the model', async () => {
+    await useSettingsStore.getState().setReviewPrompt('my prompt')
+    mocked.setReview.mockClear()
+
+    await useSettingsStore.getState().setReviewModel('claude-opus-5')
+    expect(mocked.setReview).toHaveBeenCalledWith({
+      prompt: 'my prompt',
+      model: 'claude-opus-5'
+    })
+
+    await useSettingsStore.getState().setReviewPrompt('another prompt')
+    expect(mocked.setReview).toHaveBeenLastCalledWith({
+      prompt: 'another prompt',
+      model: 'claude-opus-5'
+    })
   })
 })
 

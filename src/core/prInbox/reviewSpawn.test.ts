@@ -30,6 +30,35 @@ describe('buildReviewSpawnSpec', () => {
     expect(spec.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
 
+  test('states the review model explicitly, so no session inherits a configured default', () => {
+    const spec = buildReviewSpawnSpec({ ...base, model: 'opus' })
+
+    expect(spec.initialCommand).toContain('--model "$INTERSECT_REVIEW_MODEL"')
+    expect(spec.env.INTERSECT_REVIEW_MODEL).toBe('opus')
+  })
+
+  test('passes the configured model through, whitespace trimmed', () => {
+    const spec = buildReviewSpawnSpec({ ...base, model: '  claude-opus-5  ' })
+
+    expect(spec.env.INTERSECT_REVIEW_MODEL).toBe('claude-opus-5')
+  })
+
+  test('falls back to opus rather than emitting an empty --model flag', () => {
+    for (const model of [undefined, '', '   ']) {
+      const spec = buildReviewSpawnSpec({ ...base, model })
+
+      expect(spec.env.INTERSECT_REVIEW_MODEL).toBe('opus')
+      expect(spec.initialCommand).toContain('--model "$INTERSECT_REVIEW_MODEL"')
+    }
+  })
+
+  test('the model flag survives the credential scrub (its name is not secret-shaped)', () => {
+    const spec = buildReviewSpawnSpec({ ...base, model: 'opus' })
+    const scrub = spec.initialCommand.split('; claude')[0]
+
+    expect(scrub).not.toContain('INTERSECT_REVIEW_MODEL')
+  })
+
   test('adds the local draft MCP server without suppressing normal Claude configuration', () => {
     const spec = buildReviewSpawnSpec(base)
     const command = spec.initialCommand
@@ -124,7 +153,8 @@ describe('buildReviewSpawnSpec', () => {
         'AZURE_DEVOPS_*|PAT|PAT_*|*_PAT|*_PAT_*|TOKEN|TOKEN_*|*_TOKEN|*_TOKEN_*|' +
         'SECRET|SECRET_*|*_SECRET|*_SECRET_*|PASSWORD|PASSWORD_*|*_PASSWORD|*_PASSWORD_*) ' +
         'unset $_iv 2>/dev/null;; esac; done; ' +
-        'stty -ixon; claude --mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
+        'stty -ixon; claude --model "$INTERSECT_REVIEW_MODEL" ' +
+        '--mcp-config "$INTERSECT_REVIEW_MCP_CONFIG" ' +
         '--append-system-prompt "$INTERSECT_REVIEW_SYSTEM_PROMPT" -- "$INTERSECT_REVIEW_PROMPT"'
     )
     expect(spec.initialCommand).not.toContain("O'Brien")

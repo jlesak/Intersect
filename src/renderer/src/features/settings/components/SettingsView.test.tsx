@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render as renderClient } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi, type Mock } from 'vitest'
 import {
+  DEFAULT_PR_REVIEW_MODEL,
   DEFAULT_PR_REVIEW_PROMPT,
   type AppSettings,
   type EffectiveConfig,
@@ -43,7 +44,7 @@ const SETTINGS: AppSettings = {
   ado: { orgUrl: '', project: '', repository: '', pat: '' },
   adoFallback: { orgUrl: '', project: '', hasPat: false },
   appearance: { terminalFontSize: 12.5 },
-  review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+  review: { prompt: DEFAULT_PR_REVIEW_PROMPT, model: DEFAULT_PR_REVIEW_MODEL },
   session: { autoResume: true }
 }
 
@@ -249,7 +250,7 @@ describe('SettingsView', () => {
     const label = document.querySelector('label[for="ix-set-review-prompt"]')
     const textarea = document.querySelector<HTMLTextAreaElement>('#ix-set-review-prompt')
     const reset = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === 'Obnovit výchozí prompt'
+      (button) => button.textContent?.trim() === 'Obnovit výchozí prompt a model'
     )
 
     expect(navButton).toBeTruthy()
@@ -257,6 +258,20 @@ describe('SettingsView', () => {
     expect(textarea?.getAttribute('aria-describedby')).toBe('ix-set-review-prompt-hint')
     expect(textarea?.value).toBe(DEFAULT_PR_REVIEW_PROMPT)
     expect(reset?.getAttribute('type')).toBe('button')
+  })
+
+  test('exposes the review model field, defaulting to opus', async () => {
+    installIpc()
+    await renderSettings()
+    await selectCategory('PR Review')
+
+    const label = document.querySelector('label[for="ix-set-review-model"]')
+    const input = document.querySelector<HTMLInputElement>('#ix-set-review-model')
+
+    expect(label?.textContent).toBe('Model pro AI review')
+    expect(input?.getAttribute('aria-describedby')).toBe('ix-set-review-model-hint')
+    expect(input?.value).toBe(DEFAULT_PR_REVIEW_MODEL)
+    expect(input?.placeholder).toBe(DEFAULT_PR_REVIEW_MODEL)
   })
 
   test('exposes a Sessions category with the auto-resume toggle', async () => {

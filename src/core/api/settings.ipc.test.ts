@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { AdoConnectionResult, AdoSettings } from '@common/domain'
+import {
+  DEFAULT_PR_REVIEW_MODEL,
+  type AdoConnectionResult,
+  type AdoSettings,
+  type ReviewSettings
+} from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import { makeTestDb } from '../db/testkit'
 import {
@@ -147,24 +152,28 @@ describe('settings handlers', () => {
 
   test('setReview preserves the prompt exactly and returns the fresh settings', async () => {
     const prompt = '  Please review in English.\nDo not trim this line.  \n'
-    const result = await h.setReview({ prompt })
-    expect(result.review).toEqual({ prompt })
-    expect(settings.getReview()).toEqual({ prompt })
+    const result = await h.setReview({ prompt, model: 'sonnet' })
+    expect(result.review).toEqual({ prompt, model: 'sonnet' })
+    expect(settings.getReview()).toEqual({ prompt, model: 'sonnet' })
   })
 
   test('setReview rejects a malformed payload instead of persisting it', async () => {
-    await expect(h.setReview({ prompt: 42 } as unknown as { prompt: string })).rejects.toThrow(
-      /must be a string/
-    )
-    await expect(h.setReview(null as unknown as { prompt: string })).rejects.toThrow(
-      /must be a string/
-    )
+    const bad = (v: unknown): ReviewSettings => v as ReviewSettings
+    await expect(h.setReview(bad({ prompt: 42, model: 'opus' }))).rejects.toThrow(/must be a string/)
+    await expect(h.setReview(bad({ prompt: 'ok', model: 42 }))).rejects.toThrow(/must be a string/)
+    await expect(h.setReview(bad({ prompt: 'ok' }))).rejects.toThrow(/model must be a string/)
+    await expect(h.setReview(bad(null))).rejects.toThrow(/must be a string/)
     expect(settings.getReview()).toEqual(DEFAULT_REVIEW_SETTINGS)
   })
 
-  test('setReview persists only the prompt field, dropping extra keys', async () => {
-    await h.setReview({ prompt: 'clean', extra: 'junk' } as unknown as { prompt: string })
-    expect(settings.getReview()).toEqual({ prompt: 'clean' })
+  test('setReview persists only the known fields, dropping extra keys', async () => {
+    await h.setReview({ prompt: 'clean', model: 'opus', extra: 'junk' } as ReviewSettings)
+    expect(settings.getReview()).toEqual({ prompt: 'clean', model: 'opus' })
+  })
+
+  test('setReview treats a blank model as the default rather than an empty flag', async () => {
+    const result = await h.setReview({ prompt: 'p', model: '   ' })
+    expect(result.review.model).toBe(DEFAULT_PR_REVIEW_MODEL)
   })
 
   test('testAdoConnection probes the given form values without saving them', async () => {
@@ -220,9 +229,9 @@ describe('settingsWireRoutes', () => {
     expect(updated.appearance.terminalFontSize).toBe(15)
 
     const prompt = 'Review in my language\n'
-    const reviewed = (await call(Channel.settingsSetReview, { prompt })) as {
-      review: { prompt: string }
+    const reviewed = (await call(Channel.settingsSetReview, { prompt, model: 'opus' })) as {
+      review: ReviewSettings
     }
-    expect(reviewed.review.prompt).toBe(prompt)
+    expect(reviewed.review).toEqual({ prompt, model: 'opus' })
   })
 })

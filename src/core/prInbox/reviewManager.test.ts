@@ -88,6 +88,7 @@ async function harness() {
   const sentData: string[] = []
   const sentExit: number[] = []
   let reviewPrompt = 'Initial review prompt.'
+  let reviewModel = 'opus'
   const fakeSocketServer = {} as NetServer
   fakeSocketServer.on = vi.fn(() => fakeSocketServer) as typeof fakeSocketServer.on
   fakeSocketServer.once = vi.fn(() => fakeSocketServer) as typeof fakeSocketServer.once
@@ -132,6 +133,7 @@ async function harness() {
     sendExit: (code) => sentExit.push(code),
     onDraft: () => {},
     reviewPrompt: () => reviewPrompt,
+    reviewModel: () => reviewModel,
     draftServerPath: '/Applications/Intersect/draft server.js',
     createSocketServer: vi.fn(() => fakeSocketServer) as unknown as typeof import('node:net').createServer
   })
@@ -148,6 +150,9 @@ async function harness() {
     sentExit,
     setReviewPrompt: (prompt: string) => {
       reviewPrompt = prompt
+    },
+    setReviewModel: (model: string) => {
+      reviewModel = model
     }
   }
 }

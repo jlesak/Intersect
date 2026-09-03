@@ -551,6 +551,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     sendExit: (exitCode) => emitPush(Channel.prInboxReviewExit, exitCode),
     onDraft: (draft) => emitPush(Channel.prInboxDraftAdded, draft),
     reviewPrompt: () => settings.getReview().prompt,
+    reviewModel: () => settings.getReview().model,
     draftServerPath: join(__dirname, 'draftServer.js')
   })
   const prInboxHandlers = createPrInboxHandlers({

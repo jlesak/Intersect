@@ -141,6 +141,9 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
   await first.win.locator('#ix-set-review-prompt').fill(reviewPrompt)
+  // A fresh profile reviews on Opus without any configuration.
+  await expect(first.win.locator('#ix-set-review-model')).toHaveValue('opus')
+  await first.win.locator('#ix-set-review-model').fill('claude-opus-5')
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   const slider = first.win.locator('#ix-set-font-size')
@@ -158,10 +161,12 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
   await expect(second.win.locator('#ix-set-ado-repository')).toHaveValue('spot-repo')
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
   await expect(second.win.locator('#ix-set-review-prompt')).toHaveValue(reviewPrompt)
+  await expect(second.win.locator('#ix-set-review-model')).toHaveValue('claude-opus-5')
 
-  // Leave no custom prompt behind if this user-data directory is retained for troubleshooting.
-  await second.win.getByRole('button', { name: 'Obnovit výchozí prompt' }).click()
+  // Leave no custom prompt or model behind if this user-data directory is kept for troubleshooting.
+  await second.win.getByRole('button', { name: 'Obnovit výchozí prompt a model' }).click()
   await expect(second.win.locator('#ix-set-review-prompt')).toHaveValue(/^Zrecenzuj pull request/)
+  await expect(second.win.locator('#ix-set-review-model')).toHaveValue('opus')
 
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Vzhled' }).click()
   await expect(second.win.locator('.ix-set-slider__value')).toHaveText('20px')
