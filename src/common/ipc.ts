@@ -41,6 +41,7 @@ import type {
   PullRequest,
   ReviewSettings,
   ReviewSession,
+  SidebarLayout,
   RunningTimer,
   SessionSettings,
   SessionSummary,
@@ -444,6 +445,10 @@ export interface IpcApi {
      * one transaction, so a failure part-way leaves the previous state whole.
      */
     resetViewState(): Promise<void>
+    /** The sidebar sizes the user dragged, clamped to their bounds. Defaults on a fresh profile. */
+    getSidebarLayout(): Promise<SidebarLayout>
+    /** Persist the sidebar sizes and answer with what was actually stored after clamping. */
+    setSidebarLayout(layout: SidebarLayout): Promise<SidebarLayout>
     /**
      * The core service process's lifecycle as seen by main. Fired on every change and once
      * with the current status when the renderer loads, so a reload lands in the right state.
@@ -725,6 +730,8 @@ export const Channel = {
   systemQuitApp: 'system:quitApp',
   systemRevealUserData: 'system:revealUserData',
   systemResetViewState: 'system:resetViewState',
+  systemGetSidebarLayout: 'system:getSidebarLayout',
+  systemSetSidebarLayout: 'system:setSidebarLayout',
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',

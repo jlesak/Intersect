@@ -945,6 +945,38 @@ export interface AppSettings {
   session: SessionSettings
 }
 
+/**
+ * The sizes the user set by dragging the sidebar's dividers. `null` means "size to content", which
+ * is what every panel does until it is dragged for the first time - so a fresh install looks
+ * exactly as it did before any of this existed.
+ */
+export interface SidebarLayout {
+  /** Sidebar width in px. Ignored while the sidebar is collapsed to its icon rail. */
+  width: number
+  /** Section rail height in px; the rail scrolls inside it. Null sizes it to its buttons. */
+  railHeight: number | null
+  /** Claude usage panel height in px; it scrolls inside it. Null sizes it to its rows. */
+  usageHeight: number | null
+}
+
+/**
+ * Bounds every persisted sidebar size is clamped to on the way in and on the way out, so a bad
+ * value in the database (hand-edited, or written by a future version) can never produce a sidebar
+ * with no controls in it. The upper bounds are deliberately generous: the real ceiling is the
+ * window, which only the renderer knows, and it clamps again while dragging.
+ */
+export const SIDEBAR_WIDTH_MIN = 180
+export const SIDEBAR_WIDTH_MAX = 640
+export const SIDEBAR_PANEL_MIN = 64
+export const SIDEBAR_PANEL_MAX = 2000
+
+/** The sidebar as it looks before anyone drags anything. The width matches `--sidebar-w`. */
+export const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
+  width: 244,
+  railHeight: null,
+  usageHeight: null
+}
+
 /** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */
 export const TERMINAL_FONT_SIZE_MIN = 10
 export const TERMINAL_FONT_SIZE_MAX = 20

@@ -128,7 +128,7 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
  */
 export type SystemHandlers = Omit<
   IpcApi['system'],
-  'getPathForFile' | 'onCoreStatus' | 'resetViewState'
+  'getPathForFile' | 'onCoreStatus' | 'resetViewState' | 'getSidebarLayout' | 'setSidebarLayout'
 >
 
 /** System-level handlers: the allowlist-guarded bridge to the default browser + recovery. */

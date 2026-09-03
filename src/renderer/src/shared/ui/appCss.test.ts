@@ -66,3 +66,40 @@ describe('the sidebar middle slot', () => {
     expect(ruleBody('.ix-sidebar')).toMatch(/overflow-y:\s*auto/)
   })
 })
+
+/**
+ * The sidebar's panels can now be dragged to a height. A panel given one must scroll inside it
+ * rather than grow, for the same reason the middle slot above must keep its floor: a panel that
+ * overflows its own box paints over the controls above it, which then look normal and take no
+ * clicks. The dragged height comes from an inline style, so `overflow-y` here is the only thing
+ * standing between a user's drag and that trap.
+ */
+describe('the resizable sidebar panels', () => {
+  test('the section rail scrolls inside whatever height it is given', () => {
+    const rail = ruleBody('.ix-rail')
+    expect(rail).toMatch(/overflow-y:\s*auto/)
+    expect(rail).toMatch(/flex:\s*none/)
+  })
+
+  test('the usage slot scrolls inside whatever height it is given', () => {
+    const usage = ruleBody('.ix-sidebar__usage')
+    expect(usage).toMatch(/overflow-y:\s*auto/)
+    expect(usage).toMatch(/flex:\s*none/)
+  })
+
+  test('the middle slot holds the two horizontal dividers apart', () => {
+    // With nothing between them the dividers land on the same pixel and the lower one takes every
+    // press, so dragging the section rail silently resized the usage panel instead.
+    const slot = ruleBody('.ix-sidebar__slot')
+    expect(slot).toMatch(/flex:\s*1/)
+    expect(slot).toMatch(/min-height:\s*min-content/)
+    expect(slot).not.toMatch(/min-height:\s*0/)
+  })
+
+  test('the width divider tracks the sidebar column rather than a fixed offset', () => {
+    // The grid column is the single source of the sidebar's width; a hard-coded left would drift
+    // away from the edge it is supposed to sit on the moment the width changes.
+    expect(ruleBody('.ix-resizer--vertical')).toMatch(/left:\s*calc\(var\(--sidebar-w\)/)
+    expect(ruleBody('.ix-app')).toMatch(/position:\s*relative/)
+  })
+})
