@@ -311,16 +311,20 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return d.review.start(pr, context, DEFAULT_COLS, DEFAULT_ROWS)
     },
 
-    async endReview() {
-      await d.review.end()
+    async listActiveReviews() {
+      return d.review.listLive()
     },
 
-    reviewInput(data) {
-      d.review.input(data)
+    async endReview(sessionId) {
+      await d.review.end(sessionId)
     },
 
-    reviewResize(cols, rows) {
-      d.review.resize(cols, rows)
+    reviewInput(sessionId, data) {
+      d.review.input(sessionId, data)
+    },
+
+    reviewResize(sessionId, cols, rows) {
+      d.review.resize(sessionId, cols, rows)
     }
   }
 }
@@ -344,6 +348,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
     [Channel.prInboxPublishDraft]: h.publishDraft,
     [Channel.prInboxCastVote]: h.castVote,
     [Channel.prInboxStartReview]: h.startReview,
+    [Channel.prInboxListActiveReviews]: h.listActiveReviews,
     [Channel.prInboxEndReview]: h.endReview,
     [Channel.prInboxReviewInput]: h.reviewInput,
     [Channel.prInboxReviewResize]: h.reviewResize

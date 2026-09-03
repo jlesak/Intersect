@@ -439,7 +439,10 @@ export type NewManualDraft = Pick<
 export const REVIEW_STATUSES = ['running', 'completed', 'failed', 'cleaned'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
 
-/** One AI review run bound to a git worktree. At most one is live at a time (non-goal: batch). */
+/**
+ * One AI review run bound to a git worktree. Several can be live at once, one per pull request,
+ * up to the concurrency ceiling the review manager enforces.
+ */
 export interface ReviewSession {
   id: string
   prId: number

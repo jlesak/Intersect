@@ -31,8 +31,8 @@ export type NewReviewSession = Pick<
 
 export interface ReviewSessionRepo {
   create(input: NewReviewSession): ReviewSession
-  /** The single running session, if any (enforces the one-live-review invariant). */
-  getActive(): ReviewSession | undefined
+  /** Every session still marked running, oldest first. Several may be live at once. */
+  listActive(): ReviewSession[]
   get(id: string): ReviewSession | undefined
   setStatus(id: string, status: ReviewStatus): ReviewSession
   remove(id: string): void
@@ -62,11 +62,11 @@ export function createReviewSessionRepo(db: DatabaseSync, deps: RepoDeps): Revie
       return mustGet(id)
     },
 
-    getActive() {
-      const row = db
-        .prepare("SELECT * FROM review_session WHERE status = 'running' ORDER BY created_at LIMIT 1")
-        .get() as ReviewRow | undefined
-      return row ? toSession(row) : undefined
+    listActive() {
+      const rows = db
+        .prepare("SELECT * FROM review_session WHERE status = 'running' ORDER BY created_at, rowid")
+        .all() as unknown as ReviewRow[]
+      return rows.map(toSession)
     },
 
     get,
