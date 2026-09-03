@@ -1010,49 +1010,8 @@
 .ix-mw-loading.ix-board-stale {
   padding: 0 18px 4px;
 }
-/* Laid out as a flex row rather than as three equal tracks, so a column with nothing in it can step
-   out of the way and give its width to the ones that do. */
-.ix-board {
-  display: flex;
-  gap: 12px;
-  padding: 10px 18px 18px;
-  overflow-y: auto;
-  align-items: start;
-  flex: 1;
-  min-height: 0;
-}
-.ix-board-col {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.ix-board-col__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 9px;
-}
-/* An empty column shrinks to a strip, keeping its name turned on its side: a board of anonymous
-   strips cannot be read at all. */
-.ix-board-col--collapsed {
-  flex: 0 0 auto;
-  width: 30px;
-}
-.ix-board-col--collapsed .ix-board-col__head {
-  flex-direction: column;
-  gap: 7px;
-}
-.ix-board-col--collapsed .ix-eyebrow {
-  writing-mode: vertical-rl;
-}
-.ix-board-col--collapsed .ix-board-col__count {
-  padding: 2px 0;
-}
-.ix-board-col__label--action {
-  color: var(--accent);
-}
-.ix-board-col__label--approved {
-  color: var(--status-done);
-}
+/* Kept for the counts beside a heading in the PR detail, which the board no longer has columns to
+   use it for. */
 .ix-board-col__count {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -1061,44 +1020,323 @@
   border-radius: 9px;
   padding: 0 7px;
 }
-.ix-board-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 10px 12px;
-  margin-bottom: 9px;
+
+/* ---------------- PR review: the status table ---------------- */
+/* One pile at a time, chosen here rather than shown as three columns side by side: a column layout
+   spends two thirds of the width on piles the reader is not working through. */
+.ix-prtabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.ix-prtabs__tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px 6px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
-.ix-board-card:hover {
+.ix-prtabs__tab:hover {
+  color: var(--text);
+}
+.ix-prtabs__tab[aria-selected='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.ix-prtabs__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ix-prtabs__count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
   background: var(--panel-2);
-  border-color: var(--border-strong);
+  border-radius: 9px;
+  padding: 0 6px;
 }
-.ix-board-card--urgent {
-  border-left: 3px solid var(--accent);
+/* The panel the tabs switch. Claims the rest of the view so the table inside it can scroll rather
+   than push the window. */
+.ix-prpanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
-.ix-board-card__title {
+/* The table scrolls in both directions inside its own box. A narrow window shrinks the title
+   column to nothing long before it breaks the cells beside it, so below the grid's own width the
+   reader gets a horizontal scrollbar instead of a folded layout. */
+.ix-prtable {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 18px 18px;
+}
+.ix-prtable__grid {
+  min-width: 900px;
+}
+.ix-prtable__head,
+.ix-prtable__row {
+  display: grid;
+  grid-template-columns: 100px minmax(260px, 1fr) 140px 132px 78px 66px;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 6px;
+}
+.ix-prtable__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.ix-prtable__row {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ix-prtable__row:hover {
+  background: var(--panel-2);
+}
+.ix-prtable__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* My own pull requests, marked on the row itself: an author has to be able to pick them out of the
+   All active list without reading the meta line of every row. */
+.ix-prtable__row--mine {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.ix-prtable__cell {
+  min-width: 0;
+}
+.ix-prtable__pr {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.ix-prtable__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ix-prtable__title,
+.ix-prtable__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ix-prtable__title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 3px;
 }
-.ix-board-card__meta {
+.ix-prtable__meta {
   font-size: 11.5px;
   color: var(--text-faint);
 }
-.ix-board-card__row {
+.ix-prtable__mine {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+.ix-prtable__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.ix-prtable__votes {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
-  margin-top: 7px;
+  min-width: 0;
 }
-.ix-board-card__votes {
-  margin-left: auto;
+.ix-prtable__age {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The verb: what this pull request asks of me. One fixed width for all five, so the column reads as
+   a rail down the left of the table rather than as five pills of different sizes. */
+.ix-verb {
+  display: inline-block;
+  box-sizing: border-box;
+  min-width: 92px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+}
+/* Only the vote I owe is filled in: a table where every row shouts says nothing. */
+.ix-verb--review {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.ix-verb--rereview {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ix-verb--respond {
+  border-color: var(--status-waiting);
+  background: var(--status-waiting-soft);
+  color: var(--status-waiting);
+}
+.ix-verb--wait {
+  border-color: var(--border-strong);
+  color: var(--text-faint);
+}
+.ix-verb--done {
+  border-color: var(--status-done);
+  background: var(--status-done-soft);
+  color: var(--status-done);
+}
+
+/* The reviewer votes rolled up into the one state that decides the pull request. */
+.ix-votestat {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.ix-votestat--rejected {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.ix-votestat--waiting {
+  border-color: var(--status-waiting);
+  background: var(--status-waiting-soft);
+  color: var(--status-waiting);
+}
+.ix-votestat--approved {
+  border-color: var(--status-done);
+  background: var(--status-done-soft);
+  color: var(--status-done);
+}
+.ix-votestat--none {
+  color: var(--text-faint);
+}
+
+/* Unresolved comment threads. Dimmed to a dash at zero, so a scan down the column finds the rows
+   that carry an open conversation rather than a column of noughts. */
+.ix-unres {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ix-unres svg {
+  color: var(--text-faint);
+}
+.ix-unres--zero {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+/* One person, as a circle of initials in their own stable colour (see shared/ui/avatar.ts). */
+.ix-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: #f4f7fb;
+}
+/* Painted as two rings so the ring never eats into the initials: the inner one is the row's own
+   background, the outer one the accent. */
+.ix-avatar--ring {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+/* A reviewer's vote, as a glyph on the corner of their avatar. */
+.ix-vote-badge {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.ix-vote-badge .ix-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+}
+.ix-vote-badge__dot {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
+  border-radius: 50%;
   display: flex;
-  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  font-style: normal;
 }
+.ix-vote-badge__dot--approved {
+  background: #8fce9b;
+  color: #062512;
+}
+.ix-vote-badge__dot--approvedWithSuggestions {
+  background: #8bd4d0;
+  color: #062522;
+}
+.ix-vote-badge__dot--waiting {
+  background: var(--status-waiting);
+  color: #2a2206;
+}
+.ix-vote-badge__dot--rejected {
+  background: var(--danger);
+  color: #2a0d0d;
+}
+.ix-vote-badge__dot--noVote {
+  background: var(--panel-3);
+}
+
 /* Chip base and the accent variant live in theme.css; only feature variants here. */
 .ix-chip--review {
   color: #8fce9b;
@@ -1131,45 +1369,6 @@
   border-radius: 50%;
   background: var(--accent);
   align-self: center;
-}
-.ix-pr-vote {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 3px;
-  border: 1px solid transparent;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.ix-pr-vote--approved {
-  color: #8fce9b;
-  border-color: rgba(143, 206, 155, 0.4);
-  background: rgba(143, 206, 155, 0.12);
-}
-.ix-pr-vote--approvedWithSuggestions {
-  color: #8bd4d0;
-  border-color: rgba(139, 212, 208, 0.4);
-  background: rgba(139, 212, 208, 0.12);
-}
-.ix-pr-vote--waiting {
-  color: var(--accent);
-  border-color: rgba(76, 201, 232, 0.4);
-  background: var(--accent-soft);
-}
-.ix-pr-vote--rejected {
-  color: var(--danger);
-  border-color: rgba(224, 106, 106, 0.4);
-  background: var(--danger-soft);
-}
-.ix-pr-vote--noVote {
-  color: var(--text-faint);
-  border-color: var(--border-strong);
-  background: transparent;
 }
 
 /* ---------------- PR review inbox: main detail ---------------- */
@@ -2407,8 +2606,10 @@
   padding: 0 18px;
   margin-bottom: 4px;
 }
-.ix-boardfilter--pr + .ix-boardfilter__none {
-  padding: 0 18px 6px;
+/* Inside the PR table's panel the line stands where the table would, so it takes the table's own
+   side padding rather than sitting flush against the edge of the view. */
+.ix-prpanel .ix-boardfilter__none {
+  padding: 14px 18px;
 }
 
 /* ---------------- My Work: Jira kanban board ---------------- */

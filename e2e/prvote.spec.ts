@@ -49,7 +49,9 @@ test('voting on a reviewed PR activates the clicked button and survives a re-syn
   // on the board now, so step back, sync, and reopen the PR.
   await win.getByTestId('pr-back').click()
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  // My vote is in now, so the pull request has left the reviews-owed tab the board opens on.
+  await win.getByTestId('pr-tab-all').click()
+  await win.getByTestId('pr-row').filter({ hasText: 'Fix PTY backpressure' }).click()
   await expect(
     win.locator('.ix-pr-vote-group .ix-pr-vote-btn--active-approved')
   ).toHaveCount(1)
@@ -72,11 +74,13 @@ test('switching my vote moves the active state to the newly clicked button', asy
 test('an already-voted PR reflects my standing vote when opened', async () => {
   const { win } = await launch()
 
-  // PR 503 comes from the stub with my vote already 'approved'; it sits in the Approved column.
+  // PR 503 comes from the stub with my vote already 'approved', so it asks nothing of me and is
+  // only reachable through All active.
   await win.locator('.ix-rail__btn', { hasText: 'PR Review' }).click()
   await win.locator('.ix-btn', { hasText: 'Sync' }).click()
+  await win.getByTestId('pr-tab-all').click()
   await win
-    .getByTestId('pr-card')
+    .getByTestId('pr-row')
     .filter({ hasText: 'Extract the notification preferences screen' })
     .click()
   await expect(win.locator('.ix-pr-header__title')).toHaveText(

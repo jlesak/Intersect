@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PullRequest } from '@common/domain'
-import { approvalCount, groupPrs, initials } from './prGroups'
+import { approvalCount, groupPrs } from './prGroups'
 
 const pr = (prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   prId,
@@ -93,18 +93,5 @@ describe('approvalCount', () => {
       })
     )
     expect(count).toBe(2)
-  })
-})
-
-describe('initials', () => {
-  test.each([
-    ['Jan Lesák', 'JL'],
-    ['Marek K.', 'MK'],
-    ['  Tereza   Nova  ', 'TN'],
-    ['Cher', 'C'],
-    ['anna beata carla', 'AB'],
-    ['', '?']
-  ])('%s -> %s', (name, expected) => {
-    expect(initials(name)).toBe(expected)
   })
 })

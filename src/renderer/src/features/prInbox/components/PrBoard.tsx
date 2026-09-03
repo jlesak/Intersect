@@ -1,18 +1,46 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { PullRequest } from '@common/domain'
+import { boardColumn, compareQueue } from '@common/prBoard'
 import { formatRelativeTime } from '@renderer/features/myWork'
 import { MultiSelectFilter } from '@renderer/shared/ui/MultiSelectFilter'
 import { useNow } from '@renderer/shared/ui/useNow'
 import { NO_PR_FILTER, type PrBoardFilter, filterPrs, prFilterOptions } from '../boardFilter'
-import { groupBoardColumns, selectPrList, usePrInboxStore } from '../store'
-import { PrCard } from './PrCard'
+import { selectPrList, usePrInboxStore } from '../store'
+import { PrRow } from './PrRow'
 
-const COLUMNS: Array<{ key: 'action' | 'waiting' | 'approved'; label: string }> = [
-  { key: 'action', label: 'Needs my action' },
-  { key: 'waiting', label: 'Waiting on others' },
-  { key: 'approved', label: 'Approved' }
-]
+/**
+ * The three questions the table is asked, as tabs.
+ *
+ * "To review" is other people's work waiting on my vote, which is the only pile that grows while I
+ * ignore it. "Mine" is everything I authored, whatever state it is in - a place I can go to rather
+ * than a marker I have to spot. "All active" is the fallback for anything the first two exclude,
+ * such as a pull request I already voted on.
+ */
+const TABS = [
+  {
+    key: 'review',
+    label: 'To review',
+    holds: (pr: PullRequest) => pr.role === 'reviewer' && boardColumn(pr) === 'action'
+  },
+  { key: 'mine', label: 'Mine', holds: (pr: PullRequest) => pr.role === 'author' },
+  { key: 'all', label: 'All active', holds: () => true }
+] as const
+
+type TabKey = (typeof TABS)[number]['key']
+
+/** The one panel the three tabs switch, named so each tab can point at it. */
+const PANEL_ID = 'pr-board-panel'
+
+/** The table's column headings, in order. */
+const HEADINGS = [
+  'My action',
+  'Pull request',
+  'Vote status',
+  'Reviewers',
+  'Unresolved',
+  'Updated'
+] as const
 
 /**
  * How stale the board has to be before its freshness stops being a quiet fact and starts being a
@@ -43,25 +71,38 @@ function SyncChip({ syncedAt, now }: { syncedAt: number | null; now: number }) {
   )
 }
 
-/** The PR Review landing view: every synced PR as a card in one of three action columns. */
+/** The PR Review landing view: every synced PR as a row in one dense status table. */
 export function PrBoard() {
   const prs = usePrInboxStore(useShallow(selectPrList))
-  // Kept here rather than in the store: a narrowing is a question about the board in front of you,
-  // not a property of the synced data, and it should be gone by the time you come back to it.
+  // Both of these are questions about the board in front of you rather than properties of the
+  // synced data, and both should be gone by the time you come back to it.
+  const [tab, setTab] = useState<TabKey>('review')
   const [filter, setFilter] = useState<PrBoardFilter>(NO_PR_FILTER)
-  const options = useMemo(() => prFilterOptions(prs), [prs])
-  const shown = useMemo(() => filterPrs(prs, filter), [prs, filter])
-  const cols = useMemo(() => groupBoardColumns(shown), [shown])
+  // The tab decides which pull requests exist for this reading of the board, and the filter narrows
+  // within it. The counts on the tabs themselves ignore the filter: they say how much work each
+  // pile holds, and a count that moved as you typed could not be used to choose a pile.
+  const inTab = useMemo(() => {
+    const holds = TABS.find((t) => t.key === tab)!.holds
+    return prs.filter(holds)
+  }, [prs, tab])
+  // Offered from the tab rather than from the whole board, so the chip never offers a repository
+  // that could only ever empty the table.
+  const options = useMemo(() => prFilterOptions(inTab), [inTab])
+  const shown = useMemo(() => filterPrs(inTab, filter).sort(compareQueue), [inTab, filter])
+  const counts = useMemo(
+    () => Object.fromEntries(TABS.map((t) => [t.key, prs.filter(t.holds).length])),
+    [prs]
+  )
   const syncing = usePrInboxStore((s) => s.syncing)
   const syncedAt = usePrInboxStore((s) => s.syncedAt)
   const syncError = usePrInboxStore((s) => s.syncError)
   const unfinishedStatus = usePrInboxStore((s) => s.unfinishedReviewsStatus)
   const unfinishedError = usePrInboxStore((s) => s.unfinishedReviewsError)
-  // Freshness and every card's age are only true at the moment they are rendered, so the board
+  // Freshness and every row's age are only true at the moment they are rendered, so the board
   // keeps its own clock rather than freezing at whatever the time was when it mounted.
   const now = useNow(60_000)
-  // "Nothing to review" is a statement about the synced board, so it survives a filter that
-  // happens to match nothing - that case has its own, quite different, thing to say.
+  // "Nothing to review" is a statement about the synced board, so it survives a tab or a filter
+  // that happens to match nothing - those cases have their own, quite different, things to say.
   const empty = prs.length === 0
 
   return (
@@ -122,38 +163,60 @@ export function PrBoard() {
               selection={filter.repos}
               onChange={(repos) => setFilter((f) => ({ ...f, repos }))}
             />
-            {shown.length !== prs.length && (
+            {shown.length !== inTab.length && (
               <span className="ix-boardfilter__count" data-testid="pr-filter-count">
-                {shown.length} of {prs.length}
+                {shown.length} of {inTab.length}
               </span>
             )}
           </div>
-          {/* All three columns collapse when nothing survives, and a row of unlabelled strips looks
-              like a board that failed to load rather than one that found nothing. */}
-          {shown.length === 0 && (
-            <div className="ix-boardfilter__none">No pull requests match this filter.</div>
-          )}
-          <div className="ix-board" data-testid="pr-board">
-            {COLUMNS.map((col) => (
-              <div
-                key={col.key}
-                className={`ix-board-col${cols[col.key].length === 0 ? ' ix-board-col--collapsed' : ''}`}
-                data-testid={`pr-col-${col.key}`}
+          <div className="ix-prtabs" role="tablist" aria-label="Pull request lists">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                id={`pr-tab-${t.key}`}
+                type="button"
+                role="tab"
+                className="ix-prtabs__tab"
+                aria-selected={tab === t.key}
+                aria-controls={PANEL_ID}
+                data-testid={`pr-tab-${t.key}`}
+                onClick={() => setTab(t.key)}
               >
-                <div className="ix-board-col__head">
-                  <span className={`ix-eyebrow ix-board-col__label--${col.key}`}>{col.label}</span>
-                  <span className="ix-board-col__count">{cols[col.key].length}</span>
-                </div>
-                {cols[col.key].map((pr: PullRequest) => (
-                  <PrCard
-                    key={`${pr.repositoryId}:${pr.prId}`}
-                    pr={pr}
-                    urgent={col.key === 'action'}
-                    now={now}
-                  />
-                ))}
-              </div>
+                {t.label}
+                <span className="ix-prtabs__count">{counts[t.key]}</span>
+              </button>
             ))}
+          </div>
+          <div
+            id={PANEL_ID}
+            role="tabpanel"
+            aria-labelledby={`pr-tab-${tab}`}
+            className="ix-prpanel"
+          >
+            {/* A table of headings over nothing looks like a board that failed to load rather than
+                one that found nothing, so the reason is stated in the table's place. */}
+            {shown.length === 0 ? (
+              <div className="ix-boardfilter__none">
+                {inTab.length === 0
+                  ? 'Nothing in this list right now.'
+                  : 'No pull requests match this filter.'}
+              </div>
+            ) : (
+              <div className="ix-prtable" data-testid="pr-table">
+                <div className="ix-prtable__grid">
+                  <div className="ix-prtable__head">
+                    {HEADINGS.map((heading) => (
+                      <span key={heading} className="ix-eyebrow">
+                        {heading}
+                      </span>
+                    ))}
+                  </div>
+                  {shown.map((pr) => (
+                    <PrRow key={`${pr.repositoryId}:${pr.prId}`} pr={pr} now={now} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

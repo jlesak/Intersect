@@ -4,7 +4,8 @@ import type { PullRequest } from '@common/domain'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
 import { launchFromPullRequest } from '@renderer/features/workItems'
 import { RowActions } from '@renderer/shared/ui/RowActions'
-import { approvalCount, groupPrs, initials, type PrGroups } from '../prGroups'
+import { initials } from '@renderer/shared/ui/avatar'
+import { approvalCount, groupPrs, type PrGroups } from '../prGroups'
 import { formatRelativeTime, useMyWorkStore } from '../store'
 
 const GROUPS: Array<{ key: keyof PrGroups; label: string }> = [
