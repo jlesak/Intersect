@@ -23,7 +23,7 @@ beforeEach(() => {
       }
     }
   }
-  useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, loaded: false })
+  useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, loaded: false, touched: false })
 })
 
 /** Let the debounced write fire. */
@@ -43,6 +43,18 @@ describe('the sidebar layout store', () => {
       usageHeight: 140,
       loaded: true
     })
+  })
+
+  test('a drag that lands while the read is in flight is not undone by it', async () => {
+    // The dividers are live from the first paint, so this is reachable: without the guard the
+    // stored width lands on top of the user's own, and the debounced write then persists it.
+    stored = { width: 300, railHeight: null, usageHeight: null }
+    const reading = useSidebarLayoutStore.getState().hydrate()
+    useSidebarLayoutStore.getState().setWidth(420)
+    await reading
+
+    expect(useSidebarLayoutStore.getState().width).toBe(420)
+    expect(useSidebarLayoutStore.getState().loaded).toBe(true)
   })
 
   test('a failed read still leaves a usable, resizable sidebar', async () => {

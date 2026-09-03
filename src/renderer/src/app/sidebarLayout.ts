@@ -24,6 +24,12 @@ export const SAVE_DELAY_MS = 400
 interface SidebarLayoutState extends SidebarLayout {
   /** False until the saved sizes arrive; the sidebar renders its defaults until then. */
   loaded: boolean
+  /**
+   * True once the user has moved a divider. The dividers are live from the first paint, so a drag
+   * can land while the saved sizes are still on their way; applying them then would put the user's
+   * own size back to what was stored and persist that.
+   */
+  touched: boolean
   hydrate(): Promise<void>
   setWidth(px: number): void
   setRailHeight(px: number | null): void
@@ -47,11 +53,13 @@ const current = (s: SidebarLayoutState): SidebarLayout => ({
 export const useSidebarLayoutStore = createStore<SidebarLayoutState>()((set, get) => ({
   ...DEFAULT_SIDEBAR_LAYOUT,
   loaded: false,
+  touched: false,
 
   async hydrate() {
     try {
       const layout = await ipc().system.getSidebarLayout()
-      set({ ...layout, loaded: true })
+      // A drag that landed while this read was in flight is the newer decision; keep it.
+      set(get().touched ? { loaded: true } : { ...layout, loaded: true })
     } catch (e) {
       // Defaults still resize; the next drag retries the write.
       set({ loaded: true })
@@ -61,19 +69,19 @@ export const useSidebarLayoutStore = createStore<SidebarLayoutState>()((set, get
 
   setWidth(px) {
     const width = Math.round(Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, px)))
-    set({ width })
+    set({ width, touched: true })
     save({ ...current(get()), width })
   },
 
   setRailHeight(px) {
     const railHeight = px === null ? null : Math.round(Math.max(SIDEBAR_PANEL_MIN, px))
-    set({ railHeight })
+    set({ railHeight, touched: true })
     save({ ...current(get()), railHeight })
   },
 
   setUsageHeight(px) {
     const usageHeight = px === null ? null : Math.round(Math.max(SIDEBAR_PANEL_MIN, px))
-    set({ usageHeight })
+    set({ usageHeight, touched: true })
     save({ ...current(get()), usageHeight })
   },
 
