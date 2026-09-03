@@ -7,6 +7,7 @@ import {
   type EffectiveConfig,
   type RawTargetView
 } from '@common/domain'
+import { useSettingsStore } from '../store'
 import { SettingsView } from './SettingsView'
 
 // Monaco cannot run under jsdom and must stay out of every bundle a test can reach, so the raw
@@ -258,6 +259,21 @@ describe('SettingsView', () => {
     expect(textarea?.getAttribute('aria-describedby')).toBe('ix-set-review-prompt-hint')
     expect(textarea?.value).toBe(DEFAULT_PR_REVIEW_PROMPT)
     expect(reset?.getAttribute('type')).toBe('button')
+  })
+
+  test('the review fields stay locked until the saved settings arrive', async () => {
+    // Both fields are persisted as one document, so an edit made against the placeholder defaults
+    // would write `opus` over a saved custom model (or the built-in prompt over a saved one).
+    installIpc()
+    const bridge = (window as unknown as { intersect: { settings: { get: () => Promise<never> } } })
+      .intersect
+    bridge.settings.get = () => new Promise<never>(() => {})
+    useSettingsStore.setState({ status: 'idle' })
+    await renderSettings()
+    await selectCategory('PR Review')
+
+    expect(document.querySelector<HTMLInputElement>('#ix-set-review-model')?.disabled).toBe(true)
+    expect(document.querySelector<HTMLTextAreaElement>('#ix-set-review-prompt')?.disabled).toBe(true)
   })
 
   test('exposes the review model field, defaulting to opus', async () => {

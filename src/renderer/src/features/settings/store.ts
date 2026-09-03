@@ -57,8 +57,7 @@ interface SettingsState {
   setReviewPrompt(prompt: string): Promise<void>
   /** The model every review starts on; blank is saved as the default, never as an empty flag. */
   setReviewModel(model: string): Promise<void>
-  /** Restore and immediately persist the shared built-in prompt. */
-  /** Restore both the default prompt and the default model. */
+  /** Restore and immediately persist both the built-in prompt and the default model. */
   resetReviewDefaults(): Promise<void>
   /** Flip automatic resume-after-quit; persists immediately. */
   setAutoResume(value: boolean): Promise<void>

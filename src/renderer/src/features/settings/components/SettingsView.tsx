@@ -244,6 +244,9 @@ function AdoPane() {
 function ReviewPane() {
   const prompt = useSettingsStore((s) => s.review.prompt)
   const model = useSettingsStore((s) => s.review.model)
+  // Both fields are written as one document, so an edit made before the saved settings arrived
+  // would persist this pane's placeholder defaults over the other field's real value.
+  const loaded = useSettingsStore((s) => s.status === 'ready')
 
   return (
     <>
@@ -262,6 +265,7 @@ function ReviewPane() {
           spellCheck={false}
           aria-describedby="ix-set-review-model-hint"
           placeholder={DEFAULT_PR_REVIEW_MODEL}
+          disabled={!loaded}
           value={model}
           onChange={(e) => void useSettingsStore.getState().setReviewModel(e.target.value)}
         />
@@ -277,6 +281,7 @@ function ReviewPane() {
           className="ix-input ix-settings__prompt"
           aria-describedby="ix-set-review-prompt-hint"
           spellCheck={true}
+          disabled={!loaded}
           value={prompt}
           onChange={(e) => void useSettingsStore.getState().setReviewPrompt(e.target.value)}
         />
@@ -284,6 +289,7 @@ function ReviewPane() {
       <button
         type="button"
         className="ix-btn"
+        disabled={!loaded}
         onClick={() => void useSettingsStore.getState().resetReviewDefaults()}
       >
         Obnovit výchozí prompt a model

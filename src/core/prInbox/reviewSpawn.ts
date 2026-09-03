@@ -52,7 +52,11 @@ export interface SpawnSpec {
 }
 
 const REVIEW_PROMPT_ENV = 'INTERSECT_REVIEW_PROMPT'
-const REVIEW_MODEL_ENV = 'INTERSECT_REVIEW_MODEL'
+/**
+ * Exported so a test can hold the name itself to the one rule that matters: both scrub layers
+ * work by name, so a rename into a credential-shaped name would silently unset the model.
+ */
+export const REVIEW_MODEL_ENV = 'INTERSECT_REVIEW_MODEL'
 const REVIEW_MCP_CONFIG_ENV = 'INTERSECT_REVIEW_MCP_CONFIG'
 const REVIEW_SYSTEM_PROMPT_ENV = 'INTERSECT_REVIEW_SYSTEM_PROMPT'
 
@@ -61,7 +65,7 @@ function assertEnvironmentValue(name: string, value: string): void {
 }
 
 /** Substrings that mark a variable name as credential-shaped, at a `_`/start/end boundary. */
-const SECRET_ENV_TOKENS = ['PAT', 'TOKEN', 'SECRET', 'PASSWORD']
+export const SECRET_ENV_TOKENS = ['PAT', 'TOKEN', 'SECRET', 'PASSWORD']
 
 /** Keys that must never enter the review session's environment (Azure DevOps PAT and any secret). */
 const SECRET_ENV = new RegExp(`^AZURE_DEVOPS_|(^|_)(${SECRET_ENV_TOKENS.join('|')})($|_)`, 'i')

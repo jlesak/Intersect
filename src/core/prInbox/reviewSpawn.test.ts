@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildReviewSpawnSpec } from './reviewSpawn'
+import { buildReviewSpawnSpec, REVIEW_MODEL_ENV, SECRET_ENV_TOKENS } from './reviewSpawn'
 
 const base = {
   shell: '/bin/zsh',
@@ -52,11 +52,20 @@ describe('buildReviewSpawnSpec', () => {
     }
   })
 
-  test('the model flag survives the credential scrub (its name is not secret-shaped)', () => {
-    const spec = buildReviewSpawnSpec({ ...base, model: 'opus' })
-    const scrub = spec.initialCommand.split('; claude')[0]
+  test('the model variable is not credential-shaped, so neither scrub layer removes it', () => {
+    // Both layers match on the NAME - the spawn-environment strip by regex, the in-shell scrub by
+    // the same tokens as case globs - so this is the rule a rename would break.
+    for (const token of SECRET_ENV_TOKENS) {
+      expect(REVIEW_MODEL_ENV).not.toMatch(new RegExp(`(^|_)${token}($|_)`, 'i'))
+    }
+    expect(REVIEW_MODEL_ENV).not.toMatch(/^AZURE_DEVOPS_/i)
 
-    expect(scrub).not.toContain('INTERSECT_REVIEW_MODEL')
+    const spec = buildReviewSpawnSpec({
+      ...base,
+      env: { ...base.env, [REVIEW_MODEL_ENV]: 'ambient-should-be-replaced' },
+      model: 'opus'
+    })
+    expect(spec.env[REVIEW_MODEL_ENV]).toBe('opus')
   })
 
   test('adds the local draft MCP server without suppressing normal Claude configuration', () => {
