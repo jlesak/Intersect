@@ -133,7 +133,10 @@ export interface DraftComment {
 export const REVIEW_STATUSES = ['running', 'completed', 'failed', 'cleaned'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
 
-/** One AI review run bound to a git worktree. At most one is live at a time (non-goal: batch). */
+/**
+ * One AI review run bound to a git worktree. Several are live at once, one per pull request, up
+ * to the concurrency ceiling the review manager enforces (see #124).
+ */
 export interface ReviewSession {
   id: string
   prId: number
@@ -182,12 +185,13 @@ export interface IpcApi {
     discardDraft(id: string): Promise<void>
     publishDraft(id: string): Promise<DraftComment>                  // THE guarded write (§8)
     startReview(repositoryId: string, prId: number): Promise<ReviewSession>
-    endReview(): Promise<void>                                       // kill PTY + remove worktree
-    // review terminal I/O (single live session)
-    reviewInput(data: string): void
-    reviewResize(cols: number, rows: number): void
-    onReviewData(cb: (data: string) => void): () => void
-    onReviewExit(cb: (exitCode: number) => void): () => void
+    listActiveReviews(): Promise<ReviewSession[]>                    // rebind after a reload
+    endReview(sessionId: string): Promise<void>                      // kill PTY + remove worktree
+    // review terminal I/O, addressed by review session id (several run at once)
+    reviewInput(sessionId: string, data: string): void
+    reviewResize(sessionId: string, cols: number, rows: number): void
+    onReviewData(cb: (msg: ReviewDataEvent) => void): () => void
+    onReviewExit(cb: (msg: ReviewExitEvent) => void): () => void
   }
 }
 ```
@@ -375,7 +379,7 @@ denied without prompting) + system-prompt instruction. Publishing to ADO exists 
 - `start(repoId, prId, deps)`: resolve repoDir -> create worktree -> write the mcp-config JSON
   (intersectReview: `node out/main/draftServer.js` with env; azureDevOps: cloned from `~/.claude.json`)
   to a temp path -> build spec -> spawn PTY (injected `spawn` seam, defaults to `nodePtySpawn` - the
-  sanctioned node-pty wrapper; single live session) -> wire `onData -> prInbox:reviewData`,
+  sanctioned node-pty wrapper; one live session per pull request) -> wire `onData -> prInbox:reviewData`,
   `onExit -> prInbox:reviewExit` + mark `completed` -> persist `review_session`.
 - `input/resize/kill`; `end()` kills PTY + `removeWorktree` + status `cleaned`.
 - cwd validation + env hygiene reuse the MVP's proven approach.

@@ -149,8 +149,9 @@ full history, as it does today on remount).
 sandbox is read-only. Handing off to a full read/write Claude session that fixes code is out of
 scope for this work.
 
-**Concurrency:** still one live review at a time. Starting a review while one runs is blocked with a
-clear Czech message (existing guard), now more reachable because sessions persist across navigation.
+**Concurrency:** one live review at a time when this was written. Superseded by #124: reviews of
+different pull requests now run side by side, up to a ceiling, and each pull request keeps at most
+one session of its own.
 
 ### 4. Lazy foreign comments
 

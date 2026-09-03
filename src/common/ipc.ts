@@ -254,13 +254,20 @@ export interface IpcApi {
      * cached PR (my vote recorded and the review watermark moved to its current source commit).
      */
     castVote(repositoryId: string, prId: number, vote: PrVote): Promise<PullRequest>
+    /**
+     * Start reviewing this pull request and answer with the session to bind a terminal to. A pull
+     * request already under a live review answers with that running session instead of a second
+     * one, so a renderer whose state was lost (a reload) lands back on the terminal it left.
+     */
     startReview(repositoryId: string, prId: number): Promise<ReviewSession>
-    endReview(): Promise<void>
-    // Review terminal I/O for the single live session.
-    reviewInput(data: string): void
-    reviewResize(cols: number, rows: number): void
-    onReviewData(cb: (data: string) => void): () => void
-    onReviewExit(cb: (exitCode: number) => void): () => void
+    /** Every review still running in main, so a freshly loaded renderer can rebind to them. */
+    listActiveReviews(): Promise<ReviewSession[]>
+    endReview(sessionId: string): Promise<void>
+    // Review terminal I/O, addressed by review session id: several reviews can be live at once.
+    reviewInput(sessionId: string, data: string): void
+    reviewResize(sessionId: string, cols: number, rows: number): void
+    onReviewData(cb: (msg: ReviewDataEvent) => void): () => void
+    onReviewExit(cb: (msg: ReviewExitEvent) => void): () => void
     /** Fired when a draft is recorded (by the review session or manually) so the UI refreshes live. */
     onDraftAdded(cb: (draft: DraftComment) => void): () => void
   }
@@ -503,6 +510,18 @@ export interface TerminalExitEvent {
   exitCode: number
 }
 
+/** One chunk of a review session's PTY output. `sessionId` is the review session, not a terminal. */
+export interface ReviewDataEvent {
+  sessionId: string
+  data: string
+}
+
+/** A review session's PTY has exited; its worktree and drafts are cleaned up by main. */
+export interface ReviewExitEvent {
+  sessionId: string
+  exitCode: number
+}
+
 /**
  * The visible state of a Claude Code session, driving both the tab's color and (for the two
  * action-needed states) a native notification. `working` = it is actively processing a turn;
@@ -635,6 +654,7 @@ export const Channel = {
   // prInbox review terminal (fire-and-forget input/resize; broadcasts for data/exit/draft)
   prInboxReviewInput: 'prInbox:reviewInput',
   prInboxReviewResize: 'prInbox:reviewResize',
+  prInboxListActiveReviews: 'prInbox:listActiveReviews',
   prInboxReviewData: 'prInbox:reviewData',
   prInboxReviewExit: 'prInbox:reviewExit',
   prInboxDraftAdded: 'prInbox:draftAdded',

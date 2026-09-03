@@ -13,6 +13,7 @@ import { rendererLogger } from '@renderer/shared/logging/logger'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
 import * as api from './ipc'
+import { appendReviewOutput, dropReviewOutput } from './reviewOutput'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -105,21 +106,20 @@ interface PrInboxState {
    * discard unsent text.
    */
   commentDrafts: Record<string, string>
-  review: { status: 'idle' | 'running' }
   /**
-   * Which face of a running review the detail shows. Decoupled from `review.status` so the session
-   * keeps running while the user reads the drafted changes and switches back to the terminal.
+   * The live review session id of every pull request currently under review, keyed by
+   * `${repositoryId}:${prId}`. Several reviews run at once, so this is the whole picture: the board
+   * flags each entry, and returning to a pull request returns to its own running terminal.
+   *
+   * A record of primitives on purpose - every selector over it answers with a string or a boolean,
+   * which stays stable under the store's double-call guard.
    */
-  reviewView: 'terminal' | 'changes'
+  liveReviews: Record<string, string>
   /**
-   * The `${repositoryId}:${prId}` key of the PR whose review session is live, or null. Survives
-   * leaving the detail for the board, so the board can flag it and the user can return to the
-   * running terminal.
+   * Which face of a running review its detail shows, per session. Decoupled from whether the
+   * session runs, so it keeps running while the user reads the drafted changes and switches back.
    */
-  reviewPrKey: string | null
-  // The live review session's accumulated PTY output, buffered here so the terminal can replay the
-  // full history on remount and capture output emitted before (or while) the view is mounted.
-  reviewOutput: string
+  reviewViews: Record<string, 'terminal' | 'changes'>
   hydrate(): Promise<void>
   /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
    * should stay loud so a broken sync is never silently ignored. */
@@ -183,13 +183,47 @@ interface PrInboxState {
   publishDraft(id: string): Promise<void>
   /** Cast my vote on the selected PR; the state changes only once ADO has accepted the vote. */
   castVote(vote: PrVote): Promise<void>
+  /**
+   * Start reviewing the selected pull request. One already under review is not started twice: main
+   * answers with its running session, which simply puts the user back on that terminal.
+   */
   startReview(): Promise<void>
-  endReview(): Promise<void>
-  /** Switch the running review's detail between the terminal and the drafted changes. */
-  setReviewView(view: 'terminal' | 'changes'): void
-  reviewInput(data: string): void
-  reviewResize(cols: number, rows: number): void
+  endReview(sessionId: string): Promise<void>
+  /** Switch one running review's detail between the terminal and the drafted changes. */
+  setReviewView(sessionId: string, view: 'terminal' | 'changes'): void
+  reviewInput(sessionId: string, data: string): void
+  reviewResize(sessionId: string, cols: number, rows: number): void
   subscribe(): () => void
+}
+
+/**
+ * Forget one review session: the pull request it held and the view state that went with it. Used
+ * both when main reports the PTY exited and when ending one fails, so a pull request is never left
+ * looking busy with nothing behind it.
+ */
+function forgetReviewSession(
+  set: (fn: (s: PrInboxState) => Partial<PrInboxState>) => void,
+  sessionId: string
+): void {
+  set((s) => {
+    const liveReviews = Object.fromEntries(
+      Object.entries(s.liveReviews).filter(([, id]) => id !== sessionId)
+    )
+    const reviewViews = Object.fromEntries(
+      Object.entries(s.reviewViews).filter(([id]) => id !== sessionId)
+    )
+    return { liveReviews, reviewViews }
+  })
+}
+
+/** The live review session of one pull request, or undefined. A primitive, so it is stable. */
+export function selectReviewSessionId(state: PrInboxState, key: string): string | undefined {
+  return state.liveReviews[key]
+}
+
+/** The live review session of the selected pull request, or undefined. */
+export function selectSelectedReviewSessionId(state: PrInboxState): string | undefined {
+  return state.selectedKey ? state.liveReviews[state.selectedKey] : undefined
 }
 
 /** The PRs in sidebar order. */
@@ -346,10 +380,8 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     unfinishedReviewsStatus: 'idle',
     unfinishedReviewsError: null,
     commentDrafts: {},
-    review: { status: 'idle' },
-    reviewView: 'terminal',
-    reviewPrKey: null,
-    reviewOutput: '',
+    liveReviews: {},
+    reviewViews: {},
 
     async hydrate() {
       set({
@@ -361,9 +393,10 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       // All reads start together, since none waits on another. The unfinished-review aggregate has
       // its own error state so its failure cannot erase a readable cached PR board or claim zero.
       const stamp = readSyncedAt(set)
-      const [boardR, unfinishedR] = await Promise.allSettled([
+      const [boardR, unfinishedR, liveR] = await Promise.allSettled([
         api.list(),
-        api.listUnfinishedDraftReviews()
+        api.listUnfinishedDraftReviews(),
+        api.listActiveReviews()
       ])
       const board: Partial<PrInboxState> =
         boardR.status === 'fulfilled'
@@ -380,11 +413,22 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
               unfinishedReviewsStatus: 'error',
               unfinishedReviewsError: message(unfinishedR.reason)
             }
+      // Reviews outlive the renderer: main keeps every PTY across a window reload, so what is
+      // running there - not what this store last remembered - is the truth about which pull
+      // requests are busy. A failure here leaves the badges off rather than inventing sessions.
+      const live: Partial<PrInboxState> =
+        liveR.status === 'fulfilled'
+          ? {
+              liveReviews: Object.fromEntries(
+                liveR.value.map((session) => [prKey(session.repositoryId, session.prId), session.id])
+              )
+            }
+          : {}
       // The freshness stamp is in place before the board reports what it holds. Whoever reacts to a
       // ready board judges its freshness from that stamp, so a stamp still in flight would read as a
       // board that has never synced at all, however fresh the cache actually is.
       await stamp
-      set({ ...board, ...unfinished })
+      set({ ...board, ...unfinished, ...live })
     },
 
     async sync(opts) {
@@ -707,40 +751,40 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       const pr = selectSelectedPr(get())
       if (!pr) return
       try {
-        await api.startReview(pr.repositoryId, pr.prId)
-        // Start the buffer clean so the new session's output is not appended to a prior one's, and
-        // open on the terminal; the drafts view is one toggle away.
-        set({
-          review: { status: 'running' },
-          reviewPrKey: prKey(pr.repositoryId, pr.prId),
-          reviewView: 'terminal',
-          reviewOutput: ''
-        })
+        const session = await api.startReview(pr.repositoryId, pr.prId)
+        // A fresh session starts with an empty buffer; an existing one keeps the output it has, so
+        // returning to it replays the whole session rather than a blank screen.
+        set((s) => ({
+          liveReviews: { ...s.liveReviews, [prKey(pr.repositoryId, pr.prId)]: session.id },
+          reviewViews: { ...s.reviewViews, [session.id]: s.reviewViews[session.id] ?? 'terminal' }
+        }))
       } catch (e) {
         reportError('Could not start the review session', e)
       }
     },
 
-    async endReview() {
+    async endReview(sessionId) {
       try {
-        await api.endReview()
+        await api.endReview(sessionId)
       } catch (e) {
         reportError('Could not end the review session', e)
       } finally {
-        set({ review: { status: 'idle' }, reviewPrKey: null, reviewView: 'terminal', reviewOutput: '' })
+        // Main confirms the end through onReviewExit; drop it here too, so a failed kill still
+        // releases the pull request instead of leaving it looking busy forever.
+        forgetReviewSession(set, sessionId)
       }
     },
 
-    setReviewView(view) {
-      set({ reviewView: view })
+    setReviewView(sessionId, view) {
+      set((s) => ({ reviewViews: { ...s.reviewViews, [sessionId]: view } }))
     },
 
-    reviewInput(data) {
-      api.reviewInput(data)
+    reviewInput(sessionId, data) {
+      api.reviewInput(sessionId, data)
     },
 
-    reviewResize(cols, rows) {
-      api.reviewResize(cols, rows)
+    reviewResize(sessionId, cols, rows) {
+      api.reviewResize(sessionId, cols, rows)
     },
 
     subscribe() {
@@ -759,10 +803,15 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
           }
         })
       })
-      // Buffer review PTY output here (subscribe runs once at module scope, before any review is
-      // started) so nothing emitted before the terminal mounts - including the initial banner - is lost.
-      const offData = api.onReviewData((data) => set((s) => ({ reviewOutput: s.reviewOutput + data })))
-      const offExit = api.onReviewExit(() => set({ review: { status: 'idle' }, reviewPrKey: null }))
+      // Review PTY output is buffered outside the store (see reviewOutput.ts): it arrives many
+      // times a second per session, and a store write would re-render the whole board on each
+      // chunk. This subscription runs once at module scope, before any review starts, so nothing
+      // emitted before a terminal mounts - the initial banner included - is lost.
+      const offData = api.onReviewData(({ sessionId, data }) => appendReviewOutput(sessionId, data))
+      const offExit = api.onReviewExit(({ sessionId }) => {
+        forgetReviewSession(set, sessionId)
+        dropReviewOutput(sessionId)
+      })
       return () => {
         offDraft()
         offData()

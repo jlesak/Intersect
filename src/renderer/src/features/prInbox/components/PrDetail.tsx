@@ -4,10 +4,10 @@ import type { PrChangeFile } from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
 import {
   isDraftStale,
-  prKey,
   selectDrafts,
   selectPrWebUrl,
   selectSelectedPr,
+  selectSelectedReviewSessionId,
   usePrInboxStore
 } from '../store'
 import { DraftCard } from './DraftCard'
@@ -154,9 +154,10 @@ export function PrDetail() {
   const remainingDraftCount = usePrInboxStore((s) =>
     s.selectedKey ? (s.unfinishedReviews[s.selectedKey] ?? 0) : 0
   )
-  const reviewStatus = usePrInboxStore((s) => s.review.status)
-  const reviewPrKey = usePrInboxStore((s) => s.reviewPrKey)
-  const reviewView = usePrInboxStore((s) => s.reviewView)
+  const reviewSessionId = usePrInboxStore(selectSelectedReviewSessionId)
+  const reviewView = usePrInboxStore((s) =>
+    reviewSessionId ? (s.reviewViews[reviewSessionId] ?? 'terminal') : 'terminal'
+  )
   const webUrl = usePrInboxStore(selectPrWebUrl)
   const size = useMemo(() => changeSize(changes), [changes])
 
@@ -164,7 +165,7 @@ export function PrDetail() {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
       const state = usePrInboxStore.getState()
-      const running = state.review.status === 'running' && state.reviewPrKey === state.selectedKey
+      const running = selectSelectedReviewSessionId(state) !== undefined
       if (escapeShouldGoBack(running, e.target)) state.goBack()
     }
     window.addEventListener('keydown', onKey)
@@ -172,7 +173,7 @@ export function PrDetail() {
   }, [])
 
   if (!pr) return null
-  const running = reviewStatus === 'running' && reviewPrKey === prKey(pr.repositoryId, pr.prId)
+  const running = reviewSessionId !== undefined
   const hasUnfinishedReview = remainingDraftCount > 0 || drafts.length > 0
   const commentCount = threads.filter((t) => !t.isSystem && isThreadUnresolved(t)).length
 
@@ -251,12 +252,7 @@ export function PrDetail() {
                   type="button"
                   className="ix-btn ix-btn--ghost"
                   data-testid="pr-run-additional-review"
-                  disabled={reviewPrKey !== null}
-                  title={
-                    reviewPrKey !== null
-                      ? 'A review is already running on another pull request - end it first.'
-                      : `Adds drafts to the ${remainingDraftCount || drafts.length} already waiting.`
-                  }
+                  title={`Adds drafts to the ${remainingDraftCount || drafts.length} already waiting.`}
                   onClick={() => void usePrInboxStore.getState().startReview()}
                 >
                   Run another Claude review
@@ -266,12 +262,6 @@ export function PrDetail() {
               <button
                 type="button"
                 className="ix-btn ix-btn--primary"
-                disabled={reviewPrKey !== null}
-                title={
-                  reviewPrKey !== null
-                    ? 'A review is already running on another pull request - end it first.'
-                    : undefined
-                }
                 onClick={() => void usePrInboxStore.getState().startReview()}
               >
                 Review with Claude Code
@@ -282,7 +272,7 @@ export function PrDetail() {
               <button
                 type="button"
                 className="ix-btn ix-btn--ghost"
-                onClick={() => void usePrInboxStore.getState().endReview()}
+                onClick={() => void usePrInboxStore.getState().endReview(reviewSessionId)}
               >
                 End review
               </button>
@@ -312,7 +302,7 @@ export function PrDetail() {
               type="button"
               className={`ix-ptab${reviewView === 'terminal' ? ' ix-ptab--active' : ''}`}
               data-testid="review-tab-terminal"
-              onClick={() => usePrInboxStore.getState().setReviewView('terminal')}
+              onClick={() => usePrInboxStore.getState().setReviewView(reviewSessionId, 'terminal')}
             >
               Terminal
             </button>
@@ -320,13 +310,19 @@ export function PrDetail() {
               type="button"
               className={`ix-ptab${reviewView === 'changes' ? ' ix-ptab--active' : ''}`}
               data-testid="review-tab-changes"
-              onClick={() => usePrInboxStore.getState().setReviewView('changes')}
+              onClick={() => usePrInboxStore.getState().setReviewView(reviewSessionId, 'changes')}
             >
               Changes
               {drafts.length > 0 && <span className="ix-board-col__count">{drafts.length}</span>}
             </button>
           </div>
-          {reviewView === 'terminal' ? <ReviewTerminal /> : <ChangesView />}
+          {reviewView === 'terminal' ? (
+            // Keyed by the session, so moving between pull requests never reuses one session's
+            // terminal for another's PTY.
+            <ReviewTerminal key={reviewSessionId} sessionId={reviewSessionId} />
+          ) : (
+            <ChangesView />
+          )}
         </>
       ) : (
         <>

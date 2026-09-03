@@ -42,7 +42,7 @@ export function PrCard({ pr, urgent, now }: { pr: PullRequest; urgent: boolean; 
   const reason = boardReason(pr)
   const stated = reasonAlreadyStates(pr)
   const key = prKey(pr.repositoryId, pr.prId)
-  const reviewing = usePrInboxStore((s) => s.reviewPrKey === key)
+  const reviewing = usePrInboxStore((s) => s.liveReviews[key] !== undefined)
   const remainingDrafts = usePrInboxStore((s) => s.unfinishedReviews[key] ?? 0)
   const open = (): void => void usePrInboxStore.getState().openDetail(pr.repositoryId, pr.prId)
   return (

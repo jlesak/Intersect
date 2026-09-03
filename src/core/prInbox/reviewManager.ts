@@ -21,8 +21,8 @@ export interface ReviewManagerDeps {
   /** The clone folders to search for the PR's repo (from the workspaces slice). */
   workspaceFolders: () => string[]
   spawn: SpawnFn
-  sendData: (data: string) => void
-  sendExit: (exitCode: number) => void
+  sendData: (sessionId: string, data: string) => void
+  sendExit: (sessionId: string, exitCode: number) => void
   onDraft: (draft: DraftComment) => void
   /** Read when each review starts so Settings changes apply without restarting Intersect. */
   reviewPrompt: () => string
@@ -42,24 +42,53 @@ interface Live {
   mcpConfigPath: string
 }
 
+/**
+ * How many reviews may run at once. Each one is a full worktree checkout, a login shell running
+ * Claude Code, and a node MCP child, so this is a real resource ceiling and not a UI preference -
+ * and reviews are routinely left running rather than formally ended. Enforced here rather than by
+ * a disabled button, because the renderer's picture of what is live can be stale (a window reload
+ * resets the store while main keeps every PTY).
+ */
+export const MAX_CONCURRENT_REVIEWS = 3
+
 export interface ReviewManager {
+  /**
+   * Start a review of `pr`. A pull request already under a live review is not started twice: its
+   * running session is returned instead, so the caller lands back on the terminal it left.
+   */
   start(pr: PullRequest, contextMarkdown: string, cols: number, rows: number): Promise<ReviewSession>
-  input(data: string): void
-  resize(cols: number, rows: number): void
-  end(): Promise<void>
+  /** Every live session, so a freshly loaded renderer can rebind to what is already running. */
+  listLive(): ReviewSession[]
+  input(sessionId: string, data: string): void
+  resize(sessionId: string, cols: number, rows: number): void
+  end(sessionId: string): Promise<void>
   /** Synchronous, DB-free teardown for app quit (the DB is about to close). */
   shutdown(): void
   /** On boot, reclaim any worktrees a previous run left behind. */
   pruneOnBoot(): Promise<void>
 }
 
+const prKeyOf = (pr: { repositoryId: string; prId: number }): string =>
+  `${pr.repositoryId}:${pr.prId}`
+
 export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
-  let live: Live | null = null
-  // Synchronous guard: JS interleaves at every await, so the DB getActive() check alone cannot
-  // prevent two concurrent start() calls from both passing before either commits its row.
-  let starting = false
+  const live = new Map<string, Live>()
+  // Synchronous guard, one entry per pull request: JS interleaves at every await, so a DB or map
+  // check alone cannot prevent two concurrent start() calls for one PR from both getting through
+  // before either commits its row.
+  const starting = new Set<string>()
   // Set on app quit so the async PTY-exit handler does not touch the DB after it is closed.
   let disposed = false
+  // The boot sweep. It deletes every directory under the managed worktree root, so a review must
+  // never be created while it is still running - the sweep would delete that review's worktree.
+  let pruning: Promise<void> | null = null
+
+  const liveForPr = (key: string): Live | undefined => {
+    for (const current of live.values()) {
+      if (prKeyOf(current.session) === key) return current
+    }
+    return undefined
+  }
 
   async function cleanup(current: Live): Promise<void> {
     current.socketServer.close()
@@ -73,17 +102,30 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
 
   return {
     async start(pr, contextMarkdown, cols, rows) {
-      if (starting || live || d.reviewSessions.getActive()) {
-        throw new Error('A review is already running. Finish it before starting another.')
+      const key = prKeyOf(pr)
+      const already = liveForPr(key)
+      if (already) return already.session
+      if (starting.has(key)) {
+        throw new Error(`A review of pull request ${pr.prId} is already starting.`)
       }
-      starting = true
+      if (live.size >= MAX_CONCURRENT_REVIEWS) {
+        throw new Error(
+          `${MAX_CONCURRENT_REVIEWS} reviews are already running. End one before starting another.`
+        )
+      }
+      starting.add(key)
 
-      const repoDir = await d.worktrees.resolveRepoDir(pr.repositoryName, d.workspaceFolders())
+      let repoDir: string | null = null
       let worktreePath: string | null = null
       let session: ReviewSession | null = null
       let socketServer: NetServer | null = null
       let socketPath: string | null = null
       try {
+        // Inside the try, so a clone that cannot be resolved releases this pull request's claim
+        // instead of leaving it permanently unstartable.
+        repoDir = await d.worktrees.resolveRepoDir(pr.repositoryName, d.workspaceFolders())
+        // The boot sweep must be finished before this review's worktree exists.
+        await pruning?.catch(() => {})
         worktreePath = await d.worktrees.createWorktree({
           repoDir,
           dirName: randomUUID(),
@@ -173,76 +215,97 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         })
 
         const current: Live = { session, proc, socketServer, socketPath, mcpConfigPath }
-        live = current
+        live.set(sid, current)
 
         let initialWritten = false
         proc.onData((data) => {
-          d.sendData(data)
+          d.sendData(sid, data)
           if (!initialWritten) {
             initialWritten = true
             proc.write(`${spec.initialCommand}\r`)
           }
         })
         proc.onExit(({ exitCode }) => {
-          if (!disposed) d.reviewSessions.setStatus(session!.id, exitCode === 0 ? 'completed' : 'failed')
+          if (!disposed) d.reviewSessions.setStatus(sid, exitCode === 0 ? 'completed' : 'failed')
           void cleanup(current)
-          if (live === current) live = null
-          d.sendExit(exitCode)
+          if (live.get(sid) === current) live.delete(sid)
+          d.sendExit(sid, exitCode)
         })
 
         return session
       } catch (err) {
-        // Roll back a partial start so a transient failure cannot wedge the feature (an orphaned
-        // 'running' row would make every future start throw "already running").
+        // Roll back this review's partial start so a transient failure cannot wedge the feature (an
+        // orphaned 'running' row would keep the PR looking busy forever). Only this session's own
+        // state is touched; every other live review keeps running.
         socketServer?.close()
         if (socketPath) await rm(socketPath, { force: true }).catch(() => {})
-        if (worktreePath) await d.worktrees.removeWorktree(repoDir, worktreePath).catch(() => {})
-        if (session) d.reviewSessions.setStatus(session.id, 'failed')
-        live = null
+        if (repoDir && worktreePath) {
+          await d.worktrees.removeWorktree(repoDir, worktreePath).catch(() => {})
+        }
+        if (session) {
+          live.delete(session.id)
+          d.reviewSessions.setStatus(session.id, 'failed')
+        }
         throw err
       } finally {
-        starting = false
+        starting.delete(key)
       }
     },
 
-    input(data) {
-      live?.proc.write(data)
+    listLive() {
+      return [...live.values()].map((current) => current.session)
     },
 
-    resize(cols, rows) {
-      live?.proc.resize(cols, rows)
+    input(sessionId, data) {
+      // An unknown id is a no-op, never a fallback to "the current session": input typed into the
+      // wrong Claude session is the worst failure this feature can have.
+      live.get(sessionId)?.proc.write(data)
     },
 
-    async end() {
-      if (!live) return
+    resize(sessionId, cols, rows) {
+      live.get(sessionId)?.proc.resize(cols, rows)
+    },
+
+    async end(sessionId) {
       // Killing triggers onExit, which sets status + cleans up the worktree/socket/config.
-      live.proc.kill()
+      live.get(sessionId)?.proc.kill()
     },
 
     shutdown() {
-      // App is quitting and the DB is about to close: kill the PTY and close the socket WITHOUT
-      // any DB write. The leftover worktree is reclaimed by pruneOnBoot on the next launch.
+      // App is quitting and the DB is about to close: kill every PTY and close every socket WITHOUT
+      // any DB write. The leftover worktrees are reclaimed by pruneOnBoot on the next launch.
       disposed = true
-      const current = live
-      live = null
-      if (!current) return
-      try {
-        current.socketServer.close()
-      } catch {
-        /* ignore */
-      }
-      try {
-        current.proc.kill()
-      } catch {
-        /* ignore */
+      const current = [...live.values()]
+      live.clear()
+      for (const one of current) {
+        try {
+          one.socketServer.close()
+        } catch {
+          /* ignore */
+        }
+        try {
+          one.proc.kill()
+        } catch {
+          /* ignore */
+        }
       }
     },
 
     async pruneOnBoot() {
-      const active = d.reviewSessions.getActive()
-      if (active) d.reviewSessions.setStatus(active.id, 'cleaned')
-      const repoDirs = new Set<string>(d.workspaceFolders())
-      await d.worktrees.pruneStale([...repoDirs])
+      const sweep = (async () => {
+        // A crash can leave several rows 'running'; none of them survives a restart.
+        for (const active of d.reviewSessions.listActive()) {
+          d.reviewSessions.setStatus(active.id, 'cleaned')
+        }
+        const repoDirs = new Set<string>(d.workspaceFolders())
+        await d.worktrees.pruneStale([...repoDirs])
+      })()
+      pruning = sweep
+      try {
+        await sweep
+      } finally {
+        if (pruning === sweep) pruning = null
+      }
     }
   }
 }

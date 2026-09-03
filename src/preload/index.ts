@@ -6,6 +6,8 @@ import {
   type CoreStatus,
   type IpcApi,
   type MyWorkChangedEvent,
+  type ReviewDataEvent,
+  type ReviewExitEvent,
   type TerminalDataEvent,
   type TerminalExitEvent,
   type TerminalNotificationClickEvent,
@@ -123,16 +125,18 @@ const api: IpcApi = {
     castVote: (repositoryId, prId, vote) =>
       ipcRenderer.invoke(Channel.prInboxCastVote, repositoryId, prId, vote),
     startReview: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxStartReview, repositoryId, prId),
-    endReview: () => ipcRenderer.invoke(Channel.prInboxEndReview),
-    reviewInput: (data) => ipcRenderer.send(Channel.prInboxReviewInput, data),
-    reviewResize: (cols, rows) => ipcRenderer.send(Channel.prInboxReviewResize, cols, rows),
+    listActiveReviews: () => ipcRenderer.invoke(Channel.prInboxListActiveReviews),
+    endReview: (sessionId) => ipcRenderer.invoke(Channel.prInboxEndReview, sessionId),
+    reviewInput: (sessionId, data) => ipcRenderer.send(Channel.prInboxReviewInput, sessionId, data),
+    reviewResize: (sessionId, cols, rows) =>
+      ipcRenderer.send(Channel.prInboxReviewResize, sessionId, cols, rows),
     onReviewData: (cb) => {
-      const listener = (_e: unknown, data: string): void => cb(data)
+      const listener = (_e: unknown, msg: ReviewDataEvent): void => cb(msg)
       ipcRenderer.on(Channel.prInboxReviewData, listener)
       return () => ipcRenderer.removeListener(Channel.prInboxReviewData, listener)
     },
     onReviewExit: (cb) => {
-      const listener = (_e: unknown, exitCode: number): void => cb(exitCode)
+      const listener = (_e: unknown, msg: ReviewExitEvent): void => cb(msg)
       ipcRenderer.on(Channel.prInboxReviewExit, listener)
       return () => ipcRenderer.removeListener(Channel.prInboxReviewExit, listener)
     },

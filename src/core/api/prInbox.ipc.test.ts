@@ -88,6 +88,7 @@ function makeReview(over: Partial<ReviewManager> = {}): ReviewManager {
         createdAt: 1
       })
     ),
+    listLive: vi.fn((): ReviewSession[] => []),
     input: vi.fn(),
     resize: vi.fn(),
     end: vi.fn(async () => {}),
@@ -574,6 +575,45 @@ describe('prInbox handlers', () => {
     const context = (review.start as ReturnType<typeof vi.fn>).mock.calls[0][1] as string
     expect(context).toContain('PR 100')
     expect(context).toContain('src/a.ts')
+  })
+
+  test('review I/O is addressed to the session it belongs to', async () => {
+    const review = makeReview()
+    const { h } = handlers({ review })
+
+    await h.endReview('rs-7')
+    h.reviewInput('rs-7', 'typed\r')
+    h.reviewResize('rs-7', 120, 40)
+
+    expect(review.end).toHaveBeenCalledWith('rs-7')
+    expect(review.input).toHaveBeenCalledWith('rs-7', 'typed\r')
+    expect(review.resize).toHaveBeenCalledWith('rs-7', 120, 40)
+  })
+
+  test('listActiveReviews reports every review main is running', async () => {
+    const live: ReviewSession[] = [
+      {
+        id: 'rs-1',
+        prId: 100,
+        repositoryId: 'repo-a',
+        repoDir: '/clone',
+        worktreePath: '/wt-1',
+        status: 'running',
+        createdAt: 1
+      },
+      {
+        id: 'rs-2',
+        prId: 101,
+        repositoryId: 'repo-a',
+        repoDir: '/clone',
+        worktreePath: '/wt-2',
+        status: 'running',
+        createdAt: 2
+      }
+    ]
+    const { h } = handlers({ review: makeReview({ listLive: () => live }) })
+
+    expect(await h.listActiveReviews()).toEqual(live)
   })
 
   test('startReview on an unknown PR throws to sync first', async () => {

@@ -1,18 +1,35 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { DraftComment, PrChangeFile, PrThread, PullRequest } from '@common/domain'
+import type {
+  DraftComment,
+  PrChangeFile,
+  PrThread,
+  PullRequest,
+  ReviewSession
+} from '@common/domain'
+import type { ReviewDataEvent, ReviewExitEvent } from '@common/ipc'
 import { captureRendererLog } from '@renderer/shared/logging/testLog'
 
 vi.mock('./ipc')
 import * as api from './ipc'
+import { appendReviewOutput, readReviewOutput, resetReviewOutput } from './reviewOutput'
 import {
   groupBoardColumns,
   prKey,
   selectDrafts,
   selectPrList,
   selectSelectedPr,
+  selectSelectedReviewSessionId,
   splitThreadsByResolution,
   usePrInboxStore
 } from './store'
+
+/** Push one broadcast into whatever `subscribe()` registered, the way main would. */
+const emitReviewData = (msg: ReviewDataEvent): void => {
+  for (const [cb] of mocked.onReviewData.mock.calls) cb(msg)
+}
+const emitReviewExit = (msg: ReviewExitEvent): void => {
+  for (const [cb] of mocked.onReviewExit.mock.calls) cb(msg)
+}
 
 const pr = (repositoryId: string, prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   prId,
@@ -108,10 +125,8 @@ beforeEach(() => {
       unfinishedReviewsStatus: 'idle',
       unfinishedReviewsError: null,
       commentDrafts: {},
-      review: { status: 'idle' },
-      reviewView: 'terminal',
-      reviewPrKey: null,
-      reviewOutput: '',
+      liveReviews: {},
+      reviewViews: {},
       view: 'board',
       activeTab: 'overview',
       pendingReveal: null
@@ -120,6 +135,7 @@ beforeEach(() => {
   )
   vi.clearAllMocks()
   mocked.listUnfinishedDraftReviews.mockResolvedValue([])
+  mocked.listActiveReviews.mockResolvedValue([])
   logged = captureRendererLog()
 })
 
@@ -197,6 +213,37 @@ describe('prInboxStore', () => {
 
     expect(usePrInboxStore.getState().unfinishedReviews).toEqual({ 'repo:1': 2 })
     expect(usePrInboxStore.getState().unfinishedReviewsStatus).toBe('ready')
+  })
+
+  test('hydrate rebinds to the reviews main is still running', async () => {
+    // A window reload resets this store while main keeps every PTY, so what is running there is
+    // the truth about which pull requests are busy.
+    mocked.list.mockResolvedValue([pr('repo', 1), pr('repo', 2)])
+    mocked.listActiveReviews.mockResolvedValue([
+      {
+        id: 'rs-9',
+        prId: 2,
+        repositoryId: 'repo',
+        repoDir: '/clone',
+        worktreePath: '/wt',
+        status: 'running',
+        createdAt: 0
+      }
+    ])
+
+    await usePrInboxStore.getState().hydrate()
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({ 'repo:2': 'rs-9' })
+  })
+
+  test('a failed live-review read leaves the badges off rather than inventing sessions', async () => {
+    mocked.list.mockResolvedValue([pr('repo', 1)])
+    mocked.listActiveReviews.mockRejectedValue(new Error('main is not answering'))
+
+    await usePrInboxStore.getState().hydrate()
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({})
+    expect(usePrInboxStore.getState().status).toBe('ready')
   })
 
   test('an unfinished-review load failure is not represented as zero drafts', async () => {
@@ -608,59 +655,150 @@ describe('board navigation', () => {
 })
 
 describe('review session', () => {
+  const session = (over: Partial<ReviewSession> = {}): ReviewSession => ({
+    id: 'rs-1',
+    prId: 1,
+    repositoryId: 'r',
+    repoDir: '/clone',
+    worktreePath: '/wt',
+    status: 'running',
+    createdAt: 0,
+    ...over
+  })
+
   beforeEach(() => {
+    resetReviewOutput()
     usePrInboxStore.setState({
-      prsByKey: { 'r:1': pr('r', 1) },
-      order: ['r:1'],
+      prsByKey: { 'r:1': pr('r', 1), 'r:2': pr('r', 2) },
+      order: ['r:1', 'r:2'],
       selectedKey: 'r:1'
     })
-    mocked.startReview.mockResolvedValue({
-      id: 'rs-1',
-      prId: 1,
-      repositoryId: 'r',
-      repoDir: '/clone',
-      worktreePath: '/wt',
-      status: 'running',
-      createdAt: 0
-    })
+    mocked.startReview.mockResolvedValue(session())
     mocked.endReview.mockResolvedValue(undefined)
   })
 
-  test('startReview marks the PR under review and opens the terminal view', async () => {
+  test('startReview binds the PR to its session and opens the terminal view', async () => {
     await usePrInboxStore.getState().startReview()
     const s = usePrInboxStore.getState()
-    expect(s.review.status).toBe('running')
-    expect(s.reviewPrKey).toBe('r:1')
-    expect(s.reviewView).toBe('terminal')
+    expect(s.liveReviews).toEqual({ 'r:1': 'rs-1' })
+    expect(s.reviewViews['rs-1']).toBe('terminal')
+    expect(selectSelectedReviewSessionId(s)).toBe('rs-1')
   })
 
-  test('a running session survives going back to the board', async () => {
+  test('a second PR is reviewed without ending the first', async () => {
     await usePrInboxStore.getState().startReview()
-    usePrInboxStore.setState({ reviewOutput: 'partial output' })
+
+    usePrInboxStore.setState({ selectedKey: 'r:2' })
+    mocked.startReview.mockResolvedValue(session({ id: 'rs-2', prId: 2 }))
+    await usePrInboxStore.getState().startReview()
+
+    const s = usePrInboxStore.getState()
+    expect(s.liveReviews).toEqual({ 'r:1': 'rs-1', 'r:2': 'rs-2' })
+    expect(mocked.endReview).not.toHaveBeenCalled()
+  })
+
+  test('a running session survives going back to the board, output included', async () => {
+    await usePrInboxStore.getState().startReview()
+    appendReviewOutput('rs-1', 'partial output')
+
     usePrInboxStore.getState().goBack()
+
     const s = usePrInboxStore.getState()
     expect(s.view).toBe('board')
-    expect(s.review.status).toBe('running')
-    expect(s.reviewPrKey).toBe('r:1')
-    expect(s.reviewOutput).toBe('partial output')
+    expect(s.liveReviews).toEqual({ 'r:1': 'rs-1' })
+    expect(readReviewOutput('rs-1').text).toBe('partial output')
   })
 
-  test('setReviewView toggles between terminal and changes', async () => {
+  test('setReviewView toggles one session without touching another', async () => {
     await usePrInboxStore.getState().startReview()
-    usePrInboxStore.getState().setReviewView('changes')
-    expect(usePrInboxStore.getState().reviewView).toBe('changes')
-    usePrInboxStore.getState().setReviewView('terminal')
-    expect(usePrInboxStore.getState().reviewView).toBe('terminal')
+    usePrInboxStore.setState({ selectedKey: 'r:2' })
+    mocked.startReview.mockResolvedValue(session({ id: 'rs-2', prId: 2 }))
+    await usePrInboxStore.getState().startReview()
+
+    usePrInboxStore.getState().setReviewView('rs-2', 'changes')
+
+    expect(usePrInboxStore.getState().reviewViews).toEqual({ 'rs-1': 'terminal', 'rs-2': 'changes' })
   })
 
-  test('endReview clears the session, its PR marker and the buffer', async () => {
+  test('endReview releases only its own PR', async () => {
     await usePrInboxStore.getState().startReview()
-    usePrInboxStore.setState({ reviewOutput: 'x' })
-    await usePrInboxStore.getState().endReview()
+    usePrInboxStore.setState({ selectedKey: 'r:2' })
+    mocked.startReview.mockResolvedValue(session({ id: 'rs-2', prId: 2 }))
+    await usePrInboxStore.getState().startReview()
+
+    await usePrInboxStore.getState().endReview('rs-1')
+
+    expect(mocked.endReview).toHaveBeenCalledWith('rs-1')
+    expect(usePrInboxStore.getState().liveReviews).toEqual({ 'r:2': 'rs-2' })
+    expect(usePrInboxStore.getState().reviewViews).toEqual({ 'rs-2': 'terminal' })
+  })
+
+  test('a failed end still releases the PR instead of leaving it looking busy', async () => {
+    await usePrInboxStore.getState().startReview()
+    mocked.endReview.mockRejectedValue(new Error('pty gone'))
+
+    await usePrInboxStore.getState().endReview('rs-1')
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({})
+  })
+
+  test('starting a PR that is already under review rebinds to the running session', async () => {
+    await usePrInboxStore.getState().startReview()
+    appendReviewOutput('rs-1', 'earlier output')
+
+    // Main answers with the session it already has rather than opening a second one.
+    await usePrInboxStore.getState().startReview()
+
+    expect(usePrInboxStore.getState().liveReviews).toEqual({ 'r:1': 'rs-1' })
+    expect(readReviewOutput('rs-1').text).toBe('earlier output')
+  })
+
+  test('input and resize are addressed to the session they belong to', async () => {
+    usePrInboxStore.getState().reviewInput('rs-7', 'typed\r')
+    usePrInboxStore.getState().reviewResize('rs-7', 120, 40)
+
+    expect(mocked.reviewInput).toHaveBeenCalledWith('rs-7', 'typed\r')
+    expect(mocked.reviewResize).toHaveBeenCalledWith('rs-7', 120, 40)
+  })
+})
+
+describe('review broadcasts', () => {
+  beforeEach(() => {
+    resetReviewOutput()
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': pr('r', 1), 'r:2': pr('r', 2) },
+      order: ['r:1', 'r:2'],
+      liveReviews: { 'r:1': 'rs-1', 'r:2': 'rs-2' },
+      reviewViews: { 'rs-1': 'terminal', 'rs-2': 'changes' }
+    })
+  })
+
+  test('output is buffered per session and never written to the store', async () => {
+    const off = usePrInboxStore.getState().subscribe()
+    const before = usePrInboxStore.getState()
+
+    emitReviewData({ sessionId: 'rs-1', data: 'first' })
+    emitReviewData({ sessionId: 'rs-2', data: 'second' })
+
+    expect(readReviewOutput('rs-1').text).toBe('first')
+    expect(readReviewOutput('rs-2').text).toBe('second')
+    // A PTY chunk must not re-render the board: the store is untouched.
+    expect(usePrInboxStore.getState()).toBe(before)
+    off()
+  })
+
+  test('one session exiting leaves every other review running', async () => {
+    const off = usePrInboxStore.getState().subscribe()
+    appendReviewOutput('rs-1', 'output to drop')
+
+    emitReviewExit({ sessionId: 'rs-1', exitCode: 0 })
+
     const s = usePrInboxStore.getState()
-    expect(s.review.status).toBe('idle')
-    expect(s.reviewPrKey).toBeNull()
-    expect(s.reviewOutput).toBe('')
+    expect(s.liveReviews).toEqual({ 'r:2': 'rs-2' })
+    expect(s.reviewViews).toEqual({ 'rs-2': 'changes' })
+    // The finished session's buffer is released rather than kept for the app's lifetime.
+    expect(readReviewOutput('rs-1').text).toBe('')
+    off()
   })
 })
 
