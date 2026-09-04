@@ -37,3 +37,27 @@ Object.defineProperty(globalThis, 'localStorage', {
 // selected row in view calls it from an effect, where the resulting TypeError fails the test for a
 // reason that has nothing to do with the behaviour under test. Scrolling is not observable here.
 Element.prototype.scrollIntoView = (() => {}) as typeof Element.prototype.scrollIntoView
+
+// jsdom ships no PointerEvent, so Testing Library falls back to a plain Event for every pointer
+// gesture: the button and the coordinates never reach the handler, and a test can only ever assert
+// that nothing happened. Pointer input is how the app's draggable dividers work, so the tests need
+// the real shape - and MouseEvent already carries all the geometry one needs.
+if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    readonly pointerId: number
+    readonly pointerType: string
+    readonly isPrimary: boolean
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init)
+      this.pointerId = init.pointerId ?? 0
+      this.pointerType = init.pointerType ?? 'mouse'
+      this.isPrimary = init.isPrimary ?? true
+    }
+  }
+  Object.defineProperty(globalThis, 'PointerEvent', {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill
+  })
+}

@@ -9,7 +9,7 @@ export function SidebarSessions() {
   const loading = useSessionsStore((s) => s.status === 'loading')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="ix-sidebar__body">
       <div className="ix-sidebar__section">
         <span className="ix-eyebrow">{total} sessions</span>
         <button

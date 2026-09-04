@@ -26,11 +26,16 @@ describe('reviewSessionRepo', () => {
     expect(s.worktreePath).toBe('/wt/abc')
   })
 
-  test('getActive returns the running session and nothing once it is done', () => {
-    const s = repo.create(input)
-    expect(repo.getActive()?.id).toBe(s.id)
-    repo.setStatus(s.id, 'completed')
-    expect(repo.getActive()).toBeUndefined()
+  test('listActive returns every running session, oldest first, and drops finished ones', () => {
+    const first = repo.create(input)
+    const second = repo.create({ ...input, prId: 43, worktreePath: '/wt/def' })
+    expect(repo.listActive().map((s) => s.id)).toEqual([first.id, second.id])
+
+    repo.setStatus(first.id, 'completed')
+    expect(repo.listActive().map((s) => s.id)).toEqual([second.id])
+
+    repo.setStatus(second.id, 'cleaned')
+    expect(repo.listActive()).toEqual([])
   })
 
   test('setStatus can mark a crashed session failed', () => {

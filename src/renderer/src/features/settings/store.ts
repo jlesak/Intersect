@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PR_REVIEW_MODEL,
   DEFAULT_PR_REVIEW_PROMPT,
   type AdoFallback,
   type AdoSettings,
@@ -54,8 +55,10 @@ interface SettingsState {
   commitTerminalFontSize(): void
   /** Update locally and persist immediately so navigation or app quit cannot lose the edit. */
   setReviewPrompt(prompt: string): Promise<void>
-  /** Restore and immediately persist the shared built-in prompt. */
-  resetReviewPrompt(): Promise<void>
+  /** The model every review starts on; blank is saved as the default, never as an empty flag. */
+  setReviewModel(model: string): Promise<void>
+  /** Restore and immediately persist both the built-in prompt and the default model. */
+  resetReviewDefaults(): Promise<void>
   /** Flip automatic resume-after-quit; persists immediately. */
   setAutoResume(value: boolean): Promise<void>
   /** Probe Azure DevOps with the current form values (saved or not) and record the outcome. */
@@ -98,7 +101,7 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
     ado: EMPTY_ADO,
     adoFallback: EMPTY_ADO_FALLBACK,
     terminalFontSize: 12.5,
-    review: { prompt: DEFAULT_PR_REVIEW_PROMPT },
+    review: { prompt: DEFAULT_PR_REVIEW_PROMPT, model: DEFAULT_PR_REVIEW_MODEL },
     autoResume: true,
     adoTest: { status: 'idle' },
 
@@ -143,16 +146,22 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
     },
 
     async setReviewPrompt(prompt) {
-      set({ review: { prompt } })
-      await persist(() => api.setReview({ prompt }), 'Could not save the PR review prompt')
+      // The whole category is written at once, so saving one field must carry the other along.
+      const next = { ...get().review, prompt }
+      set({ review: next })
+      await persist(() => api.setReview(next), 'Could not save the PR review prompt')
     },
 
-    async resetReviewPrompt() {
-      set({ review: { prompt: DEFAULT_PR_REVIEW_PROMPT } })
-      await persist(
-        () => api.setReview({ prompt: DEFAULT_PR_REVIEW_PROMPT }),
-        'Could not reset the PR review prompt'
-      )
+    async setReviewModel(model) {
+      const next = { ...get().review, model }
+      set({ review: next })
+      await persist(() => api.setReview(next), 'Could not save the PR review model')
+    },
+
+    async resetReviewDefaults() {
+      const next = { prompt: DEFAULT_PR_REVIEW_PROMPT, model: DEFAULT_PR_REVIEW_MODEL }
+      set({ review: next })
+      await persist(() => api.setReview(next), 'Could not reset the PR review settings')
     },
 
     async setAutoResume(value) {

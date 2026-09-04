@@ -4,6 +4,7 @@
    that only safe mode ever fills. Being a row in the grid, that strip can cover nothing; empty,
    it collapses to nothing itself. */
 .ix-app {
+  position: relative;
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   grid-template-rows: 1fr auto;
@@ -18,6 +19,53 @@
   background: var(--panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+  /*
+   * Last resort for a window too short for the pinned panels. The rail, the timer and the usage
+   * panel do not shrink, so past some height there is genuinely not enough room - and the choice
+   * is between scrolling to a control and having it covered by the panel below. Scrolling wins:
+   * every control stays reachable, which a covered one is not.
+   */
+  overflow-y: auto;
+}
+/*
+ * The sidebar's middle slot: whichever section body is showing (workspaces, My Work, Todo, ...).
+ *
+ * It takes what the pinned panels above and below leave, and stops there. Deliberately no
+ * `min-height: 0`: that let the flex algorithm squeeze the slot below the header and footer it has
+ * to show, and the footer - which holds the only button in it - then painted outside this box,
+ * underneath the usage panel below, which swallowed every click on it.
+ *
+ * `min-height: min-content` is the floor, spelled out rather than left to the flex algorithm's own
+ * content-based minimum, because `overflow: hidden` sets that minimum to zero - so the two
+ * together would silently reintroduce the squeeze and merely clip the button away instead of
+ * covering it. Unreachable either way. With the floor in place the sidebar overflows instead, and
+ * scrolls. The value tracks the header and footer, so it needs no upkeep when either changes.
+ *
+ * `overflow: hidden` then makes the guarantee structural rather than arithmetic: nothing in here
+ * can paint over a sibling however it grows. Menus and popovers are portalled, so clipping here
+ * does not reach them. The inner list is what scrolls.
+ */
+/*
+ * The slot the middle body lives in, present whether or not the active context fills it. Two jobs:
+ * it takes the space the pinned panels leave (the body inside it then fills the slot), and it keeps
+ * the divider above apart from the divider below - with nothing between them the two dividers
+ * occupy the same pixel and only the lower one can be pressed.
+ *
+ * `min-height: min-content` for the same reason as the body below: a floor of zero would let the
+ * flex algorithm squeeze whatever is inside it out of its own box.
+ */
+.ix-sidebar__slot {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min-content;
+}
+.ix-sidebar__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min-content;
+  overflow: hidden;
 }
 .ix-wordmark {
   display: flex;
@@ -767,6 +815,9 @@
 /* ---------------- sidebar section rail ---------------- */
 /* One button per registered section; the active one wears the accent signal line, matching the
    language used for active workspaces, tabs, and palette rows. */
+/* Height comes from the inline style only once the divider below it has been dragged; until then
+   the rail sizes itself by its buttons. Given a height it scrolls, so a rail full of projects can
+   never grow into the panels below it. */
 .ix-rail {
   display: flex;
   flex-direction: column;
@@ -774,6 +825,7 @@
   padding: 8px;
   border-bottom: 1px solid var(--border);
   flex: none;
+  overflow-y: auto;
 }
 .ix-rail__btn {
   position: relative;
@@ -3493,6 +3545,18 @@
   flex: 1 1 100%;
 }
 
+/* The usage panel's slot. Carries the dragged height (if any) and scrolls, so the panel itself
+   keeps its own padding and borders and never has to know it was resized. */
+.ix-sidebar__usage {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.ix-sidebar__usage > .ix-usage {
+  flex: none;
+}
+
 /* Claude usage panel: always-visible sidebar block mirroring Claude Code's own /usage. */
 .ix-usage {
   flex: none;
@@ -3504,8 +3568,43 @@
 }
 .ix-usage__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+}
+.ix-usage__head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ix-usage__refresh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.ix-usage__refresh:hover {
+  color: var(--text);
+}
+.ix-usage__refresh--busy {
+  color: var(--text-dim);
+  cursor: default;
+  animation: ix-usage-spin 900ms linear infinite;
+}
+@keyframes ix-usage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ix-usage__refresh:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .ix-usage__asof {
   font-family: var(--font-mono);
@@ -3515,6 +3614,61 @@
 .ix-usage__empty {
   font-size: 11.5px;
   color: var(--text-faint);
+}
+/*
+ * The live-usage consent question. It sits inside the panel rather than in a modal on purpose: it
+ * is about this panel's own contents, and a modal at boot is the kind of interruption that gets
+ * dismissed unread - which here would mean dismissing the feature.
+ */
+.ix-usage__consent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.ix-usage__consent-text {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.ix-usage__consent-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.ix-usage__consent-actions {
+  display: flex;
+  gap: 6px;
+}
+/* The sidebar is narrow, so the shared button shrinks here and the pair splits the width. */
+.ix-usage__consent-actions .ix-btn {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+/* A quiet way back for a user who said no, and the only affordance left in that state. */
+.ix-usage__enable {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ix-usage__enable:hover {
+  color: var(--text);
+}
+.ix-usage__note {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.ix-usage__note code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
 }
 .ix-usage__row {
   display: flex;
@@ -5049,4 +5203,67 @@
 }
 .ix-tabmenu__dot--done {
   background: var(--status-done);
+}
+
+/* ---------------- sidebar panel dividers ----------------
+   A divider is a thin hit area with a hairline drawn inside it: 6px is comfortable to grab, while
+   a visible 6px bar between every panel would be noise. The vertical one sits over the sidebar's
+   right edge rather than inside the sidebar, which clips and scrolls its own contents - inside, it
+   would scroll away from the edge it names. */
+.ix-resizer {
+  position: relative;
+  flex: none;
+  background: transparent;
+  z-index: 3;
+}
+.ix-resizer::before {
+  content: '';
+  position: absolute;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+.ix-resizer--horizontal {
+  height: 6px;
+  margin: -3px 0;
+  cursor: row-resize;
+}
+.ix-resizer--horizontal::before {
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+}
+.ix-resizer--vertical {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-w) - 3px);
+  width: 6px;
+  cursor: col-resize;
+}
+.ix-resizer--vertical::before {
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+}
+.ix-resizer:hover::before,
+.ix-resizer:focus-visible::before {
+  background: var(--accent);
+}
+.ix-resizer:focus-visible {
+  outline: none;
+}
+
+/* While a drag is live the pointer is nowhere near the divider, so the cursor and the ban on
+   selecting text have to hold for the whole window. */
+body.ix-resizing--horizontal,
+body.ix-resizing--horizontal * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+body.ix-resizing--vertical,
+body.ix-resizing--vertical * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }

@@ -41,6 +41,7 @@ import type {
   PullRequest,
   ReviewSettings,
   ReviewSession,
+  SidebarLayout,
   RunningTimer,
   SessionSettings,
   SessionSummary,
@@ -53,6 +54,8 @@ import type {
   TodoTask,
   TodoTaskPatch,
   UnfinishedDraftReview,
+  UsageLiveConsent,
+  UsageRefresh,
   NewWorkItemRef,
   WorkItemCandidateGroup,
   WorkItemRef,
@@ -252,13 +255,20 @@ export interface IpcApi {
      * cached PR (my vote recorded and the review watermark moved to its current source commit).
      */
     castVote(repositoryId: string, prId: number, vote: PrVote): Promise<PullRequest>
+    /**
+     * Start reviewing this pull request and answer with the session to bind a terminal to. A pull
+     * request already under a live review answers with that running session instead of a second
+     * one, so a renderer whose state was lost (a reload) lands back on the terminal it left.
+     */
     startReview(repositoryId: string, prId: number): Promise<ReviewSession>
-    endReview(): Promise<void>
-    // Review terminal I/O for the single live session.
-    reviewInput(data: string): void
-    reviewResize(cols: number, rows: number): void
-    onReviewData(cb: (data: string) => void): () => void
-    onReviewExit(cb: (exitCode: number) => void): () => void
+    /** Every review still running in main, so a freshly loaded renderer can rebind to them. */
+    listActiveReviews(): Promise<ReviewSession[]>
+    endReview(sessionId: string): Promise<void>
+    // Review terminal I/O, addressed by review session id: several reviews can be live at once.
+    reviewInput(sessionId: string, data: string): void
+    reviewResize(sessionId: string, cols: number, rows: number): void
+    onReviewData(cb: (msg: ReviewDataEvent) => void): () => void
+    onReviewExit(cb: (msg: ReviewExitEvent) => void): () => void
     /** Fired when a draft is recorded (by the review session or manually) so the UI refreshes live. */
     onDraftAdded(cb: (draft: DraftComment) => void): () => void
   }
@@ -435,6 +445,10 @@ export interface IpcApi {
      * one transaction, so a failure part-way leaves the previous state whole.
      */
     resetViewState(): Promise<void>
+    /** The sidebar sizes the user dragged, clamped to their bounds. Defaults on a fresh profile. */
+    getSidebarLayout(): Promise<SidebarLayout>
+    /** Persist the sidebar sizes and answer with what was actually stored after clamping. */
+    setSidebarLayout(layout: SidebarLayout): Promise<SidebarLayout>
     /**
      * The core service process's lifecycle as seen by main. Fired on every change and once
      * with the current status when the renderer loads, so a reload lands in the right state.
@@ -442,9 +456,19 @@ export interface IpcApi {
     onCoreStatus(cb: (status: CoreStatus) => void): () => void
   }
   usage: {
-    /** The last captured Claude Code rate-limit snapshot, or null if none has arrived yet. */
+    /** The freshest rate-limit snapshot the core holds, or null if it has none yet. */
     get(): Promise<ClaudeUsage | null>
-    /** Fired whenever a fresh statusline snapshot is captured. */
+    /**
+     * Query the live usage from Anthropic and report the freshest snapshot known afterwards plus
+     * how the query went. Reports the snapshot already held when the query is unavailable, so a
+     * failure reads as "nothing new" rather than as an error that blanks the panel.
+     */
+    refresh(): Promise<UsageRefresh>
+    /** Whether the user has allowed the live query to read Claude Code's credentials. */
+    liveConsent(): Promise<UsageLiveConsent>
+    /** Record the user's answer to that question, querying straight away when it is yes. */
+    setLiveConsent(granted: boolean): Promise<UsageRefresh>
+    /** Fired whenever the freshest snapshot changes. */
     onUsageChanged(cb: (usage: ClaudeUsage | null) => void): () => void
   }
   shortcuts: {
@@ -487,6 +511,18 @@ export type TerminalAttachResult =
   | { live: false }
   | { live: true; data: string; cols: number; rows: number; lastSeq: number }
 export interface TerminalExitEvent {
+  sessionId: string
+  exitCode: number
+}
+
+/** One chunk of a review session's PTY output. `sessionId` is the review session, not a terminal. */
+export interface ReviewDataEvent {
+  sessionId: string
+  data: string
+}
+
+/** A review session's PTY has exited; its worktree and drafts are cleaned up by main. */
+export interface ReviewExitEvent {
   sessionId: string
   exitCode: number
 }
@@ -623,6 +659,7 @@ export const Channel = {
   // prInbox review terminal (fire-and-forget input/resize; broadcasts for data/exit/draft)
   prInboxReviewInput: 'prInbox:reviewInput',
   prInboxReviewResize: 'prInbox:reviewResize',
+  prInboxListActiveReviews: 'prInbox:listActiveReviews',
   prInboxReviewData: 'prInbox:reviewData',
   prInboxReviewExit: 'prInbox:reviewExit',
   prInboxDraftAdded: 'prInbox:draftAdded',
@@ -693,9 +730,14 @@ export const Channel = {
   systemQuitApp: 'system:quitApp',
   systemRevealUserData: 'system:revealUserData',
   systemResetViewState: 'system:resetViewState',
+  systemGetSidebarLayout: 'system:getSidebarLayout',
+  systemSetSidebarLayout: 'system:setSidebarLayout',
   systemCoreStatus: 'system:coreStatus',
   // usage (request/response, plus a main -> renderer broadcast)
   usageGet: 'usage:get',
+  usageRefresh: 'usage:refresh',
+  usageLiveConsent: 'usage:liveConsent',
+  usageSetLiveConsent: 'usage:setLiveConsent',
   usageChanged: 'usage:changed',
   // shortcuts (main -> renderer broadcast)
   shortcutInvoked: 'shortcut:invoked'

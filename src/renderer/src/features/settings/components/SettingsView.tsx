@@ -1,5 +1,6 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import {
+  DEFAULT_PR_REVIEW_MODEL,
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
   type AdoSettings,
@@ -242,10 +243,33 @@ function AdoPane() {
 
 function ReviewPane() {
   const prompt = useSettingsStore((s) => s.review.prompt)
+  const model = useSettingsStore((s) => s.review.model)
+  // Both fields are written as one document, so an edit made before the saved settings arrived
+  // would persist this pane's placeholder defaults over the other field's real value.
+  const loaded = useSettingsStore((s) => s.status === 'ready')
 
   return (
     <>
       <div className="ix-settings__title">PR Review</div>
+      <div className="ix-set-field">
+        <label htmlFor="ix-set-review-model">Model pro AI review</label>
+        <div id="ix-set-review-model-hint" className="ix-set-row__hint">
+          Předá se jako <code>claude --model</code>. Alias (<code>opus</code>, <code>sonnet</code>,{' '}
+          <code>haiku</code>) nebo celé id modelu. Prázdné pole znamená{' '}
+          <code>{DEFAULT_PR_REVIEW_MODEL}</code>.
+        </div>
+        <input
+          id="ix-set-review-model"
+          className="ix-input"
+          type="text"
+          spellCheck={false}
+          aria-describedby="ix-set-review-model-hint"
+          placeholder={DEFAULT_PR_REVIEW_MODEL}
+          disabled={!loaded}
+          value={model}
+          onChange={(e) => void useSettingsStore.getState().setReviewModel(e.target.value)}
+        />
+      </div>
       <div className="ix-set-field">
         <label htmlFor="ix-set-review-prompt">Prompt pro AI review</label>
         <div id="ix-set-review-prompt-hint" className="ix-set-row__hint ix-settings__prompt-hint">
@@ -257,6 +281,7 @@ function ReviewPane() {
           className="ix-input ix-settings__prompt"
           aria-describedby="ix-set-review-prompt-hint"
           spellCheck={true}
+          disabled={!loaded}
           value={prompt}
           onChange={(e) => void useSettingsStore.getState().setReviewPrompt(e.target.value)}
         />
@@ -264,9 +289,10 @@ function ReviewPane() {
       <button
         type="button"
         className="ix-btn"
-        onClick={() => void useSettingsStore.getState().resetReviewPrompt()}
+        disabled={!loaded}
+        onClick={() => void useSettingsStore.getState().resetReviewDefaults()}
       >
-        Obnovit výchozí prompt
+        Obnovit výchozí prompt a model
       </button>
     </>
   )

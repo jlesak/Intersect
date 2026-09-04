@@ -155,6 +155,45 @@ describe('PrDetail unfinished review actions', () => {
   })
 })
 
+describe('PrDetail while other reviews are running', () => {
+  afterEach(() => {
+    usePrInboxStore.setState({
+      selectedKey: null,
+      view: 'board',
+      liveReviews: {},
+      reviewViews: {}
+    })
+  })
+
+  test('a review running on another pull request does not block this one', async () => {
+    // The whole point of the change: an unfinished review elsewhere must not hold this PR hostage.
+    usePrInboxStore.setState({ liveReviews: { 'repo-2:9': 'rs-elsewhere' } })
+    await seed()
+
+    const start = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Review with Claude Code'
+    )
+    expect(start).toBeTruthy()
+    expect(start?.disabled).toBe(false)
+    expect(document.body.textContent).not.toContain('End review')
+  })
+
+  test('this pull request under review shows its own review faces, not a start button', async () => {
+    await seed()
+    await act(async () => {
+      usePrInboxStore.setState({
+        liveReviews: { 'repo-1:1': 'rs-mine', 'repo-2:9': 'rs-elsewhere' },
+        // The Changes face, because xterm cannot open a terminal in jsdom.
+        reviewViews: { 'rs-mine': 'changes' }
+      })
+    })
+
+    expect(document.querySelector('[data-testid="review-tab-terminal"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="review-tab-changes"]')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Review with Claude Code')
+  })
+})
+
 const change = (
   path: string,
   added: number,

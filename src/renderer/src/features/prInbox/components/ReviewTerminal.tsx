@@ -1,6 +1,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { useEffect, useRef } from 'react'
+import { onReviewOutput, readReviewOutput } from '../reviewOutput'
 import { usePrInboxStore } from '../store'
 
 // The review terminal is deliberately isolated from the terminal slice: its own xterm instance
@@ -32,8 +33,14 @@ const REVIEW_THEME: ITheme = {
 
 const FONT_FAMILY = "ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace"
 
-/** A single xterm bound to the live review session's PTY over the dedicated review channels. */
-export function ReviewTerminal() {
+/**
+ * A single xterm bound to one live review session's PTY over the dedicated review channels.
+ *
+ * Several reviews can run at once, so everything here is addressed by `sessionId`: the buffer it
+ * replays, the input it sends, and the size it reports. Mount this keyed by the session id, so
+ * switching pull requests builds a new terminal rather than reusing one bound elsewhere.
+ */
+export function ReviewTerminal({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -53,32 +60,31 @@ export function ReviewTerminal() {
     term.open(host)
     fit.fit()
 
-    // Replay the buffered history so a remount (e.g. after a section switch) restores the full
-    // scrollback, then track only the delta appended after this point.
-    let offset = usePrInboxStore.getState().reviewOutput.length
-    term.write(usePrInboxStore.getState().reviewOutput)
-    const unsubscribe = usePrInboxStore.subscribe((state) => {
-      if (state.reviewOutput.length < offset) {
-        // The buffer was reset (new session); replay from the start.
-        offset = 0
-      }
-      if (state.reviewOutput.length > offset) {
-        term.write(state.reviewOutput.slice(offset))
-        offset = state.reviewOutput.length
-      }
+    // Replay this session's buffered history so a remount (e.g. after a section switch) restores
+    // the scrollback, then render only what is appended after that point. The cursor counts every
+    // character the session ever produced, not the buffer's length: the buffer keeps a bounded
+    // tail, and a length cursor would rewind on each trim and replay the tail again.
+    const replayed = readReviewOutput(sessionId)
+    term.write(replayed.text)
+    let written = replayed.written
+    const unsubscribe = onReviewOutput(sessionId, (data, total) => {
+      // A chunk that arrived between the read above and this subscription is covered by `written`.
+      if (total <= written) return
+      term.write(data)
+      written = total
     })
 
-    const inputSub = term.onData((data) => usePrInboxStore.getState().reviewInput(data))
+    const inputSub = term.onData((data) => usePrInboxStore.getState().reviewInput(sessionId, data))
     const observer = new ResizeObserver(() => {
       try {
         fit.fit()
       } catch {
         return
       }
-      usePrInboxStore.getState().reviewResize(term.cols, term.rows)
+      usePrInboxStore.getState().reviewResize(sessionId, term.cols, term.rows)
     })
     observer.observe(host)
-    usePrInboxStore.getState().reviewResize(term.cols, term.rows)
+    usePrInboxStore.getState().reviewResize(sessionId, term.cols, term.rows)
 
     return () => {
       unsubscribe()
@@ -86,7 +92,7 @@ export function ReviewTerminal() {
       observer.disconnect()
       term.dispose()
     }
-  }, [])
+  }, [sessionId])
 
   return <div className="ix-pr-review__term" ref={hostRef} />
 }

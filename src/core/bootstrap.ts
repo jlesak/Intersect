@@ -54,6 +54,10 @@ import {
   writeUsageStatuslineScript
 } from './usage/usageStatusline'
 import { createUsageService } from './usage/usageService'
+import { createUsageApi } from './usage/usageApi'
+import { createUsageSource } from './usage/usageSource'
+import { parseAccessToken, readClaudeCredentials } from './usage/claudeCredentials'
+import { createUsageConsentStore } from './usage/usageConsent'
 import { createUsageHandlers, usageWireRoutes } from './api/usage.ipc'
 import { createSessionNotifier } from './sessionNotifier'
 import { createNotifyGate } from './notifyGate'
@@ -543,10 +547,11 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     worktrees,
     workspaceFolders,
     spawn,
-    sendData: (data) => emitPush(Channel.prInboxReviewData, data),
-    sendExit: (exitCode) => emitPush(Channel.prInboxReviewExit, exitCode),
+    sendData: (sessionId, data) => emitPush(Channel.prInboxReviewData, { sessionId, data }),
+    sendExit: (sessionId, exitCode) => emitPush(Channel.prInboxReviewExit, { sessionId, exitCode }),
     onDraft: (draft) => emitPush(Channel.prInboxDraftAdded, draft),
     reviewPrompt: () => settings.getReview().prompt,
+    reviewModel: () => settings.getReview().model,
     draftServerPath: join(__dirname, 'draftServer.js')
   })
   const prInboxHandlers = createPrInboxHandlers({
@@ -668,11 +673,25 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   })
 
   // --- Claude usage slice: sidebar panel showing Claude Code's own rate-limit usage ---
-  // usageSnapshotPath is '' when the statusline tee could not be wired at boot; the panel
-  // then degrades to permanently-null usage rather than watching a bogus path.
-  const usage = usageSnapshotPath ? createUsageService({ snapshotPath: usageSnapshotPath }) : null
-  const usageHandlers = createUsageHandlers({ usage: usage ?? { get: () => null } })
-  usage?.onChange((snapshot) => emitPush(Channel.usageChanged, snapshot))
+  // Two sources feed it, each stale in its own way, arbitrated by capturedAt in the usage source:
+  // the statusline snapshot file moves only when a Claude session runs inside this app, while the
+  // live API answers on demand for every session on the account. usageSnapshotPath is '' when the
+  // statusline tee could not be wired at boot, leaving the live query as the only source.
+  const usageFile = usageSnapshotPath ? createUsageService({ snapshotPath: usageSnapshotPath }) : null
+  const usageApi = createUsageApi({
+    fetch: loggedFetch,
+    now: Date.now,
+    readToken: async () => parseAccessToken(await readClaudeCredentials(), Date.now())
+  })
+  const usage = createUsageSource({
+    file: usageFile ?? { get: () => null, onChange: () => () => {} },
+    fetchLive: () => usageApi.fetchUsage(),
+    // Gates the live query. Until the user answers, readToken above is never reached, so nothing
+    // touches Claude Code's credentials and the OS raises no dialog.
+    consent: createUsageConsentStore(appState)
+  })
+  const usageHandlers = createUsageHandlers({ usage })
+  usage.onChange((snapshot) => emitPush(Channel.usageChanged, snapshot))
 
   // --- Settings slice ---
   // Until the user saves ADO settings of their own, the form shows the effective config
@@ -821,7 +840,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     hiddenJiraFetcher?.dispose()
     jiraLogin.dispose()
     oto.dispose()
-    usage?.dispose()
+    usageFile?.dispose()
     debouncedAdoTeardown.cancel()
     void adoClient.close()
     db.close()

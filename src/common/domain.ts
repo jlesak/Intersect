@@ -439,7 +439,10 @@ export type NewManualDraft = Pick<
 export const REVIEW_STATUSES = ['running', 'completed', 'failed', 'cleaned'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
 
-/** One AI review run bound to a git worktree. At most one is live at a time (non-goal: batch). */
+/**
+ * One AI review run bound to a git worktree. Several can be live at once, one per pull request,
+ * up to the concurrency ceiling the review manager enforces.
+ */
 export interface ReviewSession {
   id: string
   prId: number
@@ -908,9 +911,18 @@ export const DEFAULT_PR_REVIEW_PROMPT =
   'každý komentář zaznamenej nástrojem record_draft_comment (jedno volání na jeden komentář, ' +
   'česky). Nic nepublikuj.'
 
+/**
+ * The model every PR review starts on. A review is the app's most demanding reasoning task, so it
+ * must never inherit whatever a user's Claude configuration happens to default to. Accepted values
+ * are whatever `claude --model` accepts: an alias (`opus`, `sonnet`, `haiku`) or a full model id.
+ */
+export const DEFAULT_PR_REVIEW_MODEL = 'opus'
+
 export interface ReviewSettings {
   /** Preserved verbatim: users may replace the prompt with any language, whitespace, or content. */
   prompt: string
+  /** Passed to `claude --model`. Blank is stored as the default, never as an empty flag. */
+  model: string
 }
 
 /**
@@ -931,6 +943,38 @@ export interface AppSettings {
   appearance: AppearanceSettings
   review: ReviewSettings
   session: SessionSettings
+}
+
+/**
+ * The sizes the user set by dragging the sidebar's dividers. `null` means "size to content", which
+ * is what every panel does until it is dragged for the first time - so a fresh install looks
+ * exactly as it did before any of this existed.
+ */
+export interface SidebarLayout {
+  /** Sidebar width in px. Ignored while the sidebar is collapsed to its icon rail. */
+  width: number
+  /** Section rail height in px; the rail scrolls inside it. Null sizes it to its buttons. */
+  railHeight: number | null
+  /** Claude usage panel height in px; it scrolls inside it. Null sizes it to its rows. */
+  usageHeight: number | null
+}
+
+/**
+ * Bounds every persisted sidebar size is clamped to on the way in and on the way out, so a bad
+ * value in the database (hand-edited, or written by a future version) can never produce a sidebar
+ * with no controls in it. The upper bounds are deliberately generous: the real ceiling is the
+ * window, which only the renderer knows, and it clamps again while dragging.
+ */
+export const SIDEBAR_WIDTH_MIN = 180
+export const SIDEBAR_WIDTH_MAX = 640
+export const SIDEBAR_PANEL_MIN = 64
+export const SIDEBAR_PANEL_MAX = 2000
+
+/** The sidebar as it looks before anyone drags anything. The width matches `--sidebar-w`. */
+export const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
+  width: 244,
+  railHeight: null,
+  usageHeight: null
 }
 
 /** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */
@@ -968,6 +1012,42 @@ export interface ClaudeUsage {
   fiveHour: ClaudeUsageWindow | null
   sevenDay: ClaudeUsageWindow | null
   capturedAt: number
+}
+
+/**
+ * Whether the user has let the app read Claude Code's own OAuth credentials in order to query
+ * their live usage from Anthropic.
+ *
+ * This is gated rather than assumed because the read is visible and startling: on macOS the
+ * credentials live in the Keychain under Claude Code's name, so the first read makes the OS put up
+ * an authorization dialog naming a different app. Asking first means the user meets that dialog
+ * already knowing what asked for it and why.
+ *
+ * `unasked` is the state of a fresh install, and it is not the same as `declined`: nothing has
+ * been read, but the panel still owes the user the question.
+ */
+export const USAGE_LIVE_CONSENTS = ['unasked', 'granted', 'declined'] as const
+export type UsageLiveConsent = (typeof USAGE_LIVE_CONSENTS)[number]
+
+/**
+ * How the most recent live query went, so the panel can tell three situations apart that all leave
+ * the snapshot unchanged:
+ *
+ * - `ok` - Anthropic answered and the snapshot is current.
+ * - `unavailable` - the query was allowed but produced nothing: no Claude Code sign-in, an expired
+ *   token, a denied Keychain prompt, an unreachable endpoint. Worth a hint, since the user granted
+ *   consent and would otherwise see a button that silently does nothing.
+ * - `not-allowed` - consent is not granted, so nothing was attempted and no credential was read.
+ */
+export type UsageLiveStatus = 'ok' | 'unavailable' | 'not-allowed'
+
+/**
+ * The result of a live query: the freshest snapshot known afterwards (which may be the one already
+ * held, or none at all) plus how the query itself went.
+ */
+export interface UsageRefresh {
+  usage: ClaudeUsage | null
+  live: UsageLiveStatus
 }
 
 // ---------------------------------------------------------------------------

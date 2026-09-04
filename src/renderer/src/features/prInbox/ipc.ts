@@ -9,6 +9,7 @@ import type {
   ReviewSession,
   UnfinishedDraftReview
 } from '@common/domain'
+import type { ReviewDataEvent, ReviewExitEvent } from '@common/ipc'
 import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin, mockable seam between the PR-inbox store and the preload bridge.
@@ -47,13 +48,16 @@ export const castVote = (repositoryId: string, prId: number, vote: PrVote): Prom
   ipc().prInbox.castVote(repositoryId, prId, vote)
 export const startReview = (repositoryId: string, prId: number): Promise<ReviewSession> =>
   ipc().prInbox.startReview(repositoryId, prId)
-export const endReview = (): Promise<void> => ipc().prInbox.endReview()
-export const reviewInput = (data: string): void => ipc().prInbox.reviewInput(data)
-export const reviewResize = (cols: number, rows: number): void =>
-  ipc().prInbox.reviewResize(cols, rows)
-export const onReviewData = (cb: (data: string) => void): (() => void) =>
+export const listActiveReviews = (): Promise<ReviewSession[]> =>
+  ipc().prInbox.listActiveReviews()
+export const endReview = (sessionId: string): Promise<void> => ipc().prInbox.endReview(sessionId)
+export const reviewInput = (sessionId: string, data: string): void =>
+  ipc().prInbox.reviewInput(sessionId, data)
+export const reviewResize = (sessionId: string, cols: number, rows: number): void =>
+  ipc().prInbox.reviewResize(sessionId, cols, rows)
+export const onReviewData = (cb: (msg: ReviewDataEvent) => void): (() => void) =>
   ipc().prInbox.onReviewData(cb)
-export const onReviewExit = (cb: (exitCode: number) => void): (() => void) =>
+export const onReviewExit = (cb: (msg: ReviewExitEvent) => void): (() => void) =>
   ipc().prInbox.onReviewExit(cb)
 export const onDraftAdded = (cb: (draft: DraftComment) => void): (() => void) =>
   ipc().prInbox.onDraftAdded(cb)

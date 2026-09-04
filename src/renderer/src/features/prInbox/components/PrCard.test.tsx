@@ -65,7 +65,7 @@ const chips = (): string[] =>
  */
 describe('PrCard', () => {
   afterEach(() => {
-    usePrInboxStore.setState({ reviewPrKey: null, unfinishedReviews: {} })
+    usePrInboxStore.setState({ liveReviews: {}, unfinishedReviews: {} })
   })
 
   test('dates the card by its last activity, not by when it was opened', async () => {
@@ -134,7 +134,7 @@ describe('PrCard', () => {
   })
 
   test('surfaces the remaining persisted draft count independently of a live review', async () => {
-    usePrInboxStore.setState({ unfinishedReviews: { 'repo-1:7': 2 }, reviewPrKey: null })
+    usePrInboxStore.setState({ unfinishedReviews: { 'repo-1:7': 2 }, liveReviews: {} })
 
     await mountCard(pr())
 

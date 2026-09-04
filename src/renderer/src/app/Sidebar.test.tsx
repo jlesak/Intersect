@@ -8,7 +8,9 @@ import {
   __resetSidebarRegistryForTests,
   registerSidebarSection
 } from '@renderer/shared/registries/sidebarRegistry'
+import { DEFAULT_SIDEBAR_LAYOUT } from '@common/domain'
 import { Sidebar } from './Sidebar'
+import { useSidebarLayoutStore } from './sidebarLayout'
 import { useShellStore } from './shellStore'
 
 const Icon = () => <span />
@@ -108,6 +110,47 @@ describe('Sidebar', () => {
     })
     useAttentionStore.setState({ status: {} })
     useShellStore.setState({ context: null, sidebarCollapsed: false })
+    useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, loaded: false })
+  })
+
+  test('every stacked panel carries a divider, and a dragged height is applied to it', async () => {
+    stubBridge()
+    seedRail()
+    registerSidebarSection({ id: 'dashboard', order: -1, label: 'Dashboard', icon: Icon })
+    useSidebarLayoutStore.setState({ railHeight: 180, usageHeight: 120, loaded: true })
+
+    await act(async () => {
+      render(<Sidebar />)
+    })
+
+    expect(document.querySelector('[data-testid="sidebar-rail-resizer"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="sidebar-usage-resizer"]')).toBeTruthy()
+    expect(document.querySelector<HTMLElement>('.ix-rail')?.style.height).toBe('180px')
+    expect(document.querySelector<HTMLElement>('.ix-sidebar__usage')?.style.height).toBe('120px')
+  })
+
+  test('an undragged panel is left to size itself, exactly as before', async () => {
+    stubBridge()
+    seedRail()
+
+    await act(async () => {
+      render(<Sidebar />)
+    })
+
+    expect(document.querySelector<HTMLElement>('.ix-rail')?.style.height).toBe('')
+    expect(document.querySelector<HTMLElement>('.ix-sidebar__usage')?.style.height).toBe('')
+  })
+
+  test('the collapsed icon rail offers no dividers, having nothing to size', async () => {
+    stubBridge()
+    seedRail()
+    useShellStore.setState({ sidebarCollapsed: true })
+
+    await act(async () => {
+      render(<Sidebar />)
+    })
+
+    expect(document.querySelectorAll('[role="separator"]')).toHaveLength(0)
   })
 
   test('mounts a populated rail and settles without a render loop', async () => {

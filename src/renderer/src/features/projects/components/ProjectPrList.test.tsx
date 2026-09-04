@@ -50,7 +50,8 @@ describe('ProjectPrList', () => {
     ;(window as { intersect?: unknown }).intersect = {
       prInbox: {
         list: () => Promise.resolve(prs),
-        listUnfinishedDraftReviews: () => Promise.resolve([])
+        listUnfinishedDraftReviews: () => Promise.resolve([]),
+        listActiveReviews: () => Promise.resolve([])
       }
     }
   }

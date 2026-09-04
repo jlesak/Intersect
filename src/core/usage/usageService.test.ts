@@ -184,6 +184,44 @@ describe('createUsageService: change detection', () => {
   })
 })
 
+describe('createUsageService: get() re-reads on demand', () => {
+  it('picks up content written since the last read, with no watch event at all', () => {
+    const { fs, setContent } = fakeFs(null)
+    const service = createUsageService({ snapshotPath: SNAPSHOT_PATH, fs })
+    expect(service.get()).toBeNull()
+
+    // The refresh button's whole reason to exist: fs.watch never fired, yet the file has moved on.
+    setContent(validSnapshot)
+
+    expect(service.get()?.capturedAt).toBe(1700000000000)
+  })
+
+  it('notifies subscribers when the on-demand read is the one that spots the change', () => {
+    const { fs, setContent } = fakeFs(validSnapshot)
+    const service = createUsageService({ snapshotPath: SNAPSHOT_PATH, fs })
+    const cb = vi.fn()
+    service.onChange(cb)
+
+    setContent(JSON.stringify({ ...JSON.parse(validSnapshot), capturedAt: 1700000000001 }))
+    service.get()
+
+    expect(cb).toHaveBeenCalledTimes(1)
+    expect(cb).toHaveBeenCalledWith(service.get())
+  })
+
+  it('does not re-notify subscribers when an on-demand read finds nothing new', () => {
+    const { fs } = fakeFs(validSnapshot)
+    const service = createUsageService({ snapshotPath: SNAPSHOT_PATH, fs })
+    const cb = vi.fn()
+    service.onChange(cb)
+
+    service.get()
+    service.get()
+
+    expect(cb).not.toHaveBeenCalled()
+  })
+})
+
 describe('createUsageService: dispose', () => {
   it('closes the directory watcher', () => {
     const { fs, closeWatcher } = fakeFs(null)
