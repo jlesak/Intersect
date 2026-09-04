@@ -4,7 +4,18 @@ import { createAppStateRepo, SELECTED_WORKSPACE_KEY, type AppStateRepo } from '.
 import { createTabRepo, type TabRepo } from '../db/tabRepo'
 import { createWorkspaceRepo, type WorkspaceRepo } from '../db/workspaceRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
-import { createSystemCoreHandlers, type SystemCoreHandlers } from './system.ipc'
+import {
+  createSystemCoreHandlers,
+  SIDEBAR_LAYOUT_KEY,
+  type SystemCoreHandlers
+} from './system.ipc'
+import {
+  DEFAULT_SIDEBAR_LAYOUT,
+  SIDEBAR_PANEL_MAX,
+  SIDEBAR_PANEL_MIN,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN
+} from '@common/domain'
 
 describe('resetViewState', () => {
   let db: DatabaseSync
@@ -127,5 +138,84 @@ describe('resetViewState', () => {
     // have left the workspace half-reset with no way to tell.
     expect(workspaces.getById(id)?.layout).toBe('grid')
     expect(tabs.listByWorkspace(id).map((t) => t.paneSlot)).toEqual([0, 1, 2, 3])
+  })
+})
+
+describe('the sidebar layout', () => {
+  let db: DatabaseSync
+  let appState: AppStateRepo
+  let handlers: SystemCoreHandlers
+
+  beforeEach(() => {
+    db = makeTestDb()
+    const deps = makeTestDeps()
+    appState = createAppStateRepo(db)
+    handlers = createSystemCoreHandlers({
+      db,
+      workspaces: createWorkspaceRepo(db, deps),
+      tabs: createTabRepo(db, deps),
+      appState
+    })
+  })
+
+  test('a profile that never dragged anything gets the defaults', async () => {
+    expect(await handlers.getSidebarLayout()).toEqual(DEFAULT_SIDEBAR_LAYOUT)
+  })
+
+  test('sizes round-trip', async () => {
+    await handlers.setSidebarLayout({ width: 320, railHeight: 210, usageHeight: 150 })
+
+    expect(await handlers.getSidebarLayout()).toEqual({
+      width: 320,
+      railHeight: 210,
+      usageHeight: 150
+    })
+  })
+
+  test('null keeps meaning "size to your content" rather than becoming a number', async () => {
+    await handlers.setSidebarLayout({ width: 320, railHeight: 210, usageHeight: null })
+
+    expect((await handlers.getSidebarLayout()).usageHeight).toBeNull()
+  })
+
+  test('an out-of-range size is clamped on the way in, not stored as given', async () => {
+    const stored = await handlers.setSidebarLayout({
+      width: 9999,
+      railHeight: 1,
+      usageHeight: 99_999
+    })
+
+    expect(stored).toEqual({
+      width: SIDEBAR_WIDTH_MAX,
+      railHeight: SIDEBAR_PANEL_MIN,
+      usageHeight: SIDEBAR_PANEL_MAX
+    })
+    expect(await handlers.getSidebarLayout()).toEqual(stored)
+  })
+
+  test('a corrupt or hand-edited document degrades to the defaults', async () => {
+    for (const raw of ['not json', '[]', 'null', '{"width":"wide","railHeight":{}}']) {
+      appState.set(SIDEBAR_LAYOUT_KEY, raw)
+      expect(await handlers.getSidebarLayout()).toEqual(DEFAULT_SIDEBAR_LAYOUT)
+    }
+  })
+
+  test('a stored size outside its bounds is clamped on the way out too', async () => {
+    // The window that produced a size is not the window the next launch opens in.
+    appState.set(SIDEBAR_LAYOUT_KEY, JSON.stringify({ width: 5, railHeight: 90_000 }))
+
+    expect(await handlers.getSidebarLayout()).toEqual({
+      width: SIDEBAR_WIDTH_MIN,
+      railHeight: SIDEBAR_PANEL_MAX,
+      usageHeight: null
+    })
+  })
+
+  test('resetViewState puts the sidebar back, because that is view state too', async () => {
+    await handlers.setSidebarLayout({ width: 600, railHeight: 400, usageHeight: 300 })
+
+    await handlers.resetViewState()
+
+    expect(await handlers.getSidebarLayout()).toEqual(DEFAULT_SIDEBAR_LAYOUT)
   })
 })

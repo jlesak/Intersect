@@ -238,6 +238,8 @@ const api: IpcApi = {
     quitApp: () => ipcRenderer.invoke(Channel.systemQuitApp),
     revealUserData: () => ipcRenderer.invoke(Channel.systemRevealUserData),
     resetViewState: () => ipcRenderer.invoke(Channel.systemResetViewState),
+    getSidebarLayout: () => ipcRenderer.invoke(Channel.systemGetSidebarLayout),
+    setSidebarLayout: (layout) => ipcRenderer.invoke(Channel.systemSetSidebarLayout, layout),
     onCoreStatus: (cb) => {
       const listener = (_e: unknown, status: CoreStatus): void => cb(status)
       ipcRenderer.on(Channel.systemCoreStatus, listener)

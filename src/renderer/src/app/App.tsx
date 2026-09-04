@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { DEFAULT_SIDEBAR_LAYOUT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '@common/domain'
 import { CommandPalette } from '@renderer/features/commandPalette'
 import { ProjectContextView, selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
 import { WorkItemPickerHost } from '@renderer/features/workItems'
@@ -15,6 +16,8 @@ import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { RecoveryEscapes } from '@renderer/shared/ui/RecoveryEscapes'
 import { Toaster } from '@renderer/shared/ui/Toaster'
 import { CoreStatusOverlay } from './CoreStatusOverlay'
+import { PanelResizer } from './PanelResizer'
+import { useSidebarLayoutStore } from './sidebarLayout'
 import { Sidebar } from './Sidebar'
 import { resolveShellContext, useShellStore } from './shellStore'
 
@@ -34,6 +37,7 @@ export function App() {
   const context = useShellStore((s) => s.context)
   const collapsed = useShellStore((s) => s.sidebarCollapsed)
   const safeMode = useShellStore((s) => s.safeMode)
+  const sidebarWidth = useSidebarLayoutStore((s) => s.width)
   const projects = useProjectsStore(useShallow(selectActiveProjects))
   const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
   const sections = getSidebarSections()
@@ -55,6 +59,20 @@ export function App() {
     return () => clearTimeout(settled)
   }, [safeMode])
 
+  // The sidebar's own sizes. Safe mode deliberately keeps the defaults: this is the launch that
+  // comes up without saved state, and a sidebar dragged to something unusable is exactly the state
+  // it exists to escape. A pending drag must not be stranded by the window going away.
+  useEffect(() => {
+    if (safeMode) return
+    void useSidebarLayoutStore.getState().hydrate()
+    const flush = (): void => useSidebarLayoutStore.getState().flush()
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      flush()
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [safeMode])
+
   let main = <div className="ix-main" />
   let mainKey = 'empty'
   if (resolved?.kind === 'project' || resolved?.kind === 'other') {
@@ -69,8 +87,25 @@ export function App() {
   }
 
   return (
-    <div className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}>
+    <div
+      className={`ix-app${collapsed ? ' ix-app--rail' : ''}`}
+      style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <Sidebar />
+      {/* The sidebar's own edge. Outside the sidebar, which clips and scrolls its contents, so the
+          grip stays put and full height however far the sidebar is scrolled. */}
+      {!collapsed && (
+        <PanelResizer
+          orientation="vertical"
+          label="Sidebar width"
+          testId="sidebar-width-resizer"
+          size={() => sidebarWidth}
+          min={SIDEBAR_WIDTH_MIN}
+          max={SIDEBAR_WIDTH_MAX}
+          onResize={(px) => useSidebarLayoutStore.getState().setWidth(px)}
+          onReset={() => useSidebarLayoutStore.getState().setWidth(DEFAULT_SIDEBAR_LAYOUT.width)}
+        />
+      )}
       {/* Keyed by context so navigating away from a crashed view always lands on a fresh mount.
           The sidebar is outside the boundary, so a crash here leaves it live and the recovery
           line can send the user straight to it. */}

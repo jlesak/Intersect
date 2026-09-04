@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Project } from '@common/domain'
 import { projectStatus, useAttentionStore } from '@renderer/features/attention'
@@ -11,9 +11,19 @@ import {
   workspacesForProject,
   WorkspaceList
 } from '@renderer/features/workspaces'
+import { SIDEBAR_PANEL_MIN } from '@common/domain'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { IconChevronLeft, IconChevronRight, IconLayers } from '@renderer/shared/ui/icons'
+import { PanelResizer } from './PanelResizer'
+import { useSidebarLayoutStore } from './sidebarLayout'
 import { resolveShellContext, useShellStore, type ShellContext } from './shellStore'
+
+/**
+ * What a stacked panel must leave for everything else in the sidebar. Dragging one panel taller
+ * than this simply makes the sidebar scroll (which it already does on a short window), but a drag
+ * that could swallow the whole column would be a trap with no way back short of the reset.
+ */
+const ROOM_FOR_THE_REST = 160
 
 /**
  * The app sidebar in the approved rail order: Dashboard on top, then the project pins (with an
@@ -22,6 +32,12 @@ import { resolveShellContext, useShellStore, type ShellContext } from './shellSt
  * Below the rail lives the active context's own body (a project's workspace list, or the active
  * global section's panel), then the running work timer and the Claude usage panel. A collapse toggle shrinks everything to the icon rails alone.
  * Context resolution mirrors App.tsx via `resolveShellContext`.
+ *
+ * The rail and the usage panel can each be dragged to a height, and the sidebar itself to a width;
+ * the middle slot takes whatever is left. Until a divider is dragged, every panel sizes itself by
+ * its content, exactly as it did before. A panel given a height scrolls inside it rather than
+ * growing, so nothing here can paint over the controls above it (see `.ix-sidebar__body` in
+ * app.css for why that guarantee is structural).
  */
 export function Sidebar() {
   const sections = getSidebarSections()
@@ -31,6 +47,21 @@ export function Sidebar() {
   const toggleSidebar = useShellStore((s) => s.toggleSidebar)
   const projects = useProjectsStore(useShallow(selectActiveProjects))
   const selectedWorkspace = useWorkspacesStore(selectSelectedWorkspace)
+  const railHeight = useSidebarLayoutStore((s) => s.railHeight)
+  const usageHeight = useSidebarLayoutStore((s) => s.usageHeight)
+  const asideRef = useRef<HTMLElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
+  const usageRef = useRef<HTMLDivElement>(null)
+
+  // The ceiling a drag may not pass. Measured when the drag needs it, not stored: it is the live
+  // window height, which a resize changes without telling this component.
+  const roomFor = (): number =>
+    Math.max(ROOM_FOR_THE_REST, (asideRef.current?.clientHeight ?? 0) - ROOM_FOR_THE_REST)
+
+  // A panel that has never been dragged has no height of its own, so a drag has to start from what
+  // it currently occupies on screen.
+  const measured = (ref: React.RefObject<HTMLElement | null>, set: number | null): number =>
+    set ?? ref.current?.getBoundingClientRect().height ?? 0
 
   // The rail owns project pins, so it also owns kicking off the projects load. Safe mode leaves
   // them unloaded, because the rail renders outside the shell's region boundary and a project row
@@ -73,8 +104,10 @@ export function Sidebar() {
     )
   }
 
+  const layout = useSidebarLayoutStore.getState
+
   return (
-    <aside className="ix-sidebar">
+    <aside className="ix-sidebar" ref={asideRef}>
       <div className="ix-wordmark">
         <span className="ix-wordmark__dot" />
         <span className="ix-wordmark__name">Intersect</span>
@@ -90,7 +123,11 @@ export function Sidebar() {
         </button>
       </div>
 
-      <div className="ix-rail">
+      <div
+        className="ix-rail"
+        ref={railRef}
+        style={railHeight === null ? undefined : { height: railHeight }}
+      >
         {aboveProjects.map(railButton)}
         {!safeMode &&
           projects.map((p) => (
@@ -99,17 +136,56 @@ export function Sidebar() {
         {!safeMode && <OtherPin resolved={resolved} collapsed={collapsed} />}
         {belowProjects.map(railButton)}
       </div>
-
-      {!collapsed && resolved?.kind === 'project' && (
-        <WorkspaceList key={resolved.id} projectScope={resolved.id} />
+      {!collapsed && (
+        <PanelResizer
+          orientation="horizontal"
+          label="Section list height"
+          testId="sidebar-rail-resizer"
+          size={() => measured(railRef, railHeight)}
+          min={SIDEBAR_PANEL_MIN}
+          max={roomFor}
+          onResize={(px) => layout().setRailHeight(px)}
+          onReset={() => layout().setRailHeight(null)}
+        />
       )}
-      {!collapsed && resolved?.kind === 'other' && <WorkspaceList key="other" projectScope={null} />}
-      {!collapsed && resolved?.kind === 'section' && SectionBody && (
-        <SectionBody key={activeSectionId} />
+
+      {/* The middle slot always exists, even when the active context draws nothing into it. It is
+          what separates the divider above from the one below: with no element between them the two
+          land on the same pixel, the lower one wins every press, and dragging the rail silently
+          resized the usage panel instead. */}
+      {!collapsed && (
+        <div className="ix-sidebar__slot">
+          {resolved?.kind === 'project' && (
+            <WorkspaceList key={resolved.id} projectScope={resolved.id} />
+          )}
+          {resolved?.kind === 'other' && <WorkspaceList key="other" projectScope={null} />}
+          {resolved?.kind === 'section' && SectionBody && <SectionBody key={activeSectionId} />}
+        </div>
       )}
 
       {!collapsed && <SidebarTimer />}
-      {!collapsed && <SidebarUsage />}
+      {!collapsed && (
+        <PanelResizer
+          orientation="horizontal"
+          label="Usage panel height"
+          testId="sidebar-usage-resizer"
+          invert
+          size={() => measured(usageRef, usageHeight)}
+          min={SIDEBAR_PANEL_MIN}
+          max={roomFor}
+          onResize={(px) => layout().setUsageHeight(px)}
+          onReset={() => layout().setUsageHeight(null)}
+        />
+      )}
+      {!collapsed && (
+        <div
+          className="ix-sidebar__usage"
+          ref={usageRef}
+          style={usageHeight === null ? undefined : { height: usageHeight }}
+        >
+          <SidebarUsage />
+        </div>
+      )}
 
       {footSections.length > 0 && <div className="ix-rail__foot">{footSections.map(railButton)}</div>}
     </aside>
