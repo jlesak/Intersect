@@ -18,6 +18,32 @@ const TIMER: RunningTimer = {
 const text = (selector: string): string =>
   document.querySelector(selector)?.textContent?.trim() ?? ''
 
+const labelField = (): HTMLInputElement =>
+  document.querySelector('.ix-timer__label') as HTMLInputElement
+
+/** Set an input's value the way React tracks it, then fire the change React listens for. */
+const typeLabel = async (value: string): Promise<void> => {
+  const input = labelField()
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+  await act(async () => {
+    input.focus()
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+const blurLabel = async (): Promise<void> => {
+  await act(async () => {
+    labelField().dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+  })
+}
+
+const pressLabel = async (key: string): Promise<void> => {
+  await act(async () => {
+    labelField().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+}
+
 const clickAction = async (): Promise<void> => {
   await act(async () => {
     document.querySelector<HTMLButtonElement>('.ix-timer__action')?.click()
@@ -60,14 +86,14 @@ describe('TimerControl', () => {
     }
   })
 
-  test('shows the elapsed span and the attribution while running', async () => {
+  test('shows the elapsed span, the issue key and the label while running', async () => {
     useTimeTrackingStore.setState({ timer: TIMER })
     await act(async () => {
       render(<TimerControl />)
     })
     expect(text('.ix-timer__elapsed')).toBe('25:00')
-    expect(text('.ix-timer__what')).toContain('Refactor validators')
-    expect(text('.ix-timer__what')).toContain('FID2507-611')
+    expect(text('.ix-timer__what')).toBe('FID2507-611')
+    expect(labelField().value).toBe('Refactor validators')
     expect(text('.ix-timer__action')).toBe('Stop')
   })
 
@@ -86,13 +112,14 @@ describe('TimerControl', () => {
     expect(text('.ix-timer__elapsed')).toBe('26:00')
   })
 
-  test('an unattributed timer shows the elapsed span and nothing else to read', async () => {
+  test('an unattributed timer shows the elapsed span and an empty label to fill in', async () => {
     useTimeTrackingStore.setState({ timer: { ...TIMER, description: '  ', issueKey: null } })
     await act(async () => {
       render(<TimerControl />)
     })
     expect(text('.ix-timer__elapsed')).toBe('25:00')
     expect(document.querySelector('.ix-timer__what')).toBeNull()
+    expect(labelField().value).toBe('  ')
   })
 
   test('Start asks the store to start an unattributed timer', async () => {
@@ -155,5 +182,90 @@ describe('TimerControl', () => {
     await act(async () => {
       resolve()
     })
+  })
+  test('a typed label is saved against the running timer on blur', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.updateTimer.mockResolvedValue({ ...TIMER, description: 'Code review' })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await typeLabel('Code review')
+    // Nothing is sent while the user is still typing: a keystroke is not a decision.
+    expect(mocked.updateTimer).not.toHaveBeenCalled()
+    await blurLabel()
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+  })
+
+  test('Enter saves the label without waiting for the focus to move', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.updateTimer.mockResolvedValue({ ...TIMER, description: 'Code review' })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await typeLabel('Code review')
+    await pressLabel('Enter')
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+  })
+
+  test('Escape drops the draft and leaves the timer as it was', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await typeLabel('Wrong label')
+    await pressLabel('Escape')
+    expect(mocked.updateTimer).not.toHaveBeenCalled()
+    expect(labelField().value).toBe('Refactor validators')
+  })
+
+  test('leaving the label untouched is not an edit', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await blurLabel()
+    expect(mocked.updateTimer).not.toHaveBeenCalled()
+  })
+
+  test('Stop saves a label still being typed before it stops the timer', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    const order: string[] = []
+    mocked.updateTimer.mockImplementation(async () => {
+      order.push('update')
+      return { ...TIMER, description: 'Code review' }
+    })
+    mocked.stopTimer.mockImplementation(async () => {
+      order.push('stop')
+      return null
+    })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    // No blur first: the label the user was mid-way through typing when they hit Stop has to reach
+    // the entry, and in this order - the core reads the description off the running row at stop.
+    await typeLabel('Code review')
+    await clickAction()
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+    expect(order).toEqual(['update', 'stop'])
+  })
+
+  test('Start focuses the label, so naming the span is the next keystroke', async () => {
+    mocked.startTimer.mockResolvedValue({ ...TIMER, description: '', issueKey: null })
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await clickAction()
+    expect(document.activeElement).toBe(labelField())
+  })
+
+  test('a label the store rejected stays on screen for another try', async () => {
+    useTimeTrackingStore.setState({ timer: TIMER })
+    mocked.updateTimer.mockRejectedValue(new Error('No timer is running'))
+    await act(async () => {
+      render(<TimerControl />)
+    })
+    await typeLabel('Code review')
+    await blurLabel()
+    expect(labelField().value).toBe('Code review')
   })
 })

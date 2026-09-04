@@ -187,6 +187,7 @@ const dayColumn = (win: Page, day: string): Locator => win.locator(`.ix-tt__day[
 const topbarTimer = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__action')
 const topbarElapsed = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__elapsed')
 const shellTimer = (win: Page): Locator => win.locator('.ix-sidebar__timer')
+const topbarLabel = (win: Page): Locator => win.locator('.ix-tt__topbar .ix-timer__label')
 
 /** A day's nth card, needed wherever a column holds more than one. */
 const cardAt = (column: Locator, index: number): Locator =>
@@ -381,6 +382,12 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
   await topbarTimer(first.win).click()
   await expect(topbarTimer(first.win)).toHaveText('Stop')
   await expect(topbarElapsed(first.win)).toBeVisible()
+
+  // The clock started on the click, and naming the span is the next keystroke: the field is already
+  // focused, so the label can be typed without reaching for it.
+  await expect(topbarLabel(first.win)).toBeFocused()
+  await first.win.keyboard.type('Code review')
+  await first.win.keyboard.press('Enter')
   await first.app.close()
 
   // The timer is durable state, not renderer state: it is still running after a full restart.
@@ -396,6 +403,11 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
     /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d(:\d\d)?)$/
   )
 
+  // The label is part of that durable state, not a draft the renderer was holding: it is on screen
+  // in both places the timer shows after a full restart.
+  await expect(topbarLabel(second.win)).toHaveValue('Code review')
+  await expect(shellTimer(second.win).locator('.ix-timer__label')).toHaveValue('Code review')
+
   // The shell chip is the whole point of a running timer being visible outside its own section:
   // it counts alongside the topbar and offers the same Stop.
   await expect(shellTimer(second.win).locator('.ix-timer__action')).toHaveText('Stop')
@@ -404,13 +416,13 @@ test('the work timer keeps running across a relaunch and logs an entry on stop',
   await expect(topbarTimer(second.win)).toHaveText('Start')
   await expect(shellTimer(second.win)).toHaveCount(0)
 
-  // Stopping logged the span as an ordinary card on today's column, editable like any other. It
-  // was started without a description, so it carries the neutral fallback label. The board only
+  // Stopping logged the span as an ordinary card on today's column, editable like any other, and
+  // under the name the span was given while it ran rather than the neutral fallback. The board only
   // has weekday columns, so a weekend run has nowhere to show it.
   if (RUNS_ON_WEEKDAY) {
     const today = dayColumn(second.win, dayKey(new Date()))
     await expect(today.locator('.ix-tt-card')).toHaveCount(1)
-    await expect(today.locator('.ix-tt-card__title')).toHaveValue('Timed work')
+    await expect(today.locator('.ix-tt-card__title')).toHaveValue('Code review')
   }
 })
 

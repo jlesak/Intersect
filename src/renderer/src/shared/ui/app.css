@@ -3534,6 +3534,15 @@
 }
 .ix-sidebar__timer .ix-timer {
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+/* The rail is too narrow to carry the clock, the label and Stop on one line, so the label takes a
+   line of its own underneath them - `order` keeps Stop beside the figure it belongs to rather than
+   letting the wrap strand it below. */
+.ix-sidebar__timer .ix-timer__label {
+  order: 3;
+  flex: 1 1 100%;
 }
 
 /* The usage panel's slot. Carries the dragged height (if any) and scrolls, so the panel itself
@@ -4791,6 +4800,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* What the running span is for, editable in place. Shorter than a form input because it sits on one
+   line with the elapsed figure and Stop; it takes the slack where a surface has any (the Dashboard
+   zone) and shrinks to fit where it does not (the section topbar). */
+.ix-timer__label {
+  flex: 1 1 170px;
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 /* ===== Dashboard: the four mission-control zones ===== */
