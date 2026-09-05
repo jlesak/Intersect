@@ -87,8 +87,8 @@ export interface SystemHandlerDeps {
   openExternal: (url: string) => Promise<void>
   /** Reveal a validated file in the OS file manager (Electron's shell.showItemInFolder). */
   revealInFolder: (path: string) => void
-  /** The actual app relaunch (app.relaunch + app.exit); injected for tests. */
-  restartApp: () => void
+  /** Schedule a relaunch and enter the coordinated core shutdown; injected for tests. */
+  restartApp: () => Promise<void>
   /** Start a fresh core process after automatic recovery gave up (host.retry). */
   retryCore: () => void
   /** Quit through the coordinated shutdown path (app.quit); injected for tests. */
@@ -149,7 +149,7 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
       }),
     restartApp: () =>
       surface(async () => {
-        deps.restartApp()
+        await deps.restartApp()
       }),
     retryCore: () =>
       surface(async () => {
