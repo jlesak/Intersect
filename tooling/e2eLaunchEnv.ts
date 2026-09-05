@@ -42,3 +42,17 @@ export function launchEnv(
   }
   return cleaned
 }
+
+/**
+ * The variables that keep the app under test off the screen.
+ *
+ * Every launch that shows a window also activates the app on macOS, and a suite run launches it
+ * more than a hundred times - so a headed run takes the keyboard and the foreground away from
+ * whoever is at the machine for as long as it lasts. The app is driven over the debugging protocol
+ * and needs no window on screen, so by default the harness asks main for a hidden one.
+ *
+ * `E2E_HEADED=1` (that exact string) opts back into a visible window for watching a spec run.
+ */
+export function windowLaunchVars(shell: LaunchEnv = process.env): Record<string, string> {
+  return shell.E2E_HEADED === '1' ? {} : { INTERSECT_HIDDEN_WINDOW: '1' }
+}

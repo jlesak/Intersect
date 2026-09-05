@@ -10,7 +10,7 @@ import {
 } from '@playwright/test'
 import { closeRegisteredApps, registerApp } from '../tooling/e2eApps'
 import { appEntry } from '../tooling/e2eFreshness'
-import { launchEnv } from '../tooling/e2eLaunchEnv'
+import { launchEnv, windowLaunchVars } from '../tooling/e2eLaunchEnv'
 
 /**
  * Shared E2E harness. Every spec drove its own copy of these helpers, so a single navigation
@@ -154,6 +154,7 @@ export async function launch(
     args: [APP_ENTRY, `--user-data-dir=${profileDir}`],
     env: launchEnv({
       INTERSECT_E2E: '1',
+      ...windowLaunchVars(),
       INTERSECT_CLAUDE_PROJECTS_DIR: tempDir('intersect-empty-projects-'),
       ...opts.env
     })

@@ -4,7 +4,8 @@ Electron app (electron-vite), so there is no browser dev server to visit.
 
 - `npm run dev` - run the app in development.
 - `npm run typecheck` - both tsconfigs; run before tests, it catches most breakage first.
-- `npm test` - unit tests (vitest). `npm run e2e` builds and runs Playwright.
+- `npm test` - unit tests (vitest). `npm run e2e` builds and runs Playwright. The app runs off
+  screen during E2E; `E2E_HEADED=1` shows the window for debugging a spec.
 - `npm run lint` - eslint.
 - `npm run pack:mac` - packaged build; copy the result from `dist/mac*/` to `/Applications` to
   try it as the installed app.

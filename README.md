@@ -69,6 +69,13 @@ A refusal names whatever beat the build, and the fix, `npm run build`. `E2E_ALLO
 only that exact value, runs against a stale build anyway and says so in the log. It does not
 override a missing build or a check the guard could not complete.
 
+The suite launches the app well over a hundred times, and it does so off screen: the harness asks
+main for a hidden window (`INTERSECT_HIDDEN_WINDOW=1`), the app never shows one and never appears
+in the Dock, so macOS does not activate it and a run leaves the keyboard and the foreground to you.
+Playwright drives the window over the debugging protocol, so clicks, typing, focus assertions and
+screenshots work unchanged. `E2E_HEADED=1`, and only that exact value, brings the window back on
+screen for watching a spec run.
+
 ### Diagnostics
 
 Structured logs are written as one JSON object per line to

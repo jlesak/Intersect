@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { launchEnv, STRIPPED_LAUNCH_VARS } from './e2eLaunchEnv'
+import { launchEnv, STRIPPED_LAUNCH_VARS, windowLaunchVars } from './e2eLaunchEnv'
 
 describe('launchEnv', () => {
   it('keeps the inherited environment the app needs', () => {
@@ -42,5 +42,20 @@ describe('launchEnv', () => {
 
   it('names every stripped variable, so the list cannot silently empty out', () => {
     expect(STRIPPED_LAUNCH_VARS).toContain('ELECTRON_RUN_AS_NODE')
+  })
+})
+
+describe('windowLaunchVars', () => {
+  it('hides the app window by default, so a suite run leaves the desktop alone', () => {
+    expect(windowLaunchVars({})).toEqual({ INTERSECT_HIDDEN_WINDOW: '1' })
+  })
+
+  it('leaves the window visible when the developer asks for a headed run', () => {
+    expect(windowLaunchVars({ E2E_HEADED: '1' })).toEqual({})
+  })
+
+  it('takes only the exact opt-out value', () => {
+    expect(windowLaunchVars({ E2E_HEADED: 'yes' })).toEqual({ INTERSECT_HIDDEN_WINDOW: '1' })
+    expect(windowLaunchVars({ E2E_HEADED: '' })).toEqual({ INTERSECT_HIDDEN_WINDOW: '1' })
   })
 })

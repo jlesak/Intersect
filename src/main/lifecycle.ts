@@ -30,6 +30,21 @@ export function activateAction(opts: {
 }
 
 /**
+ * Whether the main window goes on screen or stays hidden for an automated driver.
+ *
+ * An E2E run launches the app well over a hundred times, and every launch that shows a window also
+ * activates the app - macOS brings it to the front and hands it the keyboard, so the suite makes the
+ * machine unusable for as long as it runs. Playwright drives the window over the debugging protocol
+ * and needs none of that, so the harness asks for a hidden window and the app never shows one.
+ *
+ * Only the exact value counts: the variable is an instruction from a test driver, and a person
+ * launching the app with anything else in the environment must still get a window.
+ */
+export function windowPresentation(env: Record<string, string | undefined>): 'shown' | 'hidden' {
+  return env.INTERSECT_HIDDEN_WINDOW === '1' ? 'hidden' : 'shown'
+}
+
+/**
  * Whether a renderer input event is strong enough evidence that a person is at the machine.
  *
  * A key or button going down takes a hand. Cursor motion and the enter and leave events that come
