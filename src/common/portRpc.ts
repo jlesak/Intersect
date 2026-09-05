@@ -3,12 +3,12 @@
  * transport seam between Electron main and the headless core utility process: requests
  * carry an id and settle exactly once; notifications are fire-and-forget requests with no
  * response (the PTY fast path); pushes flow the other way with no correlation at all.
+ * Successful notifications and pushes are deliberately silent; only their failures are logged.
  *
  * Only an error's `.message` crosses the wire, mirroring how Electron IPC already strips
  * thrown errors, so both hops of the renderer -> main -> core chain lose the same amount.
  */
 
-import { UNLOGGED_CHANNELS } from './logging/channel'
 import type { Logger } from './logging/logger'
 import { summarizeArgs } from './logging/record'
 
@@ -50,8 +50,6 @@ type PushHandler = (channel: string, payload: unknown) => void
  */
 export interface PortRpcOptions {
   logger?: Logger
-  /** Channels whose traffic is too high-frequency to record; defaults to the terminal fast path. */
-  unloggedChannels?: ReadonlySet<string>
 }
 
 let nextId = 0
@@ -66,14 +64,12 @@ export class PortRpc {
   private disposedWith: Error | null = null
 
   private readonly logger: Logger | null
-  private readonly unlogged: ReadonlySet<string>
 
   constructor(
     private port: RpcPort,
     options: PortRpcOptions = {}
   ) {
     this.logger = options.logger ?? null
-    this.unlogged = options.unloggedChannels ?? UNLOGGED_CHANNELS
     port.on('message', (msg) => this.handle(msg.data))
     port.start?.()
   }
@@ -150,6 +146,7 @@ export class PortRpc {
     }
 
     if (typeof msg.push === 'string') {
+      // Successful pushes are intentionally silent; only subscriber failures need a log record.
       for (const handler of [...this.pushHandlers]) {
         try {
           handler(msg.push, msg.payload)
@@ -164,7 +161,7 @@ export class PortRpc {
       const handler = this.requestHandler
       const args = Array.isArray(msg.args) ? msg.args : []
       if (typeof msg.id !== 'string') {
-        // Notification: run the handler, but failures have nowhere to go except the log.
+        // Successful notifications are intentionally silent; failures have nowhere else to go.
         try {
           await handler?.(msg.channel, args)
         } catch (err) {
@@ -176,7 +173,7 @@ export class PortRpc {
         return
       }
       const startedAt = Date.now()
-      const loggable = this.logger !== null && !this.unlogged.has(msg.channel)
+      const loggable = this.logger !== null
       let response: WireResponse
       try {
         if (!handler) throw new Error(`no request handler for ${msg.channel}`)
