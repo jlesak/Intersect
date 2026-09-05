@@ -59,20 +59,6 @@ export function App() {
     return () => clearTimeout(settled)
   }, [safeMode])
 
-  // The sidebar's own sizes. Safe mode deliberately keeps the defaults: this is the launch that
-  // comes up without saved state, and a sidebar dragged to something unusable is exactly the state
-  // it exists to escape. A pending drag must not be stranded by the window going away.
-  useEffect(() => {
-    if (safeMode) return
-    void useSidebarLayoutStore.getState().hydrate()
-    const flush = (): void => useSidebarLayoutStore.getState().flush()
-    window.addEventListener('beforeunload', flush)
-    return () => {
-      flush()
-      window.removeEventListener('beforeunload', flush)
-    }
-  }, [safeMode])
-
   let main = <div className="ix-main" />
   let mainKey = 'empty'
   if (resolved?.kind === 'project' || resolved?.kind === 'other') {
@@ -103,7 +89,7 @@ export function App() {
           min={SIDEBAR_WIDTH_MIN}
           max={SIDEBAR_WIDTH_MAX}
           onResize={(px) => useSidebarLayoutStore.getState().setWidth(px)}
-          onCommit={() => useSidebarLayoutStore.getState().flush()}
+          onCommit={() => useSidebarLayoutStore.getState().save()}
           onReset={() => useSidebarLayoutStore.getState().setWidth(DEFAULT_SIDEBAR_LAYOUT.width)}
         />
       )}

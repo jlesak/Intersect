@@ -25,9 +25,8 @@ test('the sidebar is resized by dragging, and the size survives a restart', asyn
   const widened = await sidebarWidth(first.win)
   expect(widened).toBeGreaterThan(before + 60)
 
-  // Deliberately shorter than the store's 400ms coalescing delay: if the size survives the
-  // restart, it was written when the drag ended, not by the timer and not by a closing window
-  // (whose flush does not reliably reach the database before the process goes).
+  // The size is written when the drag ends. The short wait only gives that one IPC round trip time
+  // to land before the window closes.
   await first.win.waitForTimeout(150)
   await first.app.close()
 

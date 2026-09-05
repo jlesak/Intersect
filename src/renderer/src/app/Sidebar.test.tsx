@@ -110,14 +110,14 @@ describe('Sidebar', () => {
     })
     useAttentionStore.setState({ status: {} })
     useShellStore.setState({ context: null, sidebarCollapsed: false })
-    useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, loaded: false })
+    useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT })
   })
 
   test('every stacked panel carries a divider, and a dragged height is applied to it', async () => {
     stubBridge()
     seedRail()
     registerSidebarSection({ id: 'dashboard', order: -1, label: 'Dashboard', icon: Icon })
-    useSidebarLayoutStore.setState({ railHeight: 180, usageHeight: 120, loaded: true })
+    useSidebarLayoutStore.setState({ railHeight: 180, usageHeight: 120 })
 
     await act(async () => {
       render(<Sidebar />)
@@ -147,7 +147,7 @@ describe('Sidebar', () => {
     stubBridge()
     seedRail()
     useShellStore.setState({ sidebarCollapsed: true })
-    useSidebarLayoutStore.setState({ railHeight: 64, loaded: true })
+    useSidebarLayoutStore.setState({ railHeight: 64 })
 
     await act(async () => {
       render(<Sidebar />)

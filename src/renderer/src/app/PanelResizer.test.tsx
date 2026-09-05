@@ -264,15 +264,50 @@ describe('PanelResizer', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 
-  test('double-click is the way back to sizing by content', () => {
-    const onReset = vi.fn()
+  test('a click that never moves commits nothing', () => {
+    // Before the saved sizes arrive the store holds the defaults; a commit here would write them
+    // over what is stored. And a double-click is two such clicks before the reset itself.
+    const onCommit = vi.fn()
     render(
-      <PanelResizer orientation="horizontal" label="Rail" size={() => 200} onResize={vi.fn()} onReset={onReset} />
+      <PanelResizer
+        orientation="horizontal"
+        label="Rail"
+        size={() => 200}
+        onResize={vi.fn()}
+        onCommit={onCommit}
+      />
     )
 
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 0, clientY: 100 })
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 0, clientY: 100 })
+
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(document.body.className).toBe('')
+  })
+
+  test('double-click is the way back to sizing by content', () => {
+    const onReset = vi.fn()
+    const onCommit = vi.fn()
+    render(
+      <PanelResizer
+        orientation="horizontal"
+        label="Rail"
+        size={() => 200}
+        onResize={vi.fn()}
+        onCommit={onCommit}
+        onReset={onReset}
+      />
+    )
+
+    // The browser delivers the two clicks first, then dblclick. Only the reset writes.
+    for (let i = 0; i < 2; i++) {
+      fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 0, clientY: 100 })
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 0, clientY: 100 })
+    }
     fireEvent.doubleClick(separator())
 
     expect(onReset).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledTimes(1)
     expect(separator().getAttribute('title')).toContain('double-click to reset')
   })
 

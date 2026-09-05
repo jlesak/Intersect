@@ -19,6 +19,7 @@ import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
 import { wireShortcuts } from './app/shortcutWiring'
+import { useSidebarLayoutStore } from './app/sidebarLayout'
 import { wireTodoFocus } from './app/todoFocusWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
 import { useCommandPaletteStore } from './features/commandPalette'
@@ -128,6 +129,9 @@ if (!safeMode) {
   // the user opens the app. Deliberately narrower than hydrate(): the week itself is pulled only by
   // the surfaces that show it.
   void useTimeTrackingStore.getState().loadTimer()
+  // The sidebar's dragged sizes. Safe mode keeps the defaults: a sidebar dragged to something
+  // unusable is exactly the kind of state it exists to escape.
+  void useSidebarLayoutStore.getState().hydrate()
   // Bridge the sessions slice's resume requests to the workspaces/tabs slices (cross-slice).
   wireSessionResume()
   // Re-read workspaces after project-binding changes so assignments stay truthful (cross-slice).
