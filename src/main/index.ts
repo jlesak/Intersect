@@ -33,7 +33,8 @@ import {
   quitDecision,
   shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
-  shouldZeroDockBadge
+  shouldZeroDockBadge,
+  windowPresentation
 } from './lifecycle'
 import {
   createMainLogger,
@@ -55,6 +56,8 @@ import {
 app.setName('Intersect')
 
 let mainWindow: BrowserWindow | null = null
+// Decided once, at startup: a test driver that asked for a hidden window gets one for the whole run.
+const hiddenWindow = windowPresentation(process.env) === 'hidden'
 let host: CoreHost | null = null
 let coreStatus: CoreStatus = { state: 'starting' }
 // Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
@@ -144,11 +147,18 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       sandbox: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Chromium throttles timers and animation frames in a window that is not on screen, and the
+      // test driver waits on exactly those to judge an element stable - so a hidden window keeps
+      // rendering at full rate.
+      backgroundThrottling: !hiddenWindow
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // A hidden window is never shown: showing is what activates the app and takes the foreground.
+  mainWindow.on('ready-to-show', () => {
+    if (!hiddenWindow) mainWindow?.show()
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
     host?.notify(WINDOW_FOCUS_CHANGED, [{ focused: false }])
@@ -311,6 +321,9 @@ app.whenReady().then(() => {
   registerRendererLogReceiver({ ipcMain, sink, level, logger: log })
   log.info('app ready', { data: { userDataDir, packaged: app.isPackaged } })
   wireCore(userDataDir, log)
+  // Hiding the Dock icon also makes the app an accessory: macOS then never activates it on launch
+  // and it stays out of Cmd+Tab, so a suite run is invisible from the desktop.
+  if (hiddenWindow) app.dock?.hide()
   createWindow()
 
   // The native menu owns every app-wide shortcut: macOS resolves accelerators before the key

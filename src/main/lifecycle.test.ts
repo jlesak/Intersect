@@ -6,7 +6,8 @@ import {
   quitDecision,
   shouldConfirmQuit,
   shouldQuitOnWindowAllClosed,
-  shouldZeroDockBadge
+  shouldZeroDockBadge,
+  windowPresentation
 } from './lifecycle'
 
 describe('shouldQuitOnWindowAllClosed', () => {
@@ -140,5 +141,21 @@ describe('isUserPresenceInput', () => {
     expect(isUserPresenceInput('keyUp')).toBe(false)
     expect(isUserPresenceInput('mouseUp')).toBe(false)
     expect(isUserPresenceInput('undefined')).toBe(false)
+  })
+})
+
+describe('windowPresentation', () => {
+  test('shows the window by default', () => {
+    expect(windowPresentation({})).toBe('shown')
+  })
+
+  test('hides the window when an automated driver asks for it', () => {
+    expect(windowPresentation({ INTERSECT_HIDDEN_WINDOW: '1' })).toBe('hidden')
+  })
+
+  test('only the exact value hides; anything else is a person launching the app', () => {
+    expect(windowPresentation({ INTERSECT_HIDDEN_WINDOW: '0' })).toBe('shown')
+    expect(windowPresentation({ INTERSECT_HIDDEN_WINDOW: 'true' })).toBe('shown')
+    expect(windowPresentation({ INTERSECT_HIDDEN_WINDOW: '' })).toBe('shown')
   })
 })
