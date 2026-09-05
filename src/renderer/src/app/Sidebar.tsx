@@ -147,7 +147,7 @@ export function Sidebar() {
           min={SIDEBAR_PANEL_MIN}
           max={roomFor}
           onResize={(px) => layout().setRailHeight(px)}
-          onCommit={() => layout().flush()}
+          onCommit={() => layout().save()}
           onReset={() => layout().setRailHeight(null)}
         />
       )}
@@ -177,7 +177,7 @@ export function Sidebar() {
           min={SIDEBAR_PANEL_MIN}
           max={roomFor}
           onResize={(px) => layout().setUsageHeight(px)}
-          onCommit={() => layout().flush()}
+          onCommit={() => layout().save()}
           onReset={() => layout().setUsageHeight(null)}
         />
       )}

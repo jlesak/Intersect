@@ -33,10 +33,8 @@ export interface PanelResizerProps {
   max?: Measurable
   onResize(px: number): void
   /**
-   * The gesture finished - pointer released, or an arrow key pressed. Sizes are written once here
-   * rather than only on a timer, because a user who drags and then quits within the coalescing
-   * window would otherwise lose the size: the flush a closing window runs does not reliably reach
-   * the database before the process goes.
+   * The gesture finished - pointer released, arrow key pressed, double-click reset. The size is
+   * written here once per gesture rather than on every move.
    */
   onCommit?(): void
   /** Double-click, and the tooltip says so: back to sizing by content. */
@@ -76,7 +74,7 @@ export function PanelResizer({
 }: PanelResizerProps) {
   // The gesture's own origin, so a drag stays anchored to where it began: deriving each move from
   // the previous one accumulates rounding and drifts away from the pointer.
-  const from = useRef<{ pointer: number; size: number } | null>(null)
+  const from = useRef<{ pointer: number; size: number; moved: boolean } | null>(null)
   const stopTracking = useRef<(() => void) | null>(null)
 
   // A drag interrupted by an unmount (the sidebar collapses, the panel goes away) must not leave
@@ -91,7 +89,7 @@ export function PanelResizer({
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0 || from.current) return
-    from.current = { pointer: coordinate(e), size: size() }
+    from.current = { pointer: coordinate(e), size: size(), moved: false }
     // The pointer spends the whole drag away from the divider, so the cursor and the ban on
     // selecting text have to hold for the whole window.
     document.body.classList.add(`ix-resizing--${orientation}`)
@@ -99,14 +97,17 @@ export function PanelResizer({
     const onMove = (move: globalThis.PointerEvent): void => {
       const start = from.current
       if (!start) return
+      start.moved = true
       const delta = coordinate(move) - start.pointer
       onResize(clamp(start.size + (invert ? -delta : delta)))
     }
     const onEnd = (): void => {
-      const dragged = from.current !== null
+      // A press that never moved (a click to focus the divider, or the two half-clicks of a
+      // double-click) changed no size, so it has nothing to write.
+      const moved = from.current?.moved ?? false
       from.current = null
       stopTracking.current?.()
-      if (dragged) onCommit?.()
+      if (moved) onCommit?.()
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onEnd)
@@ -150,7 +151,13 @@ export function PanelResizer({
       title={onReset ? `${label} - drag, or double-click to reset` : `${label} - drag to resize`}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
-      onDoubleClick={onReset}
+      onDoubleClick={
+        onReset &&
+        (() => {
+          onReset()
+          onCommit?.()
+        })
+      }
     />
   )
 }
