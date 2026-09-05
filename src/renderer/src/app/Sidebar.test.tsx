@@ -141,16 +141,20 @@ describe('Sidebar', () => {
     expect(document.querySelector<HTMLElement>('.ix-sidebar__usage')?.style.height).toBe('')
   })
 
-  test('the collapsed icon rail offers no dividers, having nothing to size', async () => {
+  test('the collapsed icon rail offers no dividers and ignores a dragged height', async () => {
+    // Nothing in the collapsed rail can undo a height, so a floor dragged for the expanded rail
+    // would hide the project pins behind a scroll with no way back.
     stubBridge()
     seedRail()
     useShellStore.setState({ sidebarCollapsed: true })
+    useSidebarLayoutStore.setState({ railHeight: 64, loaded: true })
 
     await act(async () => {
       render(<Sidebar />)
     })
 
     expect(document.querySelectorAll('[role="separator"]')).toHaveLength(0)
+    expect(document.querySelector<HTMLElement>('.ix-rail')?.style.height).toBe('')
   })
 
   test('mounts a populated rail and settles without a render loop', async () => {

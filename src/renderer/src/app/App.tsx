@@ -103,6 +103,7 @@ export function App() {
           min={SIDEBAR_WIDTH_MIN}
           max={SIDEBAR_WIDTH_MAX}
           onResize={(px) => useSidebarLayoutStore.getState().setWidth(px)}
+          onCommit={() => useSidebarLayoutStore.getState().flush()}
           onReset={() => useSidebarLayoutStore.getState().setWidth(DEFAULT_SIDEBAR_LAYOUT.width)}
         />
       )}

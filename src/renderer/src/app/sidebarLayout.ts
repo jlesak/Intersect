@@ -18,8 +18,11 @@ export const SAVE_DELAY_MS = 400
  * panel's height is `null` until it is dragged, which means "size to your content" - so a profile
  * that never touches a divider gets exactly the sidebar it always had.
  *
- * Sizes are applied while dragging and written once the drag settles, because a write per pointer
- * move would be hundreds of database round trips for one gesture.
+ * Sizes are applied while dragging and coalesced into one write, because a write per pointer move
+ * would be hundreds of database round trips for one gesture. The divider calls `flush` when the
+ * gesture ends, which is what actually makes the size durable: a user who drags and then quits
+ * inside the coalescing window would otherwise lose it, and the flush a closing window runs does
+ * not reliably reach the database before the process goes.
  */
 interface SidebarLayoutState extends SidebarLayout {
   /** False until the saved sizes arrive; the sidebar renders its defaults until then. */
@@ -34,7 +37,7 @@ interface SidebarLayoutState extends SidebarLayout {
   setWidth(px: number): void
   setRailHeight(px: number | null): void
   setUsageHeight(px: number | null): void
-  /** Write any pending size now (used when the window is about to go away). */
+  /** Write any pending size now: the end of a gesture, and a window about to go away. */
   flush(): void
 }
 

@@ -149,14 +149,18 @@ describe('PanelResizer', () => {
   })
 
   test('unmounting mid-drag releases the window it took over', () => {
+    const onResize = vi.fn()
     const view = render(
-      <PanelResizer orientation="vertical" label="Width" size={() => 244} onResize={vi.fn()} />
+      <PanelResizer orientation="vertical" label="Width" size={() => 244} onResize={onResize} />
     )
 
     fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 0, clientY: 0 })
     view.unmount()
 
     expect(document.body.classList.contains('ix-resizing--vertical')).toBe(false)
+    // And the listeners are gone with it, not merely the cursor.
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 500, clientY: 0 })
+    expect(onResize).not.toHaveBeenCalled()
   })
 
   test('bounds may be measured at gesture time, not fixed when the divider was drawn', () => {
@@ -208,6 +212,58 @@ describe('PanelResizer', () => {
     expect(onResize).not.toHaveBeenCalled()
   })
 
+  test('a finished drag says so, so the size can be made durable at once', () => {
+    const onCommit = vi.fn()
+    render(
+      <PanelResizer
+        orientation="horizontal"
+        label="Rail"
+        size={() => 200}
+        onResize={vi.fn()}
+        onCommit={onCommit}
+      />
+    )
+
+    drag({ x: 0, y: 0 }, { x: 0, y: 40 })
+
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+
+  test('a keyboard resize commits too', () => {
+    const onCommit = vi.fn()
+    render(
+      <PanelResizer
+        orientation="horizontal"
+        label="Rail"
+        size={() => 200}
+        onResize={vi.fn()}
+        onCommit={onCommit}
+      />
+    )
+
+    fireEvent.keyDown(separator(), { key: 'ArrowDown' })
+    fireEvent.keyDown(separator(), { key: 'ArrowLeft' })
+
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+
+  test('a pointer release with no drag behind it commits nothing', () => {
+    const onCommit = vi.fn()
+    render(
+      <PanelResizer
+        orientation="horizontal"
+        label="Rail"
+        size={() => 200}
+        onResize={vi.fn()}
+        onCommit={onCommit}
+      />
+    )
+
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 0, clientY: 0 })
+
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
   test('double-click is the way back to sizing by content', () => {
     const onReset = vi.fn()
     render(
@@ -221,11 +277,30 @@ describe('PanelResizer', () => {
   })
 
   test('it announces itself as a focusable separator on its own axis', () => {
-    render(<PanelResizer orientation="vertical" label="Sidebar width" size={() => 244} onResize={vi.fn()} />)
+    render(
+      <PanelResizer
+        orientation="vertical"
+        label="Sidebar width"
+        size={() => 244}
+        min={180}
+        max={640}
+        onResize={vi.fn()}
+      />
+    )
 
     expect(separator().getAttribute('aria-orientation')).toBe('vertical')
     expect(separator().getAttribute('aria-label')).toBe('Sidebar width')
     expect(separator().getAttribute('aria-valuenow')).toBe('244')
+    expect(separator().getAttribute('aria-valuemin')).toBe('180')
+    expect(separator().getAttribute('aria-valuemax')).toBe('640')
     expect(separator().tabIndex).toBe(0)
+  })
+
+  test('a value without a range is left unreported rather than read as a percentage', () => {
+    // ARIA reads a bare aria-valuenow against a default 0-100 range, where 244px is nonsense.
+    render(<PanelResizer orientation="vertical" label="Width" size={() => 244} onResize={vi.fn()} />)
+
+    expect(separator().getAttribute('aria-valuenow')).toBeNull()
+    expect(separator().getAttribute('aria-valuemin')).toBeNull()
   })
 })

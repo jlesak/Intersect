@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { Project } from '@common/domain'
 import { projectStatus, useAttentionStore } from '@renderer/features/attention'
 import { selectActiveProjects, useProjectsStore } from '@renderer/features/projects'
 import { SidebarTimer } from '@renderer/features/timeTracking'
@@ -11,7 +10,7 @@ import {
   workspacesForProject,
   WorkspaceList
 } from '@renderer/features/workspaces'
-import { SIDEBAR_PANEL_MIN } from '@common/domain'
+import { SIDEBAR_PANEL_MIN, type Project } from '@common/domain'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { IconChevronLeft, IconChevronRight, IconLayers } from '@renderer/shared/ui/icons'
 import { PanelResizer } from './PanelResizer'
@@ -126,7 +125,10 @@ export function Sidebar() {
       <div
         className="ix-rail"
         ref={railRef}
-        style={railHeight === null ? undefined : { height: railHeight }}
+        // Ignored while collapsed, like the width: the icon rail holds a different set of
+        // controls, no divider exists there to undo a height, and a floor dragged for the expanded
+        // rail would hide the project pins behind a scroll with no way back.
+        style={collapsed || railHeight === null ? undefined : { height: railHeight }}
       >
         {aboveProjects.map(railButton)}
         {!safeMode &&
@@ -145,6 +147,7 @@ export function Sidebar() {
           min={SIDEBAR_PANEL_MIN}
           max={roomFor}
           onResize={(px) => layout().setRailHeight(px)}
+          onCommit={() => layout().flush()}
           onReset={() => layout().setRailHeight(null)}
         />
       )}
@@ -174,6 +177,7 @@ export function Sidebar() {
           min={SIDEBAR_PANEL_MIN}
           max={roomFor}
           onResize={(px) => layout().setUsageHeight(px)}
+          onCommit={() => layout().flush()}
           onReset={() => layout().setUsageHeight(null)}
         />
       )}
