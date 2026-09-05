@@ -32,6 +32,13 @@ export interface PanelResizerProps {
   min?: Measurable
   max?: Measurable
   onResize(px: number): void
+  /**
+   * The gesture finished - pointer released, or an arrow key pressed. Sizes are written once here
+   * rather than only on a timer, because a user who drags and then quits within the coalescing
+   * window would otherwise lose the size: the flush a closing window runs does not reliably reach
+   * the database before the process goes.
+   */
+  onCommit?(): void
   /** Double-click, and the tooltip says so: back to sizing by content. */
   onReset?(): void
   testId?: string
@@ -63,6 +70,7 @@ export function PanelResizer({
   min,
   max,
   onResize,
+  onCommit,
   onReset,
   testId
 }: PanelResizerProps) {
@@ -95,8 +103,10 @@ export function PanelResizer({
       onResize(clamp(start.size + (invert ? -delta : delta)))
     }
     const onEnd = (): void => {
+      const dragged = from.current !== null
       from.current = null
       stopTracking.current?.()
+      if (dragged) onCommit?.()
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onEnd)
@@ -117,14 +127,23 @@ export function PanelResizer({
     e.preventDefault()
     const towards = e.key === grow ? 1 : -1
     onResize(clamp(size() + KEYBOARD_STEP_PX * (invert ? -towards : towards)))
+    onCommit?.()
   }
+
+  // ARIA's default range for a value is 0-100, so a pixel size means nothing on its own. Report the
+  // three together, or none of them.
+  const low = read(min, Number.NaN)
+  const high = read(max, Number.NaN)
+  const range = Number.isFinite(low) && Number.isFinite(high)
 
   return (
     <div
       role="separator"
       aria-orientation={orientation}
       aria-label={label}
-      aria-valuenow={Math.round(size())}
+      aria-valuenow={range ? Math.round(size()) : undefined}
+      aria-valuemin={range ? Math.round(low) : undefined}
+      aria-valuemax={range ? Math.round(high) : undefined}
       tabIndex={0}
       className={`ix-resizer ix-resizer--${orientation}`}
       data-testid={testId}
