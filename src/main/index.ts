@@ -63,6 +63,10 @@ let coreStatus: CoreStatus = { state: 'starting' }
 // Set by before-quit: the app is on its coordinated way out, so window lifecycle events must
 // neither veto the quit nor create new windows.
 let quitting = false
+// Covers the asynchronous part before `quitting`: the live-session query and, for an ordinary quit,
+// the user's answer. A second before-quit must be vetoed without starting another dialog, and the
+// guard stays raised after commitment so no later quit can race past the core teardown.
+let quitAttemptInFlight = false
 // Raised by the system's power-off signal: the machine is logging out, restarting or shutting
 // down, so the quit that follows has nobody in front of it to answer the suspend confirmation.
 // Withdrawn again by `markUserPresent`, because a power-off can be abandoned before it ever
@@ -265,10 +269,7 @@ function wireCore(userDataDir: string, logger: Logger): void {
   const system = createSystemHandlers({
     openExternal: (url) => shell.openExternal(url),
     revealInFolder: (path) => shell.showItemInFolder(path),
-    restartApp: () => {
-      app.relaunch()
-      app.exit(0)
-    },
+    restartApp: () => confirmAndQuit({ relaunch: true }),
     retryCore: () => host?.retry(),
     quitApp: () => app.quit(),
     userDataDir,
@@ -377,10 +378,32 @@ app.whenReady().then(() => {
 // and, if any, show a modal. Cancel changes nothing and leaves `quitting` false so a later quit
 // re-prompts. Ordinary window close never reaches here.
 app.on('before-quit', (event) => {
-  if (quitting || !host) return
+  if (!host) return
   event.preventDefault()
   void confirmAndQuit()
 })
+
+/**
+ * Produce the visible parent an attended quit confirmation needs.
+ *
+ * A parentless message box is application-modal on macOS and its nominally asynchronous Electron
+ * API runs the native modal synchronously. A live but hidden parent is worse for a person: AppKit
+ * attaches a sheet they cannot see. Restore the application-owned window (or recreate it after the
+ * user closed it) and always use the parented, non-blocking sheet API instead.
+ */
+function visibleQuitDialogWindow(): BrowserWindow {
+  let win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  if (!win) {
+    createWindow()
+    win = mainWindow
+  }
+  if (!win) throw new Error('quit confirmation window could not be created')
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.focus()
+  if (!win.isVisible()) throw new Error('quit confirmation window could not be shown')
+  return win
+}
 
 /**
  * Query the core for live Claude sessions, confirm the suspend with the user when any are running
@@ -396,48 +419,61 @@ app.on('before-quit', (event) => {
  * only until somebody proves they are here, so an abandoned power-off hands the next quit its
  * dialog back.
  */
-async function confirmAndQuit(): Promise<void> {
-  let live: LiveClaudeSession[] = []
+async function confirmAndQuit(opts: { relaunch?: boolean } = {}): Promise<void> {
+  if (quitting || quitAttemptInFlight || !host) return
+  const activeHost = host
+  quitAttemptInFlight = true
+  let committed = false
   try {
-    live = (await host!.request(Channel.sessionsListLive, [])) as LiveClaudeSession[]
-  } catch {
-    // Core unreachable: nothing useful to preserve when we cannot see its state - proceed to quit.
-    live = []
-  }
+    // Restart is already the user's explicit decision. It needs the same suspend teardown as Quit,
+    // but putting a second confirmation behind the failed-core overlay would add no safety.
+    if (!opts.relaunch) {
+      let live: LiveClaudeSession[] = []
+      try {
+        live = (await activeHost.request(Channel.sessionsListLive, [])) as LiveClaudeSession[]
+      } catch {
+        // Core unreachable: nothing useful to preserve when we cannot see its state - proceed to quit.
+        live = []
+      }
 
-  const unattended = unattendedShutdown.isUnattended()
-  if (shouldConfirmQuit({ liveCount: live.length, unattended })) {
-    const lines = live.map((s) => `  - ${s.title} (${s.workspace})`).join('\n')
-    const options = {
-      type: 'question' as const,
-      buttons: ['Suspend & Quit', 'Cancel'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Quit Intersect',
-      message: `${live.length} Claude session${live.length === 1 ? ' is' : 's are'} still running.`,
-      detail: `${lines}\n\nThey will be suspended and can resume on next launch.`
+      const unattended = unattendedShutdown.isUnattended()
+      if (shouldConfirmQuit({ liveCount: live.length, unattended })) {
+        const lines = live.map((s) => `  - ${s.title} (${s.workspace})`).join('\n')
+        const options = {
+          type: 'question' as const,
+          buttons: ['Suspend & Quit', 'Cancel'],
+          defaultId: 0,
+          cancelId: 1,
+          title: 'Quit Intersect',
+          message: `${live.length} Claude session${live.length === 1 ? ' is' : 's are'} still running.`,
+          detail: `${lines}\n\nThey will be suspended and can resume on next launch.`
+        }
+        let response: number | null = null
+        try {
+          const answer = await dialog.showMessageBox(visibleQuitDialogWindow(), options)
+          response = answer.response
+        } catch {
+          // A prompt that cannot be shown must not quit behind the user's back: leave every session
+          // and process alive, exactly as Cancel would.
+          return
+        }
+        if (quitDecision(live.length, response) === 'stay') return
+      } else if (live.length > 0) {
+        log?.info('quitting without the suspend confirmation', {
+          data: { liveSessions: live.length }
+        })
+      }
     }
-    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
-    let response: number | null = null
-    try {
-      const answer = win
-        ? await dialog.showMessageBox(win, options)
-        : await dialog.showMessageBox(options)
-      response = answer.response
-    } catch {
-      // A prompt that cannot be shown must not quit behind the user's back: leave every session
-      // and process alive, exactly as Cancel would.
-      return
-    }
-    if (quitDecision(live.length, response) === 'stay') return
-  } else if (live.length > 0) {
-    log?.info('quitting without the suspend confirmation', {
-      data: { liveSessions: live.length }
-    })
-  }
 
-  quitting = true
-  void host!.shutdown().finally(() => app.exit(0))
+    if (opts.relaunch) app.relaunch()
+    quitting = true
+    committed = true
+    await activeHost.shutdown().finally(() => app.exit(0))
+  } finally {
+    // Cancel, dismissal, a dialog failure, or a relaunch failure leaves the app available for a
+    // genuinely later attempt. Once committed, only app.exit ends the single-flight guard.
+    if (!committed) quitAttemptInFlight = false
+  }
 }
 
 // Dock-only lifecycle on macOS: closing the last window leaves Electron, the core, and its
