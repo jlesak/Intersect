@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createLogger } from './logging/logger'
-import { UNLOGGED_CHANNELS } from './logging/channel'
 import { PortRpc, type RpcPort } from './portRpc'
 
 /** A pair of ports wired straight to each other, so a request really round-trips. */
@@ -64,13 +63,12 @@ describe('PortRpc logging', () => {
     expect(sink.lines.join()).not.toContain('buy milk')
   })
 
-  it('writes nothing for an unlogged terminal channel', async () => {
+  it('does not log a successful notification', async () => {
     const sink = fakeSink()
     const [a, b] = portPair()
     const caller = new PortRpc(a)
     const server = new PortRpc(b, {
-      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' }),
-      unloggedChannels: UNLOGGED_CHANNELS
+      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' })
     })
     server.onRequest(async () => undefined)
     caller.notify('terminal:input', ['s1', 'ls -la\r'])
@@ -78,16 +76,29 @@ describe('PortRpc logging', () => {
     expect(sink.lines).toEqual([])
   })
 
-  it('writes nothing for a served request on an unlogged channel', async () => {
+  it('logs a served request based on message kind, not its channel name', async () => {
     const sink = fakeSink()
     const [a, b] = portPair()
     const caller = new PortRpc(a)
     const server = new PortRpc(b, {
-      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' }),
-      unloggedChannels: UNLOGGED_CHANNELS
+      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' })
     })
     server.onRequest(async () => 'ok')
     await caller.invoke('terminal:input', ['s1', 'ls -la\r'])
+    expect(readRecords(sink).find((r) => r.msg === 'rpc served')).toMatchObject({
+      data: { channel: 'terminal:input' }
+    })
+  })
+
+  it('does not log a successful push', () => {
+    const sink = fakeSink()
+    const [a, b] = portPair()
+    const receiver = new PortRpc(a, {
+      logger: createLogger({ sink, level: 'debug', proc: 'main', scope: 'rpc' })
+    })
+    const sender = new PortRpc(b)
+    receiver.onPush(() => undefined)
+    sender.push('terminal:data', { sessionId: 's1', data: 'hello' })
     expect(sink.lines).toEqual([])
   })
 
@@ -96,8 +107,7 @@ describe('PortRpc logging', () => {
     const [a, b] = portPair()
     const caller = new PortRpc(a)
     const server = new PortRpc(b, {
-      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' }),
-      unloggedChannels: UNLOGGED_CHANNELS
+      logger: createLogger({ sink, level: 'debug', proc: 'core', scope: 'rpc' })
     })
     server.onRequest(async () => {
       throw new Error('notify failed')
