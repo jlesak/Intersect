@@ -1,5 +1,6 @@
 import type {
   DraftComment,
+  DraftSnippetsByDraftId,
   FileDiff,
   PrChangeFile,
   PrThread,
@@ -16,6 +17,19 @@ import * as api from './ipc'
 import { appendReviewOutput, dropReviewOutput } from './reviewOutput'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
+
+/**
+ * The faces of a PR's detail: the conversation, the changed files, and the summary of the comments
+ * this review proposes but has not published.
+ */
+export type PrDetailTab = 'overview' | 'files' | 'drafts'
+
+/**
+ * The faces of a detail whose review session is live. The same three surfaces as above minus the
+ * conversation (the running session owns the terminal instead), so the proposed comments are
+ * reachable while Claude is still writing them.
+ */
+export type ReviewView = 'terminal' | 'changes' | 'drafts'
 
 /**
  * How old the board's data may be before an automatic refresh is worth what it costs.
@@ -68,8 +82,8 @@ interface PrInboxState {
   selectedKey: string | null
   /** The main area shows the board, or the selected PR's detail. */
   view: 'board' | 'detail'
-  activeTab: 'files' | 'overview'
-  /** File + line the Files tab should scroll to (set by Overview's file:line chip). */
+  activeTab: PrDetailTab
+  /** File + line the Files tab should scroll to (set by a thread's or a draft's file:line chip). */
   pendingReveal: { path: string; line: number | null } | null
   // The selected PR's loaded detail.
   changes: PrChangeFile[]
@@ -95,6 +109,14 @@ interface PrInboxState {
   /** Load state for this selected PR's actionable drafts; empty and failed are never conflated. */
   draftsStatus: Status
   draftsError: string | null
+  /**
+   * The code each draft is about, keyed by draft id, for the proposed-comments summary. A key mapped
+   * to null is a draft whose snippet could not be cut; a key that is absent has not been asked for
+   * yet, and that difference is what keeps the summary from re-fetching what it already knows.
+   */
+  draftSnippets: DraftSnippetsByDraftId
+  draftSnippetsStatus: Status
+  draftSnippetsError: string | null
   /** Durable remaining-draft counts for every PR, hydrated independently of the selected detail. */
   unfinishedReviews: Record<string, number>
   unfinishedReviewsStatus: Status
@@ -119,7 +141,7 @@ interface PrInboxState {
    * Which face of a running review its detail shows, per session. Decoupled from whether the
    * session runs, so it keeps running while the user reads the drafted changes and switches back.
    */
-  reviewViews: Record<string, 'terminal' | 'changes'>
+  reviewViews: Record<string, ReviewView>
   hydrate(): Promise<void>
   /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
    * should stay loud so a broken sync is never silently ignored. */
@@ -152,7 +174,7 @@ interface PrInboxState {
   openInBrowser(): void
   /** Put the selected PR's web link on the clipboard, to paste into a chat or a work item. */
   copyLink(): Promise<void>
-  setTab(tab: 'files' | 'overview'): void
+  setTab(tab: PrDetailTab): void
   /**
    * Fetch the selected PR's foreign threads, unless this selection already has them. Also the retry
    * offered after a failed fetch, since a failure leaves them unheld.
@@ -170,13 +192,25 @@ interface PrInboxState {
   setThreadStatus(threadId: number, status: 'active' | 'fixed'): Promise<boolean>
   /** Persist (or clear, when empty) the in-progress text for an inline reply/composer key. */
   setCommentDraft(key: string, text: string): void
-  /** Jump from an Overview thread to its code: Files tab, open the file, scroll to the line. */
-  revealThread(path: string, line: number | null): void
+  /**
+   * Jump from a thread or a proposed comment to its code: the changed-files view, the file open, the
+   * line scrolled into view. Also switches a running review's detail to its changes, so the jump
+   * lands on the diff whether or not a review session is live.
+   */
+  revealInDiff(path: string, line: number | null): void
   clearReveal(): void
   openFile(path: string): Promise<void>
   /** Re-read this PR's actionable drafts; also the explicit retry after a load failure. */
   loadDrafts(): Promise<void>
-  /** Open the persisted human decision workflow without starting Claude again. */
+  /**
+   * Read the code snippets for the selected PR's drafts. Called by the summary when it holds a draft
+   * it has no snippet for, and it is the retry after a failure.
+   */
+  loadDraftSnippets(): Promise<void>
+  /**
+   * Open the persisted human decision workflow without starting Claude again: the proposed-comments
+   * summary, with the first drafted file already loaded behind the Changes tab.
+   */
   continueReview(): Promise<void>
   editDraft(id: string, body: string): Promise<void>
   discardDraft(id: string): Promise<void>
@@ -189,8 +223,8 @@ interface PrInboxState {
    */
   startReview(): Promise<void>
   endReview(sessionId: string): Promise<void>
-  /** Switch one running review's detail between the terminal and the drafted changes. */
-  setReviewView(sessionId: string, view: 'terminal' | 'changes'): void
+  /** Switch one running review's detail between the terminal, the drafted changes and the drafts. */
+  setReviewView(sessionId: string, view: ReviewView): void
   reviewInput(sessionId: string, data: string): void
   reviewResize(sessionId: string, cols: number, rows: number): void
   subscribe(): () => void
@@ -385,6 +419,9 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     drafts: [],
     draftsStatus: 'idle',
     draftsError: null,
+    draftSnippets: {},
+    draftSnippetsStatus: 'idle',
+    draftSnippetsError: null,
     unfinishedReviews: {},
     unfinishedReviewsStatus: 'idle',
     unfinishedReviewsError: null,
@@ -504,6 +541,9 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
         drafts: [],
         draftsStatus: 'loading',
         draftsError: null,
+        draftSnippets: {},
+        draftSnippetsStatus: 'idle',
+        draftSnippetsError: null,
         commentDrafts: {}
       })
       // The changed files and the drafts are all this needs; the threads are the caller's to fetch.
@@ -657,8 +697,19 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       })
     },
 
-    revealThread(path, line) {
-      set({ activeTab: 'files', pendingReveal: { path, line } })
+    revealInDiff(path, line) {
+      set((s) => {
+        const sessionId = selectSelectedReviewSessionId(s)
+        return {
+          activeTab: 'files',
+          pendingReveal: { path, line },
+          // A running review follows the reveal onto the diff it is about. With no review running
+          // there is no review pane to move, and nothing keyed to move it by.
+          ...(sessionId
+            ? { reviewViews: { ...s.reviewViews, [sessionId]: 'changes' as ReviewView } }
+            : {})
+        }
+      })
       void get().openFile(path)
     },
 
@@ -703,11 +754,38 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       }
     },
 
+    async loadDraftSnippets() {
+      const pr = selectSelectedPr(get())
+      const key = get().selectedKey
+      if (!pr || !key) return
+      set({ draftSnippetsStatus: 'loading', draftSnippetsError: null })
+      try {
+        const draftSnippets = await api.getDraftSnippets(pr.repositoryId, pr.prId)
+        if (get().selectedKey !== key) return
+        set({ draftSnippets, draftSnippetsStatus: 'ready', draftSnippetsError: null })
+      } catch (e) {
+        if (get().selectedKey !== key) return
+        // No toast: the summary stands on the comment bodies and their actions, and it says inline
+        // that the code beside them is missing. A failure here must not interrupt the review.
+        set({ draftSnippetsStatus: 'error', draftSnippetsError: message(e) })
+      }
+    },
+
     async continueReview() {
       if (get().draftsStatus !== 'ready') await get().loadDrafts()
       const { drafts, changes, draftsStatus } = get()
       if (draftsStatus !== 'ready' || drafts.length === 0) return
-      set({ activeTab: 'files' })
+      // The summary of what is waiting, not one file of it: continuing a review is a decision about
+      // every remaining comment, and the file the first draft happens to sit in cannot show that.
+      set((s) => {
+        const sessionId = selectSelectedReviewSessionId(s)
+        return {
+          activeTab: 'drafts',
+          ...(sessionId
+            ? { reviewViews: { ...s.reviewViews, [sessionId]: 'drafts' as ReviewView } }
+            : {})
+        }
+      })
       const canonical = (path: string): string => `/${path.trim().replace(/^\/+/, '')}`
       const anchored = changes.find((change) =>
         drafts.some((draft) => canonical(draft.filePath) === canonical(change.path))

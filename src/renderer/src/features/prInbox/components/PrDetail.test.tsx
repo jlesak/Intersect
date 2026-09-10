@@ -134,7 +134,7 @@ describe('PrDetail unfinished review actions', () => {
     await act(async () => {
       fireEvent.click(button('pr-continue-review'))
     })
-    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().activeTab).toBe('drafts')
   })
 
   test('a failed draft read offers retry and never presents zero-work fresh start', async () => {

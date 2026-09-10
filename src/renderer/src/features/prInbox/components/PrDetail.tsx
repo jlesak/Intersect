@@ -8,9 +8,12 @@ import {
   selectPrWebUrl,
   selectSelectedPr,
   selectSelectedReviewSessionId,
-  usePrInboxStore
+  usePrInboxStore,
+  type PrDetailTab,
+  type ReviewView
 } from '../store'
 import { DraftCard } from './DraftCard'
+import { DraftSummary } from './DraftSummary'
 import { escapeShouldGoBack } from './escapeNav'
 import { FileTree } from './FileTree'
 import { OverviewTab } from './OverviewTab'
@@ -50,6 +53,23 @@ function DraftRecoveryList({
     </div>
   )
 }
+
+/**
+ * The detail's tabs, in reading order: what was said, what changed, and what this review wants to
+ * say back. Proposed comments are last because they are the outcome of reading the first two.
+ */
+const DETAIL_TABS = [
+  { tab: 'overview', label: 'Overview' },
+  { tab: 'files', label: 'Files' },
+  { tab: 'drafts', label: 'Proposed comments' }
+] as const satisfies readonly { tab: PrDetailTab; label: string }[]
+
+/** The same surfaces while a review session is live, the terminal standing in for the conversation. */
+const REVIEW_TABS = [
+  { view: 'terminal', label: 'Terminal' },
+  { view: 'changes', label: 'Changes' },
+  { view: 'drafts', label: 'Proposed comments' }
+] as const satisfies readonly { view: ReviewView; label: string }[]
 
 /** Why the outbound links are dead: the address of the Azure DevOps organisation is not known. */
 const NO_WEB_LINK =
@@ -138,10 +158,10 @@ function ChangesView() {
 }
 
 /**
- * ADO-like PR detail: breadcrumb header, vote actions, Overview/Files tabs. While a review runs the
- * tabs become a Terminal/Changes toggle - the session keeps running in the background so the user
- * can read the drafted comments and switch back to keep prompting. Esc goes back (except mid-review
- * or inside a keyboard-owning widget).
+ * ADO-like PR detail: breadcrumb header, vote actions, and the Overview / Files / Proposed comments
+ * tabs. While a review runs the terminal takes the conversation's place - the session keeps running
+ * in the background so the user can read the drafted comments and switch back to keep prompting. Esc
+ * goes back (except mid-review or inside a keyboard-owning widget).
  */
 export function PrDetail() {
   const pr = usePrInboxStore(selectSelectedPr)
@@ -298,28 +318,27 @@ export function PrDetail() {
       {running ? (
         <>
           <div className="ix-ptabs">
-            <button
-              type="button"
-              className={`ix-ptab${reviewView === 'terminal' ? ' ix-ptab--active' : ''}`}
-              data-testid="review-tab-terminal"
-              onClick={() => usePrInboxStore.getState().setReviewView(reviewSessionId, 'terminal')}
-            >
-              Terminal
-            </button>
-            <button
-              type="button"
-              className={`ix-ptab${reviewView === 'changes' ? ' ix-ptab--active' : ''}`}
-              data-testid="review-tab-changes"
-              onClick={() => usePrInboxStore.getState().setReviewView(reviewSessionId, 'changes')}
-            >
-              Changes
-              {drafts.length > 0 && <span className="ix-board-col__count">{drafts.length}</span>}
-            </button>
+            {REVIEW_TABS.map(({ view, label }) => (
+              <button
+                key={view}
+                type="button"
+                className={`ix-ptab${reviewView === view ? ' ix-ptab--active' : ''}`}
+                data-testid={`review-tab-${view}`}
+                onClick={() => usePrInboxStore.getState().setReviewView(reviewSessionId, view)}
+              >
+                {label}
+                {view !== 'terminal' && drafts.length > 0 && (
+                  <span className="ix-board-col__count">{drafts.length}</span>
+                )}
+              </button>
+            ))}
           </div>
           {reviewView === 'terminal' ? (
             // Keyed by the session, so moving between pull requests never reuses one session's
             // terminal for another's PTY.
             <ReviewTerminal key={reviewSessionId} sessionId={reviewSessionId} />
+          ) : reviewView === 'drafts' ? (
+            <DraftSummary />
           ) : (
             <ChangesView />
           )}
@@ -327,7 +346,7 @@ export function PrDetail() {
       ) : (
         <>
           <div className="ix-ptabs">
-            {(['overview', 'files'] as const).map((tab) => (
+            {DETAIL_TABS.map(({ tab, label }) => (
               <button
                 key={tab}
                 type="button"
@@ -335,15 +354,21 @@ export function PrDetail() {
                 data-testid={`pr-tab-${tab}`}
                 onClick={() => usePrInboxStore.getState().setTab(tab)}
               >
-                {tab === 'files' ? 'Files' : 'Overview'}
+                {label}
                 <span className="ix-board-col__count">
-                  {tab === 'files' ? changes.length : commentCount}
+                  {tab === 'files' ? changes.length : tab === 'drafts' ? drafts.length : commentCount}
                 </span>
               </button>
             ))}
           </div>
 
-          {activeTab === 'files' ? <ChangesView /> : <OverviewTab />}
+          {activeTab === 'files' ? (
+            <ChangesView />
+          ) : activeTab === 'drafts' ? (
+            <DraftSummary />
+          ) : (
+            <OverviewTab />
+          )}
         </>
       )}
     </div>

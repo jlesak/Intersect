@@ -1943,6 +1943,103 @@
   display: flex;
   gap: 8px;
 }
+/* The anchor doubles as the jump into the diff, so it reads as the code location it is and only the
+   hover says it is clickable. */
+.ix-pr-draft__anchor {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.ix-pr-draft__anchor:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* ---------------- PR review inbox: proposed-comments summary ---------------- */
+.ix-draft-summary {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 16px 18px;
+}
+.ix-draft-summary .ix-overview__head {
+  padding: 4px 0 0;
+}
+.ix-draft-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 900px;
+}
+.ix-draft-group__file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ix-draft-group__file:hover {
+  color: var(--accent);
+}
+.ix-draft-group__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The code the comment is about, as the file has it: numbered, not wrapped, and scrollable sideways
+   so a long line stays one line instead of reflowing into something the file does not contain. */
+.ix-draft-snippet {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.ix-draft-snippet__line {
+  display: flex;
+  gap: 10px;
+  white-space: pre;
+}
+/* Which line the comment is on has to be readable at a glance, so the anchor carries a bar as well
+   as a wash: the wash alone is a few percent of contrast on a dark panel. */
+.ix-draft-snippet__line--anchor {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.ix-draft-snippet__no {
+  flex: none;
+  width: 44px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+}
+.ix-draft-snippet__code {
+  color: var(--text-dim);
+  padding-right: 10px;
+}
+.ix-draft-snippet__line--anchor .ix-draft-snippet__code {
+  color: var(--text);
+}
+.ix-draft-snippet--missing {
+  margin: 0;
+  font-size: 11.5px;
+}
 
 /* ---------------- PR review inbox: review terminal ---------------- */
 .ix-pr-review__term {

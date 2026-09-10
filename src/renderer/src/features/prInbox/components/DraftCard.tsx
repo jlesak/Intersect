@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { DraftComment } from '@common/domain'
 import { usePrInboxStore } from '../store'
 
@@ -16,9 +16,20 @@ interface DraftCardProps {
   positionOutdated?: boolean
   /** The PR head no longer matches the immutable diff snapshot that supplied this anchor. */
   stale?: boolean
+  /** The code this comment is about, shown between the anchor and the comment body. */
+  snippet?: ReactNode
+  /** Jump to this comment's line in the diff; without it the anchor is plain text. */
+  onOpen?: () => void
 }
 
-export function DraftCard({ draft, inline = false, positionOutdated = false, stale = false }: DraftCardProps) {
+export function DraftCard({
+  draft,
+  inline = false,
+  positionOutdated = false,
+  stale = false,
+  snippet,
+  onOpen
+}: DraftCardProps) {
   const [editing, setEditing] = useState(false)
   const [body, setBody] = useState(draft.body)
   const [publishing, setPublishing] = useState(false)
@@ -38,9 +49,21 @@ export function DraftCard({ draft, inline = false, positionOutdated = false, sta
         <span className={`ix-pr-draft__badge ix-pr-draft__badge--${draft.source}`}>
           {draft.source === 'claude' ? 'Claude' : 'Manual'}
         </span>
-        <span className="ix-faint">
-          {draft.filePath}:{draft.line}
-        </span>
+        {onOpen ? (
+          <button
+            type="button"
+            className="ix-pr-draft__anchor"
+            data-testid="pr-draft-open"
+            title="Open this line in Changes"
+            onClick={onOpen}
+          >
+            {draft.filePath}:{draft.line}
+          </button>
+        ) : (
+          <span className="ix-faint">
+            {draft.filePath}:{draft.line}
+          </span>
+        )}
         <span className="ix-pr-draft__status">{draft.status}</span>
       </div>
       {positionOutdated && (
@@ -58,6 +81,8 @@ export function DraftCard({ draft, inline = false, positionOutdated = false, sta
           another Claude review.
         </div>
       )}
+
+      {snippet}
 
       {editing ? (
         <textarea
