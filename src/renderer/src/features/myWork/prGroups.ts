@@ -40,15 +40,3 @@ export function approvalCount(pr: PullRequest): number {
   return pr.reviewers.filter((r) => r.vote === 'approved' || r.vote === 'approvedWithSuggestions')
     .length
 }
-
-/** Avatar initials from a display name: first letter of the first two words ("Jan Lesak" -> "JL"). */
-export function initials(name: string): string {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? '')
-      .join('') || '?'
-  )
-}

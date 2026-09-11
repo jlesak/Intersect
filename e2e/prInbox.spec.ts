@@ -43,9 +43,27 @@ async function launchConnected(): Promise<{
   return launchApp(userDataDir(), { env: { ...connectedAdo(), INTERSECT_E2E_ADO: 'radar' } })
 }
 
-/** Open PR Review and wait for the board head, which is up whether or not the board has cards. */
+/** Open PR Review and wait for the board head, which is up whether or not the board has rows. */
 async function openPrReview(win: Page): Promise<void> {
   await openRailSection(win, 'PR Review', '.ix-board-head')
+}
+
+/**
+ * Move to the All active tab. The board opens on the reviews I owe, so anything that counts the
+ * whole synced board has to say so.
+ */
+async function openAllActive(win: Page): Promise<void> {
+  await win.getByTestId('pr-tab-all').click()
+}
+
+/**
+ * Open one pull request's detail from the board, found by a run of its title. Always through All
+ * active, because most of these pull requests are not reviews I owe and the tab the board opens on
+ * would not hold them.
+ */
+async function openPrRow(win: Page, title: string): Promise<void> {
+  await openAllActive(win)
+  await win.getByTestId('pr-row').filter({ hasText: title }).click()
 }
 
 /** Seed one persisted Claude draft after the cache has a real PR to attach it to. */
@@ -96,45 +114,48 @@ test('PR Review section renders the empty board and switches back without errors
   expect(errors, `renderer console errors:\n${errors.join('\n')}`).toEqual([])
 })
 
-test('board shows PRs in action columns after sync, with the rail badge counting my actions', async () => {
+test('board opens on the reviews I owe and names my action on every row', async () => {
   const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
 
-  // PR 502 (reviewer, no vote) and PR 501 (author, 1 unresolved thread) need my action;
-  // PR 503 (reviewer, my vote approved, no other reviewers) is fully approved.
-  await expect(win.getByTestId('pr-col-action').getByTestId('pr-card')).toHaveCount(2)
-  await expect(win.getByTestId('pr-col-approved').getByTestId('pr-card')).toHaveCount(1)
-  await expect(win.getByTestId('pr-col-waiting').getByTestId('pr-card')).toHaveCount(0)
+  // PR 502 (reviewer, no vote) is the only review owed, so it is the tab the board opens on.
+  await expect(win.getByTestId('pr-tab-review')).toHaveAttribute('aria-selected', 'true')
+  await expect(win.getByTestId('pr-row')).toHaveCount(1)
+  await expect(win.getByTestId('pr-row-verb')).toHaveText('Review')
+
+  // PR 501 (author, unresolved threads) is mine to answer; PR 503 (my vote approved, no other
+  // reviewers) is fully approved and asks nothing.
+  await win.getByTestId('pr-tab-mine').click()
+  await expect(win.getByTestId('pr-row-verb')).toHaveText('Respond')
+
+  await openAllActive(win)
+  await expect(win.getByTestId('pr-row')).toHaveCount(3)
+  await expect(win.getByTestId('pr-row-verb')).toHaveText(['Respond', 'Review', 'Done'])
   await expect(win.getByTestId('pr-badge')).toHaveText('2')
 })
 
-test('typing narrows the board to the one pull request meant, and emptied columns step aside', async () => {
+test('typing narrows the board to the one pull request meant', async () => {
   const { win } = await launch('radar')
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+  await openAllActive(win)
+  await expect(win.getByTestId('pr-row')).toHaveCount(3)
 
   // "xtnotif" is nowhere on the board as a run of characters; only a real subsequence matcher
   // finds it inside "EXtract The NOTIFication", so a substring search would show nothing at all.
   await win.getByTestId('pr-filter').fill('xtnotif')
 
-  await expect(win.getByTestId('pr-card')).toHaveCount(1)
-  await expect(win.locator('.ix-board-card__title')).toHaveText(
+  await expect(win.getByTestId('pr-row')).toHaveCount(1)
+  await expect(win.locator('.ix-prtable__title')).toHaveText(
     'Extract the notification preferences screen'
   )
   await expect(win.getByTestId('pr-filter-count')).toHaveText('1 of 3')
 
-  // The column the survivor is in keeps its width; the one the filter emptied is a strip that
-  // still says which column it is.
-  await expect(win.getByTestId('pr-col-approved')).not.toHaveClass(/ix-board-col--collapsed/)
-  await expect(win.getByTestId('pr-col-action')).toHaveClass(/ix-board-col--collapsed/)
-  await expect(win.getByTestId('pr-col-action')).toContainText('Needs my action')
-  const strip = await win.getByTestId('pr-col-action').boundingBox()
-  const open = await win.getByTestId('pr-col-approved').boundingBox()
-  expect(strip!.width).toBeLessThan(open!.width / 2)
+  // The tab counts stand for the whole pile, so they do not move as the reader types.
+  await expect(win.getByTestId('pr-tab-all')).toContainText('3')
 })
 
 test('narrowing to one repository keeps only the pull requests that came from it', async () => {
@@ -142,14 +163,15 @@ test('narrowing to one repository keeps only the pull requests that came from it
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+  await openAllActive(win)
+  await expect(win.getByTestId('pr-row')).toHaveCount(3)
 
   await win.getByTestId('pr-filter-repo').click()
   await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
   await win.locator('.ix-msel__item', { hasText: 'intersect-docs' }).click()
 
-  await expect(win.getByTestId('pr-card')).toHaveCount(1)
-  await expect(win.getByTestId('pr-card')).toContainText('intersect-docs')
+  await expect(win.getByTestId('pr-row')).toHaveCount(1)
+  await expect(win.getByTestId('pr-row')).toContainText('intersect-docs')
   await expect(win.getByTestId('pr-filter-repo')).toHaveText(/1\/2/)
 })
 
@@ -158,11 +180,12 @@ test('a filter nothing matches says so rather than claiming there is nothing to 
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await expect(win.getByTestId('pr-card')).toHaveCount(3)
+  await openAllActive(win)
+  await expect(win.getByTestId('pr-row')).toHaveCount(3)
 
   await win.getByTestId('pr-filter').fill('zzzz')
 
-  await expect(win.getByTestId('pr-card')).toHaveCount(0)
+  await expect(win.getByTestId('pr-row')).toHaveCount(0)
   await expect(win.locator('.ix-boardfilter__none')).toHaveText(
     'No pull requests match this filter.'
   )
@@ -174,7 +197,7 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
 
   await expect(win.locator('.ix-pr-header__title')).toHaveText('Fix PTY backpressure on large output')
   await win.getByTestId('pr-tab-files').click()
@@ -182,7 +205,7 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await expect(win.getByTestId('tree-file')).toHaveCount(4)
 
   await win.keyboard.press('Escape')
-  await expect(win.getByTestId('pr-board')).toBeVisible()
+  await expect(win.getByTestId('pr-table')).toBeVisible()
 })
 
 test('an unfinished draft review survives navigation and relaunch, then clears after discard', async () => {
@@ -191,27 +214,28 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
   const first = await launchApp(profileDir, { env })
   await openPrReview(first.win)
   await first.win.getByTestId('pr-sync').click()
-  await expect(first.win.getByTestId('pr-card')).toHaveCount(3)
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
   await first.app.close()
 
   seedDraft(profileDir)
 
   const second = await launchApp(profileDir, { env })
   await openPrReview(second.win)
-  const card = second.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' })
-  await expect(card.getByTestId('pr-card-unfinished-review')).toHaveText('1 draft to review')
+  const card = second.win.getByTestId('pr-row').filter({ hasText: 'Fix PTY backpressure' })
+  await expect(card.getByTestId('pr-row-unfinished-review')).toHaveText('1 draft')
 
   // Leaving the section and returning keeps the durable board signal.
   await openRailSection(second.win, 'TODO', '.ix-todo')
   await openPrReview(second.win)
   await expect(
     second.win
-      .getByTestId('pr-card')
+      .getByTestId('pr-row')
       .filter({ hasText: 'Fix PTY backpressure' })
-      .getByTestId('pr-card-unfinished-review')
-  ).toHaveText('1 draft to review')
+      .getByTestId('pr-row-unfinished-review')
+  ).toHaveText('1 draft')
 
-  await second.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(second.win, 'Fix PTY backpressure')
   await expect(second.win.getByTestId('pr-continue-review')).toContainText('1')
   await second.win.getByTestId('pr-continue-review').click()
   await expect(second.win.getByTestId('pr-tab-files')).toHaveClass(/ix-ptab--active/)
@@ -225,8 +249,8 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
 
   const third = await launchApp(profileDir, { env })
   await openPrReview(third.win)
-  const restoredCard = third.win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' })
-  await expect(restoredCard.getByTestId('pr-card-unfinished-review')).toHaveText('1 draft to review')
+  const restoredCard = third.win.getByTestId('pr-row').filter({ hasText: 'Fix PTY backpressure' })
+  await expect(restoredCard.getByTestId('pr-row-unfinished-review')).toHaveText('1 draft')
   await restoredCard.click()
   await third.win.getByTestId('pr-continue-review').click()
   const restoredDraft = third.win.getByTestId('pr-draft')
@@ -236,9 +260,9 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
   await third.win.getByTestId('pr-back').click()
   await expect(
     third.win
-      .getByTestId('pr-card')
+      .getByTestId('pr-row')
       .filter({ hasText: 'Fix PTY backpressure' })
-      .getByTestId('pr-card-unfinished-review')
+      .getByTestId('pr-row-unfinished-review')
   ).toHaveCount(0)
 })
 
@@ -247,7 +271,7 @@ test('the header sizes the change, and every file row carries its own counts', a
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
 
   // The four canned files total 128 added and 14 removed, and the summary is on the conversation
   // too - the reviewer never had to open the file list to learn how big the change is.
@@ -264,7 +288,7 @@ test('a freshly opened PR lands on the conversation, not on the files', async ()
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
 
   await expect(win.getByTestId('pr-overview')).toBeVisible()
   await expect(win.getByTestId('pr-tab-overview')).toHaveClass(/ix-ptab--active/)
@@ -277,7 +301,7 @@ test('the conversation leads with the description, laid out as the author typed 
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
 
   const description = win.getByTestId('pr-description')
   await expect(description).toContainText('Caps the outbound sync at 25 requests a second.')
@@ -297,7 +321,7 @@ test('the conversation leads with the description, laid out as the author typed 
 
   // A PR nobody described gets no box rather than an empty one.
   await win.keyboard.press('Escape')
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
   await expect(win.getByTestId('pr-overview')).toBeVisible()
   await expect(win.getByTestId('pr-description')).toHaveCount(0)
 })
@@ -307,7 +331,7 @@ test('the detail header copies the PR web link to the clipboard', async () => {
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
 
   // Copying writes the real system clipboard, so whatever the developer had in it is put back
   // below rather than quietly lost to a test run.
@@ -326,7 +350,7 @@ test('Open in Azure DevOps hands the browsable pull-request page to the system b
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
   await win.getByTestId('pr-open-external').click()
 
   // The whole chain has to hold for this to arrive: a web address rather than the REST resource the
@@ -339,7 +363,7 @@ test('a machine with no Azure DevOps organisation offers no link to open', async
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
 
   // Nothing composes a page address without the organisation, so the header says so by being dead
   // rather than by opening the browser on a broken URL.
@@ -352,7 +376,7 @@ test('the diff carries its inline threads on a PR the user took straight to File
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
   await win.getByTestId('pr-tab-files').click()
   await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
 
@@ -366,7 +390,7 @@ test('a thread anchored past the end of the file says its position is a guess', 
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Extract the notification preferences' }).click()
+  await openPrRow(win, 'Extract the notification preferences')
   await win.getByTestId('pr-tab-files').click()
 
   // Monaco clamps an out-of-range anchor to the last line rather than refusing it, so the thread
@@ -386,7 +410,7 @@ test('collapsing a tree directory hides its files and shows the file count', asy
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
   await win.getByTestId('pr-tab-files').click()
 
   const before = await win.getByTestId('tree-file').count()
@@ -406,7 +430,7 @@ test('overview lists threads, hides system messages, and resolving folds a threa
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
   // PR 501 carries one real active thread plus one system thread (hidden everywhere).
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
 
   await expect(win.getByTestId('pr-thread')).toHaveCount(1)
   await expect(win.getByTestId('pr-overview')).not.toContainText('Policy status has been updated')
@@ -430,7 +454,7 @@ test('replying appends to the thread immediately', async () => {
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Add rate limiting' }).click()
+  await openPrRow(win, 'Add rate limiting')
   await win.getByTestId('pr-tab-overview').click()
 
   const thread = win.getByTestId('pr-thread').first()
@@ -446,7 +470,7 @@ test('a PR-level comment publishes from the overview composer', async () => {
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
   await win.getByTestId('pr-tab-overview').click()
 
   await expect(win.getByTestId('pr-thread')).toHaveCount(0)
@@ -463,7 +487,7 @@ test('the diff fills the height the window gives it', async () => {
 
   await openPrReview(win)
   await win.getByTestId('pr-sync').click()
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
   await win.getByTestId('pr-tab-files').click()
   await win.getByTestId('tree-file').filter({ hasText: 'rateLimiter.ts' }).first().click()
 
@@ -484,14 +508,15 @@ test('approving a draft posts it to the pull request on the first click', async 
   const first = await launchApp(profileDir, { env })
   await openPrReview(first.win)
   await first.win.getByTestId('pr-sync').click()
-  await expect(first.win.getByTestId('pr-card')).toHaveCount(3)
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
   await first.app.close()
 
   seedDraft(profileDir)
 
   const { win } = await launchApp(profileDir, { env })
   await openPrReview(win)
-  await win.getByTestId('pr-card').filter({ hasText: 'Fix PTY backpressure' }).click()
+  await openPrRow(win, 'Fix PTY backpressure')
   await win.getByTestId('pr-continue-review').click()
   const draft = win.getByTestId('pr-draft')
   await expect(draft).toContainText('Seeded review finding.')
@@ -503,8 +528,8 @@ test('approving a draft posts it to the pull request on the first click', async 
   await win.getByTestId('pr-back').click()
   await expect(
     win
-      .getByTestId('pr-card')
+      .getByTestId('pr-row')
       .filter({ hasText: 'Fix PTY backpressure' })
-      .getByTestId('pr-card-unfinished-review')
+      .getByTestId('pr-row-unfinished-review')
   ).toHaveCount(0)
 })

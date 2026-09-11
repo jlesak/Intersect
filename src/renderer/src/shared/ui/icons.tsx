@@ -195,6 +195,12 @@ export const IconPlay = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconComment = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5A1.5 1.5 0 0 1 12 10.5H7.5l-3 2.5v-2.5H4A1.5 1.5 0 0 1 2.5 9z" />
+  </svg>
+)
+
 export const IconMore = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <circle cx="3.6" cy="8" r="1.1" fill="currentColor" stroke="none" />

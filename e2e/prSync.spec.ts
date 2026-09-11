@@ -61,6 +61,10 @@ test('a connected board refreshes itself at boot with nobody pressing Sync', asy
   await openRailSection(win, 'PR Review', '.ix-board-head')
   await expect(win.getByTestId('pr-sync-age')).toHaveText('Synced just now')
   await expect(win.getByTestId('pr-sync-error')).toHaveCount(0)
-  await expect(win.getByTestId('pr-col-action').getByTestId('pr-card')).toHaveCount(2)
+  // The board opens on the reviews owed: PR 502 is the only one of the three canned pull requests
+  // waiting on a vote from me.
+  await expect(win.getByTestId('pr-tab-review')).toContainText('1')
+  await expect(win.getByTestId('pr-row')).toHaveCount(1)
+  await expect(win.getByTestId('pr-row-verb')).toHaveText('Review')
   await expect(win.locator('.ix-crash')).toHaveCount(0)
 })

@@ -22,12 +22,15 @@ test('live: sync real PRs and render a diff', async () => {
 
   // Sync against real ADO.
   await win.getByTestId('pr-sync').click()
-  await expect(win.getByTestId('pr-card').first()).toBeVisible({ timeout: 180_000 })
-  const count = await win.getByTestId('pr-card').count()
+  // Every pull request, not only the reviews owed: on a live account the owed pile can be empty.
+  await expect(win.getByTestId('pr-tab-all')).toBeVisible({ timeout: 180_000 })
+  await win.getByTestId('pr-tab-all').click()
+  await expect(win.getByTestId('pr-row').first()).toBeVisible({ timeout: 180_000 })
+  const count = await win.getByTestId('pr-row').count()
   console.log(`LIVE: synced ${count} pull request(s)`)
 
   // Open the first PR and load its changed-files tree.
-  await win.getByTestId('pr-card').first().click()
+  await win.getByTestId('pr-row').first().click()
   const files = win.getByTestId('tree-file')
   await expect(files.first()).toBeVisible({ timeout: 60_000 })
   const fileCount = await files.count()

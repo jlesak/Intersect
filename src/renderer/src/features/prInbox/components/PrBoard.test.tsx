@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { PullRequest } from '@common/domain'
+import type { PrReviewer, PullRequest } from '@common/domain'
 import { prKey, usePrInboxStore } from '../store'
 import { PrBoard } from './PrBoard'
 
 const MINUTE = 60_000
+const HOUR = 60 * MINUTE
 
 /**
  * The age at which the freshness chip stops being a quiet fact and becomes a warning.
@@ -15,6 +16,13 @@ const MINUTE = 60_000
  * board would sit permanently tinted and the warning would mean nothing.
  */
 const WARN_AFTER = 15 * MINUTE
+
+const reviewer = (vote: PrReviewer['vote'], displayName = 'Eva Novak'): PrReviewer => ({
+  id: displayName,
+  displayName,
+  vote,
+  isRequired: true
+})
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -44,22 +52,28 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
   }
 }
 
-/** One PR per board column, so every column renders a card. */
-const SEEDED = [
-  pr(),
+/**
+ * One pull request per verb, so every tab holds something and the queue has all five ranks to
+ * order. Seeded in an order that matches none of the expected ones, so a passing sort assertion
+ * cannot be the fixture order surviving untouched.
+ */
+const SEEDED: PullRequest[] = [
+  pr({ prId: 504, title: 'Bump the ADO client', myVote: 'approved', reviewers: [reviewer('approved')] }),
+  pr({ prId: 501, title: 'Add rate limiting', myVote: null, lastActivityAt: 10 * HOUR }),
+  pr({ prId: 505, title: 'Split the cost centres', role: 'author', reviewers: [reviewer('noVote')] }),
   pr({
-    prId: 8,
-    title: 'Rework the importer',
-    role: 'author',
-    createdAt: 2,
-    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'noVote', isRequired: true }]
+    prId: 503,
+    title: 'Cache the exchange rates',
+    myVote: 'approved',
+    newChangesSinceMyReview: true,
+    reviewers: [reviewer('approved')],
+    lastActivityAt: 5 * HOUR
   }),
   pr({
-    prId: 9,
-    title: 'Bump the ADO client',
+    prId: 502,
+    title: 'Require an uploader on imports',
     role: 'author',
-    createdAt: 1,
-    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'approved', isRequired: true }]
+    reviewers: [reviewer('waiting')]
   })
 ]
 
@@ -91,7 +105,42 @@ async function mountBoard(): Promise<{ logged: string[] }> {
   return { logged }
 }
 
+const byTestId = (id: string): HTMLElement =>
+  document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
+
 const syncChip = (): Element | null => document.querySelector('[data-testid="pr-sync-age"]')
+
+const rowTitles = (): string[] =>
+  [...document.querySelectorAll('.ix-prtable__title')].map((e) => e.textContent ?? '')
+
+const verbs = (): string[] =>
+  [...document.querySelectorAll('[data-testid="pr-row-verb"]')].map((e) => e.textContent ?? '')
+
+const voteStatuses = (): string[] =>
+  [...document.querySelectorAll('[data-testid="pr-row-vote-status"]')].map((e) => e.textContent ?? '')
+
+/** Move to a tab by the name on it. */
+async function openTab(key: 'review' | 'mine' | 'all'): Promise<void> {
+  await act(async () => {
+    fireEvent.click(byTestId(`pr-tab-${key}`))
+  })
+}
+
+/** Everything one case can leave behind in the shared store, put back for the next one. */
+const reset = (): void =>
+  usePrInboxStore.setState({
+    status: 'idle',
+    error: null,
+    syncing: false,
+    prsByKey: {},
+    order: [],
+    syncedAt: null,
+    syncError: null,
+    liveReviews: {},
+    unfinishedReviews: {},
+    unfinishedReviewsStatus: 'idle',
+    unfinishedReviewsError: null
+  })
 
 /**
  * The PR review board, mounted client-side. Static markup cannot expose a re-render loop, so only a
@@ -106,18 +155,7 @@ describe('PrBoard', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-    usePrInboxStore.setState({
-      status: 'idle',
-      error: null,
-      syncing: false,
-      prsByKey: {},
-      order: [],
-      syncedAt: null,
-      syncError: null,
-      unfinishedReviews: {},
-      unfinishedReviewsStatus: 'idle',
-      unfinishedReviewsError: null
-    })
+    reset()
   })
 
   test('mounts and settles without a render loop', async () => {
@@ -126,9 +164,7 @@ describe('PrBoard', () => {
     const { logged } = await mountBoard()
 
     expect(logged).toEqual([])
-    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
-    const counts = [...document.querySelectorAll('.ix-board-col__count')].map((e) => e.textContent)
-    expect(counts).toEqual(['1', '1', '1'])
+    expect(document.querySelectorAll('[data-testid="pr-row"]')).toHaveLength(2)
   })
 
   test('says how long ago the board last synced', async () => {
@@ -202,7 +238,7 @@ describe('PrBoard', () => {
     expect(document.querySelector('[data-testid="pr-sync-error"]')?.textContent).toBe(
       'Could not refresh: ADO is unreachable'
     )
-    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-testid="pr-row"]')).toHaveLength(2)
   })
 
   test('says nothing about refreshing while the last sync succeeded', async () => {
@@ -226,64 +262,272 @@ describe('PrBoard', () => {
     expect(document.querySelector('[data-testid="pr-draft-reviews-error"]')?.textContent).toContain(
       'draft database unavailable'
     )
-    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-testid="pr-row"]')).toHaveLength(2)
   })
 
   test('a PR arriving from a sync re-renders the subscribed board', async () => {
-    seedBoard([SEEDED[0]])
+    seedBoard([SEEDED[1]])
 
     await act(async () => {
       render(<PrBoard />)
     })
+    expect(document.querySelectorAll('[data-testid="pr-row"]')).toHaveLength(1)
+
     await act(async () => {
       seedBoard(SEEDED)
     })
 
-    expect(document.querySelectorAll('[data-testid="pr-card"]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-testid="pr-row"]')).toHaveLength(2)
   })
 })
 
 /**
- * Two repositories, three distinguishable titles, and one pull request per column - so a chip and
- * a query each exclude something, and each of them empties a different column.
+ * The three piles and the queue inside them. This is the whole point of the table: whether it opens
+ * on the work that is actually owed, and whether the row on top is the one to open first.
+ */
+describe('PrBoard tabs and queue order', () => {
+  afterEach(() => {
+    reset()
+  })
+
+  test('opens on the reviews owed, not on the whole board', async () => {
+    seedBoard()
+
+    await mountBoard()
+
+    expect(byTestId('pr-tab-review').getAttribute('aria-selected')).toBe('true')
+    expect(rowTitles()).toEqual(['Add rate limiting', 'Cache the exchange rates'])
+  })
+
+  test('each tab counts its own pile, whatever tab is open', async () => {
+    seedBoard()
+
+    await mountBoard()
+
+    expect(byTestId('pr-tab-review').textContent).toBe('To review2')
+    expect(byTestId('pr-tab-mine').textContent).toBe('Mine2')
+    expect(byTestId('pr-tab-all').textContent).toBe('All active5')
+  })
+
+  test('a pull request I have not voted on is a review, and it is in To review', async () => {
+    seedBoard()
+
+    await mountBoard()
+
+    expect(verbs()).toEqual(['Review', 'Re-review'])
+    expect(rowTitles()[0]).toBe('Add rate limiting')
+  })
+
+  test('new pushes after my vote ask for a re-review', async () => {
+    seedBoard([SEEDED[3]])
+
+    await mountBoard()
+
+    expect(verbs()).toEqual(['Re-review'])
+    expect(byTestId('pr-row-new-changes').textContent).toContain('new changes')
+  })
+
+  test('Mine holds every pull request I authored, in whatever state', async () => {
+    seedBoard()
+
+    await mountBoard()
+    await openTab('mine')
+
+    expect(rowTitles()).toEqual(['Require an uploader on imports', 'Split the cost centres'])
+    expect(verbs()).toEqual(['Respond', 'Wait'])
+  })
+
+  test('my own pull request with a waiting reviewer leads the queue as a respond', async () => {
+    seedBoard()
+
+    await mountBoard()
+    await openTab('all')
+
+    expect(rowTitles()[0]).toBe('Require an uploader on imports')
+    expect(verbs()[0]).toBe('Respond')
+  })
+
+  test('a fully approved pull request is done and sorts last', async () => {
+    seedBoard()
+
+    await mountBoard()
+    await openTab('all')
+
+    expect(verbs()).toEqual(['Respond', 'Review', 'Re-review', 'Wait', 'Done'])
+    expect(rowTitles().at(-1)).toBe('Bump the ADO client')
+  })
+
+  test('work I owe leads with the row that has waited longest', async () => {
+    const older = pr({ prId: 601, title: 'Older review', lastActivityAt: 1 * HOUR })
+    const newer = pr({ prId: 602, title: 'Newer review', lastActivityAt: 9 * HOUR })
+    seedBoard([newer, older])
+
+    await mountBoard()
+
+    expect(rowTitles()).toEqual(['Older review', 'Newer review'])
+  })
+
+  test('my own pull requests are marked on the row itself', async () => {
+    seedBoard()
+
+    await mountBoard()
+    await openTab('all')
+
+    const mine = [...document.querySelectorAll('[data-testid="pr-row"]')]
+      .filter((row) => row.className.includes('ix-prtable__row--mine'))
+      .map((row) => row.querySelector('.ix-prtable__title')?.textContent)
+    expect(mine).toEqual(['Require an uploader on imports', 'Split the cost centres'])
+  })
+
+  test('the vote status states where the reviewers have got to', async () => {
+    seedBoard()
+
+    await mountBoard()
+    await openTab('all')
+
+    expect(voteStatuses()).toEqual([
+      'Waiting for author',
+      'No votes yet',
+      'Approved',
+      'No votes yet',
+      'Approved'
+    ])
+  })
+
+  test('a partly approved pull request counts the approvals', async () => {
+    seedBoard([
+      pr({
+        prId: 610,
+        role: 'author',
+        reviewers: [reviewer('approved', 'Eva Novak'), reviewer('noVote', 'Petr Vala')]
+      })
+    ])
+
+    await mountBoard()
+    await openTab('all')
+
+    expect(voteStatuses()).toEqual(['1 of 2 approved'])
+  })
+
+  test('a rejection decides the row whatever the approvals beside it say', async () => {
+    seedBoard([
+      pr({
+        prId: 611,
+        role: 'author',
+        reviewers: [reviewer('approved', 'Eva Novak'), reviewer('rejected', 'Petr Vala')]
+      })
+    ])
+
+    await mountBoard()
+    await openTab('mine')
+
+    expect(voteStatuses()).toEqual(['Rejected'])
+  })
+
+  test('an empty tab says it is empty rather than claiming a filter emptied it', async () => {
+    seedBoard([SEEDED[0]])
+
+    await mountBoard()
+
+    expect(document.querySelector('.ix-boardfilter__none')?.textContent).toBe(
+      'Nothing in this list right now.'
+    )
+    expect(document.querySelector('[data-testid="pr-table"]')).toBeNull()
+    expect(document.querySelector('.ix-empty__title')).toBeNull()
+  })
+
+  test('one reviewer badge per reviewer, each saying who and how they voted', async () => {
+    seedBoard([SEEDED[4]])
+
+    await mountBoard()
+    await openTab('mine')
+
+    const badges = [...document.querySelectorAll('[data-testid="pr-row-reviewer"]')]
+    expect(badges).toHaveLength(1)
+    expect(badges[0].getAttribute('title')).toBe(
+      'Eva Novak (required) · waiting for the author'
+    )
+  })
+
+  test('unresolved threads are counted, and a row with none shows a dash', async () => {
+    seedBoard([pr({ prId: 620, activeThreadCount: 3 }), pr({ prId: 621, activeThreadCount: 0 })])
+
+    await mountBoard()
+
+    const cells = [...document.querySelectorAll('[data-testid="pr-row-unresolved"]')].map(
+      (e) => e.textContent
+    )
+    expect(cells).toEqual(['3', '–'])
+  })
+
+  test('a row opens the pull request it is about', async () => {
+    seedBoard([SEEDED[1]])
+    const openDetail = vi.fn(async () => {})
+    const original = usePrInboxStore.getState().openDetail
+    usePrInboxStore.setState({ openDetail })
+
+    await mountBoard()
+    await act(async () => {
+      fireEvent.click(byTestId('pr-row'))
+    })
+
+    expect(openDetail).toHaveBeenCalledWith('repo-1', 501)
+    usePrInboxStore.setState({ openDetail: original })
+  })
+
+  test('a row opens from the keyboard as well as from the mouse', async () => {
+    seedBoard([SEEDED[1]])
+    const openDetail = vi.fn(async () => {})
+    const original = usePrInboxStore.getState().openDetail
+    usePrInboxStore.setState({ openDetail })
+
+    await mountBoard()
+    await act(async () => {
+      fireEvent.keyDown(byTestId('pr-row'), { key: 'Enter' })
+    })
+
+    expect(openDetail).toHaveBeenCalledWith('repo-1', 501)
+    usePrInboxStore.setState({ openDetail: original })
+  })
+
+  test('the remaining persisted draft count rides on the row', async () => {
+    seedBoard([SEEDED[1]])
+    usePrInboxStore.setState({ unfinishedReviews: { 'repo-1:501': 2 } })
+
+    await mountBoard()
+
+    expect(byTestId('pr-row-unfinished-review').textContent).toBe('2 drafts')
+  })
+
+  test('a running review is flagged on the row', async () => {
+    seedBoard([SEEDED[1]])
+    usePrInboxStore.setState({ liveReviews: { 'repo-1:501': 'session-1' } })
+
+    await mountBoard()
+
+    expect(byTestId('pr-row-reviewing').textContent).toContain('reviewing')
+  })
+})
+
+/**
+ * Two repositories, three distinguishable titles - so a chip and a query each exclude something.
+ * All three are reviews I owe, so they share the tab the board opens on.
  */
 const ACROSS_REPOS = [
   pr({ prId: 501, title: 'Add rate limiting to the sync pipeline', authorName: 'Jan Lesak' }),
-  pr({
-    prId: 502,
-    title: 'Fix PTY backpressure on large output',
-    authorName: 'Marek Kral',
-    role: 'author',
-    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'noVote', isRequired: true }]
-  }),
+  pr({ prId: 502, title: 'Fix PTY backpressure on large output', authorName: 'Marek Kral' }),
   pr({
     prId: 503,
     title: 'Extract the notification preferences screen',
     authorName: 'Petr Vala',
     repositoryId: 'repo-2',
-    repositoryName: 'intersect-docs',
-    role: 'author',
-    reviewers: [{ id: 'r1', displayName: 'Eva Novak', vote: 'approved', isRequired: true }]
+    repositoryName: 'intersect-docs'
   })
 ]
 
-const cardTitles = (): string[] =>
-  [...document.querySelectorAll('.ix-board-card__title')].map((e) => e.textContent ?? '')
-
-const byTestId = (id: string): HTMLElement =>
-  document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
-
 describe('PrBoard filtering', () => {
   afterEach(() => {
-    usePrInboxStore.setState({
-      status: 'idle',
-      error: null,
-      syncing: false,
-      prsByKey: {},
-      order: [],
-      syncedAt: null,
-      syncError: null
-    })
+    reset()
   })
 
   test('typing letters scattered through a title leaves only that pull request', async () => {
@@ -295,7 +539,7 @@ describe('PrBoard filtering', () => {
       fireEvent.change(byTestId('pr-filter'), { target: { value: 'xtnotif' } })
     })
 
-    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+    expect(rowTitles()).toEqual(['Extract the notification preferences screen'])
     expect(byTestId('pr-filter-count').textContent).toBe('1 of 3')
   })
 
@@ -314,7 +558,7 @@ describe('PrBoard filtering', () => {
       fireEvent.change(byTestId('pr-filter'), { target: { value: '!502' } })
     })
 
-    expect(cardTitles()).toEqual(['Fix PTY backpressure on large output'])
+    expect(rowTitles()).toEqual(['Fix PTY backpressure on large output'])
   })
 
   test('narrowing to one repository drops the pull requests from the others', async () => {
@@ -331,20 +575,23 @@ describe('PrBoard filtering', () => {
       fireEvent.click(screen.getByLabelText('intersect-docs'))
     })
 
-    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+    expect(rowTitles()).toEqual(['Extract the notification preferences screen'])
   })
 
-  test('a column the filter emptied collapses but still says which column it is', async () => {
-    seedBoard(ACROSS_REPOS)
+  test('the filter narrows inside the open tab and leaves the tab counts alone', async () => {
+    seedBoard([
+      ...ACROSS_REPOS,
+      pr({ prId: 630, title: 'Mine, with a waiting reviewer', role: 'author', reviewers: [reviewer('waiting')] })
+    ])
     await mountBoard()
-    expect(byTestId('pr-col-action').className).not.toContain('ix-board-col--collapsed')
 
     await act(async () => {
       fireEvent.change(byTestId('pr-filter'), { target: { value: 'xtnotif' } })
     })
 
-    expect(byTestId('pr-col-action').className).toContain('ix-board-col--collapsed')
-    expect(byTestId('pr-col-action').textContent).toContain('Needs my action')
+    expect(rowTitles()).toEqual(['Extract the notification preferences screen'])
+    expect(byTestId('pr-tab-review').textContent).toBe('To review3')
+    expect(byTestId('pr-tab-mine').textContent).toBe('Mine1')
   })
 
   test('a filter nothing matches says so, and does not claim there is nothing to review', async () => {
@@ -355,7 +602,7 @@ describe('PrBoard filtering', () => {
       fireEvent.change(byTestId('pr-filter'), { target: { value: 'zzzz' } })
     })
 
-    expect(cardTitles()).toEqual([])
+    expect(rowTitles()).toEqual([])
     expect(document.querySelector('.ix-boardfilter__none')?.textContent).toBe(
       'No pull requests match this filter.'
     )
@@ -373,15 +620,7 @@ describe('PrBoard filtering', () => {
 
 describe('PrBoard chip reconciliation', () => {
   afterEach(() => {
-    usePrInboxStore.setState({
-      status: 'idle',
-      error: null,
-      syncing: false,
-      prsByKey: {},
-      order: [],
-      syncedAt: null,
-      syncError: null
-    })
+    reset()
   })
 
   test('a repository that drops out of a sync stops narrowing instead of trapping an empty board', async () => {
@@ -396,7 +635,7 @@ describe('PrBoard chip reconciliation', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('intersect-docs'))
     })
-    expect(cardTitles()).toEqual(['Extract the notification preferences screen'])
+    expect(rowTitles()).toEqual(['Extract the notification preferences screen'])
 
     // The next sync returns only the other repository's pull requests.
     await act(async () => {
@@ -405,7 +644,7 @@ describe('PrBoard chip reconciliation', () => {
 
     // The board is empty, and the chip says exactly why: nothing it offers is ticked. A count that
     // still read 1/1 over an unticked list would be the control lying about its own state.
-    expect(cardTitles()).toEqual([])
+    expect(rowTitles()).toEqual([])
     expect(byTestId('pr-filter-repo').textContent).toContain('0/1')
     expect(screen.getAllByRole('checkbox').filter((b) => (b as HTMLInputElement).checked)).toEqual(
       []
@@ -415,6 +654,6 @@ describe('PrBoard chip reconciliation', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('All'))
     })
-    expect(cardTitles()).toHaveLength(2)
+    expect(rowTitles()).toHaveLength(2)
   })
 })
