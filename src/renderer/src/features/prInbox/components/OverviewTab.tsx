@@ -15,7 +15,7 @@ function Thread({ thread }: { thread: PrThread }) {
       onSetStatus={(status) =>
         usePrInboxStore.getState().setThreadStatus(thread.threadId, status)
       }
-      onOpenFile={(path, line) => usePrInboxStore.getState().revealThread(path, line)}
+      onOpenFile={(path, line) => usePrInboxStore.getState().revealInDiff(path, line)}
     />
   )
 }

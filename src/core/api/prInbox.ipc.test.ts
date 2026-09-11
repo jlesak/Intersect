@@ -331,6 +331,74 @@ describe('prInbox handlers', () => {
     expect(published.publishedThreadId).toBe(5555)
   })
 
+  test('getDraftSnippets cuts the code each draft is about, reading every file once', async () => {
+    const fileDiff = vi.fn(
+      async (_pr: PullRequest, filePath: string): Promise<FileDiff> => ({
+        path: filePath,
+        original: 'a\nb\nc\n',
+        modified: 'one\ntwo\nthree\nfour\n',
+        language: 'typescript',
+        binary: false,
+        tooLarge: false
+      })
+    )
+    const { h } = handlers({ localDiff: makeLocalDiff({ getFileDiff: fileDiff }) })
+    prCache.replaceAll([pr()])
+    const right = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: '/src/a.ts', line: 2, side: 'right', body: 'x' },
+      'claude',
+      'src-sha'
+    )
+    const alsoRight = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: 'src/a.ts', line: 4, side: 'right', body: 'y' },
+      'claude',
+      'src-sha'
+    )
+    const left = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: '/src/b.ts', line: 1, side: 'left', body: 'z' },
+      'claude',
+      'src-sha'
+    )
+
+    const snippets = await h.getDraftSnippets('repo-a', 100)
+
+    expect(snippets[right.id]?.lines).toEqual(['one', 'two', 'three', 'four'])
+    expect(snippets[right.id]?.anchorLine).toBe(2)
+    expect(snippets[alsoRight.id]?.anchorLine).toBe(4)
+    expect(snippets[left.id]).toEqual({ startLine: 1, anchorLine: 1, lines: ['a', 'b', 'c'], side: 'left' })
+    // Two drafts in one file, one diff read for it - plus the one for the other file.
+    expect(fileDiff.mock.calls.map((c) => c[1])).toEqual(['/src/a.ts', '/src/b.ts'])
+  })
+
+  test('getDraftSnippets keeps the draft and admits the snippet when the code cannot be read', async () => {
+    const warn = vi.fn()
+    const { h } = handlers({
+      localDiff: makeLocalDiff({
+        getFileDiff: vi.fn(async () => {
+          throw new Error('no local clone for this repository')
+        })
+      }),
+      warn
+    })
+    prCache.replaceAll([pr()])
+    const d = drafts.create(
+      { prId: 100, repositoryId: 'repo-a', filePath: '/src/a.ts', line: 2, side: 'right', body: 'x' },
+      'claude',
+      'src-sha'
+    )
+
+    const snippets = await h.getDraftSnippets('repo-a', 100)
+
+    expect(Object.keys(snippets)).toEqual([d.id])
+    expect(snippets[d.id]).toBeNull()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  test('getDraftSnippets refuses a PR the cache has never heard of', async () => {
+    const { h } = handlers()
+    await expect(h.getDraftSnippets('repo-a', 100)).rejects.toThrow(/Unknown pull request/)
+  })
+
   test('publishDraft repairs a legacy draft path without the leading slash', async () => {
     const { h, ado } = handlers()
     prCache.replaceAll([pr()])

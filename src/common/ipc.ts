@@ -15,6 +15,7 @@ import type {
   ConfigSource,
   ConfigUndoResult,
   DraftComment,
+  DraftSnippetsByDraftId,
   EffectiveConfig,
   RawTargetView,
   SkillCatalogItem,
@@ -243,6 +244,11 @@ export interface IpcApi {
       status: 'active' | 'fixed'
     ): Promise<PrThread[]>
     listDrafts(repositoryId: string, prId: number): Promise<DraftComment[]>
+    /**
+     * The code each actionable draft of this PR is about, keyed by draft id, so the proposed-comments
+     * summary can show every finding with its snippet in one round trip instead of one per file.
+     */
+    getDraftSnippets(repositoryId: string, prId: number): Promise<DraftSnippetsByDraftId>
     /** Durable aggregate used to mark every PR whose local draft decisions are unfinished. */
     listUnfinishedDraftReviews(): Promise<UnfinishedDraftReview[]>
     addManualDraft(input: NewManualDraft): Promise<DraftComment>
@@ -648,6 +654,7 @@ export const Channel = {
   prInboxReplyToThread: 'prInbox:replyToThread',
   prInboxSetThreadStatus: 'prInbox:setThreadStatus',
   prInboxListDrafts: 'prInbox:listDrafts',
+  prInboxGetDraftSnippets: 'prInbox:getDraftSnippets',
   prInboxListUnfinishedDraftReviews: 'prInbox:listUnfinishedDraftReviews',
   prInboxAddManualDraft: 'prInbox:addManualDraft',
   prInboxEditDraft: 'prInbox:editDraft',

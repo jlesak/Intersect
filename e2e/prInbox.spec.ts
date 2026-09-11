@@ -238,7 +238,7 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
   await openPrRow(second.win, 'Fix PTY backpressure')
   await expect(second.win.getByTestId('pr-continue-review')).toContainText('1')
   await second.win.getByTestId('pr-continue-review').click()
-  await expect(second.win.getByTestId('pr-tab-files')).toHaveClass(/ix-ptab--active/)
+  await expect(second.win.getByTestId('pr-tab-drafts')).toHaveClass(/ix-ptab--active/)
   const draft = second.win.getByTestId('pr-draft')
   await expect(draft).toContainText('Seeded review finding.')
   await draft.getByTestId('pr-draft-edit').click()
@@ -502,6 +502,43 @@ test('the diff fills the height the window gives it', async () => {
   expect(laidOut.height).toBeGreaterThan(0.5 * (await win.evaluate(() => window.innerHeight)))
 })
 
+test('the proposed comments are summarised with their code, and each jumps into its file', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
+  await first.app.close()
+
+  seedDraft(profileDir)
+
+  const { win } = await launchApp(profileDir, { env })
+  await openPrReview(win)
+  await openPrRow(win, 'Fix PTY backpressure')
+
+  // The summary is a counted tab of its own, so the drafted comments are reachable without guessing
+  // which file they anchor to.
+  const tab = win.getByTestId('pr-tab-drafts')
+  await expect(tab).toContainText('Proposed comments')
+  await expect(tab).toContainText('1')
+  await tab.click()
+
+  const summary = win.getByTestId('pr-draft-summary')
+  await expect(summary).toContainText('/src/app/sync/rateLimiter.ts')
+  await expect(summary).toContainText('Seeded review finding.')
+  // The code the comment is about, read from the PR's own diff.
+  await expect(win.getByTestId('pr-draft-snippet')).toContainText('const burst = 5')
+  await expect(win.getByTestId('pr-draft-snippet')).toContainText('const limit = 25')
+
+  // And the click-through: the file opens in Changes, with the drafted comment inline on its line.
+  await win.getByTestId('pr-draft-open').click()
+  await expect(win.getByTestId('pr-tab-files')).toHaveClass(/ix-ptab--active/)
+  await expect(win.locator('.ix-pr-diff__toolbar')).toContainText('/src/app/sync/rateLimiter.ts')
+  await expect(win.getByTestId('pr-draft')).toContainText('Seeded review finding.')
+})
+
 test('approving a draft posts it to the pull request on the first click', async () => {
   const profileDir = userDataDir()
   const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
@@ -532,4 +569,25 @@ test('approving a draft posts it to the pull request on the first click', async 
       .filter({ hasText: 'Fix PTY backpressure' })
       .getByTestId('pr-row-unfinished-review')
   ).toHaveCount(0)
+})
+
+test('continuing an unfinished review lands on the summary of what is waiting', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
+  await first.app.close()
+
+  seedDraft(profileDir)
+
+  const { win } = await launchApp(profileDir, { env })
+  await openPrReview(win)
+  await openPrRow(win, 'Fix PTY backpressure')
+  await win.getByTestId('pr-continue-review').click()
+
+  await expect(win.getByTestId('pr-tab-drafts')).toHaveClass(/ix-ptab--active/)
+  await expect(win.getByTestId('pr-draft-summary')).toContainText('Seeded review finding.')
 })

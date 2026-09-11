@@ -1,6 +1,13 @@
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
-import type { PrChangeFile, PrReviewer, PrVote, PullRequest } from '@common/domain'
+import type {
+  DraftSnippetsByDraftId,
+  FileDiff,
+  PrChangeFile,
+  PrReviewer,
+  PrVote,
+  PullRequest
+} from '@common/domain'
 import type { Logger } from '@common/logging/logger'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
@@ -8,6 +15,7 @@ import type { PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import type { AdoIdentity } from '../prInbox/adoMapping'
 import { normalizeAdoPath } from '../prInbox/adoPath'
 import type { AdoService } from '../prInbox/adoService'
+import { cutSnippet } from '../prInbox/draftSnippet'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
@@ -199,6 +207,36 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
       return d.drafts.listByPr(repositoryId, prId)
     },
 
+    async getDraftSnippets(repositoryId, prId) {
+      const pr = mustGetPr(repositoryId, prId)
+      const drafts = d.drafts.listByPr(repositoryId, prId)
+      // One diff per distinct file, however many drafts sit in it: reading a file once per comment
+      // would re-run git for every finding in the same file, which is where findings cluster.
+      const diffs = new Map<string, Promise<FileDiff | null>>()
+      const diffFor = (filePath: string): Promise<FileDiff | null> => {
+        const cached = diffs.get(filePath)
+        if (cached) return cached
+        // A file the diff engine cannot read (no local clone, a path no longer changed) leaves its
+        // drafts without a snippet; it must not fail the whole summary, whose other half is the
+        // comment bodies and the actions on them.
+        const pending = d.localDiff.getFileDiff(pr, filePath, d.workspaceFolders()).catch((err: unknown) => {
+          warn(`Could not read ${filePath} for a draft snippet: ${String(err)}`)
+          return null
+        })
+        diffs.set(filePath, pending)
+        return pending
+      }
+      const cut = await Promise.all(
+        drafts.map(async (draft) => {
+          const diff = await diffFor(normalizeAdoPath(draft.filePath))
+          return [draft.id, diff ? cutSnippet(diff, draft.side, draft.line) : null] as const
+        })
+      )
+      const snippets: DraftSnippetsByDraftId = {}
+      for (const [id, snippet] of cut) snippets[id] = snippet
+      return snippets
+    },
+
     async listUnfinishedDraftReviews() {
       return d.drafts.listUnfinishedReviews()
     },
@@ -341,6 +379,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
     [Channel.prInboxReplyToThread]: h.replyToThread,
     [Channel.prInboxSetThreadStatus]: h.setThreadStatus,
     [Channel.prInboxListDrafts]: h.listDrafts,
+    [Channel.prInboxGetDraftSnippets]: h.getDraftSnippets,
     [Channel.prInboxListUnfinishedDraftReviews]: h.listUnfinishedDraftReviews,
     [Channel.prInboxAddManualDraft]: h.addManualDraft,
     [Channel.prInboxEditDraft]: h.editDraft,

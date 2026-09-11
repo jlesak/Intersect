@@ -121,6 +121,9 @@ beforeEach(() => {
       drafts: [],
       draftsStatus: 'idle',
       draftsError: null,
+      draftSnippets: {},
+      draftSnippetsStatus: 'idle',
+      draftSnippetsError: null,
       unfinishedReviews: {},
       unfinishedReviewsStatus: 'idle',
       unfinishedReviewsError: null,
@@ -379,7 +382,7 @@ describe('prInboxStore', () => {
     expect(usePrInboxStore.getState().drafts.map((d) => d.id)).toEqual(['d1', 'd2'])
   })
 
-  test('continueReview opens the persisted draft on Files without starting Claude', async () => {
+  test('continueReview opens the proposed-comments summary without starting Claude, the file behind it', async () => {
     const key = prKey('repo', 1)
     usePrInboxStore.setState({
       prsByKey: { [key]: pr('repo', 1) },
@@ -389,7 +392,9 @@ describe('prInboxStore', () => {
       draftsStatus: 'ready',
       unfinishedReviews: { [key]: 1 },
       changes: [change('/src/a.ts')],
-      activeTab: 'overview'
+      activeTab: 'overview',
+      liveReviews: { [key]: 'sess-1' },
+      reviewViews: { 'sess-1': 'terminal' }
     })
     mocked.getFileDiff.mockResolvedValue({
       path: '/src/a.ts',
@@ -402,7 +407,8 @@ describe('prInboxStore', () => {
 
     await usePrInboxStore.getState().continueReview()
 
-    expect(usePrInboxStore.getState().activeTab).toBe('files')
+    expect(usePrInboxStore.getState().activeTab).toBe('drafts')
+    expect(usePrInboxStore.getState().reviewViews['sess-1']).toBe('drafts')
     expect(usePrInboxStore.getState().activeFilePath).toBe('/src/a.ts')
     expect(mocked.startReview).not.toHaveBeenCalled()
   })
@@ -983,7 +989,76 @@ describe('header links to Azure DevOps', () => {
   })
 })
 
-describe('revealThread', () => {
+describe('loadDraftSnippets', () => {
+  const selected = (): void => {
+    usePrInboxStore.setState({
+      prsByKey: { 'repo:1': pr('repo', 1) },
+      order: ['repo:1'],
+      selectedKey: 'repo:1'
+    })
+  }
+
+  test('holds the snippet of every draft, the unreadable ones included', async () => {
+    selected()
+    mocked.getDraftSnippets.mockResolvedValue({
+      d1: { startLine: 2, anchorLine: 3, lines: ['a', 'b'], side: 'right' },
+      d2: null
+    })
+
+    await usePrInboxStore.getState().loadDraftSnippets()
+
+    expect(usePrInboxStore.getState().draftSnippetsStatus).toBe('ready')
+    expect(usePrInboxStore.getState().draftSnippets.d1?.anchorLine).toBe(3)
+    // Present and null: the summary must be able to tell "could not be read" from "not asked yet".
+    expect('d2' in usePrInboxStore.getState().draftSnippets).toBe(true)
+    expect(usePrInboxStore.getState().draftSnippets.d2).toBeNull()
+  })
+
+  test('a failure is recorded for the summary to retry, and never toasted over the review', async () => {
+    selected()
+    mocked.getDraftSnippets.mockRejectedValue(new Error('no local clone'))
+
+    await usePrInboxStore.getState().loadDraftSnippets()
+
+    expect(usePrInboxStore.getState().draftSnippetsStatus).toBe('error')
+    expect(usePrInboxStore.getState().draftSnippetsError).toContain('no local clone')
+    expect(usePrInboxStore.getState().draftSnippets).toEqual({})
+  })
+
+  test('an answer for a PR the user has already left is dropped', async () => {
+    selected()
+    let land = (): void => {}
+    mocked.getDraftSnippets.mockReturnValue(
+      new Promise((resolve) => {
+        land = () => resolve({ d1: { startLine: 1, anchorLine: 1, lines: ['a'], side: 'right' } })
+      })
+    )
+    const pending = usePrInboxStore.getState().loadDraftSnippets()
+    usePrInboxStore.setState({ selectedKey: null })
+    land()
+    await pending
+
+    expect(usePrInboxStore.getState().draftSnippets).toEqual({})
+    expect(usePrInboxStore.getState().draftSnippetsStatus).toBe('loading')
+  })
+
+  test('selecting another PR drops the snippets of the one left behind', async () => {
+    mocked.getChanges.mockResolvedValue([])
+    mocked.listDrafts.mockResolvedValue([])
+    selected()
+    usePrInboxStore.setState({
+      draftSnippets: { d1: { startLine: 1, anchorLine: 1, lines: ['a'], side: 'right' } },
+      draftSnippetsStatus: 'ready'
+    })
+
+    await usePrInboxStore.getState().select('repo', 1)
+
+    expect(usePrInboxStore.getState().draftSnippets).toEqual({})
+    expect(usePrInboxStore.getState().draftSnippetsStatus).toBe('idle')
+  })
+})
+
+describe('revealInDiff', () => {
   test('switches to files tab, opens the file, remembers the line', () => {
     mocked.getFileDiff.mockResolvedValue({
       path: '/a.cs',
@@ -999,7 +1074,7 @@ describe('revealThread', () => {
       selectedKey: 'r:1',
       activeTab: 'overview'
     })
-    usePrInboxStore.getState().revealThread('/a.cs', 12)
+    usePrInboxStore.getState().revealInDiff('/a.cs', 12)
     expect(usePrInboxStore.getState().activeTab).toBe('files')
     expect(usePrInboxStore.getState().pendingReveal).toEqual({ path: '/a.cs', line: 12 })
     expect(usePrInboxStore.getState().activeFilePath).toBe('/a.cs')

@@ -1,5 +1,6 @@
 import type {
   DraftComment,
+  DraftSnippetsByDraftId,
   FileDiff,
   NewPrComment,
   PrChangeFile,
@@ -38,6 +39,10 @@ export const setThreadStatus = (
 ): Promise<PrThread[]> => ipc().prInbox.setThreadStatus(repositoryId, prId, threadId, status)
 export const listDrafts = (repositoryId: string, prId: number): Promise<DraftComment[]> =>
   ipc().prInbox.listDrafts(repositoryId, prId)
+export const getDraftSnippets = (
+  repositoryId: string,
+  prId: number
+): Promise<DraftSnippetsByDraftId> => ipc().prInbox.getDraftSnippets(repositoryId, prId)
 export const listUnfinishedDraftReviews = (): Promise<UnfinishedDraftReview[]> =>
   ipc().prInbox.listUnfinishedDraftReviews()
 export const editDraft = (id: string, body: string): Promise<DraftComment> =>

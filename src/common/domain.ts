@@ -423,6 +423,30 @@ export interface DraftComment {
   createdAt: number
 }
 
+/**
+ * The few lines of code one draft comment is about, cut from the side of the diff its anchor names.
+ * This is what lets the proposed-comments summary say what each comment is talking about without
+ * the reviewer opening the file first.
+ */
+export interface DraftSnippet {
+  /** 1-based line number, in the file, of `lines[0]`. */
+  startLine: number
+  /** The anchored line itself, numbered the same way as `startLine`. */
+  anchorLine: number
+  /** The lines in file order, `startLine` first. */
+  lines: string[]
+  /** Which side of the diff the lines were read from. */
+  side: CommentSide
+}
+
+/**
+ * A snippet for every actionable draft of one PR, keyed by draft id. A key mapped to null means the
+ * code could not be cut - a binary or oversized file, an emptied side, or an anchor the file no
+ * longer reaches - which is a different thing from a draft nobody asked about, so the key is
+ * present either way.
+ */
+export type DraftSnippetsByDraftId = Record<string, DraftSnippet | null>
+
 /** One PR with actionable local draft decisions still waiting for the user. */
 export interface UnfinishedDraftReview {
   repositoryId: string
