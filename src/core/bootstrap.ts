@@ -38,6 +38,7 @@ import { buildSpawn } from './pty/shell'
 import { createAttentionDetector } from './pty/attentionDetector'
 import { writeNotifSettings } from './pty/notifSettings'
 import { startHookListener, resolvePortRange, type HookListenerHandle } from './hooks/hookListener'
+import { standaloneServerPath } from './standaloneServerPath'
 import {
   LISTENER_SIDECAR_FILENAME,
   readOrCreateToken,
@@ -552,7 +553,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
     onDraft: (draft) => emitPush(Channel.prInboxDraftAdded, draft),
     reviewPrompt: () => settings.getReview().prompt,
     reviewModel: () => settings.getReview().model,
-    draftServerPath: join(__dirname, 'draftServer.js')
+    draftServerPath: standaloneServerPath(__dirname, 'draftServer.js')
   })
   const prInboxHandlers = createPrInboxHandlers({
     prCache,
@@ -630,7 +631,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
       ? createJiraFetcher({
           spawn,
           claudePath: resolveClaudePath(env),
-          reportServerPath: join(__dirname, 'jiraReportServer.js')
+          reportServerPath: standaloneServerPath(__dirname, 'jiraReportServer.js')
         })
       : null
   const jiraClient = createJiraClient({
@@ -755,7 +756,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
         onRunChanged: onOtoRunChanged,
         spawn,
         claudePath: resolveClaudePath(env),
-        reportServerPath: join(__dirname, 'otoReportServer.js'),
+        reportServerPath: standaloneServerPath(__dirname, 'otoReportServer.js'),
         logger: deps.logger.child('oneOnOne')
       })
   const oneOnOneHandlers = createOneOnOneHandlers({

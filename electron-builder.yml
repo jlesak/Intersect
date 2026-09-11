@@ -24,6 +24,23 @@ files:
 # spawn-helper. Without this the app launches but every terminal fails to spawn.
 asarUnpack:
   - node_modules/node-pty/**
+  # Claude launches these three MCP servers as `node <path>`, outside Electron. Plain Node cannot
+  # read inside app.asar, so the bundles and the chunks they share must also exist as ordinary
+  # files. hookHelper.js is deliberately absent: it runs under the Electron binary with
+  # ELECTRON_RUN_AS_NODE=1, which keeps Electron's asar-aware fs and reads straight from the archive.
+  - out/main/draftServer.js
+  - out/main/jiraReportServer.js
+  - out/main/otoReportServer.js
+  - out/main/chunks/**
+  # The MCP SDK is bundled into those outputs, but `require("ajv-formats")` survives bundling, and
+  # resolving it walks out of the unpacked tree into node_modules. ajv-formats carries its own ajv 8
+  # and json-schema-traverse; ajv 8's other three dependencies are hoisted to the top level and are
+  # named here. Verified by loading ajv-formats and compiling a format-using schema from a copy of
+  # this exact set, with nothing else above it.
+  - node_modules/ajv-formats/**
+  - node_modules/fast-deep-equal/**
+  - node_modules/fast-uri/**
+  - node_modules/require-from-string/**
 
 # node-pty ships ABI-stable N-API prebuilds; there is nothing to compile.
 npmRebuild: false
