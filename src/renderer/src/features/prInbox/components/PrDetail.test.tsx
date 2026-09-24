@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 
 // The Files tab renders the diff viewer, and the chunk behind its lazy boundary brings Monaco,
@@ -11,6 +11,48 @@ import { DEFAULT_SIDEBAR_LAYOUT } from '@common/domain'
 import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
 import { usePrInboxStore } from '../store'
 import { PrDetail } from './PrDetail'
+
+// jsdom lays nothing out and ships no ResizeObserver. The Files view sizes its divider from the
+// pane it is measured to have, so the tests stand in for layout: `layOut` gives the pane a width
+// and reports it to every observer, the way the browser does after a resize.
+const observers = new Set<{ callback: ResizeObserverCallback; targets: Element[] }>()
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly entry: { callback: ResizeObserverCallback; targets: Element[] }
+      constructor(callback: ResizeObserverCallback) {
+        this.entry = { callback, targets: [] }
+        observers.add(this.entry)
+      }
+      observe(target: Element): void {
+        this.entry.targets.push(target)
+      }
+      unobserve(): void {}
+      disconnect(): void {
+        observers.delete(this.entry)
+      }
+    }
+  )
+})
+
+afterEach(() => {
+  observers.clear()
+  vi.unstubAllGlobals()
+})
+
+const layOut = (width: number): void => {
+  act(() => {
+    for (const pane of document.querySelectorAll('.ix-pr-detail')) {
+      Object.defineProperty(pane, 'clientWidth', { configurable: true, value: width })
+    }
+    for (const { callback, targets } of observers) {
+      const entries = targets.map((target) => ({ target, contentRect: { width } }))
+      callback(entries as unknown as ResizeObserverEntry[], {} as ResizeObserver)
+    }
+  })
+}
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -360,6 +402,67 @@ describe('PrDetail file list width', () => {
     })
 
     expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(160)
+  })
+
+  test('however wide the pane, the list is dragged no wider than the width that is kept', async () => {
+    await openFiles(956)
+    // 2000px leaves the diff far more than it needs; the stored bound is what holds.
+    layOut(2000)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(960)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('960')
+  })
+
+  test('a narrow pane stops the list where the diff would lose its room', async () => {
+    await openFiles(396)
+    // 760px of pane leaves 400px for the list once the diff has its 360px.
+    layOut(760)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(400)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('400')
+  })
+
+  test('a list held narrower than its stored width moves from the width it is shown at', async () => {
+    await openFiles(600)
+    // The column clamp shows 400px of the stored 600px.
+    layOut(760)
+
+    expect(grip()?.getAttribute('aria-valuenow')).toBe('400')
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowLeft' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(392)
+  })
+
+  test('the divider announces the width after each step, not the one before it', async () => {
+    await openFiles(240)
+    layOut(1200)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(grip()?.getAttribute('aria-valuenow')).toBe('248')
+  })
+
+  test('the divider announces a new ceiling when the pane changes size', async () => {
+    await openFiles(240)
+    layOut(1200)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('840')
+
+    layOut(900)
+
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('540')
   })
 
   test('a diff that could not be loaded has no file list, so no divider', async () => {

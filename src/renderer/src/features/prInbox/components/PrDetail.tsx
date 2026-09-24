@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   DEFAULT_SIDEBAR_LAYOUT,
@@ -102,10 +102,57 @@ function changeSize(changes: PrChangeFile[]): { files: string; added: number; re
  */
 const ROOM_FOR_THE_DIFF = 360
 
+/**
+ * The divider between the file list and the diff. It follows the pane's width through a
+ * ResizeObserver, because the window and the sidebar change that width without telling anyone, and
+ * a separator must announce its range and value as they are now, not as they were at its last
+ * render.
+ *
+ * The ceiling is the smaller of what leaves the diff its room and what the saved layout keeps
+ * (main clamps every saved width to PR_FILES_WIDTH_MAX), so a width reached by dragging is always
+ * one that survives a restart. The value is what the column clamp in `.ix-pr-detail` renders - the
+ * same formula - so a gesture starts from the width the reviewer sees, not from a stored width the
+ * clamp is holding back.
+ */
+function FilesWidthResizer({ paneRef }: { paneRef: RefObject<HTMLDivElement | null> }) {
+  const prFilesWidth = useSidebarLayoutStore((s) => s.prFilesWidth)
+  // Zero until the pane is first measured, where only the stored bound applies.
+  const [pane, setPane] = useState(0)
+
+  useEffect(() => {
+    const element = paneRef.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setPane(Math.round(entry.contentRect.width))
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [paneRef])
+
+  const max = pane
+    ? Math.min(PR_FILES_WIDTH_MAX, Math.max(PR_FILES_WIDTH_MIN, pane - ROOM_FOR_THE_DIFF))
+    : PR_FILES_WIDTH_MAX
+  const shown = Math.max(PR_FILES_WIDTH_MIN, Math.min(prFilesWidth, max))
+  const layout = useSidebarLayoutStore.getState
+
+  return (
+    <PanelResizer
+      orientation="vertical"
+      label="File list width"
+      testId="pr-files-width-resizer"
+      size={() => shown}
+      min={PR_FILES_WIDTH_MIN}
+      max={max}
+      onResize={(px) => layout().setPrFilesWidth(px)}
+      onCommit={() => layout().save()}
+      onReset={() => layout().setPrFilesWidth(DEFAULT_SIDEBAR_LAYOUT.prFilesWidth)}
+    />
+  )
+}
+
 /** The changed-files view: file tree and the active file's diff, including its inline draft comments. */
 function ChangesView() {
   const detailRef = useRef<HTMLDivElement>(null)
-  const filesRef = useRef<HTMLDivElement>(null)
   const prFilesWidth = useSidebarLayoutStore((s) => s.prFilesWidth)
   const changes = usePrInboxStore(useShallow((s) => s.changes))
   const changesError = usePrInboxStore((s) => s.changesError)
@@ -137,7 +184,6 @@ function ChangesView() {
 
   const changedPaths = new Set(changes.map((change) => canonicalPath(change.path)))
   const detachedDrafts = drafts.filter((draft) => !changedPaths.has(canonicalPath(draft.filePath)))
-  const layout = useSidebarLayoutStore.getState
 
   return (
     <div
@@ -145,7 +191,7 @@ function ChangesView() {
       className="ix-pr-detail"
       style={{ '--pr-files-w': `${prFilesWidth}px` } as React.CSSProperties}
     >
-      <div ref={filesRef} className="ix-pr-files">
+      <div className="ix-pr-files">
         <FileTree
           changes={changes}
           threads={threads}
@@ -154,24 +200,7 @@ function ChangesView() {
           onOpen={(path) => void usePrInboxStore.getState().openFile(path)}
         />
       </div>
-      <PanelResizer
-        orientation="vertical"
-        label="File list width"
-        testId="pr-files-width-resizer"
-        // The rendered width, not the stored one: the column clamp may be holding the list narrower
-        // than what was stored, and a drag has to start from what the reviewer sees.
-        size={() => filesRef.current?.getBoundingClientRect().width || prFilesWidth}
-        min={PR_FILES_WIDTH_MIN}
-        // Measured when a gesture needs it, because the window and the sidebar change it silently.
-        // Nothing to measure means nothing laid out yet, where only the stored bound applies.
-        max={() => {
-          const room = detailRef.current?.clientWidth
-          return room ? Math.max(PR_FILES_WIDTH_MIN, room - ROOM_FOR_THE_DIFF) : PR_FILES_WIDTH_MAX
-        }}
-        onResize={(px) => layout().setPrFilesWidth(px)}
-        onCommit={() => layout().save()}
-        onReset={() => layout().setPrFilesWidth(DEFAULT_SIDEBAR_LAYOUT.prFilesWidth)}
-      />
+      <FilesWidthResizer paneRef={detailRef} />
       <div className="ix-pr-content">
         <div className="ix-pr-diff-wrap">
           <Suspense fallback={<div className="ix-pr-diff__placeholder">Loading diff…</div>}>

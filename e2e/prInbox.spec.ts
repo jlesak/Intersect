@@ -250,6 +250,13 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
   // However far it is pulled, the diff keeps room to be read.
   await dragSideways(first.win, 'pr-files-width-resizer', 2000)
   await expect.poll(() => widthOf(first.win, '.ix-pr-content')).toBeGreaterThanOrEqual(340)
+  // The divider stops where the list does, and says so: the width it announces (and stores) is the
+  // one on screen, not a larger one the column clamp is holding back.
+  const pulled = await widthOf(first.win, '.ix-pr-files')
+  await expect
+    .poll(async () => Math.abs(Number(await grip.getAttribute('aria-valuenow')) - pulled))
+    .toBeLessThanOrEqual(1)
+  expect(Math.abs(Number(await grip.getAttribute('aria-valuemax')) - pulled)).toBeLessThanOrEqual(1)
 
   await dragSideways(first.win, 'pr-files-width-resizer', -300)
   const saved = await widthOf(first.win, '.ix-pr-files')
