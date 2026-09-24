@@ -1456,11 +1456,23 @@
   opacity: 0.55;
   pointer-events: none;
 }
+/* The file list's width is the user's (`--pr-files-w`, set from the saved layout), held between a
+   floor that keeps short names readable and a ceiling that always leaves the diff 360px. The
+   ceiling is here as well as in the divider's drag clamp, because the window or the sidebar can
+   shrink this pane long after the width was saved. `100%` is the pane's own width in both places
+   the column is read, as the grid has no padding. */
 .ix-pr-detail {
+  --pr-files-col: clamp(160px, var(--pr-files-w, 240px), calc(100% - 360px));
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: var(--pr-files-col) minmax(0, 1fr);
+}
+/* Absolutely placed, so it takes no grid cell; this only moves it from the sidebar's edge to the
+   file list's. */
+.ix-pr-detail > .ix-resizer--vertical {
+  left: calc(var(--pr-files-col) - 3px);
 }
 .ix-pr-detail--empty {
   display: flex;
@@ -5503,11 +5515,12 @@
   background: var(--status-done);
 }
 
-/* ---------------- sidebar panel dividers ----------------
+/* ---------------- panel dividers ----------------
    A divider is a thin hit area with a hairline drawn inside it: 6px is comfortable to grab, while
    a visible 6px bar between every panel would be noise. The vertical one sits over the sidebar's
    right edge rather than inside the sidebar, which clips and scrolls its own contents - inside, it
-   would scroll away from the edge it names. */
+   would scroll away from the edge it names. Another vertical divider moves `left` to its own
+   edge (the PR file list's, for one). */
 .ix-resizer {
   position: relative;
   flex: none;

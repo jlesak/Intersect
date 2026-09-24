@@ -208,6 +208,69 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await expect(win.getByTestId('pr-table')).toBeVisible()
 })
 
+/** Drag a vertical divider sideways by `dx` pixels, the way a pointer does it. */
+async function dragSideways(win: Page, testId: string, dx: number): Promise<void> {
+  const box = (await win.getByTestId(testId).boundingBox())!
+  const x = box.x + box.width / 2
+  const y = box.y + 100
+  await win.mouse.move(x, y)
+  await win.mouse.down()
+  await win.mouse.move(x + dx, y, { steps: 8 })
+  await win.mouse.up()
+}
+
+const widthOf = async (win: Page, selector: string): Promise<number> =>
+  (await win.locator(selector).boundingBox())!.width
+
+test('the file list is resized by dragging, never swallows the diff, and keeps its width', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openPrRow(first.win, 'Fix PTY backpressure')
+  await first.win.getByTestId('pr-tab-files').click()
+  await expect(first.win.getByTestId('tree-file')).toHaveCount(4)
+
+  const grip = first.win.getByTestId('pr-files-width-resizer')
+  await expect(grip).toBeVisible()
+  expect(await widthOf(first.win, '.ix-pr-files')).toBeCloseTo(240, -1)
+  const diffBefore = await widthOf(first.win, '.ix-pr-content')
+
+  await dragSideways(first.win, 'pr-files-width-resizer', 100)
+  await expect.poll(() => widthOf(first.win, '.ix-pr-files')).toBeGreaterThan(320)
+  expect(await widthOf(first.win, '.ix-pr-content')).toBeLessThan(diffBefore - 60)
+
+  // The keyboard drives the same divider.
+  const dragged = await widthOf(first.win, '.ix-pr-files')
+  await grip.focus()
+  await grip.press('ArrowLeft')
+  await expect.poll(() => widthOf(first.win, '.ix-pr-files')).toBeLessThan(dragged)
+
+  // However far it is pulled, the diff keeps room to be read.
+  await dragSideways(first.win, 'pr-files-width-resizer', 2000)
+  await expect.poll(() => widthOf(first.win, '.ix-pr-content')).toBeGreaterThanOrEqual(340)
+
+  await dragSideways(first.win, 'pr-files-width-resizer', -300)
+  const saved = await widthOf(first.win, '.ix-pr-files')
+  expect(saved).toBeGreaterThan(260)
+  // The width is written when the drag ends; the wait gives that one IPC round trip time to land.
+  await first.win.waitForTimeout(150)
+  await first.app.close()
+
+  // No sync: the cached pull request is enough to open its files again.
+  const second = await launchApp(profileDir, { env })
+  await openPrReview(second.win)
+  await openPrRow(second.win, 'Fix PTY backpressure')
+  await second.win.getByTestId('pr-tab-files').click()
+  await expect(second.win.getByTestId('tree-file')).toHaveCount(4)
+  expect(await widthOf(second.win, '.ix-pr-files')).toBeCloseTo(saved, -1)
+
+  // Double-click is the way back.
+  await second.win.getByTestId('pr-files-width-resizer').dblclick()
+  await expect.poll(async () => Math.round(await widthOf(second.win, '.ix-pr-files'))).toBe(240)
+})
+
 test('an unfinished draft review survives navigation and relaunch, then clears after discard', async () => {
   const profileDir = userDataDir()
   const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }

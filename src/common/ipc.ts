@@ -451,9 +451,9 @@ export interface IpcApi {
      * one transaction, so a failure part-way leaves the previous state whole.
      */
     resetViewState(): Promise<void>
-    /** The sidebar sizes the user dragged, clamped to their bounds. Defaults on a fresh profile. */
+    /** The shell sizes the user dragged (sidebar, PR file list), clamped. Defaults on a fresh profile. */
     getSidebarLayout(): Promise<SidebarLayout>
-    /** Persist the sidebar sizes and answer with what was actually stored after clamping. */
+    /** Persist the shell sizes and answer with what was actually stored after clamping. */
     setSidebarLayout(layout: SidebarLayout): Promise<SidebarLayout>
     /**
      * The core service process's lifecycle as seen by main. Fired on every change and once

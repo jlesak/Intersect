@@ -7,6 +7,8 @@ import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 // about the detail rather than about the editor.
 vi.mock('monaco-editor', () => ({ editor: {} }))
 
+import { DEFAULT_SIDEBAR_LAYOUT } from '@common/domain'
+import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
 import { usePrInboxStore } from '../store'
 import { PrDetail } from './PrDetail'
 
@@ -207,7 +209,10 @@ const CHANGES: PrChangeFile[] = [
   change('/assets/logo.png', 0, 0, 'add')
 ]
 
-const seedChanges = async (changes: PrChangeFile[]): Promise<void> => {
+const seedChanges = async (
+  changes: PrChangeFile[],
+  changesError: string | null = null
+): Promise<void> => {
   usePrInboxStore.setState({
     prsByKey: { 'repo-1:1': pr() },
     order: ['repo-1:1'],
@@ -216,7 +221,7 @@ const seedChanges = async (changes: PrChangeFile[]): Promise<void> => {
     activeTab: 'overview',
     adoOrgUrl: 'https://devops.example.com/tfs/DefaultCollection',
     changes,
-    changesError: null,
+    changesError,
     threads: [],
     threadsLoaded: true,
     drafts: [],
@@ -290,5 +295,81 @@ describe('PrDetail change size', () => {
       (candidate) => candidate.textContent === 'Stale'
     )
     expect(approve?.disabled).toBe(true)
+  })
+})
+
+describe('PrDetail file list width', () => {
+  const realSave = useSidebarLayoutStore.getState().save
+  const save = vi.fn()
+
+  afterEach(() => {
+    usePrInboxStore.setState({ selectedKey: null, view: 'board', changes: [], changesError: null, threads: [] })
+    useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, touched: false, save: realSave })
+    save.mockReset()
+  })
+
+  const openFiles = async (prFilesWidth: number): Promise<void> => {
+    useSidebarLayoutStore.setState({ prFilesWidth, save })
+    await seedChanges(CHANGES)
+    await act(async () => {
+      fireEvent.click(button('pr-tab-files'))
+    })
+  }
+
+  const grip = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-testid="pr-files-width-resizer"]')
+  const detail = (): HTMLElement => document.querySelector<HTMLElement>('.ix-pr-detail')!
+
+  test('the file list carries a vertical divider and the width the user last gave it', async () => {
+    await openFiles(300)
+
+    expect(grip()?.getAttribute('role')).toBe('separator')
+    expect(grip()?.getAttribute('aria-orientation')).toBe('vertical')
+    expect(detail().style.getPropertyValue('--pr-files-w')).toBe('300px')
+  })
+
+  test('an arrow key widens the list and saves the width once', async () => {
+    // jsdom lays nothing out, so the divider starts from the stored width.
+    await openFiles(300)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(308)
+    expect(detail().style.getPropertyValue('--pr-files-w')).toBe('308px')
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  test('a double-click puts the list back to its default width', async () => {
+    await openFiles(420)
+
+    act(() => {
+      fireEvent.doubleClick(grip()!)
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(240)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  test('the list cannot be narrowed below a readable width', async () => {
+    await openFiles(164)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowLeft' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(160)
+  })
+
+  test('a diff that could not be loaded has no file list, so no divider', async () => {
+    useSidebarLayoutStore.setState({ save })
+    await seedChanges([], 'The server said no')
+    await act(async () => {
+      fireEvent.click(button('pr-tab-files'))
+    })
+
+    expect(document.querySelector('.ix-pr-detail--empty')).toBeTruthy()
+    expect(grip()).toBeNull()
   })
 })

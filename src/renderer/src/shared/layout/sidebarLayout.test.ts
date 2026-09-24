@@ -22,21 +22,22 @@ beforeEach(() => {
 
 describe('the sidebar layout store', () => {
   test('hydrate adopts the saved sizes', async () => {
-    stored = { width: 300, railHeight: 220, usageHeight: 140 }
+    stored = { width: 300, railHeight: 220, usageHeight: 140, prFilesWidth: 360 }
 
     await useSidebarLayoutStore.getState().hydrate()
 
     expect(useSidebarLayoutStore.getState()).toMatchObject({
       width: 300,
       railHeight: 220,
-      usageHeight: 140
+      usageHeight: 140,
+      prFilesWidth: 360
     })
   })
 
   test('a drag that lands while the read is in flight is not undone by it', async () => {
     // The dividers are live from the first paint, so this is reachable: without the guard the
     // stored width lands on top of the user's own, and the next gesture then writes it.
-    stored = { width: 300, railHeight: null, usageHeight: null }
+    stored = { width: 300, railHeight: null, usageHeight: null, prFilesWidth: 240 }
     const reading = useSidebarLayoutStore.getState().hydrate()
     useSidebarLayoutStore.getState().setWidth(420)
     await reading
@@ -55,7 +56,7 @@ describe('the sidebar layout store', () => {
   })
 
   test('save before any gesture writes nothing, so it cannot overwrite the saved sizes', async () => {
-    stored = { width: 380, railHeight: null, usageHeight: null }
+    stored = { width: 380, railHeight: null, usageHeight: null, prFilesWidth: 240 }
     const reading = useSidebarLayoutStore.getState().hydrate()
     useSidebarLayoutStore.getState().save()
     await reading
@@ -71,7 +72,18 @@ describe('the sidebar layout store', () => {
 
     useSidebarLayoutStore.getState().save()
 
-    expect(saved).toEqual([{ width: 300, railHeight: 200, usageHeight: null }])
+    expect(saved).toEqual([{ width: 300, railHeight: 200, usageHeight: null, prFilesWidth: 240 }])
+  })
+
+  test('the PR file list width is saved in the same document as the sidebar sizes', () => {
+    useSidebarLayoutStore.getState().setPrFilesWidth(300)
+    expect(saved).toEqual([])
+
+    useSidebarLayoutStore.getState().save()
+
+    expect(saved).toEqual([
+      { width: DEFAULT_SIDEBAR_LAYOUT.width, railHeight: null, usageHeight: null, prFilesWidth: 300 }
+    ])
   })
 
   test('null puts a panel back to sizing itself by its content', () => {

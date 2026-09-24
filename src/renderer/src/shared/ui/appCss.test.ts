@@ -103,3 +103,26 @@ describe('the resizable sidebar panels', () => {
     expect(ruleBody('.ix-app')).toMatch(/position:\s*relative/)
   })
 })
+
+describe('the resizable PR file list', () => {
+  test('its column follows the dragged width instead of a fixed 240px', () => {
+    const detail = ruleBody('.ix-pr-detail')
+    expect(detail).toMatch(/grid-template-columns:\s*var\(--pr-files-col\)/)
+    expect(detail).not.toMatch(/240px 1fr/)
+  })
+
+  test('the column is clamped in CSS too, so a later window or sidebar change cannot swallow the diff', () => {
+    expect(ruleBody('.ix-pr-detail')).toMatch(
+      /--pr-files-col:\s*clamp\(160px, var\(--pr-files-w, 240px\), calc\(100% - 360px\)\)/
+    )
+  })
+
+  test('the divider sits on the file list edge, inside the detail pane', () => {
+    // The base vertical divider is placed at the sidebar's width, against the nearest positioned
+    // ancestor. Without both of these the grip would float at the sidebar's offset in the pane.
+    expect(ruleBody('.ix-pr-detail')).toMatch(/position:\s*relative/)
+    expect(ruleBody('.ix-pr-detail > .ix-resizer--vertical')).toMatch(
+      /left:\s*calc\(var\(--pr-files-col\) - 3px\)/
+    )
+  })
+})

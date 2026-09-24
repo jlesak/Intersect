@@ -970,9 +970,11 @@ export interface AppSettings {
 }
 
 /**
- * The sizes the user set by dragging the sidebar's dividers. `null` means "size to content", which
- * is what every panel does until it is dragged for the first time - so a fresh install looks
- * exactly as it did before any of this existed.
+ * The sizes the user set by dragging the shell's dividers: the sidebar's, and the PR detail's file
+ * list. The name predates the file list; it stays because renaming the stored key and the IPC
+ * channel would change no behaviour. `null` means "size to content", which is what every sidebar
+ * panel does until it is dragged for the first time - so a fresh install looks exactly as it did
+ * before any of this existed.
  */
 export interface SidebarLayout {
   /** Sidebar width in px. Ignored while the sidebar is collapsed to its icon rail. */
@@ -981,6 +983,8 @@ export interface SidebarLayout {
   railHeight: number | null
   /** Claude usage panel height in px; it scrolls inside it. Null sizes it to its rows. */
   usageHeight: number | null
+  /** Width in px of the file list beside a pull request's diff. */
+  prFilesWidth: number
 }
 
 /**
@@ -993,12 +997,15 @@ export const SIDEBAR_WIDTH_MIN = 180
 export const SIDEBAR_WIDTH_MAX = 640
 export const SIDEBAR_PANEL_MIN = 64
 export const SIDEBAR_PANEL_MAX = 2000
+export const PR_FILES_WIDTH_MIN = 160
+export const PR_FILES_WIDTH_MAX = 960
 
 /** The sidebar as it looks before anyone drags anything. The width matches `--sidebar-w`. */
 export const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   width: 244,
   railHeight: null,
-  usageHeight: null
+  usageHeight: null,
+  prFilesWidth: 240
 }
 
 /** Bounds the terminal font-size slider offers; main clamps saved values to the same range. */

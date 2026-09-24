@@ -1,7 +1,14 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { PrChangeFile } from '@common/domain'
+import {
+  DEFAULT_SIDEBAR_LAYOUT,
+  PR_FILES_WIDTH_MAX,
+  PR_FILES_WIDTH_MIN,
+  type PrChangeFile
+} from '@common/domain'
 import { isThreadUnresolved } from '@common/prBoard'
+import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
+import { PanelResizer } from '@renderer/shared/ui/PanelResizer'
 import {
   isDraftStale,
   selectDrafts,
@@ -89,8 +96,17 @@ function changeSize(changes: PrChangeFile[]): { files: string; added: number; re
   }
 }
 
+/**
+ * What a dragged file list always leaves the diff beside it. `.ix-pr-detail`'s column clamp uses the
+ * same number, so a window or sidebar that grows after the drag cannot squeeze the diff either.
+ */
+const ROOM_FOR_THE_DIFF = 360
+
 /** The changed-files view: file tree and the active file's diff, including its inline draft comments. */
 function ChangesView() {
+  const detailRef = useRef<HTMLDivElement>(null)
+  const filesRef = useRef<HTMLDivElement>(null)
+  const prFilesWidth = useSidebarLayoutStore((s) => s.prFilesWidth)
   const changes = usePrInboxStore(useShallow((s) => s.changes))
   const changesError = usePrInboxStore((s) => s.changesError)
   const threads = usePrInboxStore(useShallow((s) => s.threads))
@@ -121,10 +137,15 @@ function ChangesView() {
 
   const changedPaths = new Set(changes.map((change) => canonicalPath(change.path)))
   const detachedDrafts = drafts.filter((draft) => !changedPaths.has(canonicalPath(draft.filePath)))
+  const layout = useSidebarLayoutStore.getState
 
   return (
-    <div className="ix-pr-detail">
-      <div className="ix-pr-files">
+    <div
+      ref={detailRef}
+      className="ix-pr-detail"
+      style={{ '--pr-files-w': `${prFilesWidth}px` } as React.CSSProperties}
+    >
+      <div ref={filesRef} className="ix-pr-files">
         <FileTree
           changes={changes}
           threads={threads}
@@ -133,6 +154,24 @@ function ChangesView() {
           onOpen={(path) => void usePrInboxStore.getState().openFile(path)}
         />
       </div>
+      <PanelResizer
+        orientation="vertical"
+        label="File list width"
+        testId="pr-files-width-resizer"
+        // The rendered width, not the stored one: the column clamp may be holding the list narrower
+        // than what was stored, and a drag has to start from what the reviewer sees.
+        size={() => filesRef.current?.getBoundingClientRect().width || prFilesWidth}
+        min={PR_FILES_WIDTH_MIN}
+        // Measured when a gesture needs it, because the window and the sidebar change it silently.
+        // Nothing to measure means nothing laid out yet, where only the stored bound applies.
+        max={() => {
+          const room = detailRef.current?.clientWidth
+          return room ? Math.max(PR_FILES_WIDTH_MIN, room - ROOM_FOR_THE_DIFF) : PR_FILES_WIDTH_MAX
+        }}
+        onResize={(px) => layout().setPrFilesWidth(px)}
+        onCommit={() => layout().save()}
+        onReset={() => layout().setPrFilesWidth(DEFAULT_SIDEBAR_LAYOUT.prFilesWidth)}
+      />
       <div className="ix-pr-content">
         <div className="ix-pr-diff-wrap">
           <Suspense fallback={<div className="ix-pr-diff__placeholder">Loading diff…</div>}>
