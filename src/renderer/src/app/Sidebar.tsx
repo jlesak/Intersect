@@ -13,8 +13,8 @@ import {
 import { SIDEBAR_PANEL_MIN, type Project } from '@common/domain'
 import { getSidebarSections } from '@renderer/shared/registries/sidebarRegistry'
 import { IconChevronLeft, IconChevronRight, IconLayers } from '@renderer/shared/ui/icons'
-import { PanelResizer } from './PanelResizer'
-import { useSidebarLayoutStore } from './sidebarLayout'
+import { PanelResizer } from '@renderer/shared/ui/PanelResizer'
+import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
 import { resolveShellContext, useShellStore, type ShellContext } from './shellStore'
 
 /**
