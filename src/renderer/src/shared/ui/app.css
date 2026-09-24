@@ -1582,6 +1582,23 @@
   background: var(--panel);
   flex: none;
 }
+/* The file name in the tree's own type, so the file picked there reads the same here. It gives way
+   to the hint by truncating; the full path stays in its title. */
+.ix-pr-diff__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+.ix-pr-diff__hint {
+  flex: none;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .ix-pr-diff__host {
   flex: 1;
   min-height: 0;

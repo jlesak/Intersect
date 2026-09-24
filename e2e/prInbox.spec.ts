@@ -446,6 +446,17 @@ test('the diff carries its inline threads on a PR the user took straight to File
   // The thread anchored to this file renders as a Monaco view zone under its line, without the
   // conversation ever having been opened.
   await expect(win.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
+
+  // The file name above the diff reads like the tree it was picked from: as typed, not shouted.
+  const path = win.getByTestId('pr-diff-path')
+  await expect(path).toHaveText('/src/app/sync/rateLimiter.ts')
+  await expect(path).toHaveAttribute('title', '/src/app/sync/rateLimiter.ts')
+  expect(
+    await path.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { textTransform: style.textTransform, letterSpacing: style.letterSpacing, fontSize: style.fontSize }
+    })
+  ).toEqual({ textTransform: 'none', letterSpacing: 'normal', fontSize: '11.5px' })
 })
 
 test('a thread anchored past the end of the file says its position is a guess', async () => {

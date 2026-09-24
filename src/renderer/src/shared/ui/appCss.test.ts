@@ -126,3 +126,21 @@ describe('the resizable PR file list', () => {
     )
   })
 })
+
+describe('the file name above a diff', () => {
+  test('it reads like the file tree beside it, not like a structural eyebrow', () => {
+    const path = ruleBody('.ix-pr-diff__path')
+    expect(path).not.toMatch(/text-transform/)
+    expect(path).not.toMatch(/letter-spacing/)
+    expect(path).toMatch(/font-family:\s*var\(--font-mono\)/)
+    expect(path).toMatch(/font-size:\s*11\.5px/)
+    expect(path).toMatch(/color:\s*var\(--text\)/)
+  })
+
+  test('a long path is cut with an ellipsis rather than pushing the hint away', () => {
+    const path = ruleBody('.ix-pr-diff__path')
+    expect(path).toMatch(/min-width:\s*0/)
+    expect(path).toMatch(/text-overflow:\s*ellipsis/)
+    expect(path).toMatch(/white-space:\s*nowrap/)
+  })
+})
