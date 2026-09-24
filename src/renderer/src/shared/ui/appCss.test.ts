@@ -141,6 +141,8 @@ describe('the file name above a diff', () => {
     const path = ruleBody('.ix-pr-diff__path')
     expect(path).toMatch(/min-width:\s*0/)
     expect(path).toMatch(/text-overflow:\s*ellipsis/)
+    // The ellipsis only draws where the overflow is clipped.
+    expect(path).toMatch(/overflow:\s*hidden/)
     expect(path).toMatch(/white-space:\s*nowrap/)
   })
 })
