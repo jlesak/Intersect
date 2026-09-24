@@ -144,3 +144,19 @@ describe('the file name above a diff', () => {
     expect(path).toMatch(/white-space:\s*nowrap/)
   })
 })
+
+describe('the diff frame', () => {
+  test('the diff and its placeholder draw no border of their own', () => {
+    for (const selector of ['.ix-pr-diff', '.ix-pr-diff__placeholder']) {
+      expect(ruleBody(selector)).not.toMatch(/border(-radius)?:/)
+    }
+  })
+
+  test('the toolbar keeps the one line that divides it from the diff', () => {
+    expect(ruleBody('.ix-pr-diff__toolbar')).toMatch(/border-bottom:/)
+  })
+
+  test('the diff still clips, because Monaco paints to its box', () => {
+    expect(ruleBody('.ix-pr-diff')).toMatch(/overflow:\s*hidden/)
+  })
+})

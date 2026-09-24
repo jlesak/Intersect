@@ -1568,8 +1568,6 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   overflow: hidden;
 }
 .ix-pr-diff__toolbar {
@@ -1608,8 +1606,6 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
   color: var(--text-faint);
   font-size: 12.5px;
 }
