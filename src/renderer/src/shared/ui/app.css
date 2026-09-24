@@ -1956,13 +1956,19 @@
   max-height: 35%;
   overflow-y: auto;
 }
+/* Sized by its text, on open and while typing: `field-sizing` is the platform doing what a
+   scrollHeight hook would. Every place it sits grows or scrolls with it - the inline card's Monaco
+   view zone re-measures itself, and the summary and recovery lists scroll. `height: auto` beats the
+   fixed height every .ix-input has; the floor keeps a one-liner a comfortable target. */
 .ix-pr-draft__edit {
   height: auto;
   min-height: 60px;
   padding: 8px 10px;
-  resize: vertical;
+  field-sizing: content;
+  resize: none;
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.5;
 }
 .ix-pr-draft__actions {
   display: flex;

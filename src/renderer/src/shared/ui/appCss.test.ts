@@ -160,3 +160,17 @@ describe('the diff frame', () => {
     expect(ruleBody('.ix-pr-diff')).toMatch(/overflow:\s*hidden/)
   })
 })
+
+describe('the draft comment editor', () => {
+  test('it grows with its text instead of offering a handle to drag', () => {
+    const edit = ruleBody('.ix-pr-draft__edit')
+    expect(edit).toMatch(/field-sizing:\s*content/)
+    expect(edit).toMatch(/resize:\s*none/)
+  })
+
+  test('it keeps a floor, and overrides the fixed height every .ix-input has', () => {
+    const edit = ruleBody('.ix-pr-draft__edit')
+    expect(edit).toMatch(/min-height:\s*60px/)
+    expect(edit).toMatch(/height:\s*auto/)
+  })
+})

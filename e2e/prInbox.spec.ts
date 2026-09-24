@@ -67,7 +67,7 @@ async function openPrRow(win: Page, title: string): Promise<void> {
 }
 
 /** Seed one persisted Claude draft after the cache has a real PR to attach it to. */
-function seedDraft(profileDir: string): void {
+function seedDraft(profileDir: string, body = 'Seeded review finding.'): void {
   const db = new DatabaseSync(join(profileDir, 'intersect.db'))
   try {
     db.prepare(
@@ -82,7 +82,7 @@ function seedDraft(profileDir: string): void {
       '/src/app/sync/rateLimiter.ts',
       2,
       'right',
-      'Seeded review finding.',
+      body,
       'review-session-before-quit',
       'source-502',
       Date.now()
@@ -327,6 +327,54 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
       .filter({ hasText: 'Fix PTY backpressure' })
       .getByTestId('pr-row-unfinished-review')
   ).toHaveCount(0)
+})
+
+test('the draft editor opens at the size of its text and grows and shrinks with it', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
+  await first.app.close()
+
+  const lines = (n: number): string =>
+    Array.from({ length: n }, (_, i) => `Line ${i + 1} of the finding.`).join('\n')
+  seedDraft(profileDir, lines(6))
+
+  const { win } = await launchApp(profileDir, { env })
+  await openPrReview(win)
+  await openPrRow(win, 'Fix PTY backpressure')
+  await win.getByTestId('pr-tab-drafts').click()
+  const draft = win.getByTestId('pr-draft')
+  await expect(draft).toContainText('Line 6 of the finding.')
+  await draft.getByTestId('pr-draft-edit').click()
+
+  const editor = draft.locator('.ix-pr-draft__edit')
+  const box = (): Promise<{ height: number; scrollHeight: number; clientHeight: number; resize: string }> =>
+    editor.evaluate((el) => ({
+      height: el.getBoundingClientRect().height,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      resize: getComputedStyle(el).resize
+    }))
+
+  // Six lines open at six lines: well past the floor, with nothing hidden behind a scrollbar.
+  const opened = await box()
+  expect(opened.height).toBeGreaterThan(100)
+  expect(opened.scrollHeight).toBeLessThanOrEqual(opened.clientHeight + 1)
+  expect(opened.resize).toBe('none')
+
+  await editor.fill(lines(12))
+  await expect.poll(async () => (await box()).height).toBeGreaterThan(opened.height)
+  const grown = await box()
+  expect(grown.scrollHeight).toBeLessThanOrEqual(grown.clientHeight + 1)
+
+  // And back down to the floor for a one-liner.
+  await editor.fill('One line.')
+  await expect.poll(async () => (await box()).height).toBeLessThan(opened.height)
+  expect((await box()).height).toBeLessThanOrEqual(62)
 })
 
 test('the header sizes the change, and every file row carries its own counts', async () => {
