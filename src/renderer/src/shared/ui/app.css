@@ -1457,12 +1457,13 @@
   pointer-events: none;
 }
 /* The file list's width is the user's (`--pr-files-w`, set from the saved layout), held between a
-   floor that keeps short names readable and a ceiling that always leaves the diff 360px. The
+   floor that keeps short names readable and a ceiling that always leaves the diff 480px - two gutters and enough
+   code to review, with an inline draft card still fitting beside them. The
    ceiling is here as well as in the divider's drag clamp, because the window or the sidebar can
    shrink this pane long after the width was saved. `100%` is the pane's own width in both places
    the column is read, as the grid has no padding. */
 .ix-pr-detail {
-  --pr-files-col: clamp(160px, var(--pr-files-w, 240px), calc(100% - 360px));
+  --pr-files-col: clamp(160px, var(--pr-files-w, 240px), calc(100% - 480px));
   position: relative;
   flex: 1;
   min-height: 0;
@@ -1902,6 +1903,7 @@
 }
 .ix-pr-draft__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
@@ -1970,8 +1972,11 @@
   font-size: 12px;
   line-height: 1.5;
 }
+/* Both rows wrap: an inline card is as wide as the diff's code column, which a wide file list
+   narrows, and a row that cannot wrap is clipped by the editor instead. */
 .ix-pr-draft__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 /* The anchor doubles as the jump into the diff, so it reads as the code location it is and only the

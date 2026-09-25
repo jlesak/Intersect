@@ -419,8 +419,8 @@ describe('PrDetail file list width', () => {
 
   test('a narrow pane stops the list where the diff would lose its room', async () => {
     await openFiles(396)
-    // 760px of pane leaves 400px for the list once the diff has its 360px.
-    layOut(760)
+    // 880px of pane leaves 400px for the list once the diff has its 480px.
+    layOut(880)
 
     act(() => {
       fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
@@ -433,7 +433,7 @@ describe('PrDetail file list width', () => {
   test('a list held narrower than its stored width moves from the width it is shown at', async () => {
     await openFiles(600)
     // The column clamp shows 400px of the stored 600px.
-    layOut(760)
+    layOut(880)
 
     expect(grip()?.getAttribute('aria-valuenow')).toBe('400')
 
@@ -458,11 +458,11 @@ describe('PrDetail file list width', () => {
   test('the divider announces a new ceiling when the pane changes size', async () => {
     await openFiles(240)
     layOut(1200)
-    expect(grip()?.getAttribute('aria-valuemax')).toBe('840')
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('720')
 
     layOut(900)
 
-    expect(grip()?.getAttribute('aria-valuemax')).toBe('540')
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('420')
   })
 
   test('a diff that could not be loaded has no file list, so no divider', async () => {

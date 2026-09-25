@@ -249,7 +249,7 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
 
   // However far it is pulled, the diff keeps room to be read.
   await dragSideways(first.win, 'pr-files-width-resizer', 2000)
-  await expect.poll(() => widthOf(first.win, '.ix-pr-content')).toBeGreaterThanOrEqual(340)
+  await expect.poll(() => widthOf(first.win, '.ix-pr-content')).toBeGreaterThanOrEqual(460)
   // The divider stops where the list does, and says so: the width it announces (and stores) is the
   // one on screen, not a larger one the column clamp is holding back.
   const pulled = await widthOf(first.win, '.ix-pr-files')
@@ -258,7 +258,7 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
     .toBeLessThanOrEqual(1)
   expect(Math.abs(Number(await grip.getAttribute('aria-valuemax')) - pulled)).toBeLessThanOrEqual(1)
 
-  await dragSideways(first.win, 'pr-files-width-resizer', -300)
+  await dragSideways(first.win, 'pr-files-width-resizer', -200)
   const saved = await widthOf(first.win, '.ix-pr-files')
   expect(saved).toBeGreaterThan(260)
   // The width is written when the drag ends; the wait gives that one IPC round trip time to land.
@@ -382,6 +382,12 @@ test('the draft editor opens at the size of its text and grows and shrinks with 
   await editor.fill('One line.')
   await expect.poll(async () => (await box()).height).toBeLessThan(opened.height)
   expect((await box()).height).toBeLessThanOrEqual(62)
+
+  // Escape abandons the edit and nothing more: the reviewer stays on the pull request.
+  await editor.press('Escape')
+  await expect(editor).toHaveCount(0)
+  await expect(draft).toContainText('Line 6 of the finding.')
+  await expect(win.getByTestId('pr-tab-drafts')).toBeVisible()
 })
 
 test('the header sizes the change, and every file row carries its own counts', async () => {

@@ -105,6 +105,11 @@ describe('the resizable sidebar panels', () => {
 })
 
 describe('the resizable PR file list', () => {
+  test('a draft card squeezed by a narrow diff wraps its header and buttons instead of clipping them', () => {
+    expect(ruleBody('.ix-pr-draft__meta')).toMatch(/flex-wrap:\s*wrap/)
+    expect(ruleBody('.ix-pr-draft__actions')).toMatch(/flex-wrap:\s*wrap/)
+  })
+
   test('its column follows the dragged width instead of a fixed 240px', () => {
     const detail = ruleBody('.ix-pr-detail')
     expect(detail).toMatch(/grid-template-columns:\s*var\(--pr-files-col\)/)
@@ -113,7 +118,7 @@ describe('the resizable PR file list', () => {
 
   test('the column is clamped in CSS too, so a later window or sidebar change cannot swallow the diff', () => {
     expect(ruleBody('.ix-pr-detail')).toMatch(
-      /--pr-files-col:\s*clamp\(160px, var\(--pr-files-w, 240px\), calc\(100% - 360px\)\)/
+      /--pr-files-col:\s*clamp\(160px, var\(--pr-files-w, 240px\), calc\(100% - 480px\)\)/
     )
   })
 

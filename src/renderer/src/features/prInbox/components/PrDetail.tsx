@@ -100,7 +100,7 @@ function changeSize(changes: PrChangeFile[]): { files: string; added: number; re
  * What a dragged file list always leaves the diff beside it. `.ix-pr-detail`'s column clamp uses the
  * same number, so a window or sidebar that grows after the drag cannot squeeze the diff either.
  */
-const ROOM_FOR_THE_DIFF = 360
+const ROOM_FOR_THE_DIFF = 480
 
 /**
  * The divider between the file list and the diff. It follows the pane's width through a
