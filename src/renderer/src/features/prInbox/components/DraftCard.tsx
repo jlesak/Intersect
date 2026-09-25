@@ -92,6 +92,8 @@ export function DraftCard({
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
+              // Cancel only the edit, not the whole detail (window-level Esc goes back).
+              e.stopPropagation()
               setBody(draft.body)
               setEditing(false)
             }
