@@ -219,6 +219,14 @@ async function dragSideways(win: Page, testId: string, dx: number): Promise<void
   await win.mouse.up()
 }
 
+/**
+ * Size the window the same on every machine. The file list's ceiling is the pane less the diff's
+ * 480px, and CI's default window leaves too little pane for the drags below to mean anything.
+ */
+async function sizeWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+}
+
 const widthOf = async (win: Page, selector: string): Promise<number> =>
   (await win.locator(selector).boundingBox())!.width
 
@@ -226,6 +234,7 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
   const profileDir = userDataDir()
   const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
   const first = await launchApp(profileDir, { env })
+  await sizeWindow(first.app)
   await openPrReview(first.win)
   await first.win.getByTestId('pr-sync').click()
   await openPrRow(first.win, 'Fix PTY backpressure')
@@ -234,6 +243,8 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
 
   const grip = first.win.getByTestId('pr-files-width-resizer')
   await expect(grip).toBeVisible()
+  // A screen smaller than the requested window would clamp it and leave the drags no room.
+  expect(await widthOf(first.win, '.ix-pr-detail')).toBeGreaterThan(1000)
   expect(await widthOf(first.win, '.ix-pr-files')).toBeCloseTo(240, -1)
   const diffBefore = await widthOf(first.win, '.ix-pr-content')
 
@@ -267,6 +278,7 @@ test('the file list is resized by dragging, never swallows the diff, and keeps i
 
   // No sync: the cached pull request is enough to open its files again.
   const second = await launchApp(profileDir, { env })
+  await sizeWindow(second.app)
   await openPrReview(second.win)
   await openPrRow(second.win, 'Fix PTY backpressure')
   await second.win.getByTestId('pr-tab-files').click()
