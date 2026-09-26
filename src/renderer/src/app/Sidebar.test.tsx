@@ -10,7 +10,7 @@ import {
 } from '@renderer/shared/registries/sidebarRegistry'
 import { DEFAULT_SIDEBAR_LAYOUT } from '@common/domain'
 import { Sidebar } from './Sidebar'
-import { useSidebarLayoutStore } from './sidebarLayout'
+import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
 import { useShellStore } from './shellStore'
 
 const Icon = () => <span />

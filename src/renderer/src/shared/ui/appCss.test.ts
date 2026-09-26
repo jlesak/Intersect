@@ -103,3 +103,81 @@ describe('the resizable sidebar panels', () => {
     expect(ruleBody('.ix-app')).toMatch(/position:\s*relative/)
   })
 })
+
+describe('the resizable PR file list', () => {
+  test('a draft card squeezed by a narrow diff wraps its header and buttons instead of clipping them', () => {
+    expect(ruleBody('.ix-pr-draft__meta')).toMatch(/flex-wrap:\s*wrap/)
+    expect(ruleBody('.ix-pr-draft__actions')).toMatch(/flex-wrap:\s*wrap/)
+  })
+
+  test('its column follows the dragged width instead of a fixed 240px', () => {
+    const detail = ruleBody('.ix-pr-detail')
+    expect(detail).toMatch(/grid-template-columns:\s*var\(--pr-files-col\)/)
+    expect(detail).not.toMatch(/240px 1fr/)
+  })
+
+  test('the column is clamped in CSS too, so a later window or sidebar change cannot swallow the diff', () => {
+    expect(ruleBody('.ix-pr-detail')).toMatch(
+      /--pr-files-col:\s*clamp\(160px, var\(--pr-files-w, 240px\), calc\(100% - 480px\)\)/
+    )
+  })
+
+  test('the divider sits on the file list edge, inside the detail pane', () => {
+    // The base vertical divider is placed at the sidebar's width, against the nearest positioned
+    // ancestor. Without both of these the grip would float at the sidebar's offset in the pane.
+    expect(ruleBody('.ix-pr-detail')).toMatch(/position:\s*relative/)
+    expect(ruleBody('.ix-pr-detail > .ix-resizer--vertical')).toMatch(
+      /left:\s*calc\(var\(--pr-files-col\) - 3px\)/
+    )
+  })
+})
+
+describe('the file name above a diff', () => {
+  test('it reads like the file tree beside it, not like a structural eyebrow', () => {
+    const path = ruleBody('.ix-pr-diff__path')
+    expect(path).not.toMatch(/text-transform/)
+    expect(path).not.toMatch(/letter-spacing/)
+    expect(path).toMatch(/font-family:\s*var\(--font-mono\)/)
+    expect(path).toMatch(/font-size:\s*11\.5px/)
+    expect(path).toMatch(/color:\s*var\(--text\)/)
+  })
+
+  test('a long path is cut with an ellipsis rather than pushing the hint away', () => {
+    const path = ruleBody('.ix-pr-diff__path')
+    expect(path).toMatch(/min-width:\s*0/)
+    expect(path).toMatch(/text-overflow:\s*ellipsis/)
+    // The ellipsis only draws where the overflow is clipped.
+    expect(path).toMatch(/overflow:\s*hidden/)
+    expect(path).toMatch(/white-space:\s*nowrap/)
+  })
+})
+
+describe('the diff frame', () => {
+  test('the diff and its placeholder draw no border of their own', () => {
+    for (const selector of ['.ix-pr-diff', '.ix-pr-diff__placeholder']) {
+      expect(ruleBody(selector)).not.toMatch(/border(-radius)?:/)
+    }
+  })
+
+  test('the toolbar keeps the one line that divides it from the diff', () => {
+    expect(ruleBody('.ix-pr-diff__toolbar')).toMatch(/border-bottom:/)
+  })
+
+  test('the diff still clips, because Monaco paints to its box', () => {
+    expect(ruleBody('.ix-pr-diff')).toMatch(/overflow:\s*hidden/)
+  })
+})
+
+describe('the draft comment editor', () => {
+  test('it grows with its text instead of offering a handle to drag', () => {
+    const edit = ruleBody('.ix-pr-draft__edit')
+    expect(edit).toMatch(/field-sizing:\s*content/)
+    expect(edit).toMatch(/resize:\s*none/)
+  })
+
+  test('it keeps a floor, and overrides the fixed height every .ix-input has', () => {
+    const edit = ruleBody('.ix-pr-draft__edit')
+    expect(edit).toMatch(/min-height:\s*60px/)
+    expect(edit).toMatch(/height:\s*auto/)
+  })
+})

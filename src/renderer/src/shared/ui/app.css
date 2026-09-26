@@ -1456,11 +1456,24 @@
   opacity: 0.55;
   pointer-events: none;
 }
+/* The file list's width is the user's (`--pr-files-w`, set from the saved layout), held between a
+   floor that keeps short names readable and a ceiling that always leaves the diff 480px - two gutters and enough
+   code to review, with an inline draft card still fitting beside them. The
+   ceiling is here as well as in the divider's drag clamp, because the window or the sidebar can
+   shrink this pane long after the width was saved. `100%` is the pane's own width in both places
+   the column is read, as the grid has no padding. */
 .ix-pr-detail {
+  --pr-files-col: clamp(160px, var(--pr-files-w, 240px), calc(100% - 480px));
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: var(--pr-files-col) minmax(0, 1fr);
+}
+/* Absolutely placed, so it takes no grid cell; this only moves it from the sidebar's edge to the
+   file list's. */
+.ix-pr-detail > .ix-resizer--vertical {
+  left: calc(var(--pr-files-col) - 3px);
 }
 .ix-pr-detail--empty {
   display: flex;
@@ -1556,8 +1569,6 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   overflow: hidden;
 }
 .ix-pr-diff__toolbar {
@@ -1570,6 +1581,23 @@
   background: var(--panel);
   flex: none;
 }
+/* The file name in the tree's own type, so the file picked there reads the same here. It gives way
+   to the hint by truncating; the full path stays in its title. */
+.ix-pr-diff__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+.ix-pr-diff__hint {
+  flex: none;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .ix-pr-diff__host {
   flex: 1;
   min-height: 0;
@@ -1579,8 +1607,6 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
   color: var(--text-faint);
   font-size: 12.5px;
 }
@@ -1877,6 +1903,7 @@
 }
 .ix-pr-draft__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
@@ -1931,16 +1958,25 @@
   max-height: 35%;
   overflow-y: auto;
 }
+/* Sized by its text, on open and while typing: `field-sizing` is the platform doing what a
+   scrollHeight hook would. Every place it sits grows or scrolls with it - the inline card's Monaco
+   view zone re-measures itself, and the summary and recovery lists scroll. `height: auto` beats the
+   fixed height every .ix-input has; the floor keeps a one-liner a comfortable target. */
 .ix-pr-draft__edit {
   height: auto;
   min-height: 60px;
   padding: 8px 10px;
-  resize: vertical;
+  field-sizing: content;
+  resize: none;
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.5;
 }
+/* Both rows wrap: an inline card is as wide as the diff's code column, which a wide file list
+   narrows, and a row that cannot wrap is clipped by the editor instead. */
 .ix-pr-draft__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 /* The anchor doubles as the jump into the diff, so it reads as the code location it is and only the
@@ -5503,11 +5539,12 @@
   background: var(--status-done);
 }
 
-/* ---------------- sidebar panel dividers ----------------
+/* ---------------- panel dividers ----------------
    A divider is a thin hit area with a hairline drawn inside it: 6px is comfortable to grab, while
    a visible 6px bar between every panel would be noise. The vertical one sits over the sidebar's
    right edge rather than inside the sidebar, which clips and scrolls its own contents - inside, it
-   would scroll away from the edge it names. */
+   would scroll away from the edge it names. Another vertical divider moves `left` to its own
+   edge (the PR file list's, for one). */
 .ix-resizer {
   position: relative;
   flex: none;

@@ -67,7 +67,7 @@ async function openPrRow(win: Page, title: string): Promise<void> {
 }
 
 /** Seed one persisted Claude draft after the cache has a real PR to attach it to. */
-function seedDraft(profileDir: string): void {
+function seedDraft(profileDir: string, body = 'Seeded review finding.'): void {
   const db = new DatabaseSync(join(profileDir, 'intersect.db'))
   try {
     db.prepare(
@@ -82,7 +82,7 @@ function seedDraft(profileDir: string): void {
       '/src/app/sync/rateLimiter.ts',
       2,
       'right',
-      'Seeded review finding.',
+      body,
       'review-session-before-quit',
       'source-502',
       Date.now()
@@ -208,6 +208,88 @@ test('opening a card shows the detail with the file tree; Escape returns to the 
   await expect(win.getByTestId('pr-table')).toBeVisible()
 })
 
+/** Drag a vertical divider sideways by `dx` pixels, the way a pointer does it. */
+async function dragSideways(win: Page, testId: string, dx: number): Promise<void> {
+  const box = (await win.getByTestId(testId).boundingBox())!
+  const x = box.x + box.width / 2
+  const y = box.y + 100
+  await win.mouse.move(x, y)
+  await win.mouse.down()
+  await win.mouse.move(x + dx, y, { steps: 8 })
+  await win.mouse.up()
+}
+
+/**
+ * Size the window the same on every machine. The file list's ceiling is the pane less the diff's
+ * 480px, and CI's default window leaves too little pane for the drags below to mean anything.
+ */
+async function sizeWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+}
+
+const widthOf = async (win: Page, selector: string): Promise<number> =>
+  (await win.locator(selector).boundingBox())!.width
+
+test('the file list is resized by dragging, never swallows the diff, and keeps its width', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await sizeWindow(first.app)
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openPrRow(first.win, 'Fix PTY backpressure')
+  await first.win.getByTestId('pr-tab-files').click()
+  await expect(first.win.getByTestId('tree-file')).toHaveCount(4)
+
+  const grip = first.win.getByTestId('pr-files-width-resizer')
+  await expect(grip).toBeVisible()
+  // A screen smaller than the requested window would clamp it and leave the drags no room.
+  expect(await widthOf(first.win, '.ix-pr-detail')).toBeGreaterThan(1000)
+  expect(await widthOf(first.win, '.ix-pr-files')).toBeCloseTo(240, -1)
+  const diffBefore = await widthOf(first.win, '.ix-pr-content')
+
+  await dragSideways(first.win, 'pr-files-width-resizer', 100)
+  await expect.poll(() => widthOf(first.win, '.ix-pr-files')).toBeGreaterThan(320)
+  expect(await widthOf(first.win, '.ix-pr-content')).toBeLessThan(diffBefore - 60)
+
+  // The keyboard drives the same divider.
+  const dragged = await widthOf(first.win, '.ix-pr-files')
+  await grip.focus()
+  await grip.press('ArrowLeft')
+  await expect.poll(() => widthOf(first.win, '.ix-pr-files')).toBeLessThan(dragged)
+
+  // However far it is pulled, the diff keeps room to be read.
+  await dragSideways(first.win, 'pr-files-width-resizer', 2000)
+  await expect.poll(() => widthOf(first.win, '.ix-pr-content')).toBeGreaterThanOrEqual(460)
+  // The divider stops where the list does, and says so: the width it announces (and stores) is the
+  // one on screen, not a larger one the column clamp is holding back.
+  const pulled = await widthOf(first.win, '.ix-pr-files')
+  await expect
+    .poll(async () => Math.abs(Number(await grip.getAttribute('aria-valuenow')) - pulled))
+    .toBeLessThanOrEqual(1)
+  expect(Math.abs(Number(await grip.getAttribute('aria-valuemax')) - pulled)).toBeLessThanOrEqual(1)
+
+  await dragSideways(first.win, 'pr-files-width-resizer', -200)
+  const saved = await widthOf(first.win, '.ix-pr-files')
+  expect(saved).toBeGreaterThan(260)
+  // The width is written when the drag ends; the wait gives that one IPC round trip time to land.
+  await first.win.waitForTimeout(150)
+  await first.app.close()
+
+  // No sync: the cached pull request is enough to open its files again.
+  const second = await launchApp(profileDir, { env })
+  await sizeWindow(second.app)
+  await openPrReview(second.win)
+  await openPrRow(second.win, 'Fix PTY backpressure')
+  await second.win.getByTestId('pr-tab-files').click()
+  await expect(second.win.getByTestId('tree-file')).toHaveCount(4)
+  expect(await widthOf(second.win, '.ix-pr-files')).toBeCloseTo(saved, -1)
+
+  // Double-click is the way back.
+  await second.win.getByTestId('pr-files-width-resizer').dblclick()
+  await expect.poll(async () => Math.round(await widthOf(second.win, '.ix-pr-files'))).toBe(240)
+})
+
 test('an unfinished draft review survives navigation and relaunch, then clears after discard', async () => {
   const profileDir = userDataDir()
   const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
@@ -264,6 +346,60 @@ test('an unfinished draft review survives navigation and relaunch, then clears a
       .filter({ hasText: 'Fix PTY backpressure' })
       .getByTestId('pr-row-unfinished-review')
   ).toHaveCount(0)
+})
+
+test('the draft editor opens at the size of its text and grows and shrinks with it', async () => {
+  const profileDir = userDataDir()
+  const env = { ...unconfiguredAdo(), INTERSECT_E2E_ADO: 'radar' }
+  const first = await launchApp(profileDir, { env })
+  await openPrReview(first.win)
+  await first.win.getByTestId('pr-sync').click()
+  await openAllActive(first.win)
+  await expect(first.win.getByTestId('pr-row')).toHaveCount(3)
+  await first.app.close()
+
+  const lines = (n: number): string =>
+    Array.from({ length: n }, (_, i) => `Line ${i + 1} of the finding.`).join('\n')
+  seedDraft(profileDir, lines(6))
+
+  const { win } = await launchApp(profileDir, { env })
+  await openPrReview(win)
+  await openPrRow(win, 'Fix PTY backpressure')
+  await win.getByTestId('pr-tab-drafts').click()
+  const draft = win.getByTestId('pr-draft')
+  await expect(draft).toContainText('Line 6 of the finding.')
+  await draft.getByTestId('pr-draft-edit').click()
+
+  const editor = draft.locator('.ix-pr-draft__edit')
+  const box = (): Promise<{ height: number; scrollHeight: number; clientHeight: number; resize: string }> =>
+    editor.evaluate((el) => ({
+      height: el.getBoundingClientRect().height,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      resize: getComputedStyle(el).resize
+    }))
+
+  // Six lines open at six lines: well past the floor, with nothing hidden behind a scrollbar.
+  const opened = await box()
+  expect(opened.height).toBeGreaterThan(100)
+  expect(opened.scrollHeight).toBeLessThanOrEqual(opened.clientHeight + 1)
+  expect(opened.resize).toBe('none')
+
+  await editor.fill(lines(12))
+  await expect.poll(async () => (await box()).height).toBeGreaterThan(opened.height)
+  const grown = await box()
+  expect(grown.scrollHeight).toBeLessThanOrEqual(grown.clientHeight + 1)
+
+  // And back down to the floor for a one-liner.
+  await editor.fill('One line.')
+  await expect.poll(async () => (await box()).height).toBeLessThan(opened.height)
+  expect((await box()).height).toBeLessThanOrEqual(62)
+
+  // Escape abandons the edit and nothing more: the reviewer stays on the pull request.
+  await editor.press('Escape')
+  await expect(editor).toHaveCount(0)
+  await expect(draft).toContainText('Line 6 of the finding.')
+  await expect(win.getByTestId('pr-tab-drafts')).toBeVisible()
 })
 
 test('the header sizes the change, and every file row carries its own counts', async () => {
@@ -383,6 +519,17 @@ test('the diff carries its inline threads on a PR the user took straight to File
   // The thread anchored to this file renders as a Monaco view zone under its line, without the
   // conversation ever having been opened.
   await expect(win.getByTestId('pr-thread')).toContainText('Should the limit be configurable?')
+
+  // The file name above the diff reads like the tree it was picked from: as typed, not shouted.
+  const path = win.getByTestId('pr-diff-path')
+  await expect(path).toHaveText('/src/app/sync/rateLimiter.ts')
+  await expect(path).toHaveAttribute('title', '/src/app/sync/rateLimiter.ts')
+  expect(
+    await path.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { textTransform: style.textTransform, letterSpacing: style.letterSpacing, fontSize: style.fontSize }
+    })
+  ).toEqual({ textTransform: 'none', letterSpacing: 'normal', fontSize: '11.5px' })
 })
 
 test('a thread anchored past the end of the file says its position is a guess', async () => {

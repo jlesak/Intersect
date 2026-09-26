@@ -243,10 +243,10 @@ export function DiffViewer({
   return (
     <div className="ix-pr-diff">
       <div className="ix-pr-diff__toolbar">
-        <span className="ix-eyebrow">{diff.path}</span>
-        <span className="ix-faint" style={{ fontSize: 11 }}>
-          Click a line number to comment
+        <span className="ix-pr-diff__path" data-testid="pr-diff-path" title={diff.path}>
+          {diff.path}
         </span>
+        <span className="ix-faint ix-pr-diff__hint">Click a line number to comment</span>
       </div>
       <div className="ix-pr-diff__host" ref={hostRef} />
       {originalPortals}

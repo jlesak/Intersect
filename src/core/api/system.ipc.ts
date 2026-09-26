@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { type WireRoutes } from '@common/coreBridge'
 import {
   DEFAULT_SIDEBAR_LAYOUT,
+  PR_FILES_WIDTH_MAX,
+  PR_FILES_WIDTH_MIN,
   SIDEBAR_PANEL_MAX,
   SIDEBAR_PANEL_MIN,
   SIDEBAR_WIDTH_MAX,
@@ -23,7 +25,7 @@ export type SystemCoreHandlers = Pick<
   'resetViewState' | 'getSidebarLayout' | 'setSidebarLayout'
 >
 
-/** app_state key holding the sidebar's user-set sizes. */
+/** app_state key holding the shell's user-set sizes (the sidebar's, and the PR file list's). */
 export const SIDEBAR_LAYOUT_KEY = 'shell.sidebar_layout'
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -39,6 +41,10 @@ function readPanel(value: unknown): number | null {
   return clamp(value, SIDEBAR_PANEL_MIN, SIDEBAR_PANEL_MAX)
 }
 
+function readWidth(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? clamp(value, min, max) : fallback
+}
+
 export function parseSidebarLayout(raw: string | null): SidebarLayout {
   let doc: Record<string, unknown> | null = null
   try {
@@ -47,14 +53,17 @@ export function parseSidebarLayout(raw: string | null): SidebarLayout {
   } catch {
     doc = null
   }
-  const width = doc?.width
   return {
-    width:
-      typeof width === 'number' && Number.isFinite(width)
-        ? clamp(width, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
-        : DEFAULT_SIDEBAR_LAYOUT.width,
+    width: readWidth(doc?.width, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, DEFAULT_SIDEBAR_LAYOUT.width),
     railHeight: readPanel(doc?.railHeight),
-    usageHeight: readPanel(doc?.usageHeight)
+    usageHeight: readPanel(doc?.usageHeight),
+    // Absent from every document saved before the file list could be resized.
+    prFilesWidth: readWidth(
+      doc?.prFilesWidth,
+      PR_FILES_WIDTH_MIN,
+      PR_FILES_WIDTH_MAX,
+      DEFAULT_SIDEBAR_LAYOUT.prFilesWidth
+    )
   }
 }
 

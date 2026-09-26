@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 
 // The Files tab renders the diff viewer, and the chunk behind its lazy boundary brings Monaco,
@@ -7,8 +7,52 @@ import type { DraftComment, PrChangeFile, PullRequest } from '@common/domain'
 // about the detail rather than about the editor.
 vi.mock('monaco-editor', () => ({ editor: {} }))
 
+import { DEFAULT_SIDEBAR_LAYOUT } from '@common/domain'
+import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
 import { usePrInboxStore } from '../store'
 import { PrDetail } from './PrDetail'
+
+// jsdom lays nothing out and ships no ResizeObserver. The Files view sizes its divider from the
+// pane it is measured to have, so the tests stand in for layout: `layOut` gives the pane a width
+// and reports it to every observer, the way the browser does after a resize.
+const observers = new Set<{ callback: ResizeObserverCallback; targets: Element[] }>()
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly entry: { callback: ResizeObserverCallback; targets: Element[] }
+      constructor(callback: ResizeObserverCallback) {
+        this.entry = { callback, targets: [] }
+        observers.add(this.entry)
+      }
+      observe(target: Element): void {
+        this.entry.targets.push(target)
+      }
+      unobserve(): void {}
+      disconnect(): void {
+        observers.delete(this.entry)
+      }
+    }
+  )
+})
+
+afterEach(() => {
+  observers.clear()
+  vi.unstubAllGlobals()
+})
+
+const layOut = (width: number): void => {
+  act(() => {
+    for (const pane of document.querySelectorAll('.ix-pr-detail')) {
+      Object.defineProperty(pane, 'clientWidth', { configurable: true, value: width })
+    }
+    for (const { callback, targets } of observers) {
+      const entries = targets.map((target) => ({ target, contentRect: { width } }))
+      callback(entries as unknown as ResizeObserverEntry[], {} as ResizeObserver)
+    }
+  })
+}
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
@@ -207,7 +251,10 @@ const CHANGES: PrChangeFile[] = [
   change('/assets/logo.png', 0, 0, 'add')
 ]
 
-const seedChanges = async (changes: PrChangeFile[]): Promise<void> => {
+const seedChanges = async (
+  changes: PrChangeFile[],
+  changesError: string | null = null
+): Promise<void> => {
   usePrInboxStore.setState({
     prsByKey: { 'repo-1:1': pr() },
     order: ['repo-1:1'],
@@ -216,7 +263,7 @@ const seedChanges = async (changes: PrChangeFile[]): Promise<void> => {
     activeTab: 'overview',
     adoOrgUrl: 'https://devops.example.com/tfs/DefaultCollection',
     changes,
-    changesError: null,
+    changesError,
     threads: [],
     threadsLoaded: true,
     drafts: [],
@@ -290,5 +337,142 @@ describe('PrDetail change size', () => {
       (candidate) => candidate.textContent === 'Stale'
     )
     expect(approve?.disabled).toBe(true)
+  })
+})
+
+describe('PrDetail file list width', () => {
+  const realSave = useSidebarLayoutStore.getState().save
+  const save = vi.fn()
+
+  afterEach(() => {
+    usePrInboxStore.setState({ selectedKey: null, view: 'board', changes: [], changesError: null, threads: [] })
+    useSidebarLayoutStore.setState({ ...DEFAULT_SIDEBAR_LAYOUT, touched: false, save: realSave })
+    save.mockReset()
+  })
+
+  const openFiles = async (prFilesWidth: number): Promise<void> => {
+    useSidebarLayoutStore.setState({ prFilesWidth, save })
+    await seedChanges(CHANGES)
+    await act(async () => {
+      fireEvent.click(button('pr-tab-files'))
+    })
+  }
+
+  const grip = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-testid="pr-files-width-resizer"]')
+  const detail = (): HTMLElement => document.querySelector<HTMLElement>('.ix-pr-detail')!
+
+  test('the file list carries a vertical divider and the width the user last gave it', async () => {
+    await openFiles(300)
+
+    expect(grip()?.getAttribute('role')).toBe('separator')
+    expect(grip()?.getAttribute('aria-orientation')).toBe('vertical')
+    expect(detail().style.getPropertyValue('--pr-files-w')).toBe('300px')
+  })
+
+  test('an arrow key widens the list and saves the width once', async () => {
+    // jsdom lays nothing out, so the divider starts from the stored width.
+    await openFiles(300)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(308)
+    expect(detail().style.getPropertyValue('--pr-files-w')).toBe('308px')
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  test('a double-click puts the list back to its default width', async () => {
+    await openFiles(420)
+
+    act(() => {
+      fireEvent.doubleClick(grip()!)
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(240)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  test('the list cannot be narrowed below a readable width', async () => {
+    await openFiles(164)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowLeft' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(160)
+  })
+
+  test('however wide the pane, the list is dragged no wider than the width that is kept', async () => {
+    await openFiles(956)
+    // 2000px leaves the diff far more than it needs; the stored bound is what holds.
+    layOut(2000)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(960)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('960')
+  })
+
+  test('a narrow pane stops the list where the diff would lose its room', async () => {
+    await openFiles(396)
+    // 880px of pane leaves 400px for the list once the diff has its 480px.
+    layOut(880)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(400)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('400')
+  })
+
+  test('a list held narrower than its stored width moves from the width it is shown at', async () => {
+    await openFiles(600)
+    // The column clamp shows 400px of the stored 600px.
+    layOut(880)
+
+    expect(grip()?.getAttribute('aria-valuenow')).toBe('400')
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowLeft' })
+    })
+
+    expect(useSidebarLayoutStore.getState().prFilesWidth).toBe(392)
+  })
+
+  test('the divider announces the width after each step, not the one before it', async () => {
+    await openFiles(240)
+    layOut(1200)
+
+    act(() => {
+      fireEvent.keyDown(grip()!, { key: 'ArrowRight' })
+    })
+
+    expect(grip()?.getAttribute('aria-valuenow')).toBe('248')
+  })
+
+  test('the divider announces a new ceiling when the pane changes size', async () => {
+    await openFiles(240)
+    layOut(1200)
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('720')
+
+    layOut(900)
+
+    expect(grip()?.getAttribute('aria-valuemax')).toBe('420')
+  })
+
+  test('a diff that could not be loaded has no file list, so no divider', async () => {
+    useSidebarLayoutStore.setState({ save })
+    await seedChanges([], 'The server said no')
+    await act(async () => {
+      fireEvent.click(button('pr-tab-files'))
+    })
+
+    expect(document.querySelector('.ix-pr-detail--empty')).toBeTruthy()
+    expect(grip()).toBeNull()
   })
 })

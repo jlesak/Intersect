@@ -11,6 +11,8 @@ import {
 } from './system.ipc'
 import {
   DEFAULT_SIDEBAR_LAYOUT,
+  PR_FILES_WIDTH_MAX,
+  PR_FILES_WIDTH_MIN,
   SIDEBAR_PANEL_MAX,
   SIDEBAR_PANEL_MIN,
   SIDEBAR_WIDTH_MAX,
@@ -163,17 +165,28 @@ describe('the sidebar layout', () => {
   })
 
   test('sizes round-trip', async () => {
-    await handlers.setSidebarLayout({ width: 320, railHeight: 210, usageHeight: 150 })
+    await handlers.setSidebarLayout({
+      width: 320,
+      railHeight: 210,
+      usageHeight: 150,
+      prFilesWidth: 300
+    })
 
     expect(await handlers.getSidebarLayout()).toEqual({
       width: 320,
       railHeight: 210,
-      usageHeight: 150
+      usageHeight: 150,
+      prFilesWidth: 300
     })
   })
 
   test('null keeps meaning "size to your content" rather than becoming a number', async () => {
-    await handlers.setSidebarLayout({ width: 320, railHeight: 210, usageHeight: null })
+    await handlers.setSidebarLayout({
+      width: 320,
+      railHeight: 210,
+      usageHeight: null,
+      prFilesWidth: 240
+    })
 
     expect((await handlers.getSidebarLayout()).usageHeight).toBeNull()
   })
@@ -182,13 +195,15 @@ describe('the sidebar layout', () => {
     const stored = await handlers.setSidebarLayout({
       width: 9999,
       railHeight: 1,
-      usageHeight: 99_999
+      usageHeight: 99_999,
+      prFilesWidth: 99_999
     })
 
     expect(stored).toEqual({
       width: SIDEBAR_WIDTH_MAX,
       railHeight: SIDEBAR_PANEL_MIN,
-      usageHeight: SIDEBAR_PANEL_MAX
+      usageHeight: SIDEBAR_PANEL_MAX,
+      prFilesWidth: PR_FILES_WIDTH_MAX
     })
     expect(await handlers.getSidebarLayout()).toEqual(stored)
   })
@@ -202,17 +217,44 @@ describe('the sidebar layout', () => {
 
   test('a stored size outside its bounds is clamped on the way out too', async () => {
     // The window that produced a size is not the window the next launch opens in.
-    appState.set(SIDEBAR_LAYOUT_KEY, JSON.stringify({ width: 5, railHeight: 90_000 }))
+    appState.set(
+      SIDEBAR_LAYOUT_KEY,
+      JSON.stringify({ width: 5, railHeight: 90_000, prFilesWidth: 5 })
+    )
 
     expect(await handlers.getSidebarLayout()).toEqual({
       width: SIDEBAR_WIDTH_MIN,
       railHeight: SIDEBAR_PANEL_MAX,
-      usageHeight: null
+      usageHeight: null,
+      prFilesWidth: PR_FILES_WIDTH_MIN
     })
   })
 
+  test('a document saved before the PR file list could be resized gives it the default width', async () => {
+    appState.set(SIDEBAR_LAYOUT_KEY, JSON.stringify({ width: 300, railHeight: 200, usageHeight: null }))
+
+    expect(await handlers.getSidebarLayout()).toEqual({
+      width: 300,
+      railHeight: 200,
+      usageHeight: null,
+      prFilesWidth: DEFAULT_SIDEBAR_LAYOUT.prFilesWidth
+    })
+    expect(DEFAULT_SIDEBAR_LAYOUT.prFilesWidth).toBe(240)
+  })
+
+  test('a PR file list width that is not a number degrades to the default', async () => {
+    appState.set(SIDEBAR_LAYOUT_KEY, JSON.stringify({ width: 300, prFilesWidth: 'wide' }))
+
+    expect((await handlers.getSidebarLayout()).prFilesWidth).toBe(240)
+  })
+
   test('resetViewState puts the sidebar back, because that is view state too', async () => {
-    await handlers.setSidebarLayout({ width: 600, railHeight: 400, usageHeight: 300 })
+    await handlers.setSidebarLayout({
+      width: 600,
+      railHeight: 400,
+      usageHeight: 300,
+      prFilesWidth: 500
+    })
 
     await handlers.resetViewState()
 

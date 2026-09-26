@@ -69,3 +69,40 @@ describe('DraftCard approve', () => {
     expect(mocked.publishDraft).not.toHaveBeenCalled()
   })
 })
+
+describe('DraftCard edit', () => {
+  beforeEach(() => {
+    usePrInboxStore.setState({ selectedKey: 'repo-1:1', drafts: [draft()], unfinishedReviews: {} })
+  })
+
+  afterEach(() => {
+    usePrInboxStore.setState({ selectedKey: null, drafts: [] })
+    vi.resetAllMocks()
+  })
+
+  test('Escape cancels the edit and stays inside the card, so the detail does not navigate away', async () => {
+    await act(async () => {
+      render(<DraftCard draft={draft()} />)
+    })
+    await act(async () => {
+      fireEvent.click(button('pr-draft-edit'))
+    })
+    const editor = document.querySelector<HTMLTextAreaElement>('.ix-pr-draft__edit')!
+    fireEvent.change(editor, { target: { value: 'Half-typed change' } })
+
+    const onWindowEscape = vi.fn()
+    window.addEventListener('keydown', onWindowEscape)
+    try {
+      await act(async () => {
+        fireEvent.keyDown(editor, { key: 'Escape' })
+      })
+      expect(onWindowEscape).not.toHaveBeenCalled()
+      expect(document.querySelector('.ix-pr-draft__edit')).toBeNull()
+      expect(document.querySelector('.ix-pr-draft__body')?.textContent).toBe(
+        'This retry loop never backs off.'
+      )
+    } finally {
+      window.removeEventListener('keydown', onWindowEscape)
+    }
+  })
+})

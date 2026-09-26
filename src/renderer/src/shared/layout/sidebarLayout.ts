@@ -4,7 +4,8 @@ import { ipc } from '@renderer/shared/ipc/client'
 import { reportError } from '@renderer/shared/ui/toast'
 
 /**
- * The sidebar's user-set sizes: its width, and the heights of the panels stacked inside it. A
+ * The shell's user-set sizes: the sidebar's width, the heights of the panels stacked inside it,
+ * and the width of the file list beside a pull request's diff. A
  * panel's height is `null` until it is dragged, which means "size to your content" - so a profile
  * that never touches a divider gets exactly the sidebar it always had.
  *
@@ -21,6 +22,7 @@ interface SidebarLayoutState extends SidebarLayout {
   setWidth(px: number): void
   setRailHeight(px: number | null): void
   setUsageHeight(px: number | null): void
+  setPrFilesWidth(px: number): void
   /**
    * Write the sizes as they are now. A divider calls this once, when its gesture ends. Nothing is
    * written before the user has changed a size: until then the store may still hold the defaults
@@ -47,12 +49,13 @@ export const useSidebarLayoutStore = createStore<SidebarLayoutState>()((set, get
   setWidth: (width) => set({ width, touched: true }),
   setRailHeight: (railHeight) => set({ railHeight, touched: true }),
   setUsageHeight: (usageHeight) => set({ usageHeight, touched: true }),
+  setPrFilesWidth: (prFilesWidth) => set({ prFilesWidth, touched: true }),
 
   save() {
-    const { width, railHeight, usageHeight, touched } = get()
+    const { width, railHeight, usageHeight, prFilesWidth, touched } = get()
     if (!touched) return
     ipc()
-      .system.setSidebarLayout({ width, railHeight, usageHeight })
+      .system.setSidebarLayout({ width, railHeight, usageHeight, prFilesWidth })
       .catch((e) => reportError('Could not save the sidebar layout', e))
   }
 }))
