@@ -523,7 +523,7 @@ export interface PrThread {
 }
 
 // ---------------------------------------------------------------------------
-// Session Search (slice 4) - see docs/superpowers/specs/2026-07-06-session-search-design.md
+// Session Search (slice 4) - see docs/specs/2026-07-06-session-search-design.md
 // ---------------------------------------------------------------------------
 
 /**
@@ -572,7 +572,7 @@ export interface SessionTranscript {
 }
 
 // ---------------------------------------------------------------------------
-// My Work (slice 5) - see docs/superpowers/specs/2026-07-06-my-work-design.md
+// My Work (slice 5) - see docs/specs/2026-07-06-my-work-design.md
 // ---------------------------------------------------------------------------
 
 /**
@@ -689,7 +689,7 @@ export function projectJiraSource(projectId: string): string {
 export type JiraLoginResult = { ok: true } | { ok: false; message: string }
 
 // ---------------------------------------------------------------------------
-// Time Tracking - see docs/superpowers/specs/2026-07-06-time-tracking-design.md
+// Time Tracking - see docs/specs/2026-07-06-time-tracking-design.md
 // ---------------------------------------------------------------------------
 
 /** Where a worklog entry comes from: derived from a Claude Code session, or typed in by hand. */
@@ -788,7 +788,7 @@ export interface AgentRuntimeDay {
 }
 
 // ---------------------------------------------------------------------------
-// TODO list - see docs/superpowers/specs/2026-07-06-todo-list-design.md
+// TODO list - see docs/specs/2026-07-06-todo-list-design.md
 // ---------------------------------------------------------------------------
 
 /** Legacy persisted priority. Kept only so priority-era rows can round-trip without data loss. */
@@ -827,7 +827,7 @@ export interface TodoLists {
 }
 
 // ---------------------------------------------------------------------------
-// 1:1 workflows - see docs/superpowers/specs/2026-07-06-one-on-one-workflows-design.md
+// 1:1 workflows - see docs/specs/2026-07-06-one-on-one-workflows-design.md
 // ---------------------------------------------------------------------------
 
 /**
@@ -880,7 +880,7 @@ export interface OtoStartInput {
 }
 
 // ---------------------------------------------------------------------------
-// Settings - see docs/superpowers/specs/2026-07-06-settings-design.md
+// Settings - see docs/specs/2026-07-06-settings-design.md
 // ---------------------------------------------------------------------------
 
 /**

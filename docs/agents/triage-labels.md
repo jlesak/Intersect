@@ -12,3 +12,11 @@ GitHub.
 | `wontfix` | `wontfix` | Will not be actioned |
 
 When a skill refers to an AFK-ready issue, apply `ready-for-agent`.
+
+## Other labels
+
+- Type: `bug` for broken behavior, `enhancement` for new or changed behavior.
+- Area: a `feature:<slice>` label (`gh label list` shows the current set) when the issue sits in
+  one slice. Do not create new labels without the owner's approval.
+- Review batches such as `ux-review` and `watchtower-review` mark issues accepted in one product
+  review; only the owner adds them.

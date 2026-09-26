@@ -260,7 +260,7 @@ Repos (factory pattern `createXRepo(db, {now,newId})`, message-only errors, dete
 
 **The standalone draft MCP server writes into `draft_comment` directly** (same `intersect.db`, WAL
 allows the extra writer). It receives the DB path, review-session id, pr id, repo id via env. This
-is also why drafts survive restart (PROMPT persistence requirement) for free.
+is also why drafts survive restart (the slice brief's persistence requirement) for free.
 
 ---
 
@@ -456,7 +456,7 @@ app-shell files (composition root), never another feature slice.
 
 ---
 
-## 11. Test plan (TDD - pure/logic units; PTY/Monaco/live-MCP are E2E/manual per PROMPT)
+## 11. Test plan (TDD - pure/logic units; PTY/Monaco/live-MCP are E2E/manual per the slice brief)
 
 Vitest (node project unless noted):
 1. `adoMapping.test.ts`: vote code -> `PrVote`; PR json -> `PullRequest`; author/reviewer dedupe + role.

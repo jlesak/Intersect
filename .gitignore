@@ -13,6 +13,9 @@ dist/
 # Lavish annotation scratch
 .lavish/
 
+# Agent pipeline run state (implement-issue)
+.agent-runs/
+
 # Test artifacts
 coverage/
 playwright-report/

@@ -1,8 +1,8 @@
 # Intersect - Design (MVP: Workspace & Terminal Manager)
 
 Clean-room React/Electron implementation inspired by strIDEterm's UX. Scope: workspaces
-+ terminal tabs + split layouts + local persistence. Everything else in `PROMPT.md` non-goals
-is explicitly out.
++ terminal tabs + split layouts + local persistence. Everything the original MVP brief listed as
+a non-goal is explicitly out.
 
 This document is the contract for implementation and review. Decisions below are grounded in
 research captured on 2026-07-05 (see "Research basis").
@@ -32,7 +32,7 @@ research captured on 2026-07-05 (see "Research basis").
 
 - `better-sqlite3` is a native addon: it must be compiled against **one** ABI. Rebuilt for
   Electron (ABI 148) it will not load under Vitest running on host Node (different ABI), and
-  vice-versa. That directly undermines the PROMPT's requirement to unit-test DB persistence
+  vice-versa. That directly undermines the MVP brief's requirement to unit-test DB persistence
   logic. Maintaining two build states is a standing papercut.
 - `node:sqlite` (`DatabaseSync`) is compiled into the runtime itself, so the **same code runs
   under Electron main (Node 24.17) and Vitest (host Node 25.9) with no rebuild**. Verified on
@@ -72,7 +72,7 @@ research captured on 2026-07-05 (see "Research basis").
 ## 2. Process & module architecture
 
 We use electron-vite's standard three-target layout (`src/main`, `src/preload`,
-`src/renderer`). This is the 2026 convention the PROMPT asks us to follow. The PROMPT's
+`src/renderer`). This is the 2026 convention the MVP brief asked us to follow. The brief's
 illustrative tree (`electron/main.ts`, `electron/ipc/`, `src/features/*`) is honored **in
 principle**: renderer is organized by vertical slice, main has one IPC module per slice, DB is
 isolated, shared is small. Only the top-level folder names follow the tool's convention.
@@ -404,7 +404,7 @@ so the design is not "unstyled".
   tabs, layout, and pane assignment restored.
 
 TDD applies to items 1-6 (red-green-refactor). PTY plumbing and pure visual layout are verified
-via E2E / manual per PROMPT's allowance.
+via E2E / manual, as the MVP brief allowed.
 
 ---
 
@@ -461,7 +461,7 @@ flow control, zustand per-slice + registry patterns. See task output
 
 ## 16. Design-review reconciliation (adopted decisions)
 
-Adversarial review (4 lenses vs PROMPT.md) returned "approve-with-changes" - no blockers.
+Adversarial review (4 lenses vs the MVP brief) returned "approve-with-changes" - no blockers.
 The following decisions are adopted and OVERRIDE the sections above where they differ. They are
 the authoritative delta for implementation.
 
@@ -525,7 +525,7 @@ so `buildSpawn` is unit-testable and never transitively loads the native binary 
 `createSessionManager({ spawn, send })` - `spawn` defaults to `pty.spawn`, tests pass a fake that
 records calls and can fire `onExit`. Unit-tests: idempotent in-flight guard, `Map<sessionId,IPty>`
 lifecycle, `onExit` -> map delete (covers user `exit`), `killAll()` teardown. No node-pty import
-in the test. This moves the orphaned-process-prevention logic the PROMPT cares about into TDD.
+in the test. This moves the orphaned-process-prevention logic the MVP brief cared about into TDD.
 
 ### 16.10 Renderer terminal:data demux is a pure `createDataRouter()`
 Extract `createDataRouter()` = `{ register(sessionId, sink), route({sessionId,data}), dispose(sessionId) }`
