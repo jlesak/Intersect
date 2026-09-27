@@ -58,7 +58,10 @@ binds local ports, so a leftover one breaks the next run.
 
 ## Codex
 
-Start Codex here with `codex -p intersect` and run from the issue worktree. Prefer the scripted
+Start Codex here with `codex -p intersect` and run from the issue worktree. Check that
+`~/.codex/intersect.config.toml` exists first: CLI 0.156.1 silently accepts a missing profile
+and otherwise leaves global skills visible. If it is absent, stop and ask the owner to install
+it. Prefer the scripted
 `e2e/diag.spec.ts` drive. The project rule lets plain `npm run e2e` launch Electron outside the
 sandbox; a sandbox probe failed at Electron launch. Run it in a tracked session and wait for its
 result. Inspect each screenshot before reporting UAT. Remove the scratch spec and stop any

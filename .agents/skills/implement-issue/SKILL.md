@@ -46,7 +46,7 @@ before it.
 
 Agents start without your context. Give each one a self-contained brief with file paths rather
 than pasted content, and say what it must return. `stages.md`, next to this file, says what each
-brief contains and what comes back. Read the worktree's copy before the first delegation.
+brief contains and what comes back. Read it before the first delegation.
 
 If an agent returns before its done criterion is met, resume it and name what is still open.
 After two such resumes, treat it as stuck and ask the owner.
@@ -71,7 +71,8 @@ open findings.
 
 1. **Worktree.** From the main checkout, run `git fetch origin`, then check that the checkout
    carries the current setup:
-   `git diff --quiet HEAD origin/main -- AGENTS.md CLAUDE.md .claude .agents docs/agents`.
+   `git diff --quiet origin/main -- AGENTS.md CLAUDE.md .claude .agents docs/agents`, which also
+   catches uncommitted edits.
    If it exits non-zero, stop. This skill, the agent definitions, the settings and the
    instructions all load from where the session started, so the run would mix old and new
    setup. Ask the owner to fast-forward the shared checkout and to start the run again in a new
@@ -79,12 +80,13 @@ open findings.
 
    If the issue already has a worktree, resume the run as described above. Otherwise: branch
    `fix/gh<N>-<slug>` for a bug, `feature/gh<N>-<slug>` otherwise, with a short kebab-case slug
-   from the title. Run `git worktree add .claude/worktrees/gh<N>-<slug> -b <branch> origin/main`
-   as its own command, and work from the worktree using your tool's mechanism (see your tool's
-   section). Symlink `node_modules` from the main checkout, which is the first entry of
-   `git worktree list`; run `npm ci` instead only when `package-lock.json` differs from the main
-   checkout's copy. Every agent works in this one worktree; never give an agent a worktree of its
-   own.
+   from the title. Run
+   `git worktree add --no-track -b <branch> .claude/worktrees/gh<N>-<slug> origin/main` as its
+   own command, and work from the worktree using your tool's mechanism (see your tool's
+   section). From the worktree, symlink the main checkout's `node_modules` with
+   `ln -s ../../../node_modules node_modules`; run `npm ci` instead only when
+   `package-lock.json` differs from the main checkout's copy. Every agent works in this one
+   worktree; never give an agent a worktree of its own.
 
 2. **Plan.** The planner reads the issue and the code and returns a PO brief and a plan as text.
    You write them to `po-brief.md` and `plan.md`.
@@ -119,7 +121,7 @@ open findings.
    review ends with the first round that has no blocking findings. Non-blocking findings go into
    `state.md` and the PR body and never start a round. A run gets three review rounds in total,
    including the rounds after verifier and CI fixes; if the third still has blocking findings,
-   ask the owner.
+   or a later stage needs a round when all three are used, ask the owner.
 
 7. **Verify.** The verifier checks the result black-box against the acceptance criteria: the full
    gate including e2e, a UAT pass through the `run-app` skill, and mutation testing of the new
@@ -136,23 +138,29 @@ open findings.
    it finds none, run it again. A failed e2e job gets one re-run
    (`gh run rerun <run-id> --failed`). Any other red check, or e2e failing twice, is handled like
    a red gate: one fix through the implementer, with a fresh review round for any code change,
-   then ask the owner. Once CI is green, merge from the worktree with
+   then ask the owner. Once CI is green, check `gh pr view <PR> --json state` first: on a resumed
+   run the PR may already be `MERGED`, and merging again deletes nothing. In that case record it
+   and delete the remote branch with
+   `gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/<branch>`. Otherwise merge from the
+   worktree with
    `gh pr merge <PR> --merge --delete-branch --repo jlesak/Intersect`. With `--repo`, gh deletes
    the remote branch and leaves local branches alone; without `--repo`, `--delete-branch` makes
-   gh try to check out `main`, which the shared checkout holds. gh prints nothing on success outside a terminal, so
-   confirm with `gh pr view <PR> --json state,mergeCommit` and record `stage: merged` and the
-   merge commit in `state.md`.
+   gh try to check out `main`, which the shared checkout holds. gh prints nothing on success
+   outside a terminal, so confirm with `gh pr view <PR> --json state,mergeCommit` and record
+   `stage: merged` and the merge commit in `state.md`.
 
-   If the merge is refused because the branch conflicts with `main`, merge `origin/main` into
-   the branch (never rebase), have the resumed implementer resolve the conflicts in the working
-   tree, commit the merge, and run a fresh review round, which counts toward the three. Handle
-   any other refusal through the agents the same way. Then push and wait for CI again.
+   If the merge is refused because the branch conflicts with `main`, run `git fetch origin`, then
+   `git merge origin/main` in the worktree (never rebase), have the resumed implementer resolve
+   the conflicts in the working tree, commit the merge, and run a fresh review round, which
+   counts toward the three. Handle any other refusal through the agents the same way. Then push
+   and wait for CI again.
 
 9. **Clean up.** Take the lessons and the decision list from `state.md` now, since it is deleted
    with the worktree. Return to the main checkout (see your tool's section), remove the worktree
    with `git worktree remove .claude/worktrees/gh<N>-<slug>` (never `--force`; if it refuses,
    find out why), and delete the local branch with `git branch -D <branch>`. Never `git pull` or
-   switch branches in the shared checkout.
+   switch branches in the shared checkout. In the Claude sandbox that delete prints
+   `could not lock config file .git/config` and still deletes the branch; do not retry it.
 
 10. **Retro.** When the run taught something about this setup (a wrong turn, a lost round, a fact
     an agent was missing, an instruction that misled), run `git fetch origin` and read the retro
@@ -202,11 +210,17 @@ fast-forward it.
 Start Codex for this repository with `codex -p intersect`. The owner installs that user-level
 profile; project config cannot filter global skills in CLI 0.156.1. The issue number arrives in
 the owner's invoking message, not through `$ARGUMENTS`. The owner removes the registered GitNexus
-index after this setup merges, making the global hook a no-op for Intersect.
+index after this setup merges, making the global hook a no-op for Intersect. Check that
+`~/.codex/intersect.config.toml` exists before continuing: CLI 0.156.1 accepts `-p intersect`
+without an installed profile and gives no warning, leaving global GitNexus and superpowers
+skills visible. Stop and ask the owner to install the profile if it is missing.
 
 The pipeline has two starts. When `$implement-issue <N>` is invoked from the shared checkout,
-do only stage 1's `git fetch origin` and setup parity check. If it fails, stop as the shared
-stage says. Otherwise find or create `.claude/worktrees/gh<N>-<slug>` and write
+run stage 1's `git fetch origin` and exact parity check
+`git diff --quiet origin/main -- AGENTS.md CLAUDE.md .claude .agents docs/agents`. If it fails,
+stop as the shared stage says. Otherwise find or create `.claude/worktrees/gh<N>-<slug>` with
+`git worktree add --no-track -b <branch> .claude/worktrees/gh<N>-<slug> origin/main` for a new
+run, and write
 `.agent-runs/gh<N>/state.md` there in the `stages.md` format, recording the issue, kind,
 branch, relative and absolute worktree paths, `stage: plan` for a new run, and no agent ids.
 Preserve existing state when resuming. Do not delegate or run
@@ -219,8 +233,10 @@ without durable state.
 
 In the worktree-started session, confirm the Codex project root and `git rev-parse --show-toplevel`
 are this issue worktree and that its branch matches `state.md`. Read this worktree's `AGENTS.md`,
-skill and `stages.md`; rehydrate from `state.md` and `git log origin/main..HEAD`, then finish
-stage 1's node_modules setup if needed and continue at the first stage without recorded evidence.
+skill and `stages.md`; rehydrate from `state.md` and `git log origin/main..HEAD`. If the lockfiles
+match, run exactly `ln -s ../../../node_modules node_modules` from this worktree when it lacks
+`node_modules`; if they differ, run `npm ci` here instead. Then continue at the first stage
+without recorded evidence.
 Only this session delegates. A new session cannot resume the earlier session's agent ids; brief
 fresh agents from the run files, diff and open findings. Do not use per-command `workdir` or
 shell `cd` as a substitute for starting Codex in the worktree: those do not reload project
@@ -241,13 +257,17 @@ and reviewer's written no-edit constraints still apply.
 
 From the worktree session, stage only explicit paths from a reviewed `git status` and diff with
 `git add -- <explicit paths>`; never stage the `node_modules` symlink. Inspect the staged diff
-before every commit. Push only this run's branch with `git push -u origin <branch>`. After green
-CI, merge there with the shared command
-`gh pr merge <PR> --merge --delete-branch --repo jlesak/Intersect`; the `--repo` flag prevents
-gh from trying to switch this worktree to `main`. Confirm with
+before every commit. Push only this run's branch with `git push -u origin <branch>`. If a
+conflict blocks the PR merge, run `git fetch origin` and then `git merge origin/main` here;
+resume the implementer for conflicts, commit the merge, and request a fresh review. If all
+three code review rounds are used, ask the owner instead of starting another round. After green
+CI, check `gh pr view <PR> --json state` before merging. If it is already `MERGED` on a resumed
+run, record that fact and request approval for
+`gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/<branch>` to remove its remote branch.
+Otherwise merge here with `gh pr merge <PR> --merge --delete-branch --repo jlesak/Intersect`;
+the `--repo` flag prevents gh from trying to switch this worktree to `main`. Confirm with
 `gh pr view <PR> --json state,mergeCommit` and record `stage: merged` and the commit in
-`state.md` before ending the worktree session. Do not push a branch deletion: the merge command
-deletes the remote branch.
+`state.md` before ending the worktree session. Do not use `git push` to delete a branch.
 
 Cleanup runs from a Codex process started in the main checkout, after the merge. Return to the
 original shared-checkout session or start `codex -p intersect -C <absolute-main-checkout-path>`
@@ -256,7 +276,10 @@ and decisions for the report and retro, verify the recorded PR is merged, then r
 for `git worktree remove .claude/worktrees/gh<N>-<slug>` and
 `git branch -D <branch>` separately. Never use `--force` on worktree removal. This cleanup-only
 session does not repeat stage 1 or delegate. Each command is `prompt`, so wait for the owner's
-decision; do not bypass a refusal. A `codex exec` session cannot surface these approvals.
+decision; do not bypass a refusal. A `codex exec` session cannot surface these approvals. If
+there are lessons, continue into the retro bootstrap in this same main-checkout session and
+write its self-contained brief under the retro worktree's `.agent-runs/` before stopping;
+the removed issue worktree cannot serve as a later source.
 
 Prefix rules cannot validate a dynamic branch, refspec destination, path list or trailing flag.
 The allowed prefixes therefore also match `git add -- src/main.ts .`,
@@ -268,7 +291,9 @@ accepts this residual risk with staged-diff review before commits, explicit run-
 before pushes, and server-side `main` protection with `enforce_admins` and both CI checks. A
 direct push or admin merge to `main` is rejected there even for an admin. If another command
 needs approval, use an interactive session and do not replace refusal with a shell wrapper or
-a broader permission mode.
+a broader permission mode. `gh api -X DELETE` is prompted for feature and fix refs because
+the endpoint and branch are one argv token; the retro deletion also prompts in the effective
+policy despite its exact allow rule, since Codex applies the stricter decision.
 
 Keep `npx -y lavish-axi poll <page>` attached to the active turn in a tracked command session.
 Wait on that session until it exits; restart the poll if it exits without owner feedback, and

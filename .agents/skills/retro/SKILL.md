@@ -53,7 +53,10 @@ with `git worktree remove .claude/worktrees/agents-retro` (never `--force`; if i
 out why) and go on as below. Then:
 
 - with an open PR for `chore/agents-retro` (`gh pr list --head chore/agents-retro`), add the
-  worktree on that branch, add a commit, and extend the PR description;
+  worktree at the remote tip, because the owner may have committed to the PR:
+  `git worktree add -B chore/agents-retro .claude/worktrees/agents-retro origin/chore/agents-retro`.
+  The check above already rules out unpushed local work. Add a commit and extend the PR
+  description;
 - with no open PR but the branch still present, locally or on origin, check that its tip in both
   places is the head commit of a merged PR: compare
   `gh pr list --head chore/agents-retro --state merged --json headRefOid` with `git rev-parse`
@@ -63,10 +66,11 @@ out why) and go on as below. Then:
   from the shared checkout is blocked by the owner's main-branch guard, because it is on
   `main`), delete the local branch with `git branch -D chore/agents-retro`, and start over from
   `origin/main`. If it does not hold, ask the owner;
-- with no branch, create it from `origin/main`.
+- with no branch, create it from `origin/main` with
+  `git worktree add --no-track -b chore/agents-retro .claude/worktrees/agents-retro origin/main`.
 
 Commit with `chore(agents): <what changes for the next run>`, staging explicit paths. Push from
-the retro worktree, then open or update the PR titled `chore(agents): setup lessons`, passing the
+the retro worktree with `git push -u origin chore/agents-retro`, then open or update the PR titled `chore(agents): setup lessons`, passing the
 body as a file under `.agent-runs/` with `--body-file`. Leave the worktree and remove it; the
 branch lives on until the owner merges it.
 
@@ -78,25 +82,45 @@ branch lives on until the owner merges it.
   Bash sandbox; run them as plain commands, without `cd`, `&&` chains, pipes, redirection or
   subshells. A sandboxed `git worktree remove` fails halfway and leaves a damaged worktree.
 - Edits under `.claude/` ask the owner for permission. That is intended; wait for the answer.
+- A sandboxed `git branch -D` prints `could not lock config file .git/config` and still deletes
+  the branch; do not retry it.
 
 ## Codex
 
 Run a Codex retro in an interactive `codex -p intersect` session. Edits to `.agents` and
 `.codex` are protected by `workspace-write` and need a narrow interactive approval, which
 `codex exec` cannot surface. Do not use blanket `danger-full-access`. The retro PR remains
-open for the owner; agents never merge it.
+open for the owner; agents never merge it. Check that `~/.codex/intersect.config.toml` exists:
+CLI 0.156.1 accepts a missing `-p intersect` profile without warning and leaves global skills
+visible. Ask the owner to install it before proceeding if it is absent.
 
 Use `.claude/worktrees/agents-retro` as the one retro worktree. From a session started in the
 main checkout, run `git fetch --prune origin` and perform the shared branch and merged-PR-head
 checks. The exact `gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/chore/agents-retro`
-rule handles a stale remote branch. `git branch -D chore/agents-retro` prompts for the local
-deletion; wait for approval. Create or find the retro worktree, then stop and tell the owner to
-start `codex -p intersect -C <absolute-retro-worktree-path>` and invoke `$retro` there. Do not
-use per-command `workdir` as a session switch or `--worktree` to create a second checkout.
+allow rule remains, but the generic `gh api -X DELETE` prompt rule wins; wait for approval on
+that stale remote deletion. `git branch -D chore/agents-retro` also prompts. For an open PR,
+create the worktree at the remote tip with
+`git worktree add -B chore/agents-retro .claude/worktrees/agents-retro origin/chore/agents-retro`.
+With no branch, use
+`git worktree add --no-track -b chore/agents-retro .claude/worktrees/agents-retro origin/main`.
+If the worktree already exists, follow the shared resume checks instead of adding another.
 
-The worktree-started session checks its root, branch and status, then edits, stages explicit
-paths with `git add -- <explicit paths>`, reviews the staged diff, commits and pushes only
-`chore/agents-retro`. Leave the PR open. To remove the retro worktree, return to the original
+Before this main-checkout session stops, write a self-contained, gitignored brief to the retro
+worktree's `.agent-runs/retro-brief.md`. Carry a lesson from a just-finished issue using its
+captured `state.md` lessons and decisions, even though the issue worktree has been removed; a
+standalone owner's lesson comes from the owner's request. Record the source issue/PR and merge
+commit when applicable, the observed wrong turn and evidence, the decision list with reasons,
+the smallest proposed setup change and its intended file, and any unresolved owner choice.
+For a standalone lesson, record the owner's wording and context so the next session needs no
+earlier conversation. If the evidence or decision is missing, ask the owner rather than inventing
+it. Preserve any existing unprocessed brief when resuming a retro. Then tell the owner to start
+`codex -p intersect -C <absolute-retro-worktree-path>` and invoke `$retro` there. Do not use
+per-command `workdir` as a session switch or `--worktree` to create a second checkout.
+
+The worktree-started session first reads `.agent-runs/retro-brief.md`, checks its root, branch
+and status, then edits, stages explicit paths with `git add -- <explicit paths>`, reviews the
+staged diff, commits and pushes with `git push -u origin chore/agents-retro`. Leave the PR open.
+To remove the retro worktree, return to the original
 main-checkout Codex session, or start a cleanup-only `codex -p intersect -C
 <absolute-main-checkout-path>` session. Request approval for `git worktree remove
 .claude/worktrees/agents-retro`; never add `--force`. Prefix rules cannot enforce dynamic

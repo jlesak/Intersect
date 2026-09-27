@@ -6,6 +6,8 @@
 # These rules do not protect other unprotected remote branches from a bad refspec.
 # The inline match examples below include the reviewer's trailing-argument regressions:
 # allow is accepted for add/push/merge; cleanup remains prompt.
+# The API endpoint and branch ref are one argv token. A generic gh api DELETE prompt
+# also prompts the exact chore/agents-retro deletion; prompt outranks allow.
 
 prefix_rule(
     pattern = ["git","add","--"],
@@ -38,21 +40,14 @@ prefix_rule(
 prefix_rule(
     pattern = ["git","push","-u","origin"],
     decision = "allow",
-    match = ["git push -u origin feature/gh133-panel", "git push -u origin feature/x --force", "git push -u origin feature/x --force-with-lease", "git push -u origin feature/x:main"],
-    not_match = ["git push origin main"],
-)
-
-prefix_rule(
-    pattern = ["git","push","origin","chore/agents-retro"],
-    decision = "allow",
-    match = ["git push origin chore/agents-retro"],
+    match = ["git push -u origin feature/gh133-panel", "git push -u origin chore/agents-retro", "git push -u origin feature/x --force", "git push -u origin feature/x --force-with-lease", "git push -u origin feature/x:main"],
     not_match = ["git push origin main"],
 )
 
 prefix_rule(
     pattern = ["git","worktree",["add","list"]],
     decision = "allow",
-    match = ["git worktree add .claude/worktrees/gh133-panel -b feature/gh133-panel origin/main"],
+    match = ["git worktree add --no-track -b feature/gh133-panel .claude/worktrees/gh133-panel origin/main", "git worktree add -B chore/agents-retro .claude/worktrees/agents-retro origin/chore/agents-retro", "git worktree add --no-track -b chore/agents-retro .claude/worktrees/agents-retro origin/main", "git worktree list"],
     not_match = ["git worktree remove .claude/worktrees/gh133-panel"],
 )
 
@@ -82,7 +77,7 @@ prefix_rule(
 prefix_rule(
     pattern = ["gh","pr",["create","checks","edit","list","view"]],
     decision = "allow",
-    match = ["gh pr view 42 --json state,mergeCommit"],
+    match = ["gh pr view 42 --json state", "gh pr view 42 --json state,mergeCommit"],
     not_match = ["gh pr close 42"],
 )
 
@@ -112,6 +107,21 @@ prefix_rule(
     decision = "allow",
     match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/chore/agents-retro"],
     not_match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/main"],
+)
+
+prefix_rule(
+    pattern = ["gh","api","-X","DELETE"],
+    decision = "prompt",
+    justification = "Approve only deletion of this run's already-merged feature or fix branch, or the verified retro branch; inspect the full endpoint.",
+    match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/feature/gh133-panel", "gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/fix/gh133-panel", "gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/chore/agents-retro"],
+    not_match = ["gh api -X GET repos/jlesak/Intersect/git/refs/heads/feature/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["git","merge","origin/main"],
+    decision = "allow",
+    match = ["git merge origin/main"],
+    not_match = ["git merge main"],
 )
 
 prefix_rule(
@@ -284,7 +294,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin --force feature/x"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(
@@ -292,7 +302,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin -f feature/x"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(
@@ -300,7 +310,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin --force-with-lease feature/x"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(
@@ -308,7 +318,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin --mirror"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(
@@ -316,7 +326,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin --all"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(
@@ -372,7 +382,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Push only this run branch without force; main is changed through green PRs.",
     match = ["git push origin --delete main"],
-    not_match = ["git push origin chore/agents-retro"],
+    not_match = ["git push -u origin chore/agents-retro"],
 )
 
 prefix_rule(

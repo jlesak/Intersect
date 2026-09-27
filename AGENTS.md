@@ -64,7 +64,7 @@ failure once; a second failure is real.
   `.claude/worktrees/<slug>` on its own branch. Never switch branches or pull in the shared
   checkout. The owner fast-forwards it after merges, from their own terminal. Until then, a
   session started there loads the skills, agents, settings and instructions as they were before
-  the merge, and `implement-issue` stops at its first stage.
+  the merge, and `implement-issue` stops at its first stage when a merge changed the setup.
 - Branch names: `feature/gh<N>-<slug>` or `fix/gh<N>-<slug>` from `origin/main`, and
   `chore/<slug>` for tooling and docs.
 - A new worktree has no `node_modules`. Symlink the main checkout's; run `npm ci` in the worktree

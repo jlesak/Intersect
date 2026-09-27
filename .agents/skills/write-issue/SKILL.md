@@ -75,7 +75,10 @@ chains, pipes, redirection or subshells, or the exclusion does not apply.
 ## Codex
 
 Start Codex here with `codex -p intersect`. The idea, bug report, or existing issue number
-arrives in the owner's invoking message; Codex does not substitute `$ARGUMENTS`. Use the
+arrives in the owner's invoking message; Codex does not substitute `$ARGUMENTS`. Check that
+`~/.codex/intersect.config.toml` exists first: CLI 0.156.1 silently accepts a missing profile
+and otherwise leaves global skills visible. If it is absent, stop and ask the owner to install
+it. Use the
 project rules for plain `gh issue list/view` and `gh label list`. After the owner approves the
 displayed draft, use `gh issue create` for a new issue or `gh issue edit` for triage; close an
 issue as not planned only after the owner explicitly decides that outcome. Keep the body file
