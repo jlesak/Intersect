@@ -1,0 +1,458 @@
+# Prefix rules cannot inspect dynamic path lists, refspecs, branch names, or trailing flags.
+# An allowed git add/push/gh pr merge prefix can still carry unsafe trailing arguments.
+# Worktree removal and local branch deletion prompt; inspect the exact argv before approval.
+# Review the staged diff and run branch before writes. Server-side main protection with
+# enforce_admins and both required CI checks backs direct-push and admin-merge mistakes.
+# These rules do not protect other unprotected remote branches from a bad refspec.
+# The inline match examples below include the reviewer's trailing-argument regressions:
+# allow is accepted for add/push/merge; cleanup remains prompt.
+# The API endpoint and branch ref are one argv token. A generic gh api DELETE prompt
+# also prompts the exact chore/agents-retro deletion; prompt outranks allow.
+
+prefix_rule(
+    pattern = ["git","add","--"],
+    decision = "allow",
+    match = ["git add -- src/main.ts", "git add -- src/main.ts ."],
+    not_match = ["git add src/main.ts ."],
+)
+
+prefix_rule(
+    pattern = ["git","commit"],
+    decision = "allow",
+    match = ["git commit -m \"fix(ui): repair panel\""],
+    not_match = ["git status"],
+)
+
+prefix_rule(
+    pattern = ["git","fetch","origin"],
+    decision = "allow",
+    match = ["git fetch origin"],
+    not_match = ["git fetch upstream"],
+)
+
+prefix_rule(
+    pattern = ["git","fetch","--prune","origin"],
+    decision = "allow",
+    match = ["git fetch --prune origin"],
+    not_match = ["git fetch --prune upstream"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin"],
+    decision = "allow",
+    match = ["git push -u origin feature/gh133-panel", "git push -u origin chore/agents-retro", "git push -u origin feature/x --force", "git push -u origin feature/x --force-with-lease", "git push -u origin feature/x:main"],
+    not_match = ["git push origin main"],
+)
+
+prefix_rule(
+    pattern = ["git","worktree",["add","list"]],
+    decision = "allow",
+    match = ["git worktree add --no-track -b feature/gh133-panel .claude/worktrees/gh133-panel origin/main", "git worktree add -B chore/agents-retro .claude/worktrees/agents-retro origin/chore/agents-retro", "git worktree add --no-track -b chore/agents-retro .claude/worktrees/agents-retro origin/main", "git worktree list"],
+    not_match = ["git worktree remove .claude/worktrees/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["git","worktree","remove"],
+    decision = "prompt",
+    justification = "Approve removal of this run's worktree only after merge and status check.",
+    match = ["git worktree remove .claude/worktrees/gh133-panel", "git worktree remove /tmp/x --force"],
+    not_match = ["git worktree list"],
+)
+
+prefix_rule(
+    pattern = ["git","branch","-D"],
+    decision = "prompt",
+    justification = "Approve deletion of this run's local branch only after merge and worktree removal.",
+    match = ["git branch -D feature/gh133-panel", "git branch -D feature/x"],
+    not_match = ["git branch -d feature/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["gh","issue",["view","list","comment","create","edit","close"]],
+    decision = "allow",
+    match = ["gh issue edit 133 --add-label ready-for-agent"],
+    not_match = ["gh issue delete 133"],
+)
+
+prefix_rule(
+    pattern = ["gh","pr",["create","checks","edit","list","view"]],
+    decision = "allow",
+    match = ["gh pr view 42 --json state", "gh pr view 42 --json state,mergeCommit"],
+    not_match = ["gh pr close 42"],
+)
+
+prefix_rule(
+    pattern = ["gh","pr","merge"],
+    decision = "allow",
+    match = ["gh pr merge 42 --merge --delete-branch --repo jlesak/Intersect", "gh pr merge --merge 42 --admin", "gh pr merge --merge 24 --admin"],
+    not_match = ["gh pr close 42"],
+)
+
+prefix_rule(
+    pattern = ["gh","run","rerun"],
+    decision = "allow",
+    match = ["gh run rerun 123 --failed"],
+    not_match = ["gh run cancel 123"],
+)
+
+prefix_rule(
+    pattern = ["gh","label","list"],
+    decision = "allow",
+    match = ["gh label list"],
+    not_match = ["gh label delete bug"],
+)
+
+prefix_rule(
+    pattern = ["gh","api","-X","DELETE","repos/jlesak/Intersect/git/refs/heads/chore/agents-retro"],
+    decision = "allow",
+    match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/chore/agents-retro"],
+    not_match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/main"],
+)
+
+prefix_rule(
+    pattern = ["gh","api","-X","DELETE"],
+    decision = "prompt",
+    justification = "Approve only deletion of this run's already-merged feature or fix branch, or the verified retro branch; inspect the full endpoint.",
+    match = ["gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/feature/gh133-panel", "gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/fix/gh133-panel", "gh api -X DELETE repos/jlesak/Intersect/git/refs/heads/chore/agents-retro"],
+    not_match = ["gh api -X GET repos/jlesak/Intersect/git/refs/heads/feature/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["git","merge","origin/main"],
+    decision = "allow",
+    match = ["git merge origin/main"],
+    not_match = ["git merge main"],
+)
+
+prefix_rule(
+    pattern = ["npx","-y","lavish-axi"],
+    decision = "allow",
+    match = ["npx -y lavish-axi poll .lavish/gh133-plan.html"],
+    not_match = ["npx -y prettier src"],
+)
+
+prefix_rule(
+    pattern = ["npm","ci"],
+    decision = "allow",
+    match = ["npm ci"],
+    not_match = ["npm install"],
+)
+
+prefix_rule(
+    pattern = ["npm","run","e2e"],
+    decision = "allow",
+    match = ["npm run e2e -- e2e/diag.spec.ts"],
+    not_match = ["npm run lint"],
+)
+
+prefix_rule(
+    pattern = ["prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["prettier --write src/main.ts"],
+    not_match = ["npm run lint"],
+)
+
+prefix_rule(
+    pattern = ["npx","prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["npx prettier --write src/main.ts"],
+    not_match = ["npx vitest run"],
+)
+
+prefix_rule(
+    pattern = ["npx","-y","prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["npx -y prettier --write src/main.ts"],
+    not_match = ["npx -y lavish-axi poll x"],
+)
+
+prefix_rule(
+    pattern = ["npx","--yes","prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["npx --yes prettier --write src/main.ts"],
+    not_match = ["npx --yes lavish-axi x"],
+)
+
+prefix_rule(
+    pattern = ["npm","exec","prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["npm exec prettier -- --write src/main.ts"],
+    not_match = ["npm run lint"],
+)
+
+prefix_rule(
+    pattern = ["npm","run","prettier"],
+    decision = "forbidden",
+    justification = "Use ESLint instead of Prettier.",
+    match = ["npm run prettier"],
+    not_match = ["npm run lint"],
+)
+
+prefix_rule(
+    pattern = ["git","add","-A"],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add -A"],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","add","--all"],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add --all"],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","add","."],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add ."],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","add","--force"],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add --force node_modules"],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","add","-f"],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add -f node_modules"],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","add","--","."],
+    decision = "forbidden",
+    justification = "Stage only reviewed explicit paths, never the node_modules symlink.",
+    match = ["git add -- ."],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","-C"],
+    decision = "forbidden",
+    justification = "Start Codex in the worktree instead of using git -C.",
+    match = ["git -C x add -A"],
+    not_match = ["git add -- src/main.ts"],
+)
+
+prefix_rule(
+    pattern = ["git","push","--force"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push --force origin feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-f"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -f origin feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","--force-with-lease"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push --force-with-lease origin feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","--mirror"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push --mirror origin"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","--all"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push --all origin"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","--force"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin --force feature/x"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","-f"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin -f feature/x"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","--force-with-lease"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin --force-with-lease feature/x"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","--mirror"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin --mirror"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","--all"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin --all"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","--force"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin --force feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","-f"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin -f feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","--force-with-lease"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin --force-with-lease feature/x"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","--mirror"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin --mirror"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","--all"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin --all"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","--delete"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin --delete main"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","origin","--delete"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push origin --delete main"],
+    not_match = ["git push -u origin chore/agents-retro"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","main"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin main"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","HEAD:main"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin HEAD:main"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin","+HEAD:main"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin +HEAD:main"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","push","-u","origin",":main"],
+    decision = "forbidden",
+    justification = "Push only this run branch without force; main is changed through green PRs.",
+    match = ["git push -u origin :main"],
+    not_match = ["git push -u origin feature/x"],
+)
+
+prefix_rule(
+    pattern = ["git","worktree","remove","--force"],
+    decision = "forbidden",
+    justification = "Resolve why normal worktree removal failed; do not force it.",
+    match = ["git worktree remove --force .claude/worktrees/gh133-panel"],
+    not_match = ["git worktree remove .claude/worktrees/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["git","branch","-D","main"],
+    decision = "forbidden",
+    justification = "Delete only this run's local branch after merge.",
+    match = ["git branch -D main"],
+    not_match = ["git branch -D feature/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["git","branch","-D","master"],
+    decision = "forbidden",
+    justification = "Delete only this run's local branch after merge.",
+    match = ["git branch -D master"],
+    not_match = ["git branch -D feature/gh133-panel"],
+)
+
+prefix_rule(
+    pattern = ["gh","pr","merge","--admin"],
+    decision = "forbidden",
+    justification = "Use the shared merge command after required CI checks.",
+    match = ["gh pr merge --admin 42"],
+    not_match = ["gh pr merge 42 --merge"],
+)
+
+prefix_rule(
+    pattern = ["gh","pr","merge","--merge","--admin"],
+    decision = "forbidden",
+    justification = "Use the shared merge command after required CI checks.",
+    match = ["gh pr merge --merge --admin 42"],
+    not_match = ["gh pr merge 42 --merge"],
+)

@@ -16,7 +16,9 @@ files:
   - '!eslint.config.js'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{vitest.config.ts,playwright.config.ts}'
-  - '!{README.md,PROMPT.md}'
+  - '!{README.md,AGENTS.md,CLAUDE.md}'
+  # Agent tooling and its scratch: .claude also holds settings.local.json and other worktrees.
+  - '!{.agents,.agent-runs,.claude,.codex,.lavish,.serena}/**'
 
 # node-pty is the only native module. Its pty.node and spawn-helper must live on disk
 # outside the asar archive so (a) electron-builder can sign them and (b) node-pty's own

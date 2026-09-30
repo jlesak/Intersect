@@ -1,45 +1,23 @@
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+@AGENTS.md
 
-This project is indexed by GitNexus as **Intersect** (12171 symbols, 36452 relationships, 614 execution flows).
+## Claude Code
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
-
-## Never Do
-
-- NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit before MCP/CLI graph change analysis.
-
-## Resources
-
-| Resource | Use for |
-| --- | --- |
-| `gitnexus://repo/Intersect/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/Intersect/clusters` | All functional areas |
-| `gitnexus://repo/Intersect/processes` | All execution flows |
-| `gitnexus://repo/Intersect/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-| --- | --- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+- The `implement-issue` pipeline may commit, push, open a PR and merge it on the feature branch of
+  the issue it runs, once the owner has approved the plan. That overrides the global "never
+  commit unless the user tells you" rule for the pipeline only; everywhere else the global rule
+  stands. The `retro` skill may commit and open its PR, but never merges it.
+- `implement-issue` and `retro` work in git worktrees under `.claude/worktrees/` and move the
+  session in with `EnterWorktree`. The mechanics are in the skills.
+- `gh`, `npx -y lavish-axi`, `npm run e2e`, `npm test`, `npx vitest run`, `npm ci`,
+  `git worktree add`, `git worktree remove` and `git push` are excluded from the Bash sandbox.
+  They need the network, the npm cache, the keychain or local ports, or they write the protected
+  `.claude/` files of a worktree. The exclusion applies only to a plain command: no `cd`, `&&`
+  chain, pipe, redirection or subshell. Otherwise the command stays sandboxed and fails:
+  `npm test` in about 50 tests that bind a local port, `git push` with "could not read
+  Username", and `git worktree remove` halfway, leaving a damaged worktree.
+- The pipeline agents are in `.claude/agents/` and pin `claude-opus-5-5` at `high` effort.
+- Skills are symlinks from `.claude/skills/` to `.agents/skills/`, and the path-scoped rules in
+  `.claude/rules/` are symlinks to `docs/agents/`. Edit the targets, not the links.
+- Auto-memory notes written before this setup can disagree with it, for example about whether
+  delegation is optional or whether subagents run e2e. In this repository, these files, the
+  skills and the agent definitions win.

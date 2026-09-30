@@ -1,0 +1,1 @@
+../../docs/agents/renderer.md
