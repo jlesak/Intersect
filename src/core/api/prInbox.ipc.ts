@@ -16,6 +16,7 @@ import type { AdoIdentity } from '../prInbox/adoMapping'
 import { normalizeAdoPath } from '../prInbox/adoPath'
 import type { AdoService } from '../prInbox/adoService'
 import { cutSnippet } from '../prInbox/draftSnippet'
+import type { FixManager } from '../prInbox/fixManager'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
@@ -23,7 +24,7 @@ import { decorateNewChanges, planWatermarks } from '../prInbox/reviewWatermark'
 /** Main implements everything except the renderer-only broadcast subscriptions. */
 export type PrInboxHandlers = Omit<
   IpcApi['prInbox'],
-  'onReviewData' | 'onReviewExit' | 'onDraftAdded'
+  'onReviewData' | 'onReviewExit' | 'onDraftAdded' | 'onFixWorktreeClosed'
 >
 
 export interface PrInboxHandlerDeps {
@@ -36,6 +37,8 @@ export interface PrInboxHandlerDeps {
   /** The clone folders to search for a PR's repo (from the workspaces slice). */
   workspaceFolders: () => string[]
   review: ReviewManager
+  /** Prepares fixing the review comments of my own pull request (worktree and first message). */
+  fix: Pick<FixManager, 'start'>
   /**
    * Run the sync's cache and watermark writes as one transaction, so a crash mid-sync cannot
    * leave a vote recorded without its watermark (which would silently disable new-changes
@@ -363,6 +366,10 @@ export function createPrInboxHandlers(d: PrInboxHandlerDeps): PrInboxHandlers {
 
     reviewResize(sessionId, cols, rows) {
       d.review.resize(sessionId, cols, rows)
+    },
+
+    async startFix(repositoryId, prId) {
+      return d.fix.start(mustGetPr(repositoryId, prId))
     }
   }
 }
@@ -390,6 +397,7 @@ export function prInboxWireRoutes(h: PrInboxHandlers): WireRoutes {
     [Channel.prInboxListActiveReviews]: h.listActiveReviews,
     [Channel.prInboxEndReview]: h.endReview,
     [Channel.prInboxReviewInput]: h.reviewInput,
-    [Channel.prInboxReviewResize]: h.reviewResize
+    [Channel.prInboxReviewResize]: h.reviewResize,
+    [Channel.prInboxStartFix]: h.startFix
   }
 }

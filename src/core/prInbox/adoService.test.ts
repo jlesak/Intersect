@@ -85,6 +85,38 @@ describe('getThreads', () => {
     const threads = await svc.getThreads('repo', 7)
     expect(threads[0].isSystem).toBe(false)
   })
+
+  test('carries the commenter id and the removed-line anchor of a deleted line', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          get_pull_request_comments: {
+            value: [
+              {
+                id: 1,
+                status: 1,
+                threadContext: { filePath: '/a.cs', leftFileStart: { line: 12 } },
+                comments: [
+                  { author: { id: 'rev-uuid', displayName: 'X' }, content: 'gone?', commentType: 'text' }
+                ]
+              },
+              {
+                id: 2,
+                status: 1,
+                threadContext: { filePath: '/a.cs', rightFileStart: { line: 3 } },
+                comments: [{ author: { displayName: 'Y' }, content: 'here', commentType: 'text' }]
+              }
+            ]
+          }
+        })
+      )
+    )
+    const threads = await svc.getThreads('repo', 7)
+    expect(threads[0]).toMatchObject({ line: null, removedLine: 12 })
+    expect(threads[0].comments[0].authorId).toBe('rev-uuid')
+    expect(threads[1]).toMatchObject({ line: 3, removedLine: null })
+    expect(threads[1].comments[0].authorId).toBeUndefined()
+  })
 })
 
 describe('thread mutations', () => {

@@ -12,8 +12,8 @@ import { waitForTabsReady } from './waitForTabsReady'
 /**
  * The workspace that should host the launched session: the one already on the requested folder
  * (creating it when none exists yet), or the currently selected workspace when the item carries
- * no folder of its own. The folder is always a project's main checkout - card launches never
- * create or pick a worktree; that stays a future explicit opt-in.
+ * no folder of its own. For a card launch the folder is a project's main checkout; fixing my own
+ * pull request's review comments names the worktree the core prepared for it.
  */
 async function resolveWorkspace(folderPath: string | null): Promise<Workspace | null> {
   if (folderPath === null) {
@@ -29,7 +29,8 @@ async function resolveWorkspace(folderPath: string | null): Promise<Workspace | 
 /**
  * Execute one card launch: reveal and select the hosting workspace, wait for its tabs, then
  * open a Claude tab whose primary work item is written in the same transaction as the tab -
- * there is never a moment the session exists without its ref.
+ * there is never a moment the session exists without its ref. A launch with `openTab: false`
+ * stops once the workspace is in front, which shows the tab already open there.
  */
 async function launch(request: WorkItemLaunch): Promise<void> {
   const ws = await resolveWorkspace(request.folderPath)
@@ -38,6 +39,7 @@ async function launch(request: WorkItemLaunch): Promise<void> {
   if (useWorkspacesStore.getState().selectedWorkspaceId !== ws.id) {
     await useWorkspacesStore.getState().select(ws.id)
   }
+  if (request.openTab === false) return
   await waitForTabsReady(ws.id)
   if (useTabsStore.getState().workspaceId !== ws.id) return
   const tab = await useTabsStore.getState().createTab('claude', null, request.ref)

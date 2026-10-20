@@ -14,6 +14,7 @@ import { wireAttention } from './app/attentionWiring'
 import { wireCoreRecovery } from './app/coreRecoveryWiring'
 import { wireDashboardNav } from './app/dashboardNavWiring'
 import { wireMyWorkPrNav } from './app/myWorkPrNavWiring'
+import { wirePrFix } from './app/prFixWiring'
 import { wirePrSync } from './app/prSyncWiring'
 import { wireProjectsToWorkspaces } from './app/projectsWiring'
 import { wireSessionResume } from './app/sessionResumeWiring'
@@ -102,6 +103,8 @@ wireTodoFocus()
 wireDashboardNav()
 // Follow the tabs slice's workspace with its work-item refs and execute card launches.
 wireWorkItemLaunch()
+// Open the Claude tab a PR comment fix prepared, and report how its worktree cleanup ended.
+wirePrFix()
 // Hydrate the settings store and keep live terminals following the terminal font size.
 wireSettings()
 // Run the command a native menu accelerator asked for (the app-wide keyboard layer).

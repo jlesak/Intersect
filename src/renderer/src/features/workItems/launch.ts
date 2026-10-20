@@ -15,8 +15,8 @@ import { useWorkItemsStore } from './store'
  * the item's effective project, pick the session's home folder from that project's primary
  * repository binding, and record the launch intent for the app-layer wiring to execute.
  *
- * The session always opens in the project's main checkout - no worktree is created or chosen
- * here; running the work in a worktree stays a future explicit opt-in.
+ * A card launch opens in the project's main checkout - no worktree is created or chosen here.
+ * The one exception is fixing my own pull request's comments, whose worktree the core prepares.
  */
 
 /** The primary repository folder of a project, or null when it has none (or project = Other). */
@@ -46,17 +46,35 @@ export function launchFromTodoTask(task: TodoTask): void {
   useWorkItemsStore.getState().requestLaunch({ ref: todoWorkItem(task), folderPath: null })
 }
 
-/** Launch a Claude session working on a pull request, homed in the PR's effective project. */
-export function launchFromPullRequest(pr: PullRequest): void {
+/** The project a pull request belongs to: a manual override, else its repository's binding. */
+function prProject(pr: PullRequest): string | null {
   const { projects, overrides } = useProjectsStore.getState()
-  const projectId = effectiveProject(
+  return effectiveProject(
     'pr',
     prOverrideKey(pr.repositoryId, pr.prId),
     resolvePrProject(pr.repositoryName, projects),
     indexOverrides(overrides)
   )
+}
+
+/** Launch a Claude session working on a pull request, homed in the PR's effective project. */
+export function launchFromPullRequest(pr: PullRequest): void {
+  const projectId = prProject(pr)
   useWorkItemsStore.getState().requestLaunch({
     ref: prWorkItem(pr, projectId),
     folderPath: projectFolder(projectId)
+  })
+}
+
+/**
+ * Open the Claude tab that fixes my pull request's review comments, in the worktree the core
+ * prepared for it. With `openTab` false a tab is already open there, so its workspace is only
+ * brought forward.
+ */
+export function launchPullRequestFix(pr: PullRequest, folderPath: string, openTab: boolean): void {
+  useWorkItemsStore.getState().requestLaunch({
+    ref: prWorkItem(pr, prProject(pr)),
+    folderPath,
+    openTab
   })
 }

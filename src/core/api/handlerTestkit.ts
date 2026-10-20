@@ -38,7 +38,8 @@ export function makeFakeSessions(): FakeSessions {
     },
     killAll: () => {
       calls.killAll += 1
-    }
+    },
+    whenWorkspaceExited: async () => 'exited'
   }
   return { sessions, calls }
 }

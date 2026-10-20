@@ -8,6 +8,7 @@ import type {
 } from '@common/domain'
 import type { ReviewDataEvent, ReviewExitEvent } from '@common/ipc'
 import { captureRendererLog } from '@renderer/shared/logging/testLog'
+import { useToastStore } from '@renderer/shared/ui/toast'
 
 vi.mock('./ipc')
 import * as api from './ipc'
@@ -16,6 +17,7 @@ import {
   groupBoardColumns,
   prKey,
   selectDrafts,
+  selectFixableCount,
   selectPrList,
   selectSelectedPr,
   selectSelectedReviewSessionId,
@@ -1107,5 +1109,66 @@ describe('splitThreadsByResolution', () => {
   test('the relative order of the threads within each half is left alone', () => {
     const split = splitThreadsByResolution([thread(9), thread(3), thread(7)])
     expect(split.unresolved.map((t) => t.threadId)).toEqual([9, 3, 7])
+  })
+})
+
+describe('fixing the review comments of my own pull request', () => {
+  const reviewerComment = { authorName: 'Marek Kral', body: 'Rename this.', publishedAt: 0 }
+  const mine = pr('r', 1, { role: 'author', authorId: 'me', authorName: 'Jan Lesak' })
+
+  beforeEach(() => {
+    useToastStore.setState({ toasts: [] })
+    usePrInboxStore.setState({
+      prsByKey: { 'r:1': mine, 'r:2': pr('r', 2) },
+      order: ['r:1', 'r:2'],
+      selectedKey: 'r:1',
+      threads: [
+        thread(1, { comments: [reviewerComment] }),
+        thread(2, { comments: [reviewerComment], status: 'fixed' }),
+        thread(3, { comments: [reviewerComment] })
+      ],
+      threadsLoaded: true,
+      fixStarting: false,
+      pendingFix: null
+    })
+  })
+
+  test('counts the open reviewer threads on file lines of my pull request', () => {
+    expect(selectFixableCount(usePrInboxStore.getState())).toBe(2)
+  })
+
+  test('counts nothing while the threads are not in hand, or for a review I owe', () => {
+    usePrInboxStore.setState({ threadsLoaded: false })
+    expect(selectFixableCount(usePrInboxStore.getState())).toBe(0)
+    usePrInboxStore.setState({ threadsLoaded: true, selectedKey: 'r:2' })
+    expect(selectFixableCount(usePrInboxStore.getState())).toBe(0)
+  })
+
+  test('a started fix asks the app to open its tab, unless one is already open there', async () => {
+    let finish: (launch: { worktreePath: string; alreadyOpen: boolean }) => void = () => {}
+    mocked.startFix.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+
+    const started = usePrInboxStore.getState().startFix()
+    expect(usePrInboxStore.getState().fixStarting).toBe(true)
+    finish({ worktreePath: '/fix/r-pr1', alreadyOpen: true })
+    await started
+
+    expect(mocked.startFix).toHaveBeenCalledWith('r', 1)
+    const s = usePrInboxStore.getState()
+    expect(s.fixStarting).toBe(false)
+    expect(s.pendingFix).toEqual({ pr: mine, worktreePath: '/fix/r-pr1', openTab: false })
+  })
+
+  test('a failed start says why and opens nothing', async () => {
+    mocked.startFix.mockRejectedValue(new Error('Branch feature is checked out in /repos/r'))
+
+    await usePrInboxStore.getState().startFix()
+
+    const s = usePrInboxStore.getState()
+    expect(s.fixStarting).toBe(false)
+    expect(s.pendingFix).toBeNull()
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+      'Could not start fixing the comments: Branch feature is checked out in /repos/r'
+    ])
   })
 })

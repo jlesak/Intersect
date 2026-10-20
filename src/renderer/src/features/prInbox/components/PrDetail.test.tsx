@@ -476,3 +476,77 @@ describe('PrDetail file list width', () => {
     expect(grip()).toBeNull()
   })
 })
+
+describe('PrDetail fix review comments', () => {
+  const reviewer = { authorName: 'Marek Kral', body: 'Rename this.', publishedAt: 0 }
+  const threads = [
+    { threadId: 1, filePath: '/a.ts', line: 3, status: 'active', isSystem: false, comments: [reviewer] },
+    { threadId: 2, filePath: '/b.ts', line: 9, status: 'pending', isSystem: false, comments: [reviewer] },
+    { threadId: 3, filePath: '/b.ts', line: 1, status: 'fixed', isSystem: false, comments: [reviewer] }
+  ]
+  const fixButton = (): HTMLButtonElement | null =>
+    document.querySelector<HTMLButtonElement>('[data-testid="pr-fix-comments"]')
+
+  const seedWithThreads = async (
+    role: 'author' | 'reviewer',
+    over: { threads?: typeof threads; threadsLoaded?: boolean } = {}
+  ): Promise<void> => {
+    await seed({ role })
+    await act(async () => {
+      usePrInboxStore.setState({
+        threads: over.threads ?? threads,
+        threadsLoaded: over.threadsLoaded ?? true
+      })
+    })
+  }
+
+  afterEach(() => {
+    usePrInboxStore.setState({
+      selectedKey: null,
+      view: 'board',
+      threads: [],
+      threadsLoaded: false,
+      fixStarting: false
+    })
+  })
+
+  test('my pull request offers one fix action counting the open reviewer threads', async () => {
+    await seedWithThreads('author')
+    expect(fixButton()?.textContent).toBe('Fix review comments · 2')
+    expect(document.querySelectorAll('[data-testid="pr-fix-comments"]')).toHaveLength(1)
+  })
+
+  test('a pull request I only review has no fix action', async () => {
+    await seedWithThreads('reviewer')
+    expect(fixButton()).toBeNull()
+  })
+
+  test('nothing to fix, or comments still loading, shows no fix action', async () => {
+    await seedWithThreads('author', { threads: [threads[2]] })
+    expect(fixButton()).toBeNull()
+
+    await act(async () => {
+      usePrInboxStore.setState({ threads, threadsLoaded: false })
+    })
+    expect(fixButton()).toBeNull()
+  })
+
+  test('the action starts the fix, and says so while it is being prepared', async () => {
+    const startFix = vi.fn(async () => {})
+    await seedWithThreads('author')
+    await act(async () => {
+      usePrInboxStore.setState({ startFix })
+    })
+
+    await act(async () => {
+      fireEvent.click(fixButton()!)
+    })
+    expect(startFix).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      usePrInboxStore.setState({ fixStarting: true })
+    })
+    expect(fixButton()?.textContent).toBe('Starting…')
+    expect(fixButton()?.disabled).toBe(true)
+  })
+})

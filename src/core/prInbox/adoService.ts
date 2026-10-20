@@ -334,7 +334,12 @@ interface RawThread {
   id?: number
   threadId?: number
   status?: string | number
-  threadContext?: { filePath?: string; rightFileStart?: { line?: number } }
+  threadContext?: {
+    filePath?: string
+    rightFileStart?: { line?: number }
+    /** Set when the comment sits on the old side of the diff, a line the PR removed. */
+    leftFileStart?: { line?: number }
+  }
   comments?: Array<{
     author?: AdoPerson
     content?: string
@@ -359,6 +364,7 @@ function toThread(raw: RawThread): PrThread {
     threadId: raw.id ?? raw.threadId ?? 0,
     filePath: raw.threadContext?.filePath ?? null,
     line: raw.threadContext?.rightFileStart?.line ?? null,
+    removedLine: raw.threadContext?.leftFileStart?.line ?? null,
     status:
       typeof raw.status === 'number'
         ? (THREAD_STATUS_BY_CODE[raw.status] ?? String(raw.status))
@@ -367,6 +373,7 @@ function toThread(raw: RawThread): PrThread {
     isSystem: comments.length > 0 && comments.every((c) => (c.commentType ?? 'text') !== 'text'),
     comments: comments.map((c) => ({
       authorName: c.author?.displayName ?? '',
+      ...(c.author?.id ? { authorId: c.author.id } : {}),
       body: c.content ?? '',
       publishedAt: c.publishedDate ? Date.parse(c.publishedDate) : 0
     }))

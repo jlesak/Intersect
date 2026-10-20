@@ -4,6 +4,7 @@ import type {
   FileDiff,
   NewPrComment,
   PrChangeFile,
+  PrFixLaunch,
   PrThread,
   PrVote,
   PullRequest,
@@ -67,3 +68,5 @@ export const onReviewExit = (cb: (msg: ReviewExitEvent) => void): (() => void) =
 export const onDraftAdded = (cb: (draft: DraftComment) => void): (() => void) =>
   ipc().prInbox.onDraftAdded(cb)
 export const openExternal = (url: string): Promise<void> => ipc().system.openExternal(url)
+export const startFix = (repositoryId: string, prId: number): Promise<PrFixLaunch> =>
+  ipc().prInbox.startFix(repositoryId, prId)

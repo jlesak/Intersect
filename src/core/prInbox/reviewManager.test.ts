@@ -8,8 +8,8 @@ import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { ReviewSessionRepo } from '../db/reviewSessionRepo'
 import type { PtyProcess, SpawnRequest } from '../pty/sessionManager'
-import { createReviewManager, MAX_CONCURRENT_REVIEWS } from './reviewManager'
-import type { CreateWorktreeInput, WorktreeManager } from './worktreeManager'
+import { createReviewManager, MAX_CONCURRENT_REVIEWS, type ReviewWorktrees } from './reviewManager'
+import type { CreateWorktreeInput } from './worktreeManager'
 
 interface FakePty extends PtyProcess {
   emitData(data: string): void
@@ -120,7 +120,7 @@ async function harness() {
 
   // Deliberately unserialized, unlike production: these tests must be able to observe two starts
   // overlapping. The real clone queue lives in worktreeManager and has its own tests.
-  const worktrees: WorktreeManager = {
+  const worktrees: ReviewWorktrees = {
     resolveRepoDir: vi.fn(async () => '/repo'),
     createWorktree: vi.fn(async (input: CreateWorktreeInput) => {
       createdWorktrees.push(input)

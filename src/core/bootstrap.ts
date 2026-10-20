@@ -19,7 +19,7 @@ import type { Logger } from '@common/logging/logger'
 import type { TerminationReason } from '@common/domain'
 import { closeQuietly, openDatabase, setAsideDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
-import { createAppStateRepo } from './db/appStateRepo'
+import { createAppStateRepo, SELECTED_WORKSPACE_KEY } from './db/appStateRepo'
 import { createSettingsRepo } from './db/settingsRepo'
 import { createTabRepo } from './db/tabRepo'
 import { createWorkspaceRepo } from './db/workspaceRepo'
@@ -119,8 +119,10 @@ import { createAdoService } from './prInbox/adoService'
 import { resolveAdoServerConfig, resolveVoteCredentials } from './prInbox/adoConfig'
 import { createIdentityResolver } from './prInbox/adoIdentity'
 import { createLocalDiffService } from './prInbox/localDiff'
+import { createFixManager, type FixManager } from './prInbox/fixManager'
+import { decorateTerminalSpec } from './prInbox/fixSpawn'
 import { createReviewManager } from './prInbox/reviewManager'
-import { createWorktreeManager } from './prInbox/worktreeManager'
+import { createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
 import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
 
 /**
@@ -358,6 +360,9 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // PTY-exit handler below closes over this holder, so it must be declared before the session
   // manager; `.current` is filled in when the service is constructed further down.
   const agentRuntimeRef: { current?: AgentRuntimeService } = {}
+  // The PR-fix manager needs the Azure DevOps service and the worktrees, built with the PR slice
+  // below; the terminal spawn decoration and the tab handlers reach it through this holder.
+  const fixRef: { current?: FixManager } = {}
 
   // Hook lifecycle: raw event persistence with real retention, plus the per-session state
   // machine fed by the authenticated listener below. Alerts flow through the one notifier so
@@ -451,13 +456,23 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
         presetsBySession.delete(event.sessionId)
       }
     },
-    buildSpec: (preset, resumeSessionId, sessionId) =>
-      buildSpawn(preset, {
-        testMode: isE2e,
-        notifSettingsPath,
-        resumeSessionId,
-        instanceId: sessionId
-      })
+    // A Claude tab whose folder is a fix worktree always gets the fix launch (secret scrub and
+    // default permissions), resumes included; only its first start carries the parked message.
+    buildSpec: (preset, resumeSessionId, sessionId, cwd) =>
+      decorateTerminalSpec(
+        buildSpawn(preset, {
+          testMode: isE2e,
+          notifSettingsPath,
+          resumeSessionId,
+          instanceId: sessionId
+        }),
+        {
+          preset,
+          cwd,
+          isFixFolder: (path) => isFixWorktreePath(userDataDir, path),
+          takePrompt: (path) => fixRef.current?.takePrompt(path) ?? null
+        }
+      )
   })
 
   const workspaceHandlers = createWorkspaceHandlers({
@@ -471,7 +486,16 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     projects,
     pathDeps: projectPathDeps
   })
-  const tabHandlers = createTabHandlers({ db, workspaces, tabs, workItems: workItemRefs, sessions })
+  const tabHandlers = createTabHandlers({
+    db,
+    workspaces,
+    tabs,
+    workItems: workItemRefs,
+    sessions,
+    // A fix workspace whose last tab closed has its worktree cleaned up in the background.
+    onWorkspaceEmptied: (workspaceId, folderPath) =>
+      fixRef.current?.scheduleClose(workspaceId, folderPath)
+  })
 
   // Wrap spawn/write to drive the 'working' status: record each session's preset, then flag
   // a claude session 'working' the moment the user submits a prompt (Enter, i.e. '\r').
@@ -553,7 +577,11 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     })
 
   const worktrees = createWorktreeManager(userDataDir)
-  const workspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
+  const allWorkspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
+  // A fix worktree's origin names the same repository as its clone, so it must never be taken
+  // for the clone a review, a diff or another fix works from.
+  const workspaceFolders = (): string[] =>
+    allWorkspaceFolders().filter((folder) => !isFixWorktreePath(userDataDir, folder))
   // E2E runs stub the diff engine too (no real clone on disk); production reads local git.
   const localDiff = isE2e
     ? createLocalDiffE2eStub(env)
@@ -575,6 +603,34 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     reviewModel: () => settings.getReview().model,
     draftServerPath: standaloneServerPath(__dirname, 'draftServer.js')
   })
+  const tabsOn = (path: string): number =>
+    workspaces
+      .list()
+      .filter((w) => canonicalizePath(w.folderPath) === path)
+      .reduce((count, w) => count + tabs.listByWorkspace(w.id).length, 0)
+  const fix = createFixManager({
+    userDataDir,
+    ado,
+    worktrees,
+    sessions,
+    workspaceFolders: allWorkspaceFolders,
+    hasOpenTabs: (path) => tabsOn(path) > 0,
+    // Re-checked inside the transaction: a tab opened while git was removing the folder keeps
+    // its workspace. A workspace already gone counts as removed.
+    removeWorkspaceIfEmpty: (workspaceId) =>
+      tx(db, () => {
+        if (!workspaces.getById(workspaceId)) return true
+        if (tabs.listByWorkspace(workspaceId).length > 0) return false
+        workspaces.remove(workspaceId)
+        if (appState.get(SELECTED_WORKSPACE_KEY) === workspaceId) {
+          appState.set(SELECTED_WORKSPACE_KEY, workspaces.list()[0]?.id ?? null)
+        }
+        return true
+      }),
+    onClosed: (event) => emitPush(Channel.prInboxFixWorktreeClosed, event),
+    logger: adoLog
+  })
+  fixRef.current = fix
   const prInboxHandlers = createPrInboxHandlers({
     prCache,
     drafts,
@@ -583,6 +639,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     localDiff,
     workspaceFolders,
     review,
+    fix,
     atomically: (fn) => tx(db, fn),
     resolveIdentity,
     logger: adoLog
