@@ -237,6 +237,7 @@ const api: IpcApi = {
     getPathForFile: (file) => webUtils.getPathForFile(file),
     restartApp: () => ipcRenderer.invoke(Channel.systemRestartApp),
     retryCore: () => ipcRenderer.invoke(Channel.systemRetryCore),
+    startFreshDatabase: () => ipcRenderer.invoke(Channel.systemStartFreshDatabase),
     quitApp: () => ipcRenderer.invoke(Channel.systemQuitApp),
     revealUserData: () => ipcRenderer.invoke(Channel.systemRevealUserData),
     resetViewState: () => ipcRenderer.invoke(Channel.systemResetViewState),

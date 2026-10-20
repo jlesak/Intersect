@@ -139,6 +139,7 @@ describe('system handlers - reveal', () => {
       revealInFolder,
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -155,6 +156,7 @@ describe('system handlers - reveal', () => {
       revealInFolder,
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -176,6 +178,7 @@ describe('system handlers - reveal the user data directory', () => {
     revealInFolder: vi.fn(),
     restartApp: vi.fn(),
     retryCore: vi.fn(),
+    startFreshDatabase: vi.fn(),
     quitApp: vi.fn(),
     userDataDir: '/Users/someone/Library/Application Support/Intersect',
     openPath: vi.fn(openPath),
@@ -200,6 +203,40 @@ describe('system handlers - reveal the user data directory', () => {
   })
 })
 
+/**
+ * The way out of a database that fails every boot. Main only relays it to the core host, which
+ * refuses it unless the database stopped the core; the refusal must reach the card as an Error.
+ */
+describe('system handlers - set the database aside and start fresh', () => {
+  const deps = (startFreshDatabase: () => void) => ({
+    openExternal: vi.fn(async () => {}),
+    revealInFolder: vi.fn(),
+    restartApp: vi.fn(),
+    retryCore: vi.fn(),
+    startFreshDatabase: vi.fn(startFreshDatabase),
+    quitApp: vi.fn(),
+    userDataDir: '/profile',
+    openPath: vi.fn(async () => ''),
+    adoOrgUrl: async () => ''
+  })
+
+  test('asks the core host for one fresh start', async () => {
+    const d = deps(() => {})
+    await createSystemHandlers(d).startFreshDatabase()
+    expect(d.startFreshDatabase).toHaveBeenCalledOnce()
+    expect(d.retryCore).not.toHaveBeenCalled()
+  })
+
+  test('a refusal from the host surfaces as an Error', async () => {
+    const d = deps(() => {
+      throw new Error('Starting fresh is only offered when the database stopped the core.')
+    })
+    await expect(createSystemHandlers(d).startFreshDatabase()).rejects.toThrow(
+      /only offered when the database stopped the core/
+    )
+  })
+})
+
 describe('system handlers', () => {
   test('opens an allowlisted https URL through the injected launcher', async () => {
     const openExternal = vi.fn(async () => {})
@@ -208,6 +245,7 @@ describe('system handlers', () => {
       revealInFolder: vi.fn(),
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -224,6 +262,7 @@ describe('system handlers', () => {
       revealInFolder: vi.fn(),
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -242,6 +281,7 @@ describe('system handlers', () => {
       revealInFolder: vi.fn(),
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -267,6 +307,7 @@ describe('system handlers - the Azure DevOps organisation is resolved per call',
       revealInFolder: vi.fn(),
       restartApp: vi.fn(),
       retryCore: vi.fn(),
+      startFreshDatabase: vi.fn(),
       quitApp: vi.fn(),
       userDataDir: '/profile',
       openPath: vi.fn(async () => ''),
@@ -317,6 +358,7 @@ describe('registerSystemHandlers', () => {
     const openExternal = vi.fn(async () => {})
     const restartApp = vi.fn()
     const retryCore = vi.fn()
+    const startFreshDatabase = vi.fn()
     const quitApp = vi.fn()
     registerSystemHandlers(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -326,6 +368,7 @@ describe('registerSystemHandlers', () => {
         revealInFolder: vi.fn(),
         restartApp,
         retryCore,
+        startFreshDatabase,
         quitApp,
         userDataDir: '/profile',
         openPath: vi.fn(async () => ''),
@@ -339,6 +382,7 @@ describe('registerSystemHandlers', () => {
         Channel.systemRevealPath,
         Channel.systemRestartApp,
         Channel.systemRetryCore,
+        Channel.systemStartFreshDatabase,
         Channel.systemQuitApp,
         Channel.systemRevealUserData
       ].sort()
@@ -349,6 +393,8 @@ describe('registerSystemHandlers', () => {
     expect(restartApp).toHaveBeenCalledOnce()
     await registered.get(Channel.systemRetryCore)!({})
     expect(retryCore).toHaveBeenCalledOnce()
+    await registered.get(Channel.systemStartFreshDatabase)!({})
+    expect(startFreshDatabase).toHaveBeenCalledOnce()
     await registered.get(Channel.systemQuitApp)!({})
     expect(quitApp).toHaveBeenCalledOnce()
   })

@@ -4518,8 +4518,10 @@
   color: var(--danger);
   word-break: break-word;
 }
+/* Up to five actions in a 460px card: they wrap rather than run past its edge. */
 .ix-core-failure__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .ix-core-failure__card button {
@@ -4531,6 +4533,10 @@
   color: var(--text);
   font-size: 12.5px;
   cursor: pointer;
+}
+.ix-core-failure__card button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* --- Caught render failure (ErrorBoundary): the core-failure visual language, two reaches --- */

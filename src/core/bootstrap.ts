@@ -17,7 +17,7 @@ import { Channel, parseSessionId, type SessionStatus } from '@common/ipc'
 import { withHttpLogging } from '@common/logging/httpLogging'
 import type { Logger } from '@common/logging/logger'
 import type { TerminationReason } from '@common/domain'
-import { openDatabase } from './db/connection'
+import { closeQuietly, openDatabase, setAsideDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
 import { createAppStateRepo } from './db/appStateRepo'
 import { createSettingsRepo } from './db/settingsRepo'
@@ -142,6 +142,8 @@ export interface CoreRuntimeDeps {
    * part of the app it came from without any call site formatting a tag of its own.
    */
   logger: Logger
+  /** Set the database files aside before opening, so this boot starts on an empty database. */
+  freshDatabase?: boolean
 }
 
 export interface CoreRuntime {
@@ -199,9 +201,29 @@ function safeDefaultProject(env: NodeJS.ProcessEnv, saved: AdoSettings | null): 
 /**
  * Construct every service the core owns and wire the slices into one dispatch table. This
  * is the single composition root: only this function opens the production database, and the
- * returned shutdown is the only thing that closes it.
+ * returned shutdown is the only thing that closes it - unless the boot fails, in which case the
+ * database is closed here before the error propagates.
+ *
+ * With `freshDatabase`, the existing database files are set aside first, so this boot starts on an
+ * empty database. Main asks for it only on the user's explicit "start fresh".
  */
 export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
+  if (deps.freshDatabase) {
+    const moved = setAsideDatabase(deps.userDataDir, new Date())
+    deps.logger.child('lifecycle').info('database set aside', { data: moved })
+  }
+  const db = openDatabase(deps.userDataDir)
+  try {
+    return composeCoreRuntime(deps, db)
+  } catch (err) {
+    // A handle left open would delete the WAL by name once collected, and a set-aside after this
+    // failure would make that the fresh database's WAL.
+    closeQuietly(db)
+    throw err
+  }
+}
+
+function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntime {
   const { userDataDir, execPath, env, emitPush } = deps
   const isE2e = env.INTERSECT_E2E === '1'
 
@@ -224,8 +246,6 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
   // the background (a heavy dotfile must not delay readiness); the ADO client awaits this
   // before its first non-PTY spawn, and PTYs run their own login shell and never depend on it.
   void deps.applyLoginShellPath()
-
-  const db: DatabaseSync = openDatabase(userDataDir)
 
   // The app-managed Claude Code settings that wire each claude session's lifecycle hooks to
   // the bundled hook helper (a sibling script in this output directory). If they cannot be

@@ -91,6 +91,11 @@ export interface SystemHandlerDeps {
   restartApp: () => Promise<void>
   /** Start a fresh core process after automatic recovery gave up (host.retry). */
   retryCore: () => void
+  /**
+   * Start the core once with its database set aside (host.retryWithFreshDatabase). Throws when the
+   * core did not stop on its database, and that refusal must reach the renderer.
+   */
+  startFreshDatabase: () => void
   /** Quit through the coordinated shutdown path (app.quit); injected for tests. */
   quitApp: () => void
   /**
@@ -155,6 +160,10 @@ export function createSystemHandlers(deps: SystemHandlerDeps): SystemHandlers {
       surface(async () => {
         deps.retryCore()
       }),
+    startFreshDatabase: () =>
+      surface(async () => {
+        deps.startFreshDatabase()
+      }),
     quitApp: () =>
       surface(async () => {
         deps.quitApp()
@@ -175,6 +184,7 @@ export function registerSystemHandlers(ipcMain: IpcMain, h: SystemHandlers): voi
   ipcMain.handle(Channel.systemRevealPath, (_e, path: string) => h.revealPath(path))
   ipcMain.handle(Channel.systemRestartApp, () => h.restartApp())
   ipcMain.handle(Channel.systemRetryCore, () => h.retryCore())
+  ipcMain.handle(Channel.systemStartFreshDatabase, () => h.startFreshDatabase())
   ipcMain.handle(Channel.systemQuitApp, () => h.quitApp())
   ipcMain.handle(Channel.systemRevealUserData, () => h.revealUserData())
 }

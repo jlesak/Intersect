@@ -243,7 +243,9 @@ function wireCore(userDataDir: string, logger: Logger): void {
         })
       }
       if (status.state === 'failed') {
-        log?.error('core failed', { data: { message: status.message } })
+        log?.error('core failed', {
+          data: { message: status.message, databaseFailure: status.databaseFailure === true }
+        })
       }
     }
   })
@@ -271,6 +273,10 @@ function wireCore(userDataDir: string, logger: Logger): void {
     revealInFolder: (path) => shell.showItemInFolder(path),
     restartApp: () => confirmAndQuit({ relaunch: true }),
     retryCore: () => host?.retry(),
+    startFreshDatabase: () => {
+      lifecycle.info('start fresh requested: setting the database aside')
+      host!.retryWithFreshDatabase()
+    },
     quitApp: () => app.quit(),
     userDataDir,
     openPath: (path) => shell.openPath(path),
@@ -293,6 +299,7 @@ function wireCore(userDataDir: string, logger: Logger): void {
       [Channel.systemRevealPath]: system.revealPath,
       [Channel.systemRestartApp]: system.restartApp,
       [Channel.systemRetryCore]: system.retryCore,
+      [Channel.systemStartFreshDatabase]: system.startFreshDatabase,
       [Channel.systemQuitApp]: system.quitApp,
       [Channel.systemRevealUserData]: system.revealUserData
     },

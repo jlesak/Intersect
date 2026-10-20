@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,9 @@ import { readListenerSidecar } from './hooks/listenerSidecar'
 import { createLogger } from '@common/logging/logger'
 import { fakeSink, readRecords } from '@common/logging/testSink'
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
+import { bootFailurePayload } from './bootFailure'
+import { DatabaseStartupError, openDatabase } from './db/connection'
+import { CURRENT_VERSION } from './db/migrations'
 
 /** A recording PTY fake: enough surface for the session manager, no native module. */
 function makeFakeSpawn(): { spawn: SpawnFn; procs: FakeProc[]; envs: Record<string, string>[] } {
@@ -67,8 +70,12 @@ describe('createCoreRuntime', () => {
   let runtime: CoreRuntime | null
   let logSink: ReturnType<typeof fakeSink>
 
-  const boot = (env: NodeJS.ProcessEnv = {}): CoreRuntime => {
+  const boot = (
+    env: NodeJS.ProcessEnv = {},
+    opts: { freshDatabase?: boolean } = {}
+  ): CoreRuntime => {
     runtime = createCoreRuntime({
+      ...opts,
       userDataDir: dir,
       execPath: process.execPath,
       env: { INTERSECT_E2E: '1', INTERSECT_HOOK_PORT_RANGE: '18100-18119', ...env },
@@ -692,6 +699,87 @@ describe('createCoreRuntime', () => {
       const badgePushes = pushes.filter((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
       expect(badgePushes).toHaveLength(1)
       expect(badgePushes[0].payload).toEqual({ count: 1 })
+    })
+  })
+
+  describe('a database that fails every boot (#117)', () => {
+    const SET_ASIDE_DB = /^intersect-set-aside-\d{8}-\d{6}\.db$/
+
+    /** What booting throws, so a test can assert on the error itself rather than only its text. */
+    const bootError = (): unknown => {
+      try {
+        boot()
+      } catch (err) {
+        return err
+      }
+      throw new Error('boot was expected to fail')
+    }
+
+    /** The columns of a table in the one set-aside database, proving its content survived. */
+    const setAsideColumns = (table: string): string[] => {
+      const names = readdirSync(dir).filter((n) => SET_ASIDE_DB.test(n))
+      expect(names).toHaveLength(1)
+      const db = new DatabaseSync(join(dir, names[0]))
+      try {
+        return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+          (c) => c.name
+        )
+      } finally {
+        db.close()
+      }
+    }
+
+    test('a failing migration fails every boot alike, and a fresh-database boot sets it aside and serves', async () => {
+      // A table migration 1 is about to create already exists, so migration 1 throws.
+      const seed = new DatabaseSync(join(dir, 'intersect.db'))
+      seed.exec('CREATE TABLE workspaces(x)')
+      seed.close()
+
+      for (let i = 0; i < 2; i++) {
+        const err = bootError()
+        expect(err).toBeInstanceOf(DatabaseStartupError)
+        expect((err as Error).message).toMatch(/migration 1 failed/)
+        expect(bootFailurePayload(err)).toMatchObject({ databaseFailure: true })
+      }
+
+      const rt = boot({}, { freshDatabase: true })
+      const state = (await rt.handleRequest(Channel.workspacesGetState, [])) as {
+        workspaces: unknown[]
+      }
+      expect(state.workspaces).toEqual([])
+      expect(setAsideColumns('workspaces')).toEqual(['x'])
+      expect(readRecords(logSink).find((r) => r.msg === 'database set aside')).toMatchObject({
+        level: 'info'
+      })
+    })
+
+    test('a table damaged after the open fails the boot as a database failure, and a fresh-database boot recovers', async () => {
+      openDatabase(dir).close()
+      const damage = new DatabaseSync(join(dir, 'intersect.db'))
+      damage.exec('PRAGMA foreign_keys = OFF')
+      damage.exec('DROP TABLE tabs')
+      damage.exec('CREATE TABLE tabs(x)')
+      expect(
+        (damage.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+      ).toBe(CURRENT_VERSION)
+      damage.close()
+
+      const err = bootError()
+      expect(err).not.toBeInstanceOf(DatabaseStartupError)
+      expect((err as { code?: string }).code).toBe('ERR_SQLITE_ERROR')
+      expect(bootFailurePayload(err)).toMatchObject({ databaseFailure: true })
+      // The failed boot closed its handle: an open one keeps the WAL companions on disk, and would
+      // delete them by name once collected, after a set-aside the fresh database's own.
+      expect(readdirSync(dir).filter((n) => n.startsWith('intersect.db'))).toEqual([
+        'intersect.db'
+      ])
+
+      const rt = boot({}, { freshDatabase: true })
+      const state = (await rt.handleRequest(Channel.workspacesGetState, [])) as {
+        workspaces: unknown[]
+      }
+      expect(state.workspaces).toEqual([])
+      expect(setAsideColumns('tabs')).toEqual(['x'])
     })
   })
 })

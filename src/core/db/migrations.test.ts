@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
-import { CURRENT_VERSION, runMigrations } from './migrations'
+import { CURRENT_VERSION, MigrationError, runMigrations } from './migrations'
 
 function userVersion(db: DatabaseSync): number {
   return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
@@ -21,6 +21,25 @@ describe('migrations', () => {
       db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
     ).map((r) => r.name)
     expect(names).toEqual(expect.arrayContaining(['workspaces', 'tabs', 'app_state']))
+  })
+
+  test('a failing migration is named in the error, keeps the cause, and leaves the version unchanged', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('CREATE TABLE workspaces(x)')
+
+    let caught: unknown
+    try {
+      runMigrations(db)
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(MigrationError)
+    expect((caught as MigrationError).version).toBe(1)
+    expect((caught as Error).message).toBe(
+      'database migration 1 failed: table workspaces already exists'
+    )
+    expect(((caught as Error).cause as { code?: string }).code).toBe('ERR_SQLITE_ERROR')
+    expect(userVersion(db)).toBe(0)
   })
 
   test('is idempotent - running again does not throw and keeps the version', () => {

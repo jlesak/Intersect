@@ -373,3 +373,151 @@ describe('createCoreHost traffic', () => {
     expect(h.host.status()).toEqual({ state: 'ready' })
   })
 })
+
+describe('createCoreHost database failures', () => {
+  const DB_FAILED = 'database migration 1 failed: table workspaces already exists'
+
+  /** Fail every boot on the database until the crash-loop gate gives up. */
+  function failOnDatabaseUntilGateGivesUp(h: ReturnType<typeof makeHarness>): void {
+    for (let i = 0; i < 4; i++) {
+      h.core().push(CORE_FAILED_PUSH, { message: DB_FAILED, databaseFailure: true })
+      vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    }
+  }
+
+  test('a database failure is carried into the restarting and failed statuses', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+
+    const after = h.statuses.filter((s) => s.state === 'restarting' || s.state === 'failed')
+    expect(after).toHaveLength(4)
+    for (const status of after) expect(status.databaseFailure).toBe(true)
+    expect(h.host.status()).toEqual({
+      state: 'failed',
+      message: `core bootstrap failed: ${DB_FAILED}`,
+      databaseFailure: true
+    })
+  })
+
+  test('an exit or a ready timeout is not a database failure, even after one', () => {
+    vi.useFakeTimers()
+    const h = makeHarness({ readyTimeoutMs: 1_000 })
+    h.host.start()
+    h.core().push(CORE_FAILED_PUSH, { message: DB_FAILED, databaseFailure: true })
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+
+    h.emitExit(9)
+    expect(h.host.status()).toEqual({
+      state: 'restarting',
+      message: 'core process exited unexpectedly (code 9)',
+      attempt: 2
+    })
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    vi.advanceTimersByTime(1_001)
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    vi.advanceTimersByTime(1_001)
+    expect(h.host.status()).toEqual({
+      state: 'failed',
+      message: 'core did not become ready within 1000ms'
+    })
+  })
+
+  test('start fresh forks one attempt with the fresh-database flag, and only that one', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+    expect(h.spawnCount()).toBe(4)
+    for (const fork of h.forks) expect(fork.receivedInit.freshDatabase).toBeUndefined()
+
+    h.host.retryWithFreshDatabase()
+    expect(h.host.status()).toEqual({ state: 'starting' })
+    expect(h.spawnCount()).toBe(5)
+    expect(h.receivedInit()).toEqual({ ...INIT, freshDatabase: true })
+
+    // That attempt fails too; the automatic respawn after it must not set aside again.
+    h.core().push(CORE_FAILED_PUSH, { message: DB_FAILED, databaseFailure: true })
+    expect(h.host.status()).toMatchObject({ state: 'restarting', attempt: 1 })
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    expect(h.spawnCount()).toBe(6)
+    expect(h.receivedInit()).toEqual(INIT)
+  })
+
+  test('start fresh that comes up serves requests', async () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+
+    h.host.retryWithFreshDatabase()
+    h.core().onRequest(async () => 'fresh')
+    h.core().push(CORE_READY_PUSH, null)
+    expect(h.host.status()).toEqual({ state: 'ready' })
+    await expect(h.host.request('todo:list', [])).resolves.toBe('fresh')
+  })
+
+  test('a plain retry never asks for a fresh database', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+
+    h.host.retry()
+    expect(h.receivedInit()).toEqual(INIT)
+  })
+
+  test('start fresh is refused unless the core failed on its database', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+
+    h.core().push(CORE_READY_PUSH, null)
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+
+    h.emitExit(1)
+    expect(h.host.status().state).toBe('restarting')
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+      h.core().push(CORE_FAILED_PUSH, { message: 'terminals broke' })
+    }
+    expect(h.host.status().state).toBe('failed')
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+    expect(h.spawnCount()).toBe(4)
+  })
+
+  test('a failed set-aside stops at failed with its message, with no respawn and no second offer', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+    h.host.retryWithFreshDatabase()
+    const statusesBefore = h.statuses.length
+
+    const message =
+      'could not set the database aside: renaming intersect.db-wal failed (EACCES). Where the files are now: ...'
+    h.core().push(CORE_FAILED_PUSH, { message, setAsideFailed: true })
+
+    expect(h.killed()).toBe(true)
+    expect(h.statuses.slice(statusesBefore)).toEqual([
+      { state: 'failed', message: `core bootstrap failed: ${message}` }
+    ])
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS * 10)
+    expect(h.spawnCount()).toBe(5)
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+  })
+
+  test('a failed set-aside skips the restart gate even with restarts to spare', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    h.core().push(CORE_FAILED_PUSH, { message: 'x', setAsideFailed: true })
+    expect(h.statuses.map((s) => s.state)).toEqual(['starting', 'failed'])
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS * 10)
+    expect(h.spawnCount()).toBe(1)
+  })
+})

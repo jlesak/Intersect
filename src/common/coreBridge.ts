@@ -22,6 +22,7 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<ChannelName> = new Set<ChannelN
   Channel.systemRevealPath,
   Channel.systemRestartApp,
   Channel.systemRetryCore,
+  Channel.systemStartFreshDatabase,
   Channel.systemQuitApp,
   Channel.systemRevealUserData
 ])
@@ -118,6 +119,11 @@ export interface CoreInitMessage {
    * level floor its log records are held to.
    */
   packaged: boolean
+  /**
+   * Set the database aside before opening it, so this one attempt starts on an empty database.
+   * Only the user's explicit "start fresh" sets it; automatic restarts never carry it.
+   */
+  freshDatabase?: boolean
 }
 
 /** Core finished bootstrapping and is serving requests. */
@@ -126,6 +132,13 @@ export const CORE_READY_PUSH = 'core:ready'
 export const CORE_FAILED_PUSH = 'core:failed'
 export interface CoreFailedPayload {
   message: string
+  /** The database itself raised the error, so every boot repeats it until the file changes. */
+  databaseFailure?: boolean
+  /**
+   * Setting the database aside failed. The host stops on it rather than respawning, because a
+   * plain start could open a file set the failed rename left split.
+   */
+  setAsideFailed?: boolean
 }
 
 /** Coordinated shutdown request (main -> core): dispose services, close the DB, then exit. */
