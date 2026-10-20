@@ -21,6 +21,31 @@ export interface WorkspaceHandlerDeps {
   pathDeps: ProjectPathDeps
 }
 
+type WorkspaceRowDeps = Pick<WorkspaceHandlerDeps, 'db' | 'workspaces' | 'tabs' | 'appState'>
+
+/** Delete the workspace row (tabs cascade) and move the selection off it. Call inside a tx. */
+function deleteWorkspaceRow(d: WorkspaceRowDeps, id: string): void {
+  d.workspaces.remove(id)
+  if (d.appState.get(SELECTED_WORKSPACE_KEY) === id) {
+    d.appState.set(SELECTED_WORKSPACE_KEY, d.workspaces.list()[0]?.id ?? null)
+  }
+}
+
+/**
+ * Delete a workspace only while it has no tab, the check and the delete in one transaction:
+ * the delete cascades to tab rows, so a tab opened meanwhile (one whose PTY may be live) keeps
+ * its workspace. Used by a fix worktree's cleanup, which has no session left to kill. True when
+ * the workspace is gone, including when it was already.
+ */
+export function removeWorkspaceIfEmpty(d: WorkspaceRowDeps, id: string): boolean {
+  return tx(d.db, () => {
+    if (!d.workspaces.getById(id)) return true
+    if (d.tabs.listByWorkspace(id).length > 0) return false
+    deleteWorkspaceRow(d, id)
+    return true
+  })
+}
+
 export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['workspaces'] {
   return {
     async getState() {
@@ -47,12 +72,7 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
       // Kill the PTYs by session-id prefix first - independent of the DB rows, which the
       // cascade is about to delete.
       d.sessions.killWorkspace(id)
-      tx(d.db, () => {
-        d.workspaces.remove(id)
-        if (d.appState.get(SELECTED_WORKSPACE_KEY) === id) {
-          d.appState.set(SELECTED_WORKSPACE_KEY, d.workspaces.list()[0]?.id ?? null)
-        }
-      })
+      tx(d.db, () => deleteWorkspaceRow(d, id))
     },
 
     async setLayout(id, layout) {

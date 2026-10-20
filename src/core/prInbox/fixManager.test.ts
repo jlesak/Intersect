@@ -206,6 +206,29 @@ describe('closing the last tab of a fix workspace', () => {
     })
   })
 
+  test('a tab opened and closed again during the wait has its session waited for too', async () => {
+    // The first wait only knows the sessions alive when it began; a tab the user opened and
+    // closed meanwhile has a PTY of its own that may still be exiting.
+    const first = deferred<'exited' | 'timeout'>()
+    const second = deferred<'exited' | 'timeout'>()
+    const whenWorkspaceExited = vi
+      .fn<(workspaceId: string, timeoutMs: number) => Promise<'exited' | 'timeout'>>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockResolvedValue('exited')
+    const { fix, deps, closed } = harness({ sessions: { whenWorkspaceExited } })
+
+    fix.scheduleClose('ws-1', PATH)
+    first.resolve('exited')
+    await tick()
+    await tick()
+    expect(deps.worktrees.removeCleanWorktree).not.toHaveBeenCalled()
+
+    second.resolve('exited')
+    await vi.waitFor(() => expect(closed).toHaveLength(1))
+    expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledTimes(1)
+  })
+
   test('a session still running after the wait is reported busy and nothing is removed', async () => {
     const { fix, deps, closed } = harness({
       sessions: { whenWorkspaceExited: async () => 'timeout' as const }

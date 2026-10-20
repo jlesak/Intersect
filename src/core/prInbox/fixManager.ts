@@ -87,10 +87,14 @@ export function createFixManager(d: FixManagerDeps): FixManager {
 
     // Removing files a killed session is still writing would half-delete the folder, so the
     // removal only starts once the PTY has really gone.
-    const exit = await d.sessions.whenWorkspaceExited(workspaceId, FIX_SESSION_EXIT_TIMEOUT_MS)
-    if (exit === 'timeout') return report('busy', false, null)
-    // A tab opened in the meantime means the user is working there again.
-    if (d.hasOpenTabs(path)) return
+    // Twice: the first wait only knows the sessions alive when it began, so a tab opened and
+    // closed again meanwhile has its own PTY waited for by the second.
+    for (let pass = 0; pass < 2; pass++) {
+      const exit = await d.sessions.whenWorkspaceExited(workspaceId, FIX_SESSION_EXIT_TIMEOUT_MS)
+      if (exit === 'timeout') return report('busy', false, null)
+      // A tab opened in the meantime means the user is working there again.
+      if (d.hasOpenTabs(path)) return
+    }
 
     const result = await d.worktrees.removeCleanWorktree(path)
     if (result.outcome !== 'removed') return report(result.outcome, false, result.detail)

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { IpcApi } from '@common/ipc'
-import { createWorkspaceHandlers } from './workspaces.ipc'
+import { createWorkspaceHandlers, removeWorkspaceIfEmpty } from './workspaces.ipc'
 import { makeHandlerContext, type HandlerContext } from './handlerTestkit'
 
 describe('workspace handlers', () => {
@@ -151,5 +151,53 @@ describe('workspace handlers', () => {
     const reverted = await ws.autoAssignProject(w.id)
     expect(reverted.projectId).toBe(p.id)
     expect(reverted.projectSource).toBe('auto')
+  })
+})
+
+/**
+ * The cleanup after a fix worktree's last tab closed deletes its workspace, but the delete
+ * cascades to tab rows, so a tab opened while git was removing the folder must keep it. The check
+ * and the delete share one transaction, so nothing can land between them.
+ */
+describe('removing a workspace only while it is empty', () => {
+  let ctx: HandlerContext
+  let ws: IpcApi['workspaces']
+
+  beforeEach(() => {
+    ctx = makeHandlerContext()
+    ws = createWorkspaceHandlers({
+      db: ctx.db,
+      workspaces: ctx.workspaces,
+      tabs: ctx.tabs,
+      appState: ctx.appState,
+      sessions: ctx.sessions,
+      pickFolder: async () => null,
+      projects: ctx.projects,
+      pathDeps: ctx.pathDeps
+    })
+  })
+
+  test('a workspace with a tab is kept, tab and all', async () => {
+    const fix = await ws.create('/fix/x-pr1')
+    const tab = ctx.tabs.create(fix.id, 'claude')
+
+    expect(removeWorkspaceIfEmpty(ctx, fix.id)).toBe(false)
+
+    expect(ctx.workspaces.getById(fix.id)).toBeDefined()
+    expect(ctx.tabs.getById(tab.id)).toBeDefined()
+  })
+
+  test('an empty workspace is deleted and the selection moves off it', async () => {
+    const other = await ws.create('/repo')
+    const fix = await ws.create('/fix/x-pr1')
+
+    expect(removeWorkspaceIfEmpty(ctx, fix.id)).toBe(true)
+
+    expect(ctx.workspaces.getById(fix.id)).toBeUndefined()
+    expect((await ws.getState()).selectedWorkspaceId).toBe(other.id)
+  })
+
+  test('a workspace already gone counts as removed', () => {
+    expect(removeWorkspaceIfEmpty(ctx, 'no-such-workspace')).toBe(true)
   })
 })

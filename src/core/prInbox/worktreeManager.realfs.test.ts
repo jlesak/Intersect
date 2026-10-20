@@ -284,6 +284,21 @@ describe('fix worktrees on the pull request branch', () => {
     expect(await listed()).toContain('pr-fix-worktrees')
   })
 
+  test('untracked files keep the worktree even when the clone hides untracked files', async () => {
+    // Common in large repositories; git's own clean check in `worktree remove` obeys it too.
+    await git(repoDir, ['config', 'status.showUntrackedFiles', 'no'])
+    const worktrees = createWorktreeManager(userDataDir)
+    await create(worktrees)
+    await mkdir(join(fixPath, 'new'), { recursive: true })
+    await writeFile(join(fixPath, 'new', 'untracked.txt'), 'never added\n')
+
+    await expect(worktrees.removeCleanWorktree(fixPath)).resolves.toMatchObject({
+      outcome: 'dirty'
+    })
+
+    expect(existsSync(join(fixPath, 'new', 'untracked.txt'))).toBe(true)
+  })
+
   test('a folder that is not a worktree fails with git’s reason, never as dirty', async () => {
     const worktrees = createWorktreeManager(userDataDir)
     const plain = join(root, 'plain')

@@ -282,7 +282,14 @@ export function createWorktreeManager(
     }
 
     try {
-      const status = await git(path, ['status', '--porcelain'])
+      // Spelled out rather than left to config: with `status.showUntrackedFiles=no` a plain
+      // status (and git's own clean check in `worktree remove`) reports untracked work as clean.
+      const status = await git(path, [
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--ignore-submodules=none'
+      ])
       if (status) return { outcome: 'dirty', detail: status }
     } catch (err) {
       return { outcome: 'failed', detail: gitMessage(err) }

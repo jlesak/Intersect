@@ -19,7 +19,7 @@ import type { Logger } from '@common/logging/logger'
 import type { TerminationReason } from '@common/domain'
 import { closeQuietly, openDatabase, setAsideDatabase } from './db/connection'
 import { defaultRepoDeps } from './db/deps'
-import { createAppStateRepo, SELECTED_WORKSPACE_KEY } from './db/appStateRepo'
+import { createAppStateRepo } from './db/appStateRepo'
 import { createSettingsRepo } from './db/settingsRepo'
 import { createTabRepo } from './db/tabRepo'
 import { createWorkspaceRepo } from './db/workspaceRepo'
@@ -62,7 +62,11 @@ import { createUsageConsentStore } from './usage/usageConsent'
 import { createUsageHandlers, usageWireRoutes } from './api/usage.ipc'
 import { createSessionNotifier } from './sessionNotifier'
 import { createNotifyGate } from './notifyGate'
-import { createWorkspaceHandlers, workspacesWireRoutes } from './api/workspaces.ipc'
+import {
+  createWorkspaceHandlers,
+  removeWorkspaceIfEmpty,
+  workspacesWireRoutes
+} from './api/workspaces.ipc'
 import { createTabHandlers, tabsWireRoutes } from './api/tabs.ipc'
 import {
   createTerminalHandlers,
@@ -616,17 +620,9 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     workspaceFolders: allWorkspaceFolders,
     hasOpenTabs: (path) => tabsOn(path) > 0,
     // Re-checked inside the transaction: a tab opened while git was removing the folder keeps
-    // its workspace. A workspace already gone counts as removed.
+    // its workspace.
     removeWorkspaceIfEmpty: (workspaceId) =>
-      tx(db, () => {
-        if (!workspaces.getById(workspaceId)) return true
-        if (tabs.listByWorkspace(workspaceId).length > 0) return false
-        workspaces.remove(workspaceId)
-        if (appState.get(SELECTED_WORKSPACE_KEY) === workspaceId) {
-          appState.set(SELECTED_WORKSPACE_KEY, workspaces.list()[0]?.id ?? null)
-        }
-        return true
-      }),
+      removeWorkspaceIfEmpty({ db, workspaces, tabs, appState }, workspaceId),
     onClosed: (event) => emitPush(Channel.prInboxFixWorktreeClosed, event),
     logger: adoLog
   })

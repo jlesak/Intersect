@@ -15,6 +15,7 @@ import { createCoreRuntime, type CoreRuntime } from './bootstrap'
 import { bootFailurePayload } from './bootFailure'
 import { DatabaseStartupError, openDatabase } from './db/connection'
 import { CURRENT_VERSION } from './db/migrations'
+import { git } from './prInbox/git'
 
 /** A recording PTY fake: enough surface for the session manager, no native module. */
 function makeFakeSpawn(): { spawn: SpawnFn; procs: FakeProc[]; envs: Record<string, string>[] } {
@@ -243,6 +244,99 @@ describe('createCoreRuntime', () => {
     const badgePush = pushes.find((p) => p.channel === NATIVE_DOCK_BADGE_PUSH)
     expect(statusPush?.payload).toMatchObject({ sessionId })
     expect(badgePush?.payload).toEqual({ count: 1 })
+  })
+
+  describe('fixing my pull request’s review comments', () => {
+    /** Open a tab in a new workspace on the folder and start its terminal; answers the session. */
+    const openTab = async (
+      rt: CoreRuntime,
+      folder: string,
+      preset: 'claude' | 'shell',
+      resumeSessionId: string | null = null
+    ): Promise<{ workspaceId: string; tabId: string; sessionId: string }> => {
+      const ws = (await rt.handleRequest(Channel.workspacesCreate, [folder])) as { id: string }
+      const tab = (await rt.handleRequest(Channel.tabsCreate, [
+        ws.id,
+        preset,
+        0,
+        resumeSessionId
+      ])) as { id: string }
+      const sessionId = `${ws.id}:${tab.id}`
+      await rt.handleRequest(Channel.terminalSpawn, [
+        sessionId,
+        preset,
+        folder,
+        80,
+        24,
+        resumeSessionId
+      ])
+      return { workspaceId: ws.id, tabId: tab.id, sessionId }
+    }
+
+    /** The command the session manager typed into the shell of the latest PTY. */
+    const typedCommand = (): string => {
+      const proc = fake.procs[fake.procs.length - 1]
+      proc.emitData('$ ')
+      return proc.calls.find((c) => c.startsWith('write:'))?.slice('write:'.length) ?? ''
+    }
+
+    test('a resumed Claude tab in a fix worktree keeps the scrub and standard permissions', async () => {
+      vi.stubEnv('GITHUB_TOKEN', 'gh-secret')
+      try {
+        const rt = boot()
+        // Missing on purpose: the PTY then starts in the home folder, and the guard must still hold.
+        const fixFolder = join(dir, 'pr-fix-worktrees', 'intersect-app-pr501')
+        await openTab(rt, fixFolder, 'claude', 'sess-42')
+
+        const command = typedCommand()
+        expect(command).toMatch(/^for _iv in /)
+        expect(command).toContain("--resume 'sess-42'")
+        expect(command).toContain('--permission-mode default')
+        expect(command).not.toContain('INTERSECT_FIX_PROMPT')
+        expect(fake.envs[0].GITHUB_TOKEN).toBeUndefined()
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    test('a Claude tab anywhere else starts as the user configured it', async () => {
+      const rt = boot()
+      await openTab(rt, dir, 'claude')
+
+      const command = typedCommand()
+      expect(command).not.toContain('--permission-mode')
+      expect(command).not.toMatch(/^for _iv in /)
+    })
+
+    test('closing the last tab removes a clean worktree and its workspace once the PTY exited', async () => {
+      const repo = join(dir, 'clone')
+      const fixFolder = join(dir, 'pr-fix-worktrees', 'intersect-app-pr501')
+      const ident = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com']
+      await git(dir, ['init', '--quiet', '--initial-branch=main', repo])
+      await git(repo, [...ident, 'commit', '--quiet', '--allow-empty', '-m', 'init'])
+      await git(repo, ['worktree', 'add', '--quiet', '-b', 'feature/x', fixFolder])
+      const rt = boot()
+      const { workspaceId, tabId } = await openTab(rt, fixFolder, 'shell')
+
+      await rt.handleRequest(Channel.tabsRemove, [tabId])
+
+      // Killed but not yet exited: nothing may be deleted while the session could still write.
+      await new Promise((r) => setTimeout(r, 50))
+      const closed = (): unknown[] =>
+        pushes.filter((p) => p.channel === Channel.prInboxFixWorktreeClosed).map((p) => p.payload)
+      expect(closed()).toEqual([])
+      expect(existsSync(fixFolder)).toBe(true)
+
+      fake.procs[0].emitExit(0)
+
+      await vi.waitFor(() => expect(closed()).toHaveLength(1), { timeout: 10_000 })
+      expect(closed()[0]).toMatchObject({ workspaceId, outcome: 'removed', workspaceRemoved: true })
+      expect(existsSync(fixFolder)).toBe(false)
+      const state = (await rt.handleRequest(Channel.workspacesGetState, [])) as {
+        workspaces: { id: string }[]
+      }
+      expect(state.workspaces.map((w) => w.id)).not.toContain(workspaceId)
+    })
   })
 
   describe('my work direct sync', () => {
