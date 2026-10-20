@@ -61,6 +61,8 @@ export function createFixManager(d: FixManagerDeps): FixManager {
   const starting = new Set<string>()
   // The cleanup running for each folder, so a start waits for it instead of racing the removal.
   const closing = new Map<string, Promise<void>>()
+  // The cleanup of each folder that is still waiting for sessions to exit, not yet removing.
+  const waiting = new Map<string, { workspaceId: string; again: boolean }>()
 
   async function prepare(pr: PullRequest): Promise<PrFixLaunch> {
     const threads = selectFixThreads(pr, await d.ado.getThreads(pr.repositoryId, pr.prId))
@@ -86,14 +88,22 @@ export function createFixManager(d: FixManagerDeps): FixManager {
     ): void => d.onClosed({ workspaceId, path, outcome, workspaceRemoved, detail })
 
     // Removing files a killed session is still writing would half-delete the folder, so the
-    // removal only starts once the PTY has really gone.
-    // Twice: the first wait only knows the sessions alive when it began, so a tab opened and
-    // closed again meanwhile has its own PTY waited for by the second.
-    for (let pass = 0; pass < 2; pass++) {
-      const exit = await d.sessions.whenWorkspaceExited(workspaceId, FIX_SESSION_EXIT_TIMEOUT_MS)
-      if (exit === 'timeout') return report('busy', false, null)
-      // A tab opened in the meantime means the user is working there again.
-      if (d.hasOpenTabs(path)) return
+    // removal only starts once the PTY has really gone. At least twice: a wait only knows the
+    // sessions alive when it began, so a tab opened and closed again meanwhile has its own PTY
+    // waited for by the next one. A close of the same workspace arriving while this run still
+    // waits is folded in as one more wait instead of a second cleanup queued behind this one.
+    const phase = { workspaceId, again: false }
+    waiting.set(path, phase)
+    try {
+      for (let pass = 0; pass < 2 || phase.again; pass++) {
+        phase.again = false
+        const exit = await d.sessions.whenWorkspaceExited(workspaceId, FIX_SESSION_EXIT_TIMEOUT_MS)
+        if (exit === 'timeout') return report('busy', false, null)
+        // A tab opened in the meantime means the user is working there again.
+        if (d.hasOpenTabs(path)) return
+      }
+    } finally {
+      waiting.delete(path)
     }
 
     const result = await d.worktrees.removeCleanWorktree(path)
@@ -129,6 +139,11 @@ export function createFixManager(d: FixManagerDeps): FixManager {
     scheduleClose(workspaceId, folderPath) {
       if (!isFixFolder(folderPath)) return
       const path = canonicalizePath(folderPath)
+      const waitingRun = waiting.get(path)
+      if (waitingRun?.workspaceId === workspaceId) {
+        waitingRun.again = true
+        return
+      }
       const previous = closing.get(path) ?? Promise.resolve()
       const run = previous
         .then(() => close(workspaceId, path))

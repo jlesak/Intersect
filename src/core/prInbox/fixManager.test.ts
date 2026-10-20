@@ -229,6 +229,31 @@ describe('closing the last tab of a fix workspace', () => {
     expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledTimes(1)
   })
 
+  test('closing again while the first close still waits removes once and reports once', async () => {
+    // The real flow: the last tab closes, the user opens another tab and closes it before the
+    // first session has exited, so the workspace empties a second time. A queued second cleanup
+    // would find the folder already gone and claim it could not be removed.
+    const first = deferred<'exited' | 'timeout'>()
+    const whenWorkspaceExited = vi
+      .fn<(workspaceId: string, timeoutMs: number) => Promise<'exited' | 'timeout'>>()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue('exited')
+    const { fix, deps, closed } = harness({ sessions: { whenWorkspaceExited } })
+
+    fix.scheduleClose('ws-1', PATH)
+    await tick()
+    fix.scheduleClose('ws-1', PATH)
+    first.resolve('exited')
+
+    await vi.waitFor(() => expect(closed).toHaveLength(1))
+    await tick()
+    await tick()
+    expect(closed).toEqual([
+      { workspaceId: 'ws-1', path: PATH, outcome: 'removed', workspaceRemoved: true, detail: null }
+    ])
+    expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledTimes(1)
+  })
+
   test('a session still running after the wait is reported busy and nothing is removed', async () => {
     const { fix, deps, closed } = harness({
       sessions: { whenWorkspaceExited: async () => 'timeout' as const }

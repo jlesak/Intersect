@@ -30,6 +30,7 @@ interface Fixture {
   cloneDir: string
   binDir: string
   argsLog: string
+  spawnsLog: string
 }
 
 const git = (cwd: string, args: string[]): string =>
@@ -61,21 +62,43 @@ function makeFixture(): Fixture {
 
   const binDir = join(root, 'bin')
   const argsLog = join(root, 'claude-args.log')
+  const spawnsLog = join(root, 'claude-spawns.log')
   mkdirSync(binDir)
   const fake = join(binDir, 'claude')
   // Every argument goes to the log whole; the terminal gets a one-line marker per argument, so the
-  // flags stay on screen however long the first message is.
+  // flags stay on screen however long the first message is. Each start also records where it ran,
+  // for which tab, and the first line of its last argument (the first message, when there is one).
   writeFileSync(
     fake,
     [
       '#!/bin/sh',
       `for arg in "$@"; do printf '%s\\n' "$arg" >> '${argsLog}'; done`,
+      'last=""; for arg in "$@"; do last="$arg"; done',
+      `printf '%s\\t%s\\t%s\\n' "$(pwd -P)" "$INTERSECT_INSTANCE_ID" "$(printf '%s\\n' "$last" | head -n 1)" >> '${spawnsLog}'`,
       `for arg in "$@"; do printf 'FAKE-CLAUDE %s\\n' "$arg" | head -n 1; done`,
       ''
     ].join('\n')
   )
   chmodSync(fake, 0o755)
-  return { cloneDir, binDir, argsLog }
+  return { cloneDir, binDir, argsLog, spawnsLog }
+}
+
+interface ClaudeStart {
+  cwd: string
+  instanceId: string
+  lastArgFirstLine: string
+}
+
+/** Every start of the Claude stand-in so far, in order. */
+function claudeStarts(fixture: Fixture): ClaudeStart[] {
+  if (!existsSync(fixture.spawnsLog)) return []
+  return readFileSync(fixture.spawnsLog, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [cwd = '', instanceId = '', lastArgFirstLine = ''] = line.split('\t')
+      return { cwd, instanceId, lastArgFirstLine }
+    })
 }
 
 async function launchWithClone(
@@ -193,4 +216,37 @@ test('a worktree with untracked files is kept on close, and the toast says why',
   await expect(kept).toContainText(fixPath)
   expect(existsSync(join(fixPath, 'notes.txt'))).toBe(true)
   await expect(win.locator('.ix-ws__name', { hasText: 'intersect-app-pr501' })).toHaveCount(1)
+})
+
+/**
+ * The everyday path: a Claude tab is already open in the clone when the fix starts. Switching to
+ * the new workspace once started a stray Claude in the worktree under the clone tab's id; it took
+ * the first message, and the session nobody owned kept the worktree from ever being removed.
+ */
+test('starting the fix from a workspace with an open Claude tab starts exactly one Claude', async () => {
+  const fixture = makeFixture()
+  const { win, profileDir } = await launchWithClone(fixture)
+  const fixPath = fixPathOf(profileDir)
+  await win.locator('.ix-iconbtn[title="New terminal"]').click()
+  await win.locator('.ix-preset', { hasText: 'Claude Code' }).click()
+  await expect.poll(() => claudeStarts(fixture).map((s) => s.cwd)).toEqual([
+    realpathSync(fixture.cloneDir)
+  ])
+  await openRailSection(win, 'PR Review', '.ix-board-head')
+  await win.getByTestId('pr-sync').click()
+
+  await startFix(win, fixture)
+
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  const fixTabId = await win.locator('.ix-tab').getAttribute('data-tab-id')
+  const inWorktree = claudeStarts(fixture).filter((s) => s.cwd === fixPath)
+  expect(inWorktree).toHaveLength(1)
+  // The one Claude in the worktree is the visible tab's, and it got the comment list.
+  expect(inWorktree[0].instanceId.endsWith(`:${fixTabId}`)).toBe(true)
+  expect(inWorktree[0].lastArgFirstLine).toContain('pull request !501')
+
+  await win.locator('.ix-tab__close').click()
+  await expect(win.locator('.ix-tab')).toHaveCount(0)
+  await expect.poll(() => existsSync(fixPath), { timeout: 20_000 }).toBe(false)
+  await expect(win.locator('.ix-ws__name', { hasText: 'intersect-app-pr501' })).toHaveCount(0)
 })

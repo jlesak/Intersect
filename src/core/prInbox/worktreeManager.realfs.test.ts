@@ -299,6 +299,38 @@ describe('fix worktrees on the pull request branch', () => {
     expect(existsSync(join(fixPath, 'new', 'untracked.txt'))).toBe(true)
   })
 
+  test('a worktree git will not remove without force is kept, never forced', async () => {
+    // A clean worktree holding a submodule: plain `worktree remove` refuses it, `--force` would
+    // delete it, submodule checkout and all.
+    const worktrees = createWorktreeManager(userDataDir)
+    await create(worktrees)
+    const allowFile = ['-c', 'protocol.file.allow=always']
+    await git(fixPath, [...allowFile, 'submodule', '--quiet', 'add', seedDir, 'vendored'])
+    await git(fixPath, ['commit', '--quiet', '-m', 'add submodule'])
+
+    const result = await worktrees.removeCleanWorktree(fixPath)
+
+    expect(result.outcome).toBe('failed')
+    expect(existsSync(join(fixPath, 'vendored', 'file.txt'))).toBe(true)
+    expect(await listed()).toContain('pr-fix-worktrees')
+  })
+
+  test('a folder inside a worktree is refused as not a worktree, whatever the worktree holds', async () => {
+    const worktrees = createWorktreeManager(userDataDir)
+    await create(worktrees)
+    await mkdir(join(fixPath, 'src'))
+    await writeFile(join(fixPath, 'src', 'a.txt'), 'a\n')
+    await git(fixPath, ['add', '.'])
+    await git(fixPath, ['commit', '--quiet', '-m', 'src'])
+    // The enclosing worktree is dirty, so reading its status would answer "dirty".
+    await writeFile(join(fixPath, 'feature.txt'), 'edited\n')
+
+    const result = await worktrees.removeCleanWorktree(join(fixPath, 'src'))
+
+    expect(result.outcome).toBe('failed')
+    expect(existsSync(join(fixPath, 'src', 'a.txt'))).toBe(true)
+  })
+
   test('a folder that is not a worktree fails with git’s reason, never as dirty', async () => {
     const worktrees = createWorktreeManager(userDataDir)
     const plain = join(root, 'plain')

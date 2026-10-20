@@ -308,6 +308,26 @@ describe('createCoreRuntime', () => {
       expect(command).not.toMatch(/^for _iv in /)
     })
 
+    test('a fix worktree is never taken for the clone a review works from', async () => {
+      // Its origin names the very repository the pull request lives in, so only the filter on
+      // fix folders keeps a review from checking out its worktree from inside it.
+      const origin = join(dir, 'intersect-app.git')
+      const repo = join(dir, 'clone')
+      const fixFolder = join(dir, 'pr-fix-worktrees', 'intersect-app-pr501')
+      const ident = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com']
+      await git(dir, ['init', '--quiet', '--bare', origin])
+      await git(dir, ['clone', '--quiet', origin, repo])
+      await git(repo, [...ident, 'commit', '--quiet', '--allow-empty', '-m', 'init'])
+      await git(repo, ['worktree', 'add', '--quiet', '-b', 'feature/x', fixFolder])
+      const rt = boot({ INTERSECT_E2E_ADO: 'radar' })
+      await rt.handleRequest(Channel.workspacesCreate, [fixFolder])
+      await rt.handleRequest(Channel.prInboxSync, [])
+
+      await expect(rt.handleRequest(Channel.prInboxStartReview, ['e2e-repo', 502])).rejects.toThrow(
+        /No local clone found for repository "intersect-app"/
+      )
+    })
+
     test('closing the last tab removes a clean worktree and its workspace once the PTY exited', async () => {
       const repo = join(dir, 'clone')
       const fixFolder = join(dir, 'pr-fix-worktrees', 'intersect-app-pr501')
