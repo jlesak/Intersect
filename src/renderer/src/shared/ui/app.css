@@ -5049,6 +5049,12 @@
   min-width: 520px;
   max-width: 78vw;
 }
+/* The diff needs more room than a dialog's 420px, and a dialog body scrolls, so content wider than
+   the panel would hide behind a horizontal scrollbar. The panel grows to the content instead: a
+   save must never be confirmed with part of the proposed change out of sight. */
+.ix-dialog:has(> .ix-dialog__body > .ix-at-confirm) {
+  width: min-content;
+}
 .ix-at-confirm__meta {
   display: flex;
   flex-direction: column;
