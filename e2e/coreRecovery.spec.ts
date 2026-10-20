@@ -37,6 +37,12 @@ async function stubOpenPath(app: ElectronApplication): Promise<() => Promise<str
 test('a failing migration offers reveal and start fresh, and starting fresh brings the app up', async () => {
   const profile = profileWithFailingMigration()
   const { app, win } = await launch(profile, { expectCoreFailure: true })
+  // The app's minimum window size. The card and its confirmation are the only way out, so they
+  // must work in the smallest window the user can have, not just in the roomy default one.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(940, 600))
+  await expect
+    .poll(() => win.evaluate(() => [window.innerWidth, window.innerHeight <= 600]))
+    .toEqual([940, true])
 
   const card = win.locator('.ix-core-failure')
   const headline = card.getByRole('heading', { name: 'Intersect could not open its database' })
@@ -64,7 +70,17 @@ test('a failing migration offers reveal and start fresh, and starting fresh brin
   ])
 
   await card.getByRole('button', { name: 'Set database aside and start fresh' }).click()
-  await win.getByRole('dialog').getByRole('button', { name: 'Set aside and start fresh' }).click()
+  // The whole confirmation sits inside the window: its title readable, its confirm button
+  // reachable without the user having to think of enlarging the window.
+  const dialog = win.getByRole('dialog')
+  const confirm = dialog.getByRole('button', { name: 'Set aside and start fresh' })
+  const viewportHeight = await win.evaluate(() => window.innerHeight)
+  const dialogBox = (await dialog.boundingBox())!
+  const confirmBox = (await confirm.boundingBox())!
+  expect(dialogBox.y).toBeGreaterThanOrEqual(0)
+  expect(dialogBox.y + dialogBox.height).toBeLessThanOrEqual(viewportHeight)
+  expect(confirmBox.y + confirmBox.height).toBeLessThanOrEqual(viewportHeight)
+  await confirm.click()
   await expect(card).toHaveCount(0, { timeout: 20_000 })
   await assertCoreHealthy(win)
 

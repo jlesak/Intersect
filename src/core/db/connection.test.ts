@@ -173,6 +173,11 @@ describe('setAsideDatabase', () => {
     ])
     expect(readdirSync(dir).sort()).toEqual([...SOURCES].sort())
     for (const name of SOURCES) expect(content(dir, name)).toBe(name)
+    // The card tells the user where each file is; after a clean rollback that is home, for all.
+    expect(err.message).toContain(
+      'Where the files are now: intersect.db is under its own name; ' +
+        'intersect.db-wal is under its own name; intersect.db-shm is under its own name.'
+    )
   })
 
   test('a failed shared-memory rename moves both earlier files back, latest first', () => {
@@ -188,6 +193,22 @@ describe('setAsideDatabase', () => {
       `${STAMP}.db>intersect.db`
     ])
     expect(readdirSync(dir).sort()).toEqual([...SOURCES].sort())
+    expect(err.message).toContain(
+      'Where the files are now: intersect.db is under its own name; ' +
+        'intersect.db-wal is under its own name; intersect.db-shm is under its own name.'
+    )
+  })
+
+  test('a failed rename with a companion missing reports that file as absent', () => {
+    const dir = profile(['intersect.db', 'intersect.db-wal'])
+    const fs = recordingFs({ [`intersect.db-wal>${STAMP}.db-wal`]: 'EACCES' })
+
+    const err = thrown(() => setAsideDatabase(dir, NOW, fs))
+
+    expect(err.message).toContain(
+      'Where the files are now: intersect.db is under its own name; ' +
+        'intersect.db-wal is under its own name; intersect.db-shm does not exist.'
+    )
   })
 
   test('a failed move back stops the rollback, so the database never returns without its WAL', () => {

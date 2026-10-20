@@ -71,7 +71,14 @@ function makeHarness(opts: { readyTimeoutMs?: number } = {}): {
   const host = createCoreHost({
     spawnCore: (init) => {
       const { portA, portB } = makePortPair()
-      const fork: Fork = { core: new PortRpc(portB), killed: false, exitCb: null, receivedInit: init }
+      // A snapshot, not the object itself: a host that mutated its init in place would otherwise
+      // rewrite what every earlier fork appears to have received.
+      const fork: Fork = {
+        core: new PortRpc(portB),
+        killed: false,
+        exitCb: null,
+        receivedInit: { ...init }
+      }
       forks.push(fork)
       const spawned: SpawnedCore = {
         port: portA,
@@ -84,7 +91,8 @@ function makeHarness(opts: { readyTimeoutMs?: number } = {}): {
       }
       return spawned
     },
-    init: INIT,
+    // A copy, so a host that mutated its init could not also mutate the INIT tests compare with.
+    init: { ...INIT },
     onStatus: (s) => statuses.push(s),
     readyTimeoutMs: opts.readyTimeoutMs
   })
@@ -468,6 +476,22 @@ describe('createCoreHost database failures', () => {
     expect(h.receivedInit()).toEqual(INIT)
   })
 
+  test('start fresh leaves no flag behind for later restarts, retries or forks', () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.host.start()
+    failOnDatabaseUntilGateGivesUp(h)
+    h.host.retryWithFreshDatabase()
+
+    // Comes up, then crashes later: the automatic restart opens the database as it is.
+    h.core().push(CORE_READY_PUSH, null)
+    h.emitExit(1)
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    expect(h.spawnCount()).toBe(6)
+    expect(h.receivedInit()).toEqual(INIT)
+    expect(h.forks.slice(0, 4).map((f) => f.receivedInit)).toEqual(Array(4).fill(INIT))
+  })
+
   test('start fresh is refused unless the core failed on its database', () => {
     vi.useFakeTimers()
     const h = makeHarness()
@@ -481,7 +505,15 @@ describe('createCoreHost database failures', () => {
     expect(h.host.status().state).toBe('restarting')
     expect(() => h.host.retryWithFreshDatabase()).toThrow()
 
-    for (let i = 0; i < 3; i++) {
+    // Restarting on a database failure carries the flag, but a respawn is already pending: a
+    // fresh start now would fork a second core beside it.
+    vi.advanceTimersByTime(RESPAWN_DELAY_MS)
+    h.core().push(CORE_FAILED_PUSH, { message: DB_FAILED, databaseFailure: true })
+    expect(h.host.status()).toMatchObject({ state: 'restarting', databaseFailure: true })
+    expect(() => h.host.retryWithFreshDatabase()).toThrow()
+    expect(h.spawnCount()).toBe(2)
+
+    for (let i = 0; i < 2; i++) {
       vi.advanceTimersByTime(RESPAWN_DELAY_MS)
       h.core().push(CORE_FAILED_PUSH, { message: 'terminals broke' })
     }
