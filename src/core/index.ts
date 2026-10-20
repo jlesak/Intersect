@@ -3,10 +3,10 @@ import {
   CORE_FAILED_PUSH,
   CORE_READY_PUSH,
   CORE_SHUTDOWN_CHANNEL,
-  type CoreFailedPayload,
   type CoreInitMessage
 } from '@common/coreBridge'
 import { createCoreRuntime, type CoreRuntime } from './bootstrap'
+import { bootFailurePayload } from './bootFailure'
 import { ensureSpawnHelperExecutable, nodePtySpawn } from './pty/nodePtySpawn'
 import { applyLoginShellPath } from './loginShellPath'
 import { createCoreLogger, installCoreGlobalHandlers } from './logging'
@@ -75,17 +75,15 @@ parentPort.on('message', (event) => {
       spawn: nodePtySpawn,
       ensureSpawnHelper: ensureSpawnHelperExecutable,
       applyLoginShellPath,
-      logger
+      logger,
+      freshDatabase: message.freshDatabase === true
     })
     rpc.push(CORE_READY_PUSH, null)
     logger.info('core ready')
   } catch (err) {
     logger.error('core bootstrap failed', { err })
     // Stay alive so the failure push reaches main; main owns the decision to kill us.
-    const payload: CoreFailedPayload = {
-      message: err instanceof Error ? err.message : String(err)
-    }
-    rpc.push(CORE_FAILED_PUSH, payload)
+    rpc.push(CORE_FAILED_PUSH, bootFailurePayload(err))
   }
 })
 parentPort.start?.()

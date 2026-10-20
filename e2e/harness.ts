@@ -125,6 +125,11 @@ export interface LaunchOptions {
    * terminals and workspaces live under Other.
    */
   openOther?: boolean
+  /**
+   * The spec seeds a profile the core cannot start on and drives the failure card itself, so the
+   * launch must not refuse on the overlay. Off by default: everywhere else the overlay is a failure.
+   */
+  expectCoreFailure?: boolean
 }
 
 /**
@@ -167,7 +172,7 @@ export async function launch(
   })
   win.on('pageerror', (e) => errors.push(e.message))
   await win.waitForSelector('.ix-wordmark__name')
-  await assertCoreHealthy(win)
+  if (!opts.expectCoreFailure) await assertCoreHealthy(win)
   if (opts.openOther) await win.locator('.ix-rail__btn--other').click()
   return { app, win, errors }
 }

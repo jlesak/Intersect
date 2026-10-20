@@ -40,6 +40,11 @@ export interface CoreHost {
   onPush(handler: (channel: string, payload: unknown) => void): () => void
   /** Manual recovery from the failed state: reset the crash-loop gate and fork afresh. */
   retry(): void
+  /**
+   * Like `retry`, but this one attempt sets the database aside before opening it. Throws unless the
+   * host is failed on a database failure: anywhere else it would throw data away for nothing.
+   */
+  retryWithFreshDatabase(): void
   /** Coordinated teardown: ask the core to shut down, then reap the process. */
   shutdown(timeoutMs?: number): Promise<void>
 }
@@ -102,8 +107,16 @@ export function createCoreHost(deps: CoreHostDeps): CoreHost {
    * The current attempt died (process exit, bootstrap-failed push, or ready timeout): reject
    * everything waiting on it, then either schedule an automatic respawn or - once the
    * crash-loop gate is exhausted - settle into the failed state awaiting manual recovery.
+   *
+   * `databaseFailure` rides along into the status so the card can offer the way out. `terminal`
+   * skips the gate and settles straight into failed: a failed set-aside may have left the file set
+   * split, and only the user, having read where each file is, may start the core again.
    */
-  const crash = (message: string, att: Attempt): void => {
+  const crash = (
+    message: string,
+    att: Attempt,
+    opts: { databaseFailure?: boolean; terminal?: boolean } = {}
+  ): void => {
     if (att !== attempt || shuttingDown) return
     clearReadyTimer(att)
     attempt = null
@@ -111,21 +124,27 @@ export function createCoreHost(deps: CoreHostDeps): CoreHost {
     readinessReject?.(err)
     att.rpc.dispose(err)
 
+    const flag = opts.databaseFailure ? { databaseFailure: true } : {}
+    if (opts.terminal) {
+      setStatus({ state: 'failed', message })
+      return
+    }
     const now = Date.now()
     restartTimes = restartTimes.filter((t) => now - t < RESTART_WINDOW_MS)
     if (restartTimes.length < MAX_RESTARTS_PER_WINDOW) {
       restartTimes.push(now)
       newReadiness()
-      setStatus({ state: 'restarting', message, attempt: restartTimes.length })
-      respawnTimer = setTimeout(spawnAttempt, RESPAWN_DELAY_MS)
+      setStatus({ state: 'restarting', message, attempt: restartTimes.length, ...flag })
+      respawnTimer = setTimeout(() => spawnAttempt(), RESPAWN_DELAY_MS)
     } else {
-      setStatus({ state: 'failed', message })
+      setStatus({ state: 'failed', message, ...flag })
     }
   }
 
-  const spawnAttempt = (): void => {
+  /** Fork one attempt. Only a manual start-fresh passes an init override; respawns never do. */
+  const spawnAttempt = (init: CoreInitMessage = deps.init): void => {
     respawnTimer = null
-    const spawned = deps.spawnCore(deps.init)
+    const spawned = deps.spawnCore(init)
     const rpc = new PortRpc(spawned.port)
     const att: Attempt = { spawned, rpc, readyTimer: null }
     attempt = att
@@ -140,9 +159,13 @@ export function createCoreHost(deps: CoreHostDeps): CoreHost {
         return
       }
       if (channel === CORE_FAILED_PUSH) {
-        const message = (payload as CoreFailedPayload | null)?.message ?? 'unknown core failure'
+        const failure = payload as CoreFailedPayload | null
+        const message = failure?.message ?? 'unknown core failure'
         att.spawned.kill()
-        crash(`core bootstrap failed: ${message}`, att)
+        crash(`core bootstrap failed: ${message}`, att, {
+          databaseFailure: failure?.databaseFailure === true,
+          terminal: failure?.setAsideFailed === true
+        })
         return
       }
       for (const handler of [...pushHandlers]) {
@@ -206,6 +229,16 @@ export function createCoreHost(deps: CoreHostDeps): CoreHost {
       newReadiness()
       setStatus({ state: 'starting' })
       spawnAttempt()
+    },
+
+    retryWithFreshDatabase() {
+      if (current.state !== 'failed' || current.databaseFailure !== true) {
+        throw new Error('Starting fresh is only offered when the database stopped the core.')
+      }
+      restartTimes = []
+      newReadiness()
+      setStatus({ state: 'starting' })
+      spawnAttempt({ ...deps.init, freshDatabase: true })
     },
 
     async shutdown(timeoutMs = DEFAULT_SHUTDOWN_TIMEOUT_MS) {

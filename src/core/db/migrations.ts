@@ -666,8 +666,25 @@ const MIGRATIONS: Migration[] = [
 export const CURRENT_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version
 
 /**
+ * A migration that threw, named by its version. A failed migration fails every later boot the same
+ * way, so the version is what tells the user (and a bug report) which step the database is stuck
+ * before. The SQLite error stays reachable as `cause`.
+ */
+export class MigrationError extends Error {
+  readonly version: number
+
+  constructor(version: number, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    super(`database migration ${version} failed: ${detail}`, { cause })
+    this.name = 'MigrationError'
+    this.version = version
+  }
+}
+
+/**
  * Apply every migration newer than the database's current `user_version`, each inside its own
- * transaction so a failure rolls back that migration (including its `user_version` bump).
+ * transaction so a failure rolls back that migration (including its `user_version` bump) and
+ * throws a `MigrationError` naming it.
  * Safe to run on every launch; already-applied migrations are skipped. `upTo` stops after the
  * given version - it exists so upgrade-path tests can build a database at any historic schema
  * version; production callers omit it.
@@ -684,8 +701,14 @@ export function runMigrations(db: DatabaseSync, upTo: number = Infinity): void {
       db.exec(`PRAGMA user_version = ${migration.version}`)
       db.exec('COMMIT')
     } catch (err) {
-      db.exec('ROLLBACK')
-      throw err
+      // SQLite rolls some failures back by itself, and then ROLLBACK throws "no transaction is
+      // active". That throw must not replace the error that names the migration.
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // already rolled back
+      }
+      throw new MigrationError(migration.version, err)
     }
   }
 }

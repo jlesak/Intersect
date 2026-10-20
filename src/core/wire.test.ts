@@ -31,6 +31,7 @@ describe('bridge channel classification', () => {
         Channel.systemRevealPath,
         Channel.systemRestartApp,
         Channel.systemRetryCore,
+        Channel.systemStartFreshDatabase,
         Channel.systemQuitApp,
         Channel.systemRevealUserData
       ].sort()

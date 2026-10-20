@@ -288,24 +288,39 @@ input {
   z-index: 100;
   animation: ix-fade var(--dur) var(--ease);
 }
+/* A dialog never grows past the window: on a short window its body scrolls, while the title and
+   the actions stay in view. Without the cap, a long dialog in a small window centred itself off
+   both edges, and its buttons could not be reached at all. */
 .ix-dialog {
+  display: flex;
+  flex-direction: column;
   width: 420px;
   max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
   background: var(--panel);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   padding: 22px;
 }
+/* Flex items do not collapse margins, so the title carries none: the body's top edge alone sets
+   the 14px gap, as the collapsed margins did before. */
 .ix-dialog__title {
-  margin: 0 0 4px;
+  flex-shrink: 0;
+  margin: 0;
   font-size: 15px;
   font-weight: 600;
 }
+/* The 4px padding, offset by an equal negative margin, keeps the content where it was and leaves
+   room for focus outlines that a scrolling box would otherwise clip. */
 .ix-dialog__body {
-  margin: 14px 0 20px;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 10px -4px 16px;
+  padding: 4px;
 }
 .ix-dialog__actions {
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: 9px;

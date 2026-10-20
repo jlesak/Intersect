@@ -436,6 +436,11 @@ export interface IpcApi {
     restartApp(): Promise<void>
     /** Ask main to start a fresh core process after automatic recovery gave up. */
     retryCore(): Promise<void>
+    /**
+     * Start the core once more with its database files set aside under dated names in the same
+     * folder, so it comes up on an empty database. Rejects unless the core stopped on its database.
+     */
+    startFreshDatabase(): Promise<void>
     /** Quit the app through the coordinated shutdown path (same as Cmd+Q). */
     quitApp(): Promise<void>
     /**
@@ -582,6 +587,11 @@ export interface CoreStatus {
   state: 'starting' | 'ready' | 'restarting' | 'failed'
   message?: string
   attempt?: number
+  /**
+   * The core's bootstrap failed on its database, so retrying repeats the failure and setting the
+   * database aside is the way out. Unset for any other cause.
+   */
+  databaseFailure?: boolean
 }
 
 /**
@@ -734,6 +744,7 @@ export const Channel = {
   systemRevealPath: 'system:revealPath',
   systemRestartApp: 'system:restartApp',
   systemRetryCore: 'system:retryCore',
+  systemStartFreshDatabase: 'system:startFreshDatabase',
   systemQuitApp: 'system:quitApp',
   systemRevealUserData: 'system:revealUserData',
   systemResetViewState: 'system:resetViewState',
