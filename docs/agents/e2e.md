@@ -60,10 +60,13 @@ checkout corrupt each other's output.
 
 The CI runner's default window is much smaller than a developer's: on macos-15 the PR detail pane
 was about 780px wide. An assertion that depends on layout width or height (drag ceilings, clamps,
-wrapping, stacked panels) must pin the window after every launch, relaunches included, with
+wrapping, stacked panels, and any dialog or overlay, whose buttons can sit below a short viewport)
+must pin the window after every launch, relaunches included, with
 `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(W, H))`, and then
-assert that the pane really got that size so a clamping screen fails loudly. `e2e/usage.spec.ts`
-and `e2e/prInbox.spec.ts` use this pattern.
+assert that the pane really got that size so a clamping screen fails loudly. A spec that clicks
+inside a dialog pins the app's minimum window, 940x600, and asserts the dialog and its buttons
+lie inside the viewport before clicking. `e2e/usage.spec.ts`, `e2e/prInbox.spec.ts` and
+`e2e/coreRecovery.spec.ts` use this pattern.
 
 ## Failures
 

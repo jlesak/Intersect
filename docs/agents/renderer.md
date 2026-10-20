@@ -71,6 +71,19 @@ The trap is height-dependent and hides on a tall screen: reproduce it with a 128
 `src/renderer/src/shared/ui/appCss.test.ts`, `e2e/usage.spec.ts` and `e2e/sidebar-resize.spec.ts`
 guard it.
 
+## Shared UI primitives
+
+`src/renderer/src/shared/ui` (`Dialog`, `theme.css`, the kit) is used by every slice, so a fix
+for one caller lands in all of them. Before changing a primitive, list its call sites (`grep` the
+component name or the CSS class) and recheck each one after the change, in the built app when
+the change is layout. Two traps that have already cost a review round:
+
+- `overflow-y: auto` on an element also turns `overflow-x` into `auto`; content wider than the
+  element is then clipped behind a horizontal scrollbar instead of spilling out. A primitive that
+  constrains one axis constrains both unless it says otherwise.
+- A dialog or overlay is height-dependent. Check it at the app's minimum window, 940x600, where
+  a fixed-height card leaves its buttons below the viewport with nothing to scroll.
+
 ## Escape inside the PR detail view
 
 `PrDetail` handles Escape at window level and goes back to the table. An editor inside it that

@@ -13,7 +13,9 @@ Work test-first: write the test for the missing behavior, see it fail for the ri
 make it pass. For a bug, reproduce it in a failing integration test before you touch the fix, so
 the fix addresses the real cause. Test at the lowest level that can see the behavior, and use e2e
 for whole-app flows, layout and terminals. Do not write tests that mirror the implementation or
-pin incidental detail.
+pin incidental detail. Hand a test fixture to the code under test as a copy, never the object you
+later compare against: a fixture shared by reference lets a mutation survive because the test
+compares the object with itself.
 
 Follow `AGENTS.md` and the topic docs for the areas you touch. ESLint is the only formatter; never
 run Prettier.
