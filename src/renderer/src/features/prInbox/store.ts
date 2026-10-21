@@ -10,6 +10,7 @@ import type {
 } from '@common/domain'
 import { prWebUrl } from '@common/ado'
 import { boardColumn, isThreadUnresolved } from '@common/prBoard'
+import { selectFixThreads } from '@common/prFix'
 import { rendererLogger } from '@renderer/shared/logging/logger'
 import { createStore } from '@renderer/shared/store/createStore'
 import { reportError } from '@renderer/shared/ui/toast'
@@ -43,6 +44,13 @@ const STALE_AFTER_MS = 5 * 60 * 1000
 
 /** The stable `${repositoryId}:${prId}` key a PR is stored and selected under. */
 export const prKey = (repositoryId: string, prId: number): string => `${repositoryId}:${prId}`
+
+/** A prepared fix: the pull request, its worktree, and whether a new tab is wanted there. */
+export interface PrFixRequest {
+  pr: PullRequest
+  worktreePath: string
+  openTab: boolean
+}
 
 interface PrInboxState {
   status: Status
@@ -142,6 +150,14 @@ interface PrInboxState {
    * session runs, so it keeps running while the user reads the drafted changes and switches back.
    */
   reviewViews: Record<string, ReviewView>
+  /** A fix of the selected pull request's review comments is being prepared by the core. */
+  fixStarting: boolean
+  /**
+   * A prepared fix whose Claude tab the app layer should open (or, when one is already open
+   * there, only focus). This slice records the intent; opening workspaces and tabs is the app
+   * layer's job, the same way card launches are.
+   */
+  pendingFix: PrFixRequest | null
   hydrate(): Promise<void>
   /** `quiet` suppresses the failure toast for automatic background syncs; user-initiated syncs
    * should stay loud so a broken sync is never silently ignored. */
@@ -222,6 +238,12 @@ interface PrInboxState {
    * answers with its running session, which simply puts the user back on that terminal.
    */
   startReview(): Promise<void>
+  /**
+   * Have Claude fix the open review comments of the selected pull request, which must be mine:
+   * the core prepares the worktree, then `pendingFix` asks the app to open the tab there.
+   */
+  startFix(): Promise<void>
+  clearPendingFix(): void
   endReview(sessionId: string): Promise<void>
   /** Switch one running review's detail between the terminal, the drafted changes and the drafts. */
   setReviewView(sessionId: string, view: ReviewView): void
@@ -322,6 +344,16 @@ export function groupBoardColumns(prs: PullRequest[]): {
 /** How many PRs currently need my action (the sidebar badge). */
 export function selectActionCount(state: PrInboxState): number {
   return selectPrList(state).filter((pr) => boardColumn(pr) === 'action').length
+}
+
+/**
+ * How many review threads of the selected pull request Claude would be asked to fix: 0 for a
+ * pull request I only review, and 0 until its threads are in hand, so a count is never a guess.
+ */
+export function selectFixableCount(state: PrInboxState): number {
+  const pr = selectSelectedPr(state)
+  if (!pr || !state.threadsLoaded) return 0
+  return selectFixThreads(pr, state.threads).length
 }
 
 /**
@@ -428,6 +460,8 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
     commentDrafts: {},
     liveReviews: {},
     reviewViews: {},
+    fixStarting: false,
+    pendingFix: null,
 
     async hydrate() {
       set({
@@ -863,6 +897,26 @@ export const usePrInboxStore = createStore<PrInboxState>()((set, get) => {
       } catch (e) {
         reportError('Could not start the review session', e)
       }
+    },
+
+    async startFix() {
+      const pr = selectSelectedPr(get())
+      if (!pr || get().fixStarting) return
+      set({ fixStarting: true })
+      try {
+        const launch = await api.startFix(pr.repositoryId, pr.prId)
+        set({
+          pendingFix: { pr, worktreePath: launch.worktreePath, openTab: !launch.alreadyOpen }
+        })
+      } catch (e) {
+        reportError('Could not start fixing the comments', e)
+      } finally {
+        set({ fixStarting: false })
+      }
+    },
+
+    clearPendingFix() {
+      set({ pendingFix: null })
     },
 
     async endReview(sessionId) {

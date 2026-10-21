@@ -1,5 +1,16 @@
-import { describe, expect, test } from 'vitest'
-import { createCloneQueue } from './worktreeManager'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import {
+  createCloneQueue,
+  fixWorktreeDirName,
+  fixWorktreePath,
+  fixWorktreesRoot,
+  isFixWorktreePath,
+  sourceBranch,
+  worktreesRoot
+} from './worktreeManager'
 
 /**
  * Two reviews starting at once on one clone would otherwise run `git fetch` and `git worktree add`
@@ -75,5 +86,65 @@ describe('the per-clone queue', () => {
     ])
 
     expect([first, second]).toEqual(['first', 'second'])
+  })
+})
+
+/**
+ * Where a fix worktree lives and how it is recognised. Everything is compared in canonical form,
+ * because the same folder reaches the core under two spellings on macOS (`/var/folders` and
+ * `/private/var/folders`), and a symlinked profile folder does the same.
+ */
+describe('fix worktree paths', () => {
+  let root: string
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'intersect-fixpath-'))
+  })
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test('the folder is named after the repository and the pull request', () => {
+    expect(fixWorktreeDirName({ repositoryName: 'intersect-app', prId: 501 })).toBe(
+      'intersect-app-pr501'
+    )
+    expect(fixWorktreeDirName({ repositoryName: 'My Repo/x', prId: 7 })).toBe('my-repo-x-pr7')
+    const long = fixWorktreeDirName({ repositoryName: 'a'.repeat(80), prId: 1 })
+    expect(long).toBe(`${'a'.repeat(40)}-pr1`)
+  })
+
+  test('fix worktrees live under their own root, apart from review worktrees', () => {
+    expect(fixWorktreesRoot('/u')).toBe(join('/u', 'pr-fix-worktrees'))
+    expect(fixWorktreesRoot('/u')).not.toBe(worktreesRoot('/u'))
+  })
+
+  test('the path is canonical even when the profile folder is reached through a symlink', () => {
+    const real = join(root, 'real')
+    mkdirSync(real)
+    const link = join(root, 'link')
+    symlinkSync(real, link)
+
+    const path = fixWorktreePath(link, { repositoryName: 'intersect-app', prId: 501 })
+    expect(path).toBe(join(realpathSync(real), 'pr-fix-worktrees', 'intersect-app-pr501'))
+  })
+
+  test('a fix worktree is recognised under either spelling of its root', () => {
+    const real = join(root, 'real')
+    mkdirSync(join(real, 'pr-fix-worktrees', 'x-pr1'), { recursive: true })
+    const link = join(root, 'link')
+    symlinkSync(real, link)
+
+    expect(isFixWorktreePath(link, join(real, 'pr-fix-worktrees', 'x-pr1'))).toBe(true)
+    expect(isFixWorktreePath(real, join(link, 'pr-fix-worktrees', 'x-pr1'))).toBe(true)
+    // A worktree removed since still counts, so a resume into a missing folder stays guarded.
+    expect(isFixWorktreePath(real, join(link, 'pr-fix-worktrees', 'gone-pr2'))).toBe(true)
+    expect(isFixWorktreePath(real, join(real, 'pr-fix-worktrees'))).toBe(false)
+    expect(isFixWorktreePath(real, join(real, 'pr-fix-worktrees-other', 'x'))).toBe(false)
+    expect(isFixWorktreePath(real, join(real, 'pr-review-worktrees', 'x'))).toBe(false)
+  })
+
+  test('the source must be a branch', () => {
+    expect(sourceBranch('refs/heads/feature/rate-limit')).toBe('feature/rate-limit')
+    expect(() => sourceBranch('refs/tags/v1')).toThrow(/not a branch/)
+    expect(() => sourceBranch('refs/heads/')).toThrow(/not a branch/)
   })
 })

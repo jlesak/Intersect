@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { ClaudeUsage, DraftComment, OtoRun } from '@common/domain'
+import type { ClaudeUsage, DraftComment, FixWorktreeClosedEvent, OtoRun } from '@common/domain'
 import { RENDERER_LOG_CHANNEL } from '@common/logging/channel'
 import {
   Channel,
@@ -146,6 +146,12 @@ const api: IpcApi = {
       const listener = (_e: unknown, draft: DraftComment): void => cb(draft)
       ipcRenderer.on(Channel.prInboxDraftAdded, listener)
       return () => ipcRenderer.removeListener(Channel.prInboxDraftAdded, listener)
+    },
+    startFix: (repositoryId, prId) => ipcRenderer.invoke(Channel.prInboxStartFix, repositoryId, prId),
+    onFixWorktreeClosed: (cb) => {
+      const listener = (_e: unknown, event: FixWorktreeClosedEvent): void => cb(event)
+      ipcRenderer.on(Channel.prInboxFixWorktreeClosed, listener)
+      return () => ipcRenderer.removeListener(Channel.prInboxFixWorktreeClosed, listener)
     }
   },
   sessions: {

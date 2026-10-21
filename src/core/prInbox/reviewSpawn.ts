@@ -60,7 +60,8 @@ export const REVIEW_MODEL_ENV = 'INTERSECT_REVIEW_MODEL'
 const REVIEW_MCP_CONFIG_ENV = 'INTERSECT_REVIEW_MCP_CONFIG'
 const REVIEW_SYSTEM_PROMPT_ENV = 'INTERSECT_REVIEW_SYSTEM_PROMPT'
 
-function assertEnvironmentValue(name: string, value: string): void {
+/** Reject a value an environment variable cannot carry. */
+export function assertEnvironmentValue(name: string, value: string): void {
   if (value.includes('\0')) throw new Error(`${name} cannot contain NUL.`)
 }
 
@@ -104,6 +105,23 @@ function buildSecretScrubCommand(shellFile: string): string {
   )
 }
 
+/**
+ * Both secret-scrub layers for a Claude launched through a login shell: credentials stripped from
+ * the spawn environment, and the in-shell scrub prefixed to the command so a secret the user's
+ * profile re-exports is unset before `claude` starts. Shared by every Claude run that must not see
+ * the user's credentials: PR reviews and fix tabs.
+ */
+export function scrubSecrets(spec: {
+  file: string
+  env: Record<string, string>
+  initialCommand: string
+}): { env: Record<string, string>; initialCommand: string } {
+  return {
+    env: stripSecrets(spec.env),
+    initialCommand: `${buildSecretScrubCommand(spec.file)}; ${spec.initialCommand}`
+  }
+}
+
 export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   const shellSpec = buildSpawn('claude', { shell: opts.shell, env: opts.env })
   if (!shellSpec.initialCommand) {
@@ -115,19 +133,22 @@ export function buildReviewSpawnSpec(opts: ReviewSpawnOptions): SpawnSpec {
   const model = opts.model?.trim() || DEFAULT_PR_REVIEW_MODEL
   assertEnvironmentValue('Review model', model)
 
-  const scrub = buildSecretScrubCommand(shellSpec.file)
-  const initialCommand =
-    `${scrub}; ${shellSpec.initialCommand} --model "$${REVIEW_MODEL_ENV}" ` +
-    `--mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
-    `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
+  const scrubbed = scrubSecrets({
+    file: shellSpec.file,
+    env: shellSpec.env,
+    initialCommand:
+      `${shellSpec.initialCommand} --model "$${REVIEW_MODEL_ENV}" ` +
+      `--mcp-config "$${REVIEW_MCP_CONFIG_ENV}" ` +
+      `--append-system-prompt "$${REVIEW_SYSTEM_PROMPT_ENV}" -- "$${REVIEW_PROMPT_ENV}"`
+  })
 
   return {
     file: shellSpec.file,
     args: shellSpec.args,
     cwd: opts.worktreePath,
-    initialCommand,
+    initialCommand: scrubbed.initialCommand,
     env: {
-      ...stripSecrets(shellSpec.env),
+      ...scrubbed.env,
       [REVIEW_MODEL_ENV]: model,
       [REVIEW_MCP_CONFIG_ENV]: opts.mcpConfigPath,
       [REVIEW_SYSTEM_PROMPT_ENV]: REVIEW_SYSTEM_PROMPT,

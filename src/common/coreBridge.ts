@@ -58,6 +58,7 @@ export const RENDERER_PUSH_CHANNELS: ReadonlyMap<ChannelName, 'core' | 'main'> =
   [Channel.prInboxReviewData, 'core'],
   [Channel.prInboxReviewExit, 'core'],
   [Channel.prInboxDraftAdded, 'core'],
+  [Channel.prInboxFixWorktreeClosed, 'core'],
   [Channel.oneOnOneRunChanged, 'core'],
   [Channel.myWorkChanged, 'core'],
   [Channel.usageChanged, 'core'],

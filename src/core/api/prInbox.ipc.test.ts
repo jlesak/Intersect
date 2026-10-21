@@ -12,6 +12,7 @@ import { createPrCacheRepo, type PrCacheRepo } from '../db/prCacheRepo'
 import { createPrReviewWatermarkRepo, type PrReviewWatermarkRepo } from '../db/prReviewWatermarkRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import type { AdoService, SyncResult } from '../prInbox/adoService'
+import type { FixManager } from '../prInbox/fixManager'
 import type { LocalDiffService } from '../prInbox/localDiff'
 import type { ReviewManager } from '../prInbox/reviewManager'
 import { Channel } from '@common/ipc'
@@ -137,6 +138,7 @@ describe('prInbox handlers', () => {
     warn?: (m: string) => void
     atomically?: <T>(fn: () => T) => T
     resolveIdentity?: () => Promise<AdoIdentity>
+    fix?: Pick<FixManager, 'start'>
   } = {}): { h: PrInboxHandlers; ado: ReturnType<typeof makeAdo>; localDiff: LocalDiffService } {
     const ado = overrides.ado ?? makeAdo()
     const localDiff = overrides.localDiff ?? makeLocalDiff()
@@ -148,6 +150,7 @@ describe('prInbox handlers', () => {
       localDiff,
       workspaceFolders: () => ['/clone'],
       review: overrides.review ?? makeReview(),
+      fix: overrides.fix ?? { start: vi.fn(async () => ({ worktreePath: '/fix', alreadyOpen: false })) },
       atomically: overrides.atomically ?? ((fn) => fn()),
       resolveIdentity: overrides.resolveIdentity,
       warn: overrides.warn
@@ -687,6 +690,24 @@ describe('prInbox handlers', () => {
   test('startReview on an unknown PR throws to sync first', async () => {
     const { h } = handlers()
     await expect(h.startReview('repo-a', 999)).rejects.toThrow(/sync first/i)
+  })
+
+  test('startFix hands the cached pull request to the fix manager, on its own channel', async () => {
+    const launch = { worktreePath: '/fix/repo-a-pr100', alreadyOpen: true }
+    const start = vi.fn(async () => launch)
+    const { h } = handlers({ fix: { start } })
+    await h.sync()
+
+    expect(prInboxWireRoutes(h)[Channel.prInboxStartFix]).toBe(h.startFix)
+    await expect(h.startFix('repo-a', 100)).resolves.toEqual(launch)
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ repositoryId: 'repo-a', prId: 100 }))
+  })
+
+  test('startFix on an unknown PR throws to sync first', async () => {
+    const start = vi.fn()
+    const { h } = handlers({ fix: { start } })
+    await expect(h.startFix('repo-a', 999)).rejects.toThrow(/sync first/i)
+    expect(start).not.toHaveBeenCalled()
   })
 
   test('addComment publishes immediately and returns fresh threads', async () => {

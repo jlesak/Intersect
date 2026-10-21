@@ -129,6 +129,53 @@ describe('tab handlers', () => {
     expect(ctx.workspaces.getById(wsId)?.activeTabId).toBeNull()
   })
 
+  describe('telling the app a workspace has emptied', () => {
+    const withHook = (onWorkspaceEmptied: (workspaceId: string, folderPath: string) => void) =>
+      createTabHandlers({
+        db: ctx.db,
+        workspaces: ctx.workspaces,
+        tabs: ctx.tabs,
+        workItems: ctx.workItemRefs,
+        sessions: ctx.sessions,
+        onWorkspaceEmptied
+      })
+
+    test('closing the last tab reports the workspace and its folder, after the tab is gone', async () => {
+      const seen: { workspaceId: string; folderPath: string; tabsLeft: number }[] = []
+      const handlers = withHook((workspaceId, folderPath) =>
+        seen.push({ workspaceId, folderPath, tabsLeft: ctx.tabs.listByWorkspace(workspaceId).length })
+      )
+      const t = await handlers.create(wsId, 'claude', 0)
+
+      await handlers.remove(t.id)
+
+      expect(seen).toEqual([{ workspaceId: wsId, folderPath: '/a', tabsLeft: 0 }])
+      expect(ctx.calls.kill).toContain(makeSessionId(wsId, t.id))
+    })
+
+    test('the close answers without waiting for what the hook starts', async () => {
+      // The hook only schedules work; a removal that never finishes must not hold the close.
+      const never = new Promise<void>(() => {})
+      const onWorkspaceEmptied = vi.fn(() => void never)
+      const handlers = withHook(onWorkspaceEmptied)
+      const t = await handlers.create(wsId, 'claude', 0)
+
+      await expect(handlers.remove(t.id)).resolves.toBeUndefined()
+      expect(onWorkspaceEmptied).toHaveBeenCalledTimes(1)
+    })
+
+    test('a workspace with a tab left is not reported', async () => {
+      const onWorkspaceEmptied = vi.fn()
+      const handlers = withHook(onWorkspaceEmptied)
+      const a = await handlers.create(wsId, 'claude', 0)
+      await handlers.create(wsId, 'shell', 0)
+
+      await handlers.remove(a.id)
+
+      expect(onWorkspaceEmptied).not.toHaveBeenCalled()
+    })
+  })
+
   test('moveTab drags a tab into another group and returns the whole workspace in order', async () => {
     const a = await tabs.create(wsId, 'shell', 0)
     const b = await tabs.create(wsId, 'shell', 0)

@@ -210,6 +210,37 @@ describe('SplitStage structure', () => {
     expect(starters.map((t) => t?.trim())).toEqual(['Shell', 'Claude Code'])
   })
 
+  test('switching workspace starts no terminal for the tabs of the one just left', async () => {
+    // The workspace view hands the stage the new selection in the same render that the tabs
+    // store still holds the old workspace's tabs; it reloads them only in an effect afterwards.
+    // A pane mounted in that render would spawn `<new workspace>:<old tab>` in the new folder.
+    seedLoaded()
+    await render(stage({ layout: 'columns' }))
+    expect(host.querySelectorAll('.test-terminal')).toHaveLength(2)
+
+    await render(stage({ layout: 'columns', workspaceId: 'ws2', cwd: '/fix/intersect-app-pr501' }))
+
+    const sessions = [...host.querySelectorAll('.test-terminal')].map((t) =>
+      t.getAttribute('data-session-id')
+    )
+    expect(sessions).toEqual([])
+    // Nor may an empty pane offer to open a terminal into the store's other workspace.
+    expect(host.querySelector('.ix-pane__empty')).toBeNull()
+
+    // Once the store has the new workspace's tabs, its own terminals start.
+    await act(async () => {
+      useTabsStore.setState({
+        workspaceId: 'ws2',
+        byId: { t9: { ...tab('t9', 0), workspaceId: 'ws2' } },
+        order: ['t9'],
+        activeTabId: 't9'
+      })
+    })
+    expect(
+      [...host.querySelectorAll('.test-terminal')].map((t) => t.getAttribute('data-session-id'))
+    ).toEqual(['ws2:t9'])
+  })
+
   test('a group shows the tab it activated most recently', async () => {
     seedLoaded()
     seedTabs([

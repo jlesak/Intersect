@@ -95,6 +95,20 @@ describe('workspacesStore', () => {
     expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull()
   })
 
+  test('forget drops a workspace the core already deleted, without asking it again', () => {
+    useWorkspacesStore.setState({
+      byId: { a: ws('a'), b: ws('b') },
+      order: ['a', 'b'],
+      selectedWorkspaceId: 'a'
+    })
+    useWorkspacesStore.getState().forget('a')
+    const s = useWorkspacesStore.getState()
+    expect(s.order).toEqual(['b'])
+    expect(s.byId.a).toBeUndefined()
+    expect(s.selectedWorkspaceId).toBe('b')
+    expect(mocked.remove).not.toHaveBeenCalled()
+  })
+
   test('select persists and updates the selected id', async () => {
     useWorkspacesStore.setState({ byId: { a: ws('a'), b: ws('b') }, order: ['a', 'b'] })
     mocked.setActive.mockResolvedValue(undefined)

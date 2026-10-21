@@ -12,6 +12,7 @@ import { PanelResizer } from '@renderer/shared/ui/PanelResizer'
 import {
   isDraftStale,
   selectDrafts,
+  selectFixableCount,
   selectPrWebUrl,
   selectSelectedPr,
   selectSelectedReviewSessionId,
@@ -247,6 +248,8 @@ export function PrDetail() {
     reviewSessionId ? (s.reviewViews[reviewSessionId] ?? 'terminal') : 'terminal'
   )
   const webUrl = usePrInboxStore(selectPrWebUrl)
+  const fixableCount = usePrInboxStore(selectFixableCount)
+  const fixStarting = usePrInboxStore((s) => s.fixStarting)
   const size = useMemo(() => changeSize(changes), [changes])
 
   useEffect(() => {
@@ -312,6 +315,18 @@ export function PrDetail() {
             Copy PR link
           </button>
           <PrVoteButtons pr={pr} />
+          {fixableCount > 0 && (
+            <button
+              type="button"
+              className="ix-btn ix-btn--primary"
+              data-testid="pr-fix-comments"
+              disabled={fixStarting}
+              title="Open a Claude tab on this pull request's branch, in its own worktree, with the open review comments."
+              onClick={() => void usePrInboxStore.getState().startFix()}
+            >
+              {fixStarting ? 'Starting…' : `Fix review comments · ${fixableCount}`}
+            </button>
+          )}
           {!running ? (
             draftsStatus === 'loading' || draftsStatus === 'idle' ? (
               <button type="button" className="ix-btn ix-btn--primary" disabled data-testid="pr-drafts-loading-action">

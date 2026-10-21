@@ -49,6 +49,11 @@ export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageP
   // Which pane a tab drag would land in, so that pane can say so. Read here rather than in the
   // pane, because the hover can be over either a pane's body or the tab strip above it.
   const dropSlot = useTabsStore((s) => s.dropSlot)
+  // The workspace view hands over a new selection in the same render in which the tabs store
+  // still holds the previous workspace's tabs (it reloads them in an effect afterwards). A pane
+  // mounted then would spawn `<this workspace>:<other workspace's tab>` in this folder, a PTY no
+  // tab owns. Until the store has caught up, the panes start nothing and offer nothing.
+  const tabsAreHere = useTabsStore((s) => s.workspaceId === workspaceId)
 
   // The persisted shares must be in place before a resizable group mounts (the panel library
   // reads default sizes only at mount), so hydration starts with the project switch and the
@@ -62,7 +67,7 @@ export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageP
 
   const paneClass = (slot: number): string => `ix-pane${dropSlot === slot ? ' ix-pane--drop' : ''}`
   const paneContent = (slot: number): React.ReactNode => {
-    const tab = paneTabs[slot]
+    const tab = tabsAreHere ? paneTabs[slot] : null
     // Working in a pane is what moves focus between groups, so both a press and a keystroke
     // inside the body claim it. Capture rather than bubble, and without preventDefault, so xterm
     // receives the very same event and keeps the keyboard.
@@ -88,9 +93,9 @@ export function SplitStage({ workspaceId, cwd, projectKey, layout }: SplitStageP
               resumeSessionId={tab.resumeSessionId}
               sessionStatus={tab.sessionStatus}
             />
-          ) : (
+          ) : tabsAreHere ? (
             <EmptyPane slot={slot} />
-          )}
+          ) : null}
         </div>
       </>
     )

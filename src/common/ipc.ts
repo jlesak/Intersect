@@ -28,6 +28,8 @@ import type {
   NewManualTimeEntry,
   NewPrComment,
   NotificationSettings,
+  FixWorktreeClosedEvent,
+  PrFixLaunch,
   OtoRun,
   OtoStartInput,
   Preset,
@@ -277,6 +279,14 @@ export interface IpcApi {
     onReviewExit(cb: (msg: ReviewExitEvent) => void): () => void
     /** Fired when a draft is recorded (by the review session or manually) so the UI refreshes live. */
     onDraftAdded(cb: (draft: DraftComment) => void): () => void
+    /**
+     * Prepare fixing the open review comments of my own pull request: fetch its source branch into
+     * a worktree and park Claude's first message for the tab the renderer then opens there. When a
+     * tab is already open in that worktree nothing is created (`alreadyOpen`).
+     */
+    startFix(repositoryId: string, prId: number): Promise<PrFixLaunch>
+    /** How the cleanup after the last tab of a fix workspace closed ended. */
+    onFixWorktreeClosed(cb: (event: FixWorktreeClosedEvent) => void): () => void
   }
   sessions: {
     /** Past Claude Code sessions, newest activity first. Builds the in-memory index on first call. */
@@ -680,6 +690,9 @@ export const Channel = {
   prInboxReviewData: 'prInbox:reviewData',
   prInboxReviewExit: 'prInbox:reviewExit',
   prInboxDraftAdded: 'prInbox:draftAdded',
+  // prInbox: fixing my own PR's review comments (request/response, then a broadcast on cleanup)
+  prInboxStartFix: 'prInbox:startFix',
+  prInboxFixWorktreeClosed: 'prInbox:fixWorktreeClosed',
   // sessions (request/response)
   sessionsList: 'sessions:list',
   sessionsRefresh: 'sessions:refresh',

@@ -15,6 +15,11 @@ interface WorkspacesState {
   create(folderPath: string, name?: string): Promise<Workspace | null>
   rename(id: string, name: string): Promise<void>
   remove(id: string): Promise<void>
+  /**
+   * Drop a workspace the core has already deleted on its own (a fix worktree's cleanup), with the
+   * same reselection `remove` makes. Local only: there is nothing left to ask the core to delete.
+   */
+  forget(id: string): void
   select(id: string): Promise<void>
   pickFolder(): Promise<string | null>
   /** Manually place a workspace in a project (null = Other); persisted and wins over inference. */
@@ -39,6 +44,16 @@ export function workspacesForProject(state: WorkspacesState, projectId: string |
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+/** The state after a workspace is gone: out of the list, and the selection moved off it. */
+function withoutWorkspace(s: WorkspacesState, id: string): Partial<WorkspacesState> {
+  const byId = { ...s.byId }
+  delete byId[id]
+  const order = s.order.filter((x) => x !== id)
+  const selectedWorkspaceId =
+    s.selectedWorkspaceId === id ? (order[0] ?? null) : s.selectedWorkspaceId
+  return { byId, order, selectedWorkspaceId }
+}
 
 export const useWorkspacesStore = createStore<WorkspacesState>()((set) => ({
   status: 'idle',
@@ -95,14 +110,11 @@ export const useWorkspacesStore = createStore<WorkspacesState>()((set) => ({
       reportError('Could not delete the workspace', e)
       return
     }
-    set((s) => {
-      const byId = { ...s.byId }
-      delete byId[id]
-      const order = s.order.filter((x) => x !== id)
-      const selectedWorkspaceId =
-        s.selectedWorkspaceId === id ? (order[0] ?? null) : s.selectedWorkspaceId
-      return { byId, order, selectedWorkspaceId }
-    })
+    set((s) => withoutWorkspace(s, id))
+  },
+
+  forget(id) {
+    set((s) => withoutWorkspace(s, id))
   },
 
   async select(id) {

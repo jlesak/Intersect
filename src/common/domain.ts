@@ -515,11 +515,45 @@ export interface NewPrComment {
 export interface PrThread {
   threadId: number
   filePath: string | null
+  /** The anchor line on the new (right) side of the diff, or null when it has none. */
   line: number | null
+  /**
+   * The anchor line on the old (left) side, for a comment written on a line the PR deleted. Only
+   * read where a thread on a removed line matters (fixing my own PR's comments); the diff views
+   * anchor on `line` alone. Optional so payloads and fixtures without it stay valid.
+   */
+  removedLine?: number | null
   status: string
   /** True for ADO housekeeping threads (vote changes, policy updates); hidden from every view. */
   isSystem: boolean
-  comments: { authorName: string; body: string; publishedAt: number }[]
+  /**
+   * `authorId` is the commenter's Azure DevOps identity id when the server sent one; it tells my
+   * own comments from a reviewer's more reliably than the display name does.
+   */
+  comments: { authorName: string; authorId?: string; body: string; publishedAt: number }[]
+}
+
+/**
+ * The answer to starting a fix of my pull request's review comments: the worktree the Claude tab
+ * runs in, and whether a tab is already open there (then the app only focuses that workspace).
+ */
+export interface PrFixLaunch {
+  worktreePath: string
+  alreadyOpen: boolean
+}
+
+/**
+ * How the cleanup after the last tab of a fix workspace closed ended. `removed`: the worktree is
+ * gone; `dirty`: it holds uncommitted or untracked files and was kept; `busy`: its Claude session
+ * was still running after the wait and nothing was touched; `failed`: git refused for another
+ * reason (`detail` carries git's message). `workspaceRemoved` says whether the workspace went too.
+ */
+export interface FixWorktreeClosedEvent {
+  workspaceId: string
+  path: string
+  outcome: 'removed' | 'dirty' | 'busy' | 'failed'
+  workspaceRemoved: boolean
+  detail: string | null
 }
 
 // ---------------------------------------------------------------------------

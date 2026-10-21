@@ -14,6 +14,11 @@ export interface TabHandlerDeps {
   tabs: TabRepo
   workItems: WorkItemRefRepo
   sessions: SessionManager
+  /**
+   * Called after a close left its workspace without a tab. Only schedules work (a fix worktree's
+   * cleanup); it is never awaited, so closing a tab never waits on git.
+   */
+  onWorkspaceEmptied?: (workspaceId: string, folderPath: string) => void
 }
 
 export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
@@ -45,14 +50,16 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
       const tab = d.tabs.getById(id)
       if (!tab) return
       d.sessions.kill(makeSessionId(tab.workspaceId, id))
-      tx(d.db, () => {
+      const emptied = tx(d.db, () => {
         const ws = d.workspaces.getById(tab.workspaceId)
         d.tabs.remove(id)
+        const remaining = d.tabs.listByWorkspace(tab.workspaceId)
         if (ws && ws.activeTabId === id) {
-          const sibling = d.tabs.listByWorkspace(tab.workspaceId)[0]?.id ?? null
-          d.workspaces.setActiveTab(tab.workspaceId, sibling)
+          d.workspaces.setActiveTab(tab.workspaceId, remaining[0]?.id ?? null)
         }
+        return ws && remaining.length === 0 ? ws : null
       })
+      if (emptied) d.onWorkspaceEmptied?.(emptied.id, emptied.folderPath)
     },
 
     async moveTab(id, slot, index) {

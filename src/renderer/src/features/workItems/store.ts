@@ -12,6 +12,11 @@ import * as api from './ipc'
 export interface WorkItemLaunch {
   ref: NewWorkItemRef
   folderPath: string | null
+  /**
+   * False when a tab for the item is already open in that folder's workspace: the launch then
+   * only reveals and selects the workspace. Omitted means a new tab, as for every card launch.
+   */
+  openTab?: boolean
 }
 
 interface WorkItemsState {

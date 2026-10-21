@@ -13,11 +13,17 @@ import { REVIEW_GUIDE } from './reviewGuide'
 import { buildReviewSpawnSpec } from './reviewSpawn'
 import type { WorktreeManager } from './worktreeManager'
 
+/** The part of the worktree manager a review uses: detached review worktrees only. */
+export type ReviewWorktrees = Pick<
+  WorktreeManager,
+  'resolveRepoDir' | 'createWorktree' | 'removeWorktree' | 'pruneStale'
+>
+
 export interface ReviewManagerDeps {
   reviewSessions: ReviewSessionRepo
   drafts: DraftCommentRepo
   prCache: PrCacheRepo
-  worktrees: WorktreeManager
+  worktrees: ReviewWorktrees
   /** The clone folders to search for the PR's repo (from the workspaces slice). */
   workspaceFolders: () => string[]
   spawn: SpawnFn

@@ -206,4 +206,99 @@ describe('sessionManager', () => {
     mgr.spawn('w1:t1', 'claude', '/repo', 80, 24)
     expect(seen).toEqual(['w1:t1'])
   })
+
+  test('buildSpec sees the folder the tab asked for even when the PTY falls back to home', () => {
+    // A fix tab is recognised by its folder; a deleted worktree must not slip it past the guard.
+    const seen: string[] = []
+    const spawned: SpawnRequest[] = []
+    const mgr = createSessionManager({
+      spawn: (req) => {
+        spawned.push(req)
+        return makeFakePty()
+      },
+      send: { data: () => {}, exit: () => {} },
+      buildSpec: (_preset, _resume, _sessionId, cwd) => {
+        seen.push(cwd)
+        return { file: '/bin/zsh', args: ['-l'], initialCommand: 'claude', env: {} }
+      },
+      fileExists: () => false,
+      homedir: () => '/home/test'
+    })
+    mgr.spawn('w1:t1', 'claude', '/fix/gone', 80, 24)
+    expect(seen).toEqual(['/fix/gone'])
+    expect(spawned[0].cwd).toBe('/home/test')
+  })
+})
+
+/** A PTY whose exit the test fires by hand, so "killed" and "exited" can be told apart. */
+function makeSlowPty(): PtyProcess & { exit(): void; killed: boolean } {
+  const exitCbs: ((e: { exitCode: number }) => void)[] = []
+  const pty = {
+    pid: 1,
+    killed: false,
+    onData: () => {},
+    onExit: (cb: (e: { exitCode: number }) => void) => void exitCbs.push(cb),
+    write: () => {},
+    resize: () => {},
+    pause: () => {},
+    resume: () => {},
+    kill: () => {
+      pty.killed = true
+    },
+    exit: () => exitCbs.forEach((cb) => cb({ exitCode: 0 }))
+  }
+  return pty
+}
+
+describe('whenWorkspaceExited', () => {
+  const slowHarness = () => {
+    const ptys: ReturnType<typeof makeSlowPty>[] = []
+    const mgr = createSessionManager({
+      spawn: () => {
+        const pty = makeSlowPty()
+        ptys.push(pty)
+        return pty
+      },
+      send: { data: () => {}, exit: () => {} },
+      buildSpec: () => ({ file: '/bin/zsh', args: ['-f'], initialCommand: null, env: {} }),
+      fileExists: () => true,
+      homedir: () => '/home/test'
+    })
+    return { mgr, ptys }
+  }
+
+  test('stays pending after a kill until the process has really exited', async () => {
+    const { mgr, ptys } = slowHarness()
+    mgr.spawn('w1:t1', 'claude', '/repo', 80, 24)
+    mgr.spawn('w2:t1', 'claude', '/repo', 80, 24)
+    mgr.kill('w1:t1')
+
+    let result: string | null = null
+    void mgr.whenWorkspaceExited('w1', 10_000).then((r) => (result = r))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(ptys[0].killed).toBe(true)
+    expect(result).toBeNull()
+
+    ptys[0].exit()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(result).toBe('exited')
+  })
+
+  test('answers at once for a workspace that never had a session', async () => {
+    const { mgr } = slowHarness()
+    await expect(mgr.whenWorkspaceExited('w-none', 10_000)).resolves.toBe('exited')
+  })
+
+  test('gives up with a timeout when the process never exits', async () => {
+    const { mgr } = slowHarness()
+    mgr.spawn('w1:t1', 'claude', '/repo', 80, 24)
+    mgr.kill('w1:t1')
+    await expect(mgr.whenWorkspaceExited('w1', 20)).resolves.toBe('timeout')
+  })
+
+  test('a workspace whose id is a prefix of another is not held up by it', async () => {
+    const { mgr } = slowHarness()
+    mgr.spawn('w10:t1', 'claude', '/repo', 80, 24)
+    await expect(mgr.whenWorkspaceExited('w1', 10_000)).resolves.toBe('exited')
+  })
 })
