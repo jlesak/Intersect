@@ -47,6 +47,20 @@ export function isFixWorktreePath(userDataDir: string, path: string): boolean {
   return canonicalizePath(path).startsWith(`${root}${sep}`)
 }
 
+/**
+ * The fix worktree folders no workspace uses as its folder, in canonical form, each once. Both
+ * sides are canonicalized, so a workspace row spelling the folder through a symlink still counts
+ * as using it.
+ */
+export function selectOrphanFixFolders(
+  fixFolders: string[],
+  workspaceFolders: string[],
+  canonicalize: (path: string) => string = canonicalizePath
+): string[] {
+  const used = new Set(workspaceFolders.map(canonicalize))
+  return [...new Set(fixFolders.map(canonicalize))].filter((folder) => !used.has(folder))
+}
+
 /** The branch a pull request's source ref names. Fixing needs a branch to commit on. */
 export function sourceBranch(sourceRefName: string): string {
   const branch = sourceRefName.startsWith('refs/heads/')
@@ -101,6 +115,8 @@ export interface WorktreeManager {
    * entry under `.git/worktrees`, so it cannot contend with their ref locks.
    */
   removeCleanWorktree(path: string): Promise<RemoveCleanResult>
+  /** The folders directly under the fix root, sorted; none when the root does not exist yet. */
+  listFixFolders(): Promise<string[]>
 }
 
 export interface WorktreeManagerOptions {
@@ -337,6 +353,16 @@ export function createWorktreeManager(
 
     removeCleanWorktree(path) {
       return removeClean(path)
+    },
+
+    async listFixFolders() {
+      const fixRoot = fixWorktreesRoot(userDataDir)
+      if (!existsSync(fixRoot)) return []
+      const entries = await readdir(fixRoot, { withFileTypes: true })
+      return entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(fixRoot, entry.name))
+        .sort()
     },
 
     /**

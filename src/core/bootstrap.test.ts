@@ -357,6 +357,32 @@ describe('createCoreRuntime', () => {
       }
       expect(state.workspaces.map((w) => w.id)).not.toContain(workspaceId)
     })
+
+    test('at startup a clean fix worktree no workspace uses is removed, one a workspace uses is kept', async () => {
+      const repo = join(dir, 'clone')
+      // Sorted first, so the sweep reaches it before the orphan if it does not skip it.
+      const used = join(dir, 'pr-fix-worktrees', 'a-app-pr1')
+      const orphan = join(dir, 'pr-fix-worktrees', 'z-app-pr2')
+      const ident = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com']
+      await git(dir, ['init', '--quiet', '--initial-branch=main', repo])
+      await git(repo, [...ident, 'commit', '--quiet', '--allow-empty', '-m', 'init'])
+      // The workspace is from an earlier run; this run's sweep must find it in the database.
+      const first = boot()
+      await first.handleRequest(Channel.workspacesCreate, [used])
+      first.shutdown()
+      await git(repo, ['worktree', 'add', '--quiet', '-b', 'feature/a', used])
+      await git(repo, ['worktree', 'add', '--quiet', '-b', 'feature/z', orphan])
+
+      boot()
+
+      const removed = (): Array<Record<string, unknown>> =>
+        readRecords(logSink).filter((r) => r.msg === 'orphaned fix worktree removed')
+      await vi.waitFor(() => expect(removed()).toHaveLength(1), { timeout: 10_000 })
+      expect(existsSync(orphan)).toBe(false)
+      expect(existsSync(used)).toBe(true)
+      expect(await git(repo, ['worktree', 'list', '--porcelain'])).toContain('a-app-pr1')
+      expect(readRecords(logSink).filter((r) => r.msg === 'orphaned fix worktree kept')).toEqual([])
+    }, 15_000)
   })
 
   describe('my work direct sync', () => {
