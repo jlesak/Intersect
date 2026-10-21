@@ -640,7 +640,13 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     resolveIdentity,
     logger: adoLog
   })
-  void review.pruneOnBoot().catch(() => {})
+  // In the background, so a slow git never holds the boot. Fix worktrees an earlier run left with
+  // no workspace are swept after the review worktrees; a start for one waits for its removal.
+  void review
+    .pruneOnBoot()
+    .catch(() => {})
+    .then(() => fix.pruneOrphans())
+    .catch((err: unknown) => adoLog.warn('fix worktree boot sweep failed', { err }))
 
   // --- Session Search slice: read-only index over ~/.claude/projects (lazy, in memory) ---
   // The one index instance is shared with the Time Tracking slice so both read the same scan.
