@@ -119,9 +119,12 @@ open findings.
    blocking findings to the resumed implementer, which fixes each or rebuts it with evidence; a
    rebuttal goes to the next reviewer together with the finding. Commit each round's fixes. The
    review ends with the first round that has no blocking findings. Non-blocking findings go into
-   `state.md` and the PR body and never start a round. A run gets three review rounds in total,
-   including the rounds after verifier and CI fixes; if the third still has blocking findings,
-   or a later stage needs a round when all three are used, ask the owner.
+   `state.md` and the PR body and never start a round. A blocking finding that asks only for a
+   missing test, with no production change, is fixed by the implementer and committed without
+   another round: the test is the verification. A run gets three review rounds in total,
+   including the rounds after verifier and CI fixes; if the third still has blocking findings
+   that change production code, or a later stage needs a round when all three are used, ask the
+   owner.
 
 7. **Verify.** The verifier checks the result black-box against the acceptance criteria: the full
    gate including e2e, a UAT pass through the `run-app` skill, and mutation testing of the new
@@ -201,6 +204,10 @@ fast-forward it.
   these without `cd`, `&&` chains, pipes, redirection or subshells. A sandboxed
   `git worktree remove` fails halfway and leaves a damaged worktree. The agent definitions say
   the same for the test commands.
+- Inside the worktree, a Bash command whose text contains `git` anywhere, even inside a heredoc
+  or a `node -e` string that merely mentions `git worktree`, is refused by the worktree-isolation
+  guard as too complex to verify. Write `state.md` and the other run files with the Write and
+  Edit tools, not through the shell.
 - `git merge origin/main` and `npm install` are not excluded. A merge that touches `.claude/`
   fails in the sandbox with "unable to unlink old", and `npm install` needs the network; retry
   either outside the sandbox, which goes through the owner's normal permission flow.

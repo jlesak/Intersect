@@ -68,6 +68,16 @@ inside a dialog pins the app's minimum window, 940x600, and asserts the dialog a
 lie inside the viewport before clicking. `e2e/usage.spec.ts`, `e2e/prInbox.spec.ts` and
 `e2e/coreRecovery.spec.ts` use this pattern.
 
+## Starting state
+
+Drive a flow from the state the owner is in when they use it, not from a fresh profile. A flow
+that creates and selects a workspace must start from a workspace that already has an open
+Claude tab: for one render after the switch, the stage sees the new workspace's folder while
+the tabs store still holds the old workspace's tabs, and a spec that starts from a tabless
+workspace never exercises that window. The fix-comments flow of issue #136 passed its e2e that
+way and failed in UAT. `e2e/prFix.spec.ts` "starting the fix from a workspace with an open
+Claude tab" is the pattern.
+
 ## Failures
 
 The suite has a known flake. Re-run a failed run once; a second failure is real and needs
