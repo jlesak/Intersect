@@ -275,7 +275,24 @@ function buildView(sessionId: string, dims: { cols: number; rows: number } | nul
   }
 
   term.onData((data) => ipc.write(sessionId, data))
+  // xterm.js sends a bare CR for Shift+Enter, the same as Enter, so Claude Code submits the
+  // prompt. ESC CR is what iTerm2 and VS Code send after Claude Code's /terminal-setup, and
+  // Claude Code reads it as a new line.
+  term.attachCustomKeyEventHandler((event) => {
+    if (!isShiftEnter(event)) return true
+    if (event.type === 'keydown') {
+      event.preventDefault()
+      ipc.write(sessionId, '\x1b\r')
+    }
+    return false
+  })
   return view
+}
+
+function isShiftEnter(event: KeyboardEvent): boolean {
+  return (
+    event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+  )
 }
 
 /** The steady-state data sink: write to the xterm under the watermark backpressure loop. */
