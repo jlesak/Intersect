@@ -234,14 +234,83 @@ describe('search', () => {
   })
 
   test('a body saved decomposed is found by the composed word the search sends', () => {
-    env.repo.create('café notes')
-    expect(bodies(env.repo, { text: 'café' })).toEqual(['café notes'])
-    expect(bodies(env.repo, { text: 'café' })).toEqual(['café notes'])
+    const entry = env.repo.create('cafe\u0301 notes')
+    expect(entry.body).toBe('caf\u00e9 notes')
+    expect(bodies(env.repo, { text: 'caf\u00e9' })).toEqual(['caf\u00e9 notes'])
+    expect(bodies(env.repo, { text: 'cafe\u0301' })).toEqual(['caf\u00e9 notes'])
   })
 
-  test('diacritics are matched exactly', () => {
-    env.repo.create('café')
-    expect(bodies(env.repo, { text: 'cafe' })).toEqual([])
+  test('search ignores diacritics and case, and the stored text keeps its accents', () => {
+    env.repo.create('Příliš žluťoučký kůň')
+    for (const text of ['prilis', 'PRILIS', 'přílíš', 'zlut', 'ZLUŤ', 'kun', 'kůň', 'prilis kun']) {
+      expect(bodies(env.repo, { text }), text).toEqual(['Příliš žluťoučký kůň'])
+    }
+    expect(env.repo.list(q()).flatMap((d) => d.entries.map((e) => e.body))).toEqual([
+      'Příliš žluťoučký kůň'
+    ])
+  })
+
+  test('an entry typed without accents is found by the accented word', () => {
+    env.repo.create('prilis zlutoucky')
+    env.repo.create('cafe')
+    expect(bodies(env.repo, { text: 'příliš' })).toEqual(['prilis zlutoucky'])
+    expect(bodies(env.repo, { text: 'café' })).toEqual(['cafe'])
+  })
+
+  test('cafe finds café', () => {
+    env.repo.create('café au lait')
+    expect(bodies(env.repo, { text: 'cafe' })).toEqual(['café au lait'])
+  })
+
+  test('word-start matching is unchanged by folding', () => {
+    env.repo.create('příliš')
+    expect(bodies(env.repo, { text: 'rilis' })).toEqual([])
+    expect(bodies(env.repo, { text: 'ilis' })).toEqual([])
+  })
+
+  test('an edit that adds or drops the accents moves the entry between the searches', () => {
+    const entry = env.repo.create('prilis')
+    env.repo.update(entry.id, 'příliš')
+    expect(bodies(env.repo, { text: 'prilis' })).toEqual(['příliš'])
+    env.repo.update(entry.id, 'other')
+    expect(bodies(env.repo, { text: 'prilis' })).toEqual([])
+    expect(() =>
+      db.exec(`INSERT INTO note_entry_fts(note_entry_fts) VALUES ('integrity-check')`)
+    ).not.toThrow()
+  })
+
+  test('the highlighter folds every Latin letter the way the index does', () => {
+    const letters: string[] = []
+    for (const [from, to] of [
+      [0x41, 0x24f],
+      [0x1e00, 0x1eff]
+    ])
+      for (let cp = from; cp <= to; cp++) {
+        const ch = String.fromCodePoint(cp)
+        if (/\p{L}/u.test(ch)) letters.push(ch)
+      }
+    const insert = db.prepare(
+      'INSERT INTO note_entry (id, day, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    )
+    letters.forEach((ch, i) => insert.run(`l-${i}`, '2026-03-01', `x${ch}y`, i, i))
+
+    // Letters carrying two marks, or a ligature with one: the index keeps them apart from their
+    // base while the highlighter folds the marks. The worst outcome is a mark on a word the index
+    // found for another reason. Listed so that any further divergence still fails.
+    const known = new Set([...'ǠǡǢǣǮǯǼǽǾǿ'])
+    const disagreements: string[] = []
+    for (const ch of letters) {
+      if (known.has(ch)) continue
+      const base = ch
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .normalize('NFC')
+      const indexFolds = bodies(env.repo, { text: `x${base}y` }).includes(`x${ch}y`)
+      const highlightFolds = matchRanges(`x${ch}y`, [`x${base}y`]).length > 0
+      if (indexFolds !== highlightFolds) disagreements.push(ch)
+    }
+    expect(disagreements).toEqual([])
   })
 
   test('input with no words does not filter', () => {
@@ -286,6 +355,8 @@ describe('search', () => {
       'plan q́uota met'
     ]
     for (const body of corpus) env.repo.create(body)
+    const foldForTest = (text: string): string =>
+      text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC')
     const queries = [
       'it',
       's',
@@ -302,6 +373,9 @@ describe('search', () => {
       'x²',
       'x',
       'café',
+      'cafe',
+      'rešeni',
+      'zlutoucky',
       'İstan',
       'istan',
       'party',
@@ -318,9 +392,7 @@ describe('search', () => {
         hits += 1
         const ranges = matchRanges(body, terms)
         for (const term of terms) {
-          const marked = ranges.some(([s, e]) =>
-            body.slice(s, e).toLowerCase().startsWith(term.toLowerCase())
-          )
+          const marked = ranges.some(([s, e]) => foldForTest(body.slice(s, e)).startsWith(foldForTest(term)))
           expect(marked, `"${term}" in "${body}"`).toBe(true)
         }
       }
@@ -458,7 +530,7 @@ describe('scale', () => {
     const insert = db.prepare(
       'INSERT INTO note_entry (id, day, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
     )
-    const words = ['cache', 'deploy', 'review', 'lunch', 'Bob', 'Alice', 'pipeline', 'budget']
+    const words = ['cache', 'deploy', 'review', 'lunch', 'Příliš', 'Alice', 'pipeline', 'budget']
     db.exec('BEGIN')
     for (let i = 0; i < 10_000; i++) {
       const key = dayKeyOf(new Date(2026, 0, 1 + Math.floor(i / 30), 12).getTime())
@@ -467,12 +539,15 @@ describe('scale', () => {
     }
     db.exec('COMMIT')
 
-    const started = performance.now()
-    const result = env.repo.list(q({ text: 'cach', from: '2026-03-01', to: '2026-06-30' }))
-    const elapsed = performance.now() - started
+    // The folded search is the one that must stay fast: an accented word found by plain letters.
+    for (const text of ['cach', 'prilis']) {
+      const started = performance.now()
+      const result = env.repo.list(q({ text, from: '2026-03-01', to: '2026-06-30' }))
+      const elapsed = performance.now() - started
 
-    expect(result.length).toBeGreaterThan(0)
-    expect(elapsed).toBeLessThan(200)
+      expect(result.length, text).toBeGreaterThan(0)
+      expect(elapsed, text).toBeLessThan(200)
+    }
   })
 
   test('one page of 30 days out of 3,000 days and 10,000 entries returns in under 200 ms', () => {

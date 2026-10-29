@@ -669,8 +669,8 @@ const MIGRATIONS: Migration[] = [
     // KEY a VACUUM may renumber rowids and silently detach the index from its rows. The triggers
     // keep the index in step on every write, so no code path can forget to.
     //
-    // `remove_diacritics 0`: diacritics-insensitive matching is out of scope, and folding them would
-    // make the renderer's highlighting disagree with what matched.
+    // `remove_diacritics 0` here keeps accents exact; migration 29 replaces the index with a folding
+    // one.
     version: 28,
     up(db) {
       db.exec(`
@@ -701,6 +701,45 @@ const MIGRATIONS: Migration[] = [
           INSERT INTO note_entry_fts(note_entry_fts, rowid, body) VALUES ('delete', old.seq, old.body);
           INSERT INTO note_entry_fts(rowid, body) VALUES (new.seq, new.body);
         END;
+      `)
+    }
+  },
+  {
+    // Notes search ignores diacritics: `prilis` finds "příliš" and the other way round. The
+    // tokenizer's option is fixed when the FTS5 table is created, so the index is dropped and
+    // created again with `remove_diacritics 2`, then rebuilt from `note_entry`. The entries
+    // themselves are never touched; only the index of their words changes.
+    //
+    // The triggers are dropped with the table they write to and created again identically, so the
+    // schema never holds a trigger that points at a missing table. `remove_diacritics 2`, not 1:
+    // SQLite keeps 1 only for indexes built by older versions, and 2 is its corrected mode.
+    version: 29,
+    up(db) {
+      db.exec(`
+        DROP TRIGGER note_entry_ai;
+        DROP TRIGGER note_entry_ad;
+        DROP TRIGGER note_entry_au;
+        DROP TABLE note_entry_fts;
+
+        CREATE VIRTUAL TABLE note_entry_fts USING fts5(
+          body,
+          content='note_entry',
+          content_rowid='seq',
+          tokenize='unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER note_entry_ai AFTER INSERT ON note_entry BEGIN
+          INSERT INTO note_entry_fts(rowid, body) VALUES (new.seq, new.body);
+        END;
+        CREATE TRIGGER note_entry_ad AFTER DELETE ON note_entry BEGIN
+          INSERT INTO note_entry_fts(note_entry_fts, rowid, body) VALUES ('delete', old.seq, old.body);
+        END;
+        CREATE TRIGGER note_entry_au AFTER UPDATE ON note_entry BEGIN
+          INSERT INTO note_entry_fts(note_entry_fts, rowid, body) VALUES ('delete', old.seq, old.body);
+          INSERT INTO note_entry_fts(rowid, body) VALUES (new.seq, new.body);
+        END;
+
+        INSERT INTO note_entry_fts(note_entry_fts) VALUES ('rebuild');
       `)
     }
   }

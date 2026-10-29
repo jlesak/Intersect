@@ -91,17 +91,56 @@ describe('matchRanges', () => {
     expect(marked('cache', 'caches')).toEqual([])
   })
 
-  test('diacritics are matched exactly', () => {
-    expect(marked('café', 'cafe')).toEqual([])
-    expect(marked('cafe', 'café')).toEqual([])
+  test('diacritics are ignored in both directions, and the mark covers the stored accents', () => {
+    expect(marked('café', 'cafe')).toEqual(['café'])
+    expect(marked('cafe', 'café')).toEqual(['cafe'])
     expect(marked('café', 'café')).toEqual(['café'])
+    expect(marked('Příliš žluťoučký kůň', 'pril')).toEqual(['Příl'])
+    expect(marked('Příliš žluťoučký kůň', 'PRILIS')).toEqual(['Příliš'])
+    expect(marked('Příliš žluťoučký kůň', 'přílíš')).toEqual(['Příliš'])
+    expect(marked('Příliš žluťoučký kůň', 'zlut')).toEqual(['žluť'])
+    expect(marked('prilis zlutoucky', 'příl')).toEqual(['pril'])
   })
 
-  test('a letter whose lowercase changes length is compared as written, keeping offsets aligned', () => {
-    // 'İ' lowercases to two code units. Folding it would shift every later offset by one.
-    expect(marked('İstanbul and Ankara', 'İstan ank')).toEqual(['İstan', 'Ank'])
-    expect(marked('İstanbul', 'istanbul')).toEqual([])
+  test('word-start matching is unchanged by folding', () => {
+    expect(marked('příliš', 'rilis')).toEqual([])
+    expect(marked('příliš', 'ilis')).toEqual([])
+  })
+
+  test('only diacritics fold: a different letter stays different', () => {
+    // A stroke or a ligature is a letter of its own, not an accent, and the index keeps it apart.
+    expect(marked('Łódź', 'lodz')).toEqual([])
+  })
+
+  test('text mixing precomposed and decomposed accents is marked at the right offsets', () => {
+    // "í" and "š" are decomposed (i + U+0301, s + U+030C); "ř" is precomposed.
+    const body = 'x Pri\u0301lis\u030C \u0159eka cafe\u0301 end'
+    expect(marked(body, 'pril')).toEqual(['Pri\u0301l'])
+    // The accent that follows the last matched letter belongs to it.
+    expect(marked(body, 'pri')).toEqual(['Pri\u0301'])
+    expect(marked(body, 'prilis')).toEqual(['Pri\u0301lis\u030C'])
+    expect(marked(body, 'reka')).toEqual(['\u0159eka'])
+    expect(marked(body, 'cafe')).toEqual(['cafe\u0301'])
+    expect(marked(body, 'café')).toEqual(['cafe\u0301'])
+    expect(marked('caf\u00e9 and cafe\u0301', 'cafe')).toEqual(['caf\u00e9', 'cafe\u0301'])
+    expect(matchRanges('ab cafe\u0301', ['cafe'])).toEqual([[3, 8]])
+  })
+
+  test('a stray combining mark does not shift later ranges and is no term', () => {
+    expect(marked('\u0301abc def', 'def')).toEqual(['def'])
+    expect(marked('abc', '\u0301')).toEqual([])
+    expect(matchRanges('abc', ['\u0301'])).toEqual([])
+  })
+
+  test('a letter that lowercases to several code units keeps offsets aligned', () => {
+    // 'İ' lowercases to i + U+0307; the index folds it to a plain i.
+    expect(marked('İstanbul and Ankara', 'istan ank')).toEqual(['İstan', 'Ank'])
     expect(marked('x İ Ankara', 'ank')).toEqual(['Ank'])
+  })
+
+  test('letters outside the Latin script keep their accents, as the index keeps them', () => {
+    expect(marked('й и', 'и')).toEqual(['и'])
+    expect(marked('άλφα', 'αλφα')).toEqual([])
   })
 
   test('a word with a combining mark is matched from its start only', () => {

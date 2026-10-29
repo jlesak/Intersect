@@ -793,12 +793,93 @@ describe('migrations', () => {
 
       runMigrations(db)
 
-      expect(userVersion(db)).toBe(28)
+      expect(userVersion(db)).toBe(CURRENT_VERSION)
       expect((db.prepare('SELECT text FROM todo_task').get() as { text: string }).text).toBe(
         'keep me'
       )
       insert(db, 'n', 'first note')
       expect(matching(db, '"first"*')).toEqual(['n'])
+    })
+  })
+
+  describe('notes search folds diacritics (v29)', () => {
+    const insert = (db: DatabaseSync, id: string, body: string): void => {
+      db.prepare(
+        `INSERT INTO note_entry (id, day, body, created_at, updated_at) VALUES (?, '2026-03-01', ?, 1, 1)`
+      ).run(id, body)
+    }
+    const matching = (db: DatabaseSync, word: string): string[] =>
+      (
+        db
+          .prepare(
+            `SELECT e.id FROM note_entry_fts JOIN note_entry e ON e.seq = note_entry_fts.rowid
+             WHERE note_entry_fts MATCH ? ORDER BY e.seq`
+          )
+          .all(`"${word}"*`) as { id: string }[]
+      ).map((r) => r.id)
+
+    test('entries written before the upgrade are found without accents, and the other way round', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db, 28)
+      insert(db, 'accented', 'Příliš žluťoučký kůň')
+      insert(db, 'plain', 'prilis zlutoucky')
+      insert(db, 'other', 'something else')
+      insert(db, 'dropped', 'to be deleted ščř')
+      db.prepare(`DELETE FROM note_entry WHERE id = 'dropped'`).run()
+      // Before the upgrade the index matches accents exactly.
+      expect(matching(db, 'prilis')).toEqual(['plain'])
+
+      runMigrations(db)
+
+      expect(userVersion(db)).toBe(CURRENT_VERSION)
+      expect(matching(db, 'prilis')).toEqual(['accented', 'plain'])
+      expect(matching(db, 'příliš')).toEqual(['accented', 'plain'])
+      expect(matching(db, 'PRILIS')).toEqual(['accented', 'plain'])
+      expect(matching(db, 'zlut')).toEqual(['accented', 'plain'])
+      // Word starts only, and a deleted entry left nothing behind in the rebuilt index.
+      expect(matching(db, 'rilis')).toEqual([])
+      expect(matching(db, 'scr')).toEqual([])
+      expect(() =>
+        db.exec(`INSERT INTO note_entry_fts(note_entry_fts) VALUES ('integrity-check')`)
+      ).not.toThrow()
+    })
+
+    test('the stored text is not changed by the upgrade', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db, 28)
+      insert(db, 'a', 'Příliš žluťoučký kůň')
+      insert(db, 'b', 'prilis')
+      const before = db.prepare('SELECT * FROM note_entry ORDER BY seq').all()
+
+      runMigrations(db)
+
+      expect(db.prepare('SELECT * FROM note_entry ORDER BY seq').all()).toEqual(before)
+    })
+
+    test('the triggers keep the rebuilt index in step', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db, 28)
+      insert(db, 'a', 'café')
+      runMigrations(db)
+
+      insert(db, 'b', 'Příliš')
+      expect(matching(db, 'cafe')).toEqual(['a'])
+      expect(matching(db, 'prilis')).toEqual(['b'])
+      db.prepare(`UPDATE note_entry SET body = 'plain' WHERE id = 'b'`).run()
+      expect(matching(db, 'prilis')).toEqual([])
+      expect(matching(db, 'plain')).toEqual(['b'])
+      db.prepare(`DELETE FROM note_entry WHERE id = 'a'`).run()
+      expect(matching(db, 'cafe')).toEqual([])
+      expect(() =>
+        db.exec(`INSERT INTO note_entry_fts(note_entry_fts) VALUES ('integrity-check')`)
+      ).not.toThrow()
+    })
+
+    test('a database that never held notes ends with the same index', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db)
+      insert(db, 'a', 'café')
+      expect(matching(db, 'cafe')).toEqual(['a'])
     })
   })
 })
