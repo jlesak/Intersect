@@ -59,10 +59,11 @@ checkout corrupt each other's output.
 ## Window size
 
 The CI runner's default window is much smaller than a developer's: on macos-15 the PR detail pane
-was about 780px wide, and the inner height is about 653 px. A spec that does not pin the window
-therefore passes in every local run, the verifier's included, and fails only in CI. An assertion that depends on layout width or height (drag ceilings, clamps,
-wrapping, stacked panels, and any dialog or overlay, whose buttons can sit below a short viewport)
-must pin the window after every launch, relaunches included, with
+was about 780px wide, and the inner height is about 653 px. A layout-dependent spec that does
+not pin the window therefore passes in every local run, the verifier's included, and fails only
+in CI. An assertion that depends on layout width or height (drag ceilings, clamps, wrapping,
+stacked panels, and any dialog or overlay, whose buttons can sit below a short viewport) must pin
+the window after every launch, relaunches included, with
 `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(W, H))`, and then
 assert that the pane really got that size so a clamping screen fails loudly. A spec that clicks
 inside a dialog pins the app's minimum window, 940x600, and asserts the dialog and its buttons
@@ -71,13 +72,14 @@ lie inside the viewport before clicking. `e2e/usage.spec.ts`, `e2e/prInbox.spec.
 
 ## Starting state
 
-Drive a flow from the state the owner is in when they use it, not from a fresh profile. A flow
-that creates and selects a workspace must start from a workspace that already has an open
-Claude tab: for one render after the switch, the stage sees the new workspace's folder while
-the tabs store still holds the old workspace's tabs, and a spec that starts from a tabless
-workspace never exercises that window. The fix-comments flow of issue #136 passed its e2e that
-way and failed in UAT. `e2e/prFix.spec.ts` "starting the fix from a workspace with an open
-Claude tab" is the pattern.
+Drive a flow from the state the owner is in when they use it, not from an empty profile: set up
+that state in the spec first. A flow that creates and selects a workspace must start from a
+workspace that already has an open tab (a Claude tab for flows that start Claude): for one
+render after the switch, the stage sees the new workspace's folder while the tabs store still
+holds the old workspace's tabs, and a spec that starts from a tabless workspace never exercises
+that window. The fix-comments flow of issue #136 passed its e2e that way and failed in UAT.
+`e2e/prFix.spec.ts` "starting the fix from a workspace with an open Claude tab starts exactly
+one Claude" is the pattern.
 
 ## Failures
 

@@ -54,8 +54,9 @@ drag moves at `window`, not at the element.
 ## Sidebar layout floor
 
 Anything that makes the sidebar's fixed content taller can squeeze the middle slot below its own
-content: a taller pinned panel, and also a new section, whose rail button adds about 35 px. Its footer then paints outside its box, the panel below wins the hit test, and a button
-that looks normal ignores every click. Playwright reports it far from the cause, for example as
+content: a taller pinned panel, and also a new section, whose rail button adds about 35 px. Its
+footer then paints outside its box, the panel below wins the hit test, and a button that looks
+normal ignores every click. Playwright reports it far from the cause, for example as
 `<div class="ix-usage"> intercepts pointer events` in unrelated specs.
 
 - `.ix-sidebar__body` and `.ix-sidebar__slot` need `min-height: min-content` spelled out.
