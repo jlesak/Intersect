@@ -154,15 +154,20 @@ describe('selectFolders', () => {
 })
 
 describe('defaultDateRange', () => {
+  // The range is in calendar days, not in 24-hour blocks: a week holding a daylight saving change
+  // is an hour longer or shorter, so the boundaries are checked and the length is not.
   test('spans the last 7 days inclusive: end of today back to start of six days ago', () => {
-    const { from, to } = defaultDateRange()
-    expect(to).toBeGreaterThan(from)
-    const days = (to - from) / (24 * 60 * 60 * 1000)
-    // Six full days plus almost all of today -> just under 7 days.
-    expect(days).toBeGreaterThan(6.9)
-    expect(days).toBeLessThan(7)
-    // `to` is the end of today, so "now" falls within the range.
-    expect(to).toBeGreaterThanOrEqual(Date.now())
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      // The week after Europe left summer time on 25 October 2026.
+      vi.setSystemTime(new Date(2026, 9, 29, 9, 30))
+      const { from, to } = defaultDateRange()
+      expect(new Date(from)).toEqual(new Date(2026, 9, 23, 0, 0, 0, 0))
+      expect(new Date(to)).toEqual(new Date(2026, 9, 29, 23, 59, 59, 999))
+      expect(to).toBeGreaterThanOrEqual(Date.now())
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
