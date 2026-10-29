@@ -199,6 +199,39 @@ test('past days are listed newest first, searched by word prefix and limited by 
   await expect.poll(() => shownDays(win)).toEqual([dayKey(-1), dayKey(-3), dayKey(-10)])
 })
 
+test('search ignores diacritics both ways and marks the stored letters', async () => {
+  const profileDir = userDataDir()
+  const first = await launch(profileDir)
+  await first.app.close()
+  seedNotes(profileDir, [
+    { day: dayKey(-4), body: 'Příliš žluťoučký kůň' },
+    { day: dayKey(-3), body: 'prilis zlutoucky' },
+    { day: dayKey(-2), body: 'Lunch with the team' }
+  ])
+
+  const { win } = await launch(profileDir)
+  await openNotes(win)
+  const hits = historySection(win).locator('.ix-notes__hit')
+
+  await searchBox(win).fill('prilis')
+  await expect.poll(() => shownDays(win)).toEqual([dayKey(-3), dayKey(-4)])
+  await expect(hits).toHaveText(['prilis', 'Příliš'])
+
+  // Typed with accents, it finds the entry written without them as well.
+  await searchBox(win).fill('PŘÍLIŠ')
+  await expect.poll(() => shownDays(win)).toEqual([dayKey(-3), dayKey(-4)])
+  await expect(hits).toHaveText(['prilis', 'Příliš'])
+
+  // The mark covers the stored letters, accents included.
+  await searchBox(win).fill('zlut')
+  await expect(hits).toHaveText(['zlut', 'žluť'])
+
+  // Words still start a match, so the middle of a word finds nothing.
+  await searchBox(win).fill('rilis')
+  await expect(win.locator('.ix-notes__no-match')).toBeVisible()
+  await expect(historyDays(win)).toHaveCount(0)
+})
+
 test('a fresh profile shows the empty line, and the capture still works', async () => {
   const { win } = await launch(userDataDir())
   await openNotes(win)
