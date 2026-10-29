@@ -56,6 +56,9 @@ import type {
   TodoLists,
   TodoTask,
   TodoTaskPatch,
+  NoteDay,
+  NoteEntry,
+  NoteQuery,
   UnfinishedDraftReview,
   UsageLiveConsent,
   UsageRefresh,
@@ -350,6 +353,15 @@ export interface IpcApi {
     remove(id: string): Promise<void>
     /** Persist the complete open-task order atomically and return the canonical list. */
     reorder(orderedIds: string[]): Promise<TodoTask[]>
+  }
+  notes: {
+    /** The days with matching entries, newest day first, each day's entries in capture order. */
+    list(query: NoteQuery): Promise<NoteDay[]>
+    /** Add an entry to today's note. The body must not be empty after trimming. */
+    add(body: string): Promise<NoteEntry>
+    /** Replace an entry's body in place; its day and capture time stay. */
+    update(id: string, body: string): Promise<NoteEntry>
+    remove(id: string): Promise<void>
   }
   myWork: {
     /**
@@ -721,6 +733,11 @@ export const Channel = {
   todoSetDone: 'todo:setDone',
   todoRemove: 'todo:remove',
   todoReorder: 'todo:reorder',
+  // notes (request/response)
+  notesList: 'notes:list',
+  notesAdd: 'notes:add',
+  notesUpdate: 'notes:update',
+  notesRemove: 'notes:remove',
   // myWork (request/response, plus a main -> renderer broadcast for refresh completion)
   myWorkList: 'myWork:list',
   myWorkRefresh: 'myWork:refresh',

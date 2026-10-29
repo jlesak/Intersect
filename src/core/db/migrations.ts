@@ -659,6 +659,50 @@ const MIGRATIONS: Migration[] = [
         renumber.run(index++, row.id)
       }
     }
+  },
+  {
+    // Daily notes: one row per captured entry, the day stamped once at capture. "The note of a day"
+    // is the ordered set of that day's entries, not a row of its own.
+    //
+    // `seq` is the INTEGER PRIMARY KEY, so it is the rowid itself and records capture order. The
+    // FTS5 index is external-content and keyed on that rowid; without an explicit INTEGER PRIMARY
+    // KEY a VACUUM may renumber rowids and silently detach the index from its rows. The triggers
+    // keep the index in step on every write, so no code path can forget to.
+    //
+    // `remove_diacritics 0`: diacritics-insensitive matching is out of scope, and folding them would
+    // make the renderer's highlighting disagree with what matched.
+    version: 28,
+    up(db) {
+      db.exec(`
+        CREATE TABLE note_entry (
+          seq        INTEGER PRIMARY KEY,
+          id         TEXT    NOT NULL UNIQUE,
+          day        TEXT    NOT NULL,
+          body       TEXT    NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX note_entry_day ON note_entry(day, seq);
+
+        CREATE VIRTUAL TABLE note_entry_fts USING fts5(
+          body,
+          content='note_entry',
+          content_rowid='seq',
+          tokenize='unicode61 remove_diacritics 0'
+        );
+
+        CREATE TRIGGER note_entry_ai AFTER INSERT ON note_entry BEGIN
+          INSERT INTO note_entry_fts(rowid, body) VALUES (new.seq, new.body);
+        END;
+        CREATE TRIGGER note_entry_ad AFTER DELETE ON note_entry BEGIN
+          INSERT INTO note_entry_fts(note_entry_fts, rowid, body) VALUES ('delete', old.seq, old.body);
+        END;
+        CREATE TRIGGER note_entry_au AFTER UPDATE ON note_entry BEGIN
+          INSERT INTO note_entry_fts(note_entry_fts, rowid, body) VALUES ('delete', old.seq, old.body);
+          INSERT INTO note_entry_fts(rowid, body) VALUES (new.seq, new.body);
+        END;
+      `)
+    }
   }
 ]
 

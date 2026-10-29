@@ -713,4 +713,92 @@ describe('migrations', () => {
         .sha
     ).toBeNull()
   })
+
+  describe('daily notes (v28)', () => {
+    const insert = (db: DatabaseSync, id: string, body: string): void => {
+      db.prepare(
+        `INSERT INTO note_entry (id, day, body, created_at, updated_at) VALUES (?, '2026-03-01', ?, 1, 1)`
+      ).run(id, body)
+    }
+    const matching = (db: DatabaseSync, expr: string): string[] =>
+      (
+        db
+          .prepare(
+            `SELECT e.id FROM note_entry_fts JOIN note_entry e ON e.seq = note_entry_fts.rowid
+             WHERE note_entry_fts MATCH ? ORDER BY e.seq`
+          )
+          .all(expr) as { id: string }[]
+      ).map((r) => r.id)
+
+    test('creates the entry table and its FTS5 index, which the runtime must support', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db)
+      const names = (
+        db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").all() as {
+          name: string
+        }[]
+      ).map((r) => r.name)
+      expect(names).toEqual(
+        expect.arrayContaining(['note_entry', 'note_entry_fts', 'note_entry_day'])
+      )
+      const ddl = (
+        db.prepare("SELECT sql FROM sqlite_master WHERE name = 'note_entry_fts'").get() as {
+          sql: string
+        }
+      ).sql
+      expect(ddl).toMatch(/USING fts5/i)
+    })
+
+    test('insert, update and delete keep the search index in step', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db)
+      insert(db, 'a', 'Call Bob about the cache')
+      insert(db, 'b', 'Lunch with Alice')
+      expect(matching(db, '"cach"*')).toEqual(['a'])
+
+      db.prepare(`UPDATE note_entry SET body = 'Cache warmed for Alice' WHERE id = 'b'`).run()
+      expect(matching(db, '"cach"*')).toEqual(['a', 'b'])
+      expect(matching(db, '"lunch"*')).toEqual([])
+
+      db.prepare(`DELETE FROM note_entry WHERE id = 'a'`).run()
+      expect(matching(db, '"cach"*')).toEqual(['b'])
+      expect(matching(db, '"bob"*')).toEqual([])
+
+      // The index agrees with its content table exactly, so nothing stale is left behind.
+      expect(() =>
+        db.exec(`INSERT INTO note_entry_fts(note_entry_fts) VALUES ('integrity-check')`)
+      ).not.toThrow()
+    })
+
+    test('a deleted entry leaves nothing in the index for the next entry to inherit', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db)
+      // Deleting the last row frees its seq, and the next insert takes it again. An index row the
+      // delete left behind would then join to the new entry and answer for the old words.
+      insert(db, 'a', 'secret password idea')
+      db.prepare(`DELETE FROM note_entry WHERE id = 'a'`).run()
+      insert(db, 'b', 'lunch with the team')
+
+      expect(matching(db, '"secret"*')).toEqual([])
+      expect(matching(db, '"lunch"*')).toEqual(['b'])
+    })
+
+    test('upgrading from v27 keeps existing data and adds the notes', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db, 27)
+      db.prepare(
+        `INSERT INTO todo_task (id, text, description, due_day, sort_order, done_at, created_at)
+         VALUES ('t', 'keep me', '', NULL, 0, NULL, 1)`
+      ).run()
+
+      runMigrations(db)
+
+      expect(userVersion(db)).toBe(28)
+      expect((db.prepare('SELECT text FROM todo_task').get() as { text: string }).text).toBe(
+        'keep me'
+      )
+      insert(db, 'n', 'first note')
+      expect(matching(db, '"first"*')).toEqual(['n'])
+    })
+  })
 })

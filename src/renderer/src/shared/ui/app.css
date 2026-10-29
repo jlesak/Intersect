@@ -60,6 +60,12 @@
   flex: 1;
   min-height: min-content;
 }
+/* An empty slot has no content to make a floor of, so on a window too short for the rail, the
+   usage panel and the footer it was squeezed to nothing and the two dividers met again. A fixed
+   floor keeps them apart; past it the sidebar scrolls, as it does for any panel that cannot fit. */
+.ix-sidebar__slot:empty {
+  min-height: 24px;
+}
 .ix-sidebar__body {
   display: flex;
   flex-direction: column;
@@ -3635,6 +3641,167 @@
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-faint);
+}
+
+/* ---------------- Daily notes ---------------- */
+/* One scrolling column. Every child may shrink below its content (min-width: 0) and long words
+   break anywhere, so nothing the user writes can push the view sideways at the 940px minimum
+   window: overflow-y: auto would otherwise hide that overflow behind a horizontal scrollbar. */
+.ix-notes {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+  overflow-y: auto;
+}
+.ix-notes__today,
+.ix-notes__history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ix-notes__heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ix-notes__error {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.ix-notes__empty,
+.ix-notes__no-match {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+.ix-notes__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+/* Brought back into view after every add. The margin keeps it clear of the view's bottom edge
+   instead of flush against it, where sub-pixel rounding can leave its last pixel cut off. */
+.ix-notes__capture {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  scroll-margin-bottom: 16px;
+}
+.ix-notes__capture-input,
+.ix-note__editor {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 7px 10px;
+  line-height: 1.45;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+}
+.ix-notes__add {
+  flex: none;
+}
+.ix-notes__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  min-width: 0;
+}
+.ix-notes__search {
+  flex: 1 1 220px;
+  min-width: 0;
+  height: 30px;
+}
+.ix-notes__range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+.ix-notes__date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ix-notes__date .ix-input {
+  width: auto;
+  height: 30px;
+  color-scheme: dark;
+}
+.ix-notes__day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 6px;
+}
+.ix-notes__day-heading {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ix-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 6px;
+  border-radius: var(--radius-sm);
+}
+.ix-note:not(.ix-note--editing):hover {
+  background: var(--panel-2);
+}
+.ix-note--editing {
+  background: var(--panel-2);
+}
+.ix-note__time {
+  flex: none;
+  padding-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ix-note__body {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ix-note__actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ix-note:hover .ix-note__actions,
+.ix-note:focus-within .ix-note__actions {
+  opacity: 1;
+}
+.ix-notes__hit {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 2px;
 }
 
 /* ---------------- 1:1 workflows ---------------- */
