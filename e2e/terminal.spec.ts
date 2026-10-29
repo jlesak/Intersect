@@ -134,3 +134,25 @@ test('a tab is dragged onto another pane, and back onto the body of the one it l
   await expect(pane(1).locator('.ix-tab')).toHaveCount(1)
   await shows(0, moved)
 })
+
+/**
+ * Shift+Enter, end to end: the key must reach the pty as ESC CR, which Claude Code reads as a new
+ * line, and not as the bare CR of Enter, which submits the prompt. `cat -v` echoes ESC as `^[`.
+ */
+test('Shift+Enter reaches the shell as ESC CR, not as a plain Enter', async () => {
+  const { app, win } = await launch(userDataDir(), { openOther: true })
+  await addWorkspace(win, app, tempDir('shiftenterws-'))
+
+  await win.locator('.ix-iconbtn[title="New terminal"]').click()
+  await win.locator('.ix-preset', { hasText: 'Shell' }).click()
+  const term = win.locator('.xterm')
+  await term.waitFor()
+  await term.click()
+
+  await win.keyboard.type('cat -v')
+  await win.keyboard.press('Enter')
+  await win.keyboard.type('MARK')
+  await win.keyboard.press('Shift+Enter')
+
+  await expect(win.locator('.xterm-rows')).toContainText('MARK^[')
+})
