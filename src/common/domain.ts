@@ -886,11 +886,17 @@ export interface NoteDay {
  * Which entries to list. `text` is the raw search input: every word must start a word of the
  * entry, in any order, case-insensitively; an input with no words does not filter. `from` and
  * `to` are inclusive day keys, each null for an open end.
+ *
+ * Paging is by days, so a day's entries never split: `before` is a cursor, an exclusive upper day
+ * bound (the oldest day of the page before), and `dayLimit` caps how many matching days come back,
+ * newest first. Each is null for no cursor and no cap.
  */
 export interface NoteQuery {
   text: string
   from: string | null
   to: string | null
+  before: string | null
+  dayLimit: number | null
 }
 
 // ---------------------------------------------------------------------------

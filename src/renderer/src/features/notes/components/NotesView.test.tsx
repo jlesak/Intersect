@@ -6,7 +6,7 @@ import { addDays, dayKeyOf } from '@common/week'
 vi.mock('../ipc')
 vi.mock('@renderer/shared/ui/toast')
 import * as api from '../ipc'
-import { useNotesStore } from '../store'
+import { HISTORY_PAGE_DAYS, useNotesStore } from '../store'
 import { NotesView } from './NotesView'
 
 const mocked = vi.mocked(api)
@@ -30,8 +30,8 @@ const entry = (id: string, day: string, body: string, time = at(day, 9, 0)): Not
 })
 
 /**
- * The core's list over a mutable set of entries: day bounds plus a plain substring search, grouped
- * newest day first. The view only needs to see which rows each query reaches.
+ * The core's list over a mutable set of entries: day bounds, the cursor and day limit, plus a
+ * plain substring search, grouped newest day first. The view only needs to see which rows each query reaches.
  */
 let stored: NoteEntry[] = []
 function serveStored(): void {
@@ -40,6 +40,7 @@ function serveStored(): void {
     const days: NoteDay[] = []
     const rows = stored
       .filter((e) => (q.from === null || e.day >= q.from) && (q.to === null || e.day <= q.to))
+      .filter((e) => q.before === null || e.day < q.before)
       .filter((e) => words.every((w) => e.body.toLowerCase().includes(w)))
       .sort((a, b) => (a.day === b.day ? 0 : a.day < b.day ? 1 : -1))
     for (const e of rows) {
@@ -47,7 +48,7 @@ function serveStored(): void {
       if (last?.day === e.day) last.entries.push({ ...e })
       else days.push({ day: e.day, entries: [{ ...e }] })
     }
-    return days
+    return q.dayLimit === null ? days : days.slice(0, q.dayLimit)
   })
 }
 
@@ -78,6 +79,9 @@ beforeEach(() => {
     todayEntries: [],
     history: [],
     historyFiltered: false,
+    historyHasMore: false,
+    historyLimit: HISTORY_PAGE_DAYS,
+    loadingOlder: false,
     query: '',
     from: null,
     to: null
@@ -361,5 +365,113 @@ describe('status lines', () => {
     expect(document.querySelector('.ix-notes__error')?.textContent).toContain('db gone')
     expect(document.querySelector('.ix-notes__empty')).toBeNull()
     expect(document.querySelector('.ix-notes__no-match')).toBeNull()
+  })
+})
+
+describe('older days', () => {
+  const olderButton = (): HTMLElement | null => screen.queryByRole('button', { name: 'Show older days' })
+  const shownDays = (): string[] =>
+    [...history().querySelectorAll<HTMLElement>('.ix-notes__day')].map((d) => d.dataset.day!)
+
+  /** One entry per day on the `count` days before today, newest first by index. */
+  const pastDays = (count: number, body = 'note'): NoteEntry[] =>
+    Array.from({ length: count }, (_, i) => {
+      const day = addDays(YESTERDAY, -i)
+      return entry(`p${i}`, day, `${body} ${i}`)
+    })
+
+  test('45 past days show the 30 newest and a button that brings in the rest and goes away', async () => {
+    stored = pastDays(45)
+    await mount()
+    expect(shownDays()).toEqual(stored.slice(0, 30).map((e) => e.day))
+    expect(olderButton()).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.click(olderButton()!)
+    })
+    expect(shownDays()).toEqual(stored.map((e) => e.day))
+    expect(olderButton()).toBeNull()
+  })
+
+  test('30 or fewer past days offer no button', async () => {
+    stored = pastDays(30)
+    await mount()
+    expect(shownDays()).toHaveLength(30)
+    expect(olderButton()).toBeNull()
+  })
+
+  test('a search matching 40 days shows 30 and the button, then the other 10, with matches marked', async () => {
+    stored = [...pastDays(40, 'cache'), entry('x', YESTERDAY, 'lunch')]
+    await mount()
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'cach' } })
+    // The unmatched newest day is on screen until the search has answered.
+    await waitFor(() => expect(screen.queryByText('lunch')).toBeNull())
+    expect(shownDays()).toHaveLength(30)
+    expect(olderButton()).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.click(olderButton()!)
+    })
+    expect(shownDays()).toHaveLength(40)
+    expect(olderButton()).toBeNull()
+    expect(document.querySelectorAll('.ix-notes__hit')).toHaveLength(40)
+  })
+
+  test('changing the search text or a date after loading older days shows the first page again', async () => {
+    stored = pastDays(75, 'cache')
+    await mount()
+    await act(async () => {
+      fireEvent.click(olderButton()!)
+    })
+    expect(shownDays()).toHaveLength(60)
+
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'cache' } })
+    await waitFor(() => expect(shownDays()).toHaveLength(30))
+    expect(olderButton()).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.click(olderButton()!)
+    })
+    expect(shownDays()).toHaveLength(60)
+    await act(async () => {
+      fireEvent.change(history().querySelector('.ix-notes__from')!, {
+        target: { value: stored[70].day }
+      })
+    })
+    expect(shownDays()).toEqual(stored.slice(0, 30).map((e) => e.day))
+  })
+
+  test('adding an entry keeps the older days that were loaded', async () => {
+    stored = pastDays(45)
+    mocked.add.mockImplementation(async (body) => {
+      const e = entry('new', TODAY, body)
+      stored.push(e)
+      return e
+    })
+    await mount()
+    await act(async () => {
+      fireEvent.click(olderButton()!)
+    })
+    expect(shownDays()).toHaveLength(45)
+
+    fireEvent.change(captureBox(), { target: { value: 'written now' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    })
+    expect(bodiesIn(today())).toEqual(['written now'])
+    expect(shownDays()).toHaveLength(45)
+  })
+
+  test('with 10,000 entries over 3,000 days, opening Notes renders at most 30 history days', async () => {
+    stored = Array.from({ length: 10_000 }, (_, i) =>
+      entry(`s${i}`, addDays(YESTERDAY, -(i % 3_000)), `entry ${i}`)
+    )
+    await mount()
+    expect(shownDays()).toHaveLength(30)
+    expect(history().querySelectorAll('.ix-note').length).toBeLessThanOrEqual(30 * 4)
+    expect(olderButton()).not.toBeNull()
+    fireEvent.change(screen.getByLabelText('Search notes'), { target: { value: 'entry' } })
+    await waitFor(() => expect(mocked.list).toHaveBeenCalledWith(expect.objectContaining({ text: 'entry' })))
+    await waitFor(() => expect(shownDays()).toHaveLength(30))
   })
 })

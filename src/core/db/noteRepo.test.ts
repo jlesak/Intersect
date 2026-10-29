@@ -33,7 +33,14 @@ function makeRepo(db: DatabaseSync): { repo: NoteRepo; at(ms: number): void } {
   }
 }
 
-const q = (over: Partial<NoteQuery> = {}): NoteQuery => ({ text: '', from: null, to: null, ...over })
+const q = (over: Partial<NoteQuery> = {}): NoteQuery => ({
+  text: '',
+  from: null,
+  to: null,
+  before: null,
+  dayLimit: null,
+  ...over
+})
 
 /** The bodies a query returns, flattened in the order the user reads them. */
 const bodies = (repo: NoteRepo, query: Partial<NoteQuery>): string[] =>
@@ -361,6 +368,91 @@ describe('date range', () => {
   })
 })
 
+describe('paging by days', () => {
+  /** Entries on `n` consecutive days ending 2026-03-01; day i has i+1 entries. Newest first. */
+  const seedRun = (n: number): string[] => {
+    const days: string[] = []
+    const entries: [string, string][] = []
+    for (let i = 0; i < n; i++) {
+      const day = dayKeyOf(new Date(2026, 2, 1 - i, 12).getTime())
+      days.push(day)
+      for (let k = 0; k <= i % 3; k++) entries.push([day, `${day}#${k}`])
+    }
+    seedDays(env, entries)
+    return days
+  }
+  const dayKeys = (query: Partial<NoteQuery>): string[] =>
+    env.repo.list(q(query)).map((d) => d.day)
+
+  test('a day limit returns that many newest days, each with all its entries', () => {
+    const days = seedRun(7)
+    const page = env.repo.list(q({ dayLimit: 3 }))
+    expect(page.map((d) => d.day)).toEqual(days.slice(0, 3))
+    expect(page.map((d) => d.entries.length)).toEqual([1, 2, 3])
+  })
+
+  test('a limit above the number of days returns them all', () => {
+    const days = seedRun(4)
+    expect(dayKeys({ dayLimit: 30 })).toEqual(days)
+  })
+
+  test('a cursor returns only days strictly before it, so pages follow one another', () => {
+    const days = seedRun(7)
+    const first = dayKeys({ dayLimit: 3 })
+    const second = dayKeys({ dayLimit: 3, before: first[first.length - 1] })
+    const third = dayKeys({ dayLimit: 3, before: second[second.length - 1] })
+    expect(second).toEqual(days.slice(3, 6))
+    expect(third).toEqual(days.slice(6))
+    expect(dayKeys({ dayLimit: 3, before: days[6] })).toEqual([])
+  })
+
+  test('a cursor without a limit returns everything before it', () => {
+    const days = seedRun(5)
+    expect(dayKeys({ before: days[1] })).toEqual(days.slice(2))
+  })
+
+  test('days are counted after the search, so a page is full of matching days only', () => {
+    seedDays(env, [
+      ['2026-02-20', 'cache a'],
+      ['2026-02-21', 'lunch'],
+      ['2026-02-22', 'cache b'],
+      ['2026-02-23', 'lunch'],
+      ['2026-02-24', 'cache c'],
+      ['2026-02-25', 'cache d']
+    ])
+    expect(dayKeys({ text: 'cache', dayLimit: 3 })).toEqual(['2026-02-25', '2026-02-24', '2026-02-22'])
+    expect(dayKeys({ text: 'cache', dayLimit: 3, before: '2026-02-22' })).toEqual(['2026-02-20'])
+  })
+
+  test('a day with several matches counts once and keeps only its matching entries', () => {
+    seedDays(env, [
+      ['2026-02-24', 'cache one'],
+      ['2026-02-24', 'lunch'],
+      ['2026-02-24', 'cache two'],
+      ['2026-02-23', 'cache three']
+    ])
+    const page = env.repo.list(q({ text: 'cache', dayLimit: 1 }))
+    expect(page).toHaveLength(1)
+    expect(page[0].entries.map((e) => e.body)).toEqual(['cache one', 'cache two'])
+  })
+
+  test('combines with the date range', () => {
+    const days = seedRun(10)
+    expect(dayKeys({ from: days[6], to: days[1], dayLimit: 2 })).toEqual([days[1], days[2]])
+    expect(dayKeys({ from: days[6], to: days[1], dayLimit: 2, before: days[2] })).toEqual([
+      days[3],
+      days[4]
+    ])
+  })
+
+  test('rejects a limit that is not a positive whole number and a cursor that is not a day', () => {
+    for (const dayLimit of [0, -1, 1.5, Number.NaN]) {
+      expect(() => env.repo.list(q({ dayLimit }))).toThrow(/invalid day limit/i)
+    }
+    expect(() => env.repo.list(q({ before: '2026-3-1' }))).toThrow(/invalid day/i)
+  })
+})
+
 describe('scale', () => {
   test('a search with a date range over 10,000 entries returns in under 200 ms', () => {
     const insert = db.prepare(
@@ -381,5 +473,30 @@ describe('scale', () => {
 
     expect(result.length).toBeGreaterThan(0)
     expect(elapsed).toBeLessThan(200)
+  })
+
+  test('one page of 30 days out of 3,000 days and 10,000 entries returns in under 200 ms', () => {
+    const insert = db.prepare(
+      'INSERT INTO note_entry (id, day, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    )
+    db.exec('BEGIN')
+    for (let i = 0; i < 10_000; i++) {
+      const key = dayKeyOf(new Date(2010, 0, 1 + (i % 3_000), 12).getTime())
+      insert.run(`s-${i}`, key, `entry ${i} about the cache`, i, i)
+    }
+    db.exec('COMMIT')
+
+    for (const text of ['', 'cach']) {
+      const started = performance.now()
+      const page = env.repo.list(q({ text, dayLimit: 30 }))
+      const older = env.repo.list(q({ text, dayLimit: 30, before: page[page.length - 1].day }))
+      const elapsed = performance.now() - started
+
+      expect(page).toHaveLength(30)
+      expect(older).toHaveLength(30)
+      expect(older[0].day < page[29].day).toBe(true)
+      // Each call is a page, so both together are well under twice the limit.
+      expect(elapsed).toBeLessThan(200)
+    }
   })
 })

@@ -5,7 +5,7 @@ import { createNoteRepo, type NoteRepo } from '../db/noteRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
 import { createNotesHandlers, notesWireRoutes } from './notes.ipc'
 
-const all = { text: '', from: null, to: null }
+const all = { text: '', from: null, to: null, before: null, dayLimit: null }
 
 describe('notes handlers', () => {
   let notes: NoteRepo
@@ -25,7 +25,7 @@ describe('notes handlers', () => {
   test('list passes the search and the range through', async () => {
     await h.add('cache')
     await h.add('lunch')
-    const days = await h.list({ text: 'cach', from: null, to: null })
+    const days = await h.list({ ...all, text: 'cach' })
     expect(days.flatMap((d) => d.entries.map((e) => e.body))).toEqual(['cache'])
   })
 
@@ -40,7 +40,9 @@ describe('notes handlers', () => {
   test('a repo validation error crosses as a message-only Error', async () => {
     await expect(h.add('   ')).rejects.toThrow(/must not be empty/i)
     await expect(h.update('nope', 'x')).rejects.toThrow(/not found/i)
-    await expect(h.list({ text: '', from: 'soon', to: null })).rejects.toThrow(/invalid day/i)
+    await expect(h.list({ ...all, from: 'soon' })).rejects.toThrow(/invalid day/i)
+    await expect(h.list({ ...all, before: 'soon' })).rejects.toThrow(/invalid day/i)
+    await expect(h.list({ ...all, dayLimit: 0 })).rejects.toThrow(/invalid day limit/i)
   })
 
   test('wraps a non-Error throw into an Error with a message', async () => {
