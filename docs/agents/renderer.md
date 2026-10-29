@@ -53,21 +53,22 @@ drag moves at `window`, not at the element.
 
 ## Sidebar layout floor
 
-Anything that makes a pinned sidebar panel taller can squeeze the middle slot below its own
-content. Its footer then paints outside its box, the panel below wins the hit test, and a button
+Anything that makes the sidebar's fixed content taller can squeeze the middle slot below its own
+content: a taller pinned panel, and also a new section, whose rail button adds about 35 px. Its footer then paints outside its box, the panel below wins the hit test, and a button
 that looks normal ignores every click. Playwright reports it far from the cause, for example as
 `<div class="ix-usage"> intercepts pointer events` in unrelated specs.
 
 - `.ix-sidebar__body` and `.ix-sidebar__slot` need `min-height: min-content` spelled out.
   `overflow: hidden` sets the flex item's content-based minimum to zero, so dropping the floor
   brings the squeeze back.
-- `.ix-sidebar__slot` is always rendered, even when the active context puts nothing in it.
-  Without it the two stacked resize dividers land on the same pixel and only the lower one can be
-  pressed.
+- `.ix-sidebar__slot` is always rendered, even when the active context puts nothing in it, and
+  an empty slot keeps a 24 px floor (`.ix-sidebar__slot:empty`). Without either, the two stacked
+  resize dividers land on the same pixel and only the lower one can be pressed.
 - Whenever two stacked controls can meet, check what happens when the thing between them is
   empty.
 
-The trap is height-dependent and hides on a tall screen: reproduce it with a 1280x700 window.
+The trap is height-dependent and hides on a tall screen: reproduce it with a 1280x685 window,
+which gives CI's 653 px inner height, and at 940x600.
 `src/renderer/src/shared/ui/appCss.test.ts`, `e2e/usage.spec.ts` and `e2e/sidebar-resize.spec.ts`
 guard it.
 

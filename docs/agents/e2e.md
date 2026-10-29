@@ -59,7 +59,8 @@ checkout corrupt each other's output.
 ## Window size
 
 The CI runner's default window is much smaller than a developer's: on macos-15 the PR detail pane
-was about 780px wide. An assertion that depends on layout width or height (drag ceilings, clamps,
+was about 780px wide, and the inner height is about 653 px. A spec that does not pin the window
+therefore passes in every local run, the verifier's included, and fails only in CI. An assertion that depends on layout width or height (drag ceilings, clamps,
 wrapping, stacked panels, and any dialog or overlay, whose buttons can sit below a short viewport)
 must pin the window after every launch, relaunches included, with
 `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(W, H))`, and then
