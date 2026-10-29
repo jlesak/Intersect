@@ -54,7 +54,8 @@ export interface NoteRepo {
   remove(id: string): void
   /**
    * The days with matching entries, newest day first, each day's entries in capture order. With no
-   * search words and no bounds this is every entry.
+   * search words, no bounds and no limit this is every entry. The cursor and the day limit page by
+   * days: a day counts once however many entries match, and its matching entries all come back.
    */
   list(query: NoteQuery): NoteDay[]
 }
@@ -92,13 +93,16 @@ export function createNoteRepo(db: DatabaseSync, deps: RepoDeps): NoteRepo {
       db.prepare('DELETE FROM note_entry WHERE id = ?').run(id)
     },
 
-    list({ text, from, to }) {
-      for (const bound of [from, to]) {
+    list({ text, from, to, before, dayLimit }) {
+      for (const bound of [from, to, before]) {
         if (bound !== null && !DAY.test(bound)) throw new Error(`Invalid day: ${bound}`)
+      }
+      if (dayLimit !== null && !(Number.isInteger(dayLimit) && dayLimit > 0)) {
+        throw new Error(`Invalid day limit: ${dayLimit}`)
       }
       const terms = noteSearchTerms(text)
       const where: string[] = []
-      const params: string[] = []
+      const params: (string | number)[] = []
       let join = ''
       if (terms.length > 0) {
         join = 'JOIN note_entry_fts ON note_entry_fts.rowid = e.seq'
@@ -112,6 +116,24 @@ export function createNoteRepo(db: DatabaseSync, deps: RepoDeps): NoteRepo {
       if (to !== null) {
         where.push('e.day <= ?')
         params.push(to)
+      }
+      if (before !== null) {
+        where.push('e.day < ?')
+        params.push(before)
+      }
+      // The page is the newest `dayLimit` matching days. Those days are the matching days from the
+      // oldest of them upwards, so the page is the same query with that day as a lower bound.
+      if (dayLimit !== null) {
+        const edge = db
+          .prepare(
+            `SELECT DISTINCT e.day FROM note_entry e ${join}
+             ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+             ORDER BY e.day DESC LIMIT ?`
+          )
+          .all(...params, dayLimit) as unknown as { day: string }[]
+        if (edge.length === 0) return []
+        where.push('e.day >= ?')
+        params.push(edge[edge.length - 1].day)
       }
       const rows = db
         .prepare(

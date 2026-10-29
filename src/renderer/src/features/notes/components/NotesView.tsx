@@ -28,7 +28,8 @@ function EntryList({ entries, terms }: { entries: NoteEntry[]; terms: readonly s
 /**
  * The Notes section's main region: today's note with its capture box, then the search bar, then
  * the past days. The filters narrow only the history; Today always shows every entry it has, with
- * the searched words marked.
+ * the searched words marked. The history shows a page of days at a time, and a button below the
+ * last one loads the next page.
  */
 export function NotesView() {
   const status = useNotesStore((s) => s.status)
@@ -37,6 +38,8 @@ export function NotesView() {
   const todayEntries = useNotesStore((s) => s.todayEntries)
   const history = useNotesStore((s) => s.history)
   const historyFiltered = useNotesStore((s) => s.historyFiltered)
+  const historyHasMore = useNotesStore((s) => s.historyHasMore)
+  const loadingOlder = useNotesStore((s) => s.loadingOlder)
   const query = useNotesStore((s) => s.query)
 
   const terms = useMemo(() => noteSearchTerms(query), [query])
@@ -82,6 +85,16 @@ export function NotesView() {
               <EntryList entries={day.entries} terms={terms} />
             </div>
           ))}
+          {historyHasMore && (
+            <button
+              type="button"
+              className="ix-btn ix-notes__older"
+              disabled={loadingOlder}
+              onClick={() => void useNotesStore.getState().loadOlder()}
+            >
+              Show older days
+            </button>
+          )}
         </section>
       </div>
     </div>

@@ -287,3 +287,65 @@ test('the view fits the minimum window without horizontal overflow', async () =>
   // The rows really did outgrow the view, so the loop above tested the scroll and not a short list.
   expect(await view.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
 })
+
+test('History pages by 30 days: the button loads older days, searches page too, filters start over', async () => {
+  const profileDir = userDataDir()
+  const first = await launch(profileDir)
+  await first.app.close()
+  // 45 past days, one entry each; the 40 oldest mention "cache". Today has an entry too.
+  const rows = [{ day: dayKey(0), body: 'cache today' }]
+  for (let i = 1; i <= 45; i++) {
+    rows.push({ day: dayKey(-i), body: i > 5 ? `cache entry ${i}` : `lunch entry ${i}` })
+  }
+  seedNotes(profileDir, rows)
+  const expectedDays = (from: number, to: number): string[] =>
+    Array.from({ length: to - from + 1 }, (_, i) => dayKey(-(from + i)))
+
+  const { win } = await launch(profileDir)
+  await openNotes(win)
+  const older = win.getByRole('button', { name: 'Show older days' })
+
+  // Opening shows the 30 newest days; Today is whole.
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(1, 30))
+  await expect(todayBodies(win)).toHaveText(['cache today'])
+  await expect(older).toBeVisible()
+
+  // The button brings in the other 15 and goes away.
+  await older.click()
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(1, 45))
+  await expect(older).toHaveCount(0)
+
+  // A search matching 40 days is paged the same way, with the matches marked.
+  await searchBox(win).fill('cache')
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 35))
+  await expect(older).toBeVisible()
+  await expect(historySection(win).locator('.ix-notes__hit')).toHaveCount(30)
+  await older.click()
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 45))
+  await expect(older).toHaveCount(0)
+
+  // Changing the search after older days were loaded starts again from the first page.
+  await searchBox(win).fill('cach')
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 35))
+  await expect(older).toBeVisible()
+  await older.click()
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 45))
+
+  // So does changing a date.
+  await win.locator('.ix-notes__to').fill(dayKey(-10))
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(10, 39))
+  await expect(older).toBeVisible()
+  await older.click()
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(10, 45))
+  await win.locator('.ix-notes__to').fill('')
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 35))
+
+  // Adding an entry keeps the older days that were loaded; nothing jumps back to page one.
+  await older.click()
+  await expect.poll(() => shownDays(win)).toEqual(expectedDays(6, 45))
+  await captureBox(win).fill('cache written now')
+  await captureBox(win).press('Meta+Enter')
+  await expect(todayBodies(win)).toHaveText(['cache today', 'cache written now'])
+  await expect(historyDays(win)).toHaveCount(40)
+  await expect(older).toHaveCount(0)
+})
