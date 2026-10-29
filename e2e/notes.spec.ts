@@ -266,4 +266,24 @@ test('the view fits the minimum window without horizontal overflow', async () =>
   await captureBox(win).fill('still reachable')
   await win.getByRole('button', { name: 'Add' }).click()
   await expect(todayBodies(win)).toHaveCount(2)
+
+  // Writing one note after another: once Today is taller than the view, each new entry pushes the
+  // box down, and it has to come back fully into view without the user scrolling to it.
+  const view = win.locator('.ix-notes')
+  for (let i = 3; i <= 14; i++) {
+    await captureBox(win).fill(`note number ${i}\nwith a second line`)
+    await captureBox(win).press('Meta+Enter')
+    await expect(todayBodies(win)).toHaveCount(i)
+    await expect(captureBox(win)).toHaveValue('')
+    await expect(captureBox(win)).toBeFocused()
+    await expect
+      .poll(async () => {
+        const v = (await view.boundingBox())!
+        const box = (await captureBox(win).boundingBox())!
+        return box.y >= v.y && box.y + box.height <= v.y + v.height
+      })
+      .toBe(true)
+  }
+  // The rows really did outgrow the view, so the loop above tested the scroll and not a short list.
+  expect(await view.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
 })

@@ -3682,11 +3682,14 @@
   gap: 2px;
   min-width: 0;
 }
+/* Brought back into view after every add. The margin keeps it clear of the view's bottom edge
+   instead of flush against it, where sub-pixel rounding can leave its last pixel cut off. */
 .ix-notes__capture {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   min-width: 0;
+  scroll-margin-bottom: 16px;
 }
 .ix-notes__capture-input,
 .ix-note__editor {

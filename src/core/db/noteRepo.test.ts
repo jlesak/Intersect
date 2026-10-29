@@ -136,6 +136,14 @@ describe('remove', () => {
     expect(bodies(env.repo, { text: 'one' })).toEqual([])
   })
 
+  test('a removed entry is not found through the entry written after it', () => {
+    const a = env.repo.create('secret password idea')
+    env.repo.remove(a.id)
+    env.repo.create('lunch with the team')
+    expect(bodies(env.repo, { text: 'secret' })).toEqual([])
+    expect(bodies(env.repo, { text: 'lunch' })).toEqual(['lunch with the team'])
+  })
+
   test('a day whose last entry is removed disappears', () => {
     seedDays(env, [
       ['2026-03-01', 'only'],
@@ -267,7 +275,8 @@ describe('search', () => {
       'ISTANBUL office',
       'emoji 🎉party',
       '中文 note',
-      'Ωmega and σίγμα'
+      'Ωmega and σίγμα',
+      'plan q́uota met'
     ]
     for (const body of corpus) env.repo.create(body)
     const queries = [
@@ -292,7 +301,8 @@ describe('search', () => {
       '中',
       'ωm',
       'σί',
-      'ca au'
+      'ca au',
+      'q́uo'
     ]
     let hits = 0
     for (const text of queries) {

@@ -111,6 +111,22 @@ describe('Today', () => {
     }
   })
 
+  test('a view left open across midnight moves the day into the history by itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    vi.setSystemTime(new Date(2026, 2, 2, 23, 59, 30))
+    stored = [entry('a', '2026-03-02', 'written before midnight')]
+    await mount()
+    expect(bodiesIn(today())).toEqual(['written before midnight'])
+
+    // Nothing but the clock moves: no click, no reopen.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000)
+    })
+
+    expect(bodiesIn(today())).toEqual([])
+    expect(bodiesIn(history())).toEqual(['written before midnight'])
+  })
+
   test('the capture box has the cursor when Notes opens', async () => {
     await mount()
     expect(document.activeElement).toBe(captureBox())

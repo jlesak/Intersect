@@ -41,6 +41,12 @@ describe('noteSearchTerms', () => {
     expect(noteSearchTerms("it's snake_case")).toEqual(['it', 's', 'snake', 'case'])
   })
 
+  test('a combining mark with no precomposed form stays inside its word, as in the index', () => {
+    // NFC cannot compose q + U+0301, so the mark stays a separate code point; the index still
+    // treats "q́uota" as one token, so the search must not split it into "q" and "uota".
+    expect(noteSearchTerms('plan q́uota')).toEqual(['plan', 'q́uota'])
+  })
+
   test('normalizes to NFC, the form every stored body has', () => {
     expect(noteSearchTerms('café')).toEqual(['café'])
   })
@@ -96,6 +102,12 @@ describe('matchRanges', () => {
     expect(marked('İstanbul and Ankara', 'İstan ank')).toEqual(['İstan', 'Ank'])
     expect(marked('İstanbul', 'istanbul')).toEqual([])
     expect(marked('x İ Ankara', 'ank')).toEqual(['Ank'])
+  })
+
+  test('a word with a combining mark is matched from its start only', () => {
+    expect(marked('plan q́uota', 'q́uo')).toEqual(['q́uo'])
+    // "uota" begins after the mark, inside the word: the index does not match it, so nor do marks.
+    expect(marked('plan q́uota', 'uota')).toEqual([])
   })
 
   test('astral letters keep their offsets', () => {

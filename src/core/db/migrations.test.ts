@@ -770,6 +770,19 @@ describe('migrations', () => {
       ).not.toThrow()
     })
 
+    test('a deleted entry leaves nothing in the index for the next entry to inherit', () => {
+      const db = new DatabaseSync(':memory:')
+      runMigrations(db)
+      // Deleting the last row frees its seq, and the next insert takes it again. An index row the
+      // delete left behind would then join to the new entry and answer for the old words.
+      insert(db, 'a', 'secret password idea')
+      db.prepare(`DELETE FROM note_entry WHERE id = 'a'`).run()
+      insert(db, 'b', 'lunch with the team')
+
+      expect(matching(db, '"secret"*')).toEqual([])
+      expect(matching(db, '"lunch"*')).toEqual(['b'])
+    })
+
     test('upgrading from v27 keeps existing data and adds the notes', () => {
       const db = new DatabaseSync(':memory:')
       runMigrations(db, 27)
