@@ -861,6 +861,39 @@ export interface TodoLists {
 }
 
 // ---------------------------------------------------------------------------
+// Daily notes - GitHub issue #156
+// ---------------------------------------------------------------------------
+
+/**
+ * One plain-text entry in the note of a day. `day` is the local calendar day (`yyyy-mm-dd`) it was
+ * captured on, stamped once at capture and never moved; editing the body changes only `updatedAt`.
+ */
+export interface NoteEntry {
+  id: string
+  day: string
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** The note of one day: its entries in capture order. A day with no entries is never returned. */
+export interface NoteDay {
+  day: string
+  entries: NoteEntry[]
+}
+
+/**
+ * Which entries to list. `text` is the raw search input: every word must start a word of the
+ * entry, in any order, case-insensitively; an input with no words does not filter. `from` and
+ * `to` are inclusive day keys, each null for an open end.
+ */
+export interface NoteQuery {
+  text: string
+  from: string | null
+  to: string | null
+}
+
+// ---------------------------------------------------------------------------
 // 1:1 workflows - see docs/specs/2026-07-06-one-on-one-workflows-design.md
 // ---------------------------------------------------------------------------
 

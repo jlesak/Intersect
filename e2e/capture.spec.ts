@@ -22,6 +22,7 @@ test('the palette advertises the capture prefixes and previews before acting', a
   await expect(prefixes).toContainText('todo:')
   await expect(prefixes).toContainText('time:')
   await expect(prefixes).toContainText('1:1:')
+  await expect(prefixes).toContainText('note:')
 
   // The prefix on its own says what it is for and offers nothing to run.
   await win.locator('.ix-palette__input').fill('todo:')

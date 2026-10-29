@@ -80,6 +80,7 @@ import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentR
 import { createPaletteHandlers, paletteWireRoutes } from './api/palette.ipc'
 import { createSystemCoreHandlers, systemWireRoutes } from './api/system.ipc'
 import { createTodoHandlers, todoWireRoutes } from './api/todo.ipc'
+import { createNotesHandlers, notesWireRoutes } from './api/notes.ipc'
 import { createProjectHandlers, projectsWireRoutes } from './api/projects.ipc'
 import { createWorkItemsHandlers, workItemsWireRoutes } from './api/workItems.ipc'
 import { createMyWorkHandlers, myWorkWireRoutes } from './api/myWork.ipc'
@@ -96,6 +97,7 @@ import {
   createTimeOverrideRepo
 } from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
+import { createNoteRepo } from './db/noteRepo'
 import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
@@ -690,6 +692,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---
   const todos = createTodoRepo(db, repoDeps)
   const todoHandlers = createTodoHandlers({ todos })
+  // --- Daily notes slice: pure local state, searched through the repo's FTS5 index ---
+  const notesHandlers = createNotesHandlers({ notes: createNoteRepo(db, repoDeps) })
   const paletteHandlers = createPaletteHandlers({ appState })
 
   // --- My Work slice: Jira boards synced directly and read-only with the SSO cookies (no PAT,
@@ -860,6 +864,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     timeTrackingWireRoutes(timeTrackingHandlers),
     agentRuntimeWireRoutes(agentRuntimeHandlers),
     todoWireRoutes(todoHandlers),
+    notesWireRoutes(notesHandlers),
     paletteWireRoutes(paletteHandlers),
     myWorkWireRoutes(myWorkHandlers),
     oneOnOneWireRoutes(oneOnOneHandlers),

@@ -190,6 +190,12 @@ const api: IpcApi = {
     remove: (id) => ipcRenderer.invoke(Channel.todoRemove, id),
     reorder: (orderedIds) => ipcRenderer.invoke(Channel.todoReorder, orderedIds)
   },
+  notes: {
+    list: (query) => ipcRenderer.invoke(Channel.notesList, query),
+    add: (body) => ipcRenderer.invoke(Channel.notesAdd, body),
+    update: (id, body) => ipcRenderer.invoke(Channel.notesUpdate, id, body),
+    remove: (id) => ipcRenderer.invoke(Channel.notesRemove, id)
+  },
   palette: {
     getRecent: () => ipcRenderer.invoke(Channel.paletteGetRecent),
     recordUse: (commandId) => ipcRenderer.invoke(Channel.paletteRecordUse, commandId)
