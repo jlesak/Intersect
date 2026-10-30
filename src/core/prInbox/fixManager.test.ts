@@ -60,7 +60,8 @@ function harness(over: Partial<FixManagerDeps> = {}) {
       createBranchWorktree: vi.fn(async () => ({ diverged: false })),
       removeCleanWorktree: vi.fn(
         async (): Promise<RemoveCleanResult> => ({ outcome: 'removed', detail: null })
-      )
+      ),
+      listFixFolders: vi.fn(async (): Promise<string[]> => [])
     },
     sessions: { whenWorkspaceExited: vi.fn(async () => 'exited' as const) },
     workspaceFolders: () => ['/repos/intersect-app'],
@@ -93,7 +94,8 @@ describe('starting a fix', () => {
       worktrees: {
         resolveRepoDir: async () => '/repos/intersect-app',
         createBranchWorktree: async () => ({ diverged: true }),
-        removeCleanWorktree: async () => ({ outcome: 'removed', detail: null })
+        removeCleanWorktree: async () => ({ outcome: 'removed', detail: null }),
+        listFixFolders: async () => []
       }
     })
     await fix.start(pr())
@@ -129,7 +131,8 @@ describe('starting a fix', () => {
       worktrees: {
         resolveRepoDir: async () => '/repos/intersect-app',
         createBranchWorktree: () => gate.promise,
-        removeCleanWorktree: async () => ({ outcome: 'removed', detail: null })
+        removeCleanWorktree: async () => ({ outcome: 'removed', detail: null }),
+        listFixFolders: async () => []
       }
     })
     const first = fix.start(pr())
@@ -335,7 +338,8 @@ describe('closing the last tab of a fix workspace', () => {
       worktrees: {
         resolveRepoDir: async () => '/repos/intersect-app',
         createBranchWorktree: async () => ({ diverged: false }),
-        removeCleanWorktree: async () => ({ outcome, detail })
+        removeCleanWorktree: async () => ({ outcome, detail }),
+        listFixFolders: async () => []
       }
     })
     fix.scheduleClose('ws-1', PATH)
@@ -352,9 +356,107 @@ describe('closing the last tab of a fix workspace', () => {
           throw new Error('boom')
         }
       },
-      logger: { warn }
+      logger: { warn, info: vi.fn() }
     })
     expect(() => fix.scheduleClose('ws-1', PATH)).not.toThrow()
     await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+  })
+})
+
+describe('sweeping orphaned fix worktrees at boot', () => {
+  const OTHER = fixWorktreePath(USER_DATA, { repositoryName: 'intersect-app', prId: 777 })
+
+  test('only folders no workspace uses go to the clean removal, and a removal is logged', async () => {
+    const warn = vi.fn()
+    const info = vi.fn()
+    const { fix, deps } = harness({
+      workspaceFolders: () => ['/repos/intersect-app', OTHER],
+      logger: { warn, info }
+    })
+    vi.mocked(deps.worktrees.listFixFolders).mockResolvedValue([PATH, OTHER])
+
+    await fix.pruneOrphans()
+
+    expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledTimes(1)
+    expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledWith(PATH)
+    expect(info).toHaveBeenCalledWith(expect.any(String), { data: { path: PATH } })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  test('a folder kept as dirty is logged with git’s detail and nothing else happens', async () => {
+    const warn = vi.fn()
+    const { fix, deps, closed } = harness({ logger: { warn, info: vi.fn() } })
+    vi.mocked(deps.worktrees.listFixFolders).mockResolvedValue([PATH])
+    vi.mocked(deps.worktrees.removeCleanWorktree).mockResolvedValue({
+      outcome: 'dirty',
+      detail: '?? note.txt'
+    })
+
+    await fix.pruneOrphans()
+
+    expect(warn).toHaveBeenCalledWith(expect.any(String), {
+      data: { path: PATH, outcome: 'dirty', detail: '?? note.txt' }
+    })
+    expect(closed).toEqual([])
+    expect(deps.removeWorkspaceIfEmpty).not.toHaveBeenCalled()
+  })
+
+  test('a workspace made on the folder while the sweep lists keeps it', async () => {
+    // The workspace list is read again right before each removal, not only when listing.
+    const folders = ['/repos/intersect-app']
+    const listing = deferred<string[]>()
+    const { fix, deps } = harness({ workspaceFolders: () => folders })
+    vi.mocked(deps.worktrees.listFixFolders).mockReturnValue(listing.promise)
+
+    const sweep = fix.pruneOrphans()
+    await tick()
+    folders.push(PATH)
+    listing.resolve([PATH])
+    await sweep
+
+    expect(deps.worktrees.removeCleanWorktree).not.toHaveBeenCalled()
+  })
+
+  test('a fix started in this session is never swept, even before its workspace exists', async () => {
+    const { fix, deps } = harness()
+    vi.mocked(deps.worktrees.listFixFolders).mockResolvedValue([PATH])
+
+    await fix.start(pr())
+    await fix.pruneOrphans()
+
+    expect(deps.worktrees.removeCleanWorktree).not.toHaveBeenCalled()
+  })
+
+  test('a fix started while its folder is being removed waits for the removal first', async () => {
+    const removal = deferred<RemoveCleanResult>()
+    const { fix, deps } = harness()
+    vi.mocked(deps.worktrees.listFixFolders).mockResolvedValue([PATH])
+    vi.mocked(deps.worktrees.removeCleanWorktree).mockReturnValue(removal.promise)
+
+    const sweep = fix.pruneOrphans()
+    await vi.waitFor(() => expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalled())
+    const started = fix.start(pr())
+    await tick()
+    expect(deps.worktrees.createBranchWorktree).not.toHaveBeenCalled()
+
+    removal.resolve({ outcome: 'removed', detail: null })
+    await sweep
+    await expect(started).resolves.toMatchObject({ alreadyOpen: false })
+    expect(deps.worktrees.createBranchWorktree).toHaveBeenCalledTimes(1)
+  })
+
+  test('an error on one folder is logged and the sweep goes on to the next', async () => {
+    const warn = vi.fn()
+    const { fix, deps } = harness({ logger: { warn, info: vi.fn() } })
+    vi.mocked(deps.worktrees.listFixFolders).mockResolvedValue([PATH, OTHER])
+    vi.mocked(deps.worktrees.removeCleanWorktree).mockRejectedValueOnce(new Error('boom'))
+
+    await expect(fix.pruneOrphans()).resolves.toBeUndefined()
+
+    expect(deps.worktrees.removeCleanWorktree).toHaveBeenCalledWith(OTHER)
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ err: expect.any(Error) })
+    )
   })
 })
