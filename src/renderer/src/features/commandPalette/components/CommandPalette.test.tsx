@@ -383,6 +383,142 @@ describe('CommandPalette', () => {
     })
   })
 
+  // Closing without running a command hands focus back to whatever had it when the palette
+  // opened - in the app, usually a terminal - because the input the palette focused is about to
+  // unmount and focus would otherwise drop to the page body.
+  describe('focus on close', () => {
+    let outside: HTMLTextAreaElement
+
+    beforeEach(() => {
+      registerCapture({
+        prefix: 'todo:',
+        hint: 'Add a task',
+        preview: (rest) => (rest === '' ? null : `Add task "${rest}"`),
+        run: () => {}
+      })
+      outside = document.createElement('textarea')
+      document.body.append(outside)
+      outside.focus()
+    })
+
+    afterEach(() => {
+      outside.remove()
+    })
+
+    const openPalette = async (...commands: Parameters<typeof registerCommand>[0][]) => {
+      for (const command of commands) registerCommand(command)
+      await act(async () => {
+        render(<CommandPalette />)
+        useCommandPaletteStore.getState().toggle()
+      })
+      expect(document.activeElement).toBe(document.querySelector('.ix-palette__input'))
+    }
+
+    test('a capture returns focus to the element that had it', async () => {
+      await openPalette()
+      await type('todo: x')
+      await press('Enter')
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).toBe(outside)
+    })
+
+    test('Escape returns focus to the element that had it', async () => {
+      await openPalette()
+      await press('Escape')
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).toBe(outside)
+    })
+
+    test('a click outside the dialog returns focus, and keeps the browser from taking it back', async () => {
+      await openPalette()
+      let notPrevented = true
+      await act(async () => {
+        notPrevented = fireEvent.mouseDown(document.querySelector('.ix-palette-overlay')!)
+      })
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).toBe(outside)
+      // The browser's own mousedown action moves focus to the body, after the restore.
+      expect(notPrevented).toBe(false)
+    })
+
+    test('a click inside the dialog does not close it or move focus', async () => {
+      await openPalette({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await act(async () => {
+        fireEvent.mouseDown(document.querySelector('.ix-palette')!)
+      })
+
+      expect(document.querySelector('.ix-palette')).toBeTruthy()
+      expect(document.activeElement).toBe(document.querySelector('.ix-palette__input'))
+    })
+
+    test('a command that moves focus itself keeps it', async () => {
+      const target = document.createElement('button')
+      document.body.append(target)
+      try {
+        await openPalette({
+          id: 'tabs.newShell',
+          title: 'New Shell Tab',
+          handler: () => target.focus()
+        })
+        await press('Enter')
+
+        expect(document.querySelector('.ix-palette')).toBeNull()
+        expect(document.activeElement).toBe(target)
+      } finally {
+        target.remove()
+      }
+    })
+
+    test('a command is not followed by a restore, even when it leaves focus alone', async () => {
+      await openPalette({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
+      await press('Enter')
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).not.toBe(outside)
+    })
+
+    test('an element removed while the palette was open is skipped without throwing', async () => {
+      await openPalette()
+      outside.remove()
+
+      await expect(press('Escape')).resolves.toBeUndefined()
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    test('with nothing focused when it opened, closing leaves focus alone', async () => {
+      outside.blur()
+      await openPalette()
+      await press('Escape')
+
+      expect(document.querySelector('.ix-palette')).toBeNull()
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    test('each opening remembers the element focused at that moment', async () => {
+      await openPalette()
+      await press('Escape')
+      expect(document.activeElement).toBe(outside)
+
+      const other = document.createElement('input')
+      document.body.append(other)
+      try {
+        other.focus()
+        await act(async () => {
+          useCommandPaletteStore.getState().toggle()
+        })
+        await press('Escape')
+        expect(document.activeElement).toBe(other)
+      } finally {
+        other.remove()
+      }
+    })
+  })
+
   test('mounts and settles without a render loop', async () => {
     registerCommand({ id: 'tabs.next', title: 'Next Tab', handler: () => {} })
     const logged: string[] = []
