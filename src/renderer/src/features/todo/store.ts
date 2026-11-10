@@ -56,7 +56,7 @@ interface TodoState {
   add(input: TodoCreateInput | string, dueDay?: string | null): Promise<boolean>
   /** Edit any subset of a task's fields in place (inline editing). */
   update(id: string, patch: TodoTaskPatch): Promise<void>
-  toggleDone(id: string, done: boolean): Promise<void>
+  toggleDone(id: string, done: boolean, displayedRevision?: number): Promise<void>
   remove(id: string): Promise<void>
   /** Apply the new order immediately, then persist it; failures resync from main. */
   reorder(orderedIds: string[]): Promise<void>
@@ -230,10 +230,11 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
       await mutate(() => api.update(id, patch), 'Could not save the task')
     },
 
-    async toggleDone(id, done) {
+    async toggleDone(id, done, displayedRevision) {
       const task = [...get().open, ...get().done].find((item) => item.id === id)
-      await mutate(() => done && task?.revision !== undefined
-        ? api.complete(id, task.revision) : api.setDone(id, done), 'Could not update the task')
+      const expectedRevision = displayedRevision ?? task?.revision
+      await mutate(() => done && expectedRevision !== undefined
+        ? api.complete(id, expectedRevision) : api.setDone(id, done), 'Could not update the task')
     },
 
     async remove(id) {

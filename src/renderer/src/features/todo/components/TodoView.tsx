@@ -89,6 +89,7 @@ export function TodoView() {
   const [markedId, setMarkedId] = useState<string | null>(null)
   const dropIndexRef = useRef<number | null>(null)
   const rowsRef = useRef(new Map<string, HTMLDivElement>())
+  const addInProgress = useRef(false)
 
   useEffect(() => {
     void useTodoStore.getState().load()
@@ -189,16 +190,23 @@ export function TodoView() {
   const today = dayKey ?? clockDay
   const typedDue = dueDay === '' ? parseDueFromText(text, today) : null
 
-  function submit(): void {
+  async function submit(): Promise<void> {
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed || addInProgress.current) return
     const parsed = typedDue ?? { text: trimmed, dueDay: dueDay || null }
     const scheduled = parsed.dueDay ?? today
-    void useTodoStore.getState().add({ text: parsed.text, dueDay: scheduled,
-      dueTime: dueTime || null, priority: newPriority, size: newSize || null,
-      projectId: view === 'project' ? projectId : null, tagIds: newTagIds,
-      recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
-        anchorDay: scheduled } : null })
+    addInProgress.current = true
+    try {
+      const added = await useTodoStore.getState().add({ text: parsed.text, dueDay: scheduled,
+        dueTime: dueTime || null, priority: newPriority, size: newSize || null,
+        projectId: view === 'project' ? projectId : null,
+        tagIds: newTagIds.filter((id) => tags.some((tag) => tag.id === id)),
+        recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
+          anchorDay: scheduled } : null })
+      if (!added) return
+    } finally {
+      addInProgress.current = false
+    }
     setText('')
     setDueDay('')
     setDueTime('')
@@ -320,8 +328,10 @@ export function TodoView() {
                 setRenamingTagId(tag.id)
                 setRenamedTagName(tag.name)
               }}>✎</button>
-              <button type="button" title={`Delete tag ${tag.name}`} onClick={() =>
-                void useTodoStore.getState().removeTag(tag.id)}>×</button>
+              <button type="button" title={`Delete tag ${tag.name}`} onClick={() => {
+                setNewTagIds((ids) => ids.filter((id) => id !== tag.id))
+                void useTodoStore.getState().removeTag(tag.id)
+              }}>×</button>
             </span>)}
           <form onSubmit={(event) => { event.preventDefault()
             if (tagName.trim()) void useTodoStore.getState().createTag(tagName)
@@ -339,7 +349,7 @@ export function TodoView() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
+              if (e.key === 'Enter') void submit()
             }}
           />
           {showDate && (
@@ -439,7 +449,7 @@ export function TodoView() {
                 }}
                 onToggle={() => {
                   forget(task.id)
-                  void useTodoStore.getState().toggleDone(task.id, true)
+                  void useTodoStore.getState().toggleDone(task.id, true, task.revision)
                 }}
                 onDelete={() => removeTask(task.id)}
                 onSelect={() => setSelectedId(task.id)}

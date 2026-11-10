@@ -38,6 +38,61 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers() })
 
 describe('mounted Today view', () => {
+  test('a stale visible recurring row cannot complete the next occurrence', async () => {
+    const recurring = { ...a, recurrence: { mode: 'fixed' as const, unit: 'day' as const,
+      interval: 1, anchorDay: today } }
+    let serverRevision = 0
+    let historyCount = 0
+    mocked.list.mockResolvedValue({ open: [recurring], done: [] })
+    mocked.query.mockResolvedValue({ status: 'valid', tasks: [recurring] })
+    mocked.complete.mockImplementation(async (_id, expectedRevision) => {
+      if (expectedRevision !== serverRevision) return { status: 'stale', task: {
+        ...recurring, revision: serverRevision, dueDay: tomorrow } }
+      serverRevision += 1
+      historyCount += 1
+      return { status: 'completed', task: { ...recurring, revision: serverRevision,
+        dueDay: tomorrow } }
+    })
+    useTodoStore.setState({ open: [recurring] })
+    await act(async () => { render(<TodoView />) })
+    mocked.list.mockImplementation(async () => ({ open: [{ ...recurring,
+      revision: serverRevision, dueDay: tomorrow }], done: [] }))
+    mocked.query.mockImplementation(() => new Promise(() => {}))
+    await act(async () => { fireEvent.click(screen.getByTitle('Mark as done')) })
+    expect(useTodoStore.getState().open[0].revision).toBe(1)
+    expect(useTodoStore.getState().queryTasks[0].revision).toBe(0)
+    await act(async () => { fireEvent.click(screen.getByTitle('Mark as done')) })
+    expect(mocked.complete.mock.calls.map((call) => call[1])).toEqual([0, 0])
+    expect(historyCount).toBe(1)
+  })
+
+  test('same-day focus refresh keeps unsaved task edits', async () => {
+    mocked.list.mockResolvedValue({ open: [a], done: [] })
+    mocked.query.mockImplementation(async () => ({ status: 'valid', tasks: [{ ...a }] }))
+    useTodoStore.setState({ open: [a] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByTitle('Edit'))
+    fireEvent.change(screen.getByPlaceholderText('Task'), { target: { value: 'Unsaved edit' } })
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(screen.getByPlaceholderText('Task')).toHaveProperty('value', 'Unsaved edit')
+  })
+
+  test('deleting a selected tag removes it from creation and a failed add keeps the draft', async () => {
+    const tag = { id: 'tag', name: 'Temporary' }
+    mocked.listTags.mockResolvedValueOnce([tag]).mockResolvedValueOnce([])
+    mocked.removeTag.mockResolvedValue(undefined)
+    mocked.add.mockRejectedValue(new Error('Write failed'))
+    useTodoStore.setState({ tags: [tag] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByLabelText('Temporary'))
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete tag Temporary')) })
+    const input = screen.getByPlaceholderText('Add a task… (Enter)')
+    fireEvent.change(input, { target: { value: 'Keep my draft' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({ tagIds: [] }))
+    expect(input).toHaveProperty('value', 'Keep my draft')
+  })
+
   test('moves to the new local day while mounted and rechecks on focus after sleep', async () => {
     await act(async () => { render(<TodoView />) })
     expect(screen.getByText('Task a')).toBeTruthy()

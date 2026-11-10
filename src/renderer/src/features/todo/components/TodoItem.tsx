@@ -107,7 +107,7 @@ export function TodoItem({
     setDraftUnit(task.recurrence?.unit ?? 'day')
     setDraftInterval(task.recurrence?.interval ?? 1)
     if (task.recurrence) void api.history(task.id).then(setHistory)
-  }, [editing, task])
+  }, [editing, task.id])
 
   function save(): void {
     const trimmed = draftText.trim()
