@@ -54,6 +54,14 @@ import type {
   TimeEntrySource,
   TimeEntryUpdate,
   TodoLists,
+  TodoCompletion,
+  TodoCompletionResult,
+  TodoCreateInput,
+  TodoProject,
+  TodoQuery,
+  TodoQueryResult,
+  TodoSavedFilter,
+  TodoTag,
   TodoTask,
   TodoTaskPatch,
   NoteDay,
@@ -345,14 +353,30 @@ export interface IpcApi {
   todo: {
     /** Both TODO lists: open tasks in manual order, done most recently first. */
     list(): Promise<TodoLists>
-    add(text: string, dueDay: string | null): Promise<TodoTask>
+    add(input: TodoCreateInput | string, dueDay?: string | null): Promise<TodoTask>
     /** Edit any subset of a task's fields in place (inline editing). */
     update(id: string, patch: TodoTaskPatch): Promise<TodoTask>
     /** Checking stamps the completion time; unchecking appends the task to the end of the open list. */
     setDone(id: string, done: boolean): Promise<TodoTask>
     remove(id: string): Promise<void>
     /** Persist the complete open-task order atomically and return the canonical list. */
-    reorder(orderedIds: string[]): Promise<TodoTask[]>
+    reorder(orderedIds: string[], projectId?: string | null): Promise<TodoTask[]>
+    getById(id: string): Promise<TodoTask | undefined>
+    complete(id: string, expectedRevision: number): Promise<TodoCompletionResult>
+    history(id: string): Promise<TodoCompletion[]>
+    query(query: TodoQuery, today: string): Promise<TodoQueryResult>
+    listProjects(): Promise<TodoProject[]>
+    createProject(name: string): Promise<TodoProject>
+    updateProject(id: string, name: string): Promise<TodoProject>
+    removeProject(id: string): Promise<void>
+    listTags(): Promise<TodoTag[]>
+    createTag(name: string): Promise<TodoTag>
+    updateTag(id: string, name: string): Promise<TodoTag>
+    removeTag(id: string): Promise<void>
+    listFilters(): Promise<TodoSavedFilter[]>
+    createFilter(name: string, query: TodoQuery): Promise<TodoSavedFilter>
+    updateFilter(id: string, name: string, query: TodoQuery): Promise<TodoSavedFilter>
+    removeFilter(id: string): Promise<void>
   }
   notes: {
     /** The days with matching entries, newest day first, each day's entries in capture order. */
@@ -733,6 +757,22 @@ export const Channel = {
   todoSetDone: 'todo:setDone',
   todoRemove: 'todo:remove',
   todoReorder: 'todo:reorder',
+  todoGetById: 'todo:getById',
+  todoComplete: 'todo:complete',
+  todoHistory: 'todo:history',
+  todoQuery: 'todo:query',
+  todoListProjects: 'todo:listProjects',
+  todoCreateProject: 'todo:createProject',
+  todoUpdateProject: 'todo:updateProject',
+  todoRemoveProject: 'todo:removeProject',
+  todoListTags: 'todo:listTags',
+  todoCreateTag: 'todo:createTag',
+  todoUpdateTag: 'todo:updateTag',
+  todoRemoveTag: 'todo:removeTag',
+  todoListFilters: 'todo:listFilters',
+  todoCreateFilter: 'todo:createFilter',
+  todoUpdateFilter: 'todo:updateFilter',
+  todoRemoveFilter: 'todo:removeFilter',
   // notes (request/response)
   notesList: 'notes:list',
   notesAdd: 'notes:add',

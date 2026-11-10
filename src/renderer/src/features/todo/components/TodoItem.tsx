@@ -1,10 +1,12 @@
 import { useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
-import type { TodoTask, TodoTaskPatch } from '@common/domain'
+import type { TodoCompletion, TodoProject, TodoRecurrence, TodoSize, TodoTag, TodoTask,
+  TodoTaskPatch } from '@common/domain'
 import { dayKeyOf } from '@common/week'
 import type { MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { RowActions } from '@renderer/shared/ui/RowActions'
 import { formatDueDay, isOverdue } from '../due'
+import * as api from '../ipc'
 
 export interface TodoItemDrag {
   position: number
@@ -45,7 +47,9 @@ export function TodoItem({
   overflow,
   focused,
   rowRef,
-  drag
+  drag,
+  projects = [],
+  tags = []
 }: {
   task: TodoTask
   done: boolean
@@ -70,6 +74,8 @@ export function TodoItem({
   /** Lets the embedding list hold on to the row element so it can scroll it into view. */
   rowRef?(el: HTMLDivElement | null): void
   drag?: TodoItemDrag
+  projects?: TodoProject[]
+  tags?: TodoTag[]
 }) {
   const today = dayKeyOf(Date.now())
   const overdue = !done && task.dueDay !== null && isOverdue(task.dueDay, today)
@@ -77,18 +83,43 @@ export function TodoItem({
   const [draftText, setDraftText] = useState(task.text)
   const [draftDescription, setDraftDescription] = useState(task.description)
   const [draftDueDay, setDraftDueDay] = useState(task.dueDay ?? '')
+  const [draftDueTime, setDraftDueTime] = useState(task.dueTime ?? '')
+  const [draftProject, setDraftProject] = useState(task.projectId ?? '')
+  const [draftPriority, setDraftPriority] = useState(task.priority)
+  const [draftSize, setDraftSize] = useState(task.size ?? '')
+  const [draftTags, setDraftTags] = useState(task.tagIds ?? [])
+  const [draftMode, setDraftMode] = useState<TodoRecurrence['mode'] | ''>(task.recurrence?.mode ?? '')
+  const [draftUnit, setDraftUnit] = useState<TodoRecurrence['unit']>(task.recurrence?.unit ?? 'day')
+  const [draftInterval, setDraftInterval] = useState(task.recurrence?.interval ?? 1)
+  const [history, setHistory] = useState<TodoCompletion[]>([])
 
   useEffect(() => {
     if (!editing) return
     setDraftText(task.text)
     setDraftDescription(task.description)
     setDraftDueDay(task.dueDay ?? '')
-  }, [editing, task.text, task.description, task.dueDay])
+    setDraftDueTime(task.dueTime ?? '')
+    setDraftProject(task.projectId ?? '')
+    setDraftPriority(task.priority)
+    setDraftSize(task.size ?? '')
+    setDraftTags(task.tagIds ?? [])
+    setDraftMode(task.recurrence?.mode ?? '')
+    setDraftUnit(task.recurrence?.unit ?? 'day')
+    setDraftInterval(task.recurrence?.interval ?? 1)
+    if (task.recurrence) void api.history(task.id).then(setHistory)
+  }, [editing, task])
 
   function save(): void {
     const trimmed = draftText.trim()
     if (!trimmed) return
-    onSave?.({ text: trimmed, description: draftDescription, dueDay: draftDueDay || null })
+    onSave?.({ text: trimmed, description: draftDescription, dueDay: draftDueDay || null,
+      dueTime: draftDueDay ? draftDueTime || null : null, projectId: draftProject || null,
+      priority: draftPriority, size: (draftSize || null) as TodoSize | null,
+      tagIds: draftTags, recurrence: draftMode && draftDueDay ? {
+        mode: draftMode, unit: draftUnit, interval: draftInterval,
+        anchorDay: draftDueDay !== task.dueDay ? draftDueDay
+          : task.recurrence?.anchorDay ?? draftDueDay
+      } : null })
   }
 
   function onEditorKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
@@ -123,6 +154,43 @@ export function TodoItem({
               value={draftDueDay}
               onChange={(e) => setDraftDueDay(e.target.value)}
             />
+            <input type="time" className="ix-input" aria-label="Due time" value={draftDueTime}
+              onChange={(e) => setDraftDueTime(e.target.value)} />
+            <select aria-label="TODO project" value={draftProject}
+              onChange={(e) => setDraftProject(e.target.value)}>
+              <option value="">Inbox</option>
+              {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+            </select>
+            <select aria-label="Priority" value={draftPriority}
+              onChange={(e) => setDraftPriority(Number(e.target.value) as TodoTask['priority'])}>
+              {[1, 2, 3, 4].map((value) => <option value={value} key={value}>P{value}</option>)}
+            </select>
+            <select aria-label="Size" value={draftSize}
+              onChange={(e) => setDraftSize(e.target.value as TodoSize | '')}>
+              <option value="">No size</option>
+              {['XS', 'S', 'M', 'L', 'XL'].map((size) => <option key={size}>{size}</option>)}
+            </select>
+            <select aria-label="Repeat mode" value={draftMode}
+              onChange={(e) => setDraftMode(e.target.value as TodoRecurrence['mode'] | '')}>
+              <option value="">No repeat</option><option value="fixed">Fixed</option>
+              <option value="after_completion">After completion</option>
+            </select>
+            {draftMode && <><select aria-label="Repeat unit" value={draftUnit}
+              onChange={(e) => setDraftUnit(e.target.value as TodoRecurrence['unit'])}>
+              <option value="day">Day</option><option value="week">Week</option>
+              <option value="month">Month</option><option value="year">Year</option>
+            </select><input type="number" min="1" aria-label="Repeat interval"
+              value={draftInterval} onChange={(e) => setDraftInterval(Number(e.target.value))} /></>}
+            <div className="ix-todo-item__tags">{tags.map((tag) => <label key={tag.id}>
+              <input type="checkbox" checked={draftTags.includes(tag.id)} onChange={() =>
+                setDraftTags((ids) => ids.includes(tag.id) ? ids.filter((id) => id !== tag.id)
+                  : [...ids, tag.id])} />{tag.name}</label>)}</div>
+            {task.recurrence && <div className="ix-todo-item__history">
+              <strong>Completion history</strong>
+              {history.map((entry) => <div key={entry.occurrenceRevision}>
+                {entry.dueDay}{entry.dueTime ? ` ${entry.dueTime}` : ''} · completed{' '}
+                {new Date(entry.completedAt).toLocaleString()}</div>)}
+            </div>}
             <span className="ix-todo-item__editor-actions">
               <button type="button" className="ix-btn ix-btn--ghost" onClick={onCancelEdit}>
                 Cancel
@@ -239,14 +307,20 @@ export function TodoItem({
         {task.description !== '' && (
           <span className="ix-todo-item__description">{task.description}</span>
         )}
-        {task.dueDay !== null && (
-          <span className="ix-todo-item__meta">
+        <span className="ix-todo-item__meta">
+          {task.dueDay !== null && (
             <span className={`ix-todo-item__due${overdue ? ' ix-todo-item__due--overdue' : ''}`}>
               <IconCalendar width={10} height={10} strokeWidth={1.8} />
               {formatDueDay(task.dueDay, today)}
+              {task.dueTime ? ` ${task.dueTime}` : ''}
             </span>
-          </span>
-        )}
+          )}
+          <span className="ix-todo-item__prio" title={`Priority P${task.priority}`}>P{task.priority}</span>
+          {task.size && <span className="ix-todo-item__size">{task.size}</span>}
+          {task.tagIds?.map((id) => <span className="ix-todo-item__tag" key={id}>
+            {tags.find((tag) => tag.id === id)?.name ?? id}</span>)}
+          {task.recurrence && <span className="ix-todo-item__repeat">↻</span>}
+        </span>
       </span>
       <span className="ix-todo-item__actions">
         {onStartSession && !done && (

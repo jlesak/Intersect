@@ -90,14 +90,7 @@ describe('todoWireRoutes', () => {
       (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
     expect(Object.keys(routes).sort()).toEqual(
-      [
-        Channel.todoList,
-        Channel.todoAdd,
-        Channel.todoUpdate,
-        Channel.todoSetDone,
-        Channel.todoRemove,
-        Channel.todoReorder
-      ].sort()
+      Object.values(Channel).filter((channel) => channel.startsWith('todo:')).sort()
     )
 
     const added = (await call(Channel.todoAdd, 'buy a monitor', null)) as TodoTask

@@ -63,12 +63,14 @@ test('adds tasks with Enter, with optional due dates, and marks overdue ones', a
   // Fresh profile: empty state, no done tasks.
   await expect(win.locator('.ix-todo__empty')).toHaveText('No tasks yet - add one above.')
   await expect(win.locator('.ix-todo__done-link')).toHaveText('Show done (0)')
-  await expect(win.locator('.ix-todo-prio-picker, .ix-todo-item__prio')).toHaveCount(0)
+  await expect(win.getByRole('combobox', { name: 'New task priority' })).toHaveValue('4')
 
   // Plain task: Enter adds it and clears the input.
   await addTask(win, 'Ask Marek about the review')
   await expect(openRows(win)).toHaveCount(1)
   await expect(win.getByPlaceholder('Add a task… (Enter)')).toHaveValue('')
+  await expect(openRows(win).first().locator('.ix-todo-item__due')).toHaveText(/today/)
+  await expect(openRows(win).first().locator('.ix-todo-item__prio')).toHaveText('P4')
   await expect(win.locator('.ix-todo__empty')).toHaveCount(0)
 
   // Task due tomorrow: the date input appears on demand and collapses after submit.
@@ -145,7 +147,7 @@ test('a right-click raises the task menu, and Delete from it removes the row', a
   await expect(openRows(win).locator('.ix-todo-item__text')).toHaveText(['keep me'])
 })
 
-test('inline edit keeps text, description, and optional due date without exposing priority', async () => {
+test('inline edit keeps text, description, due date and priority', async () => {
   const { win } = await launch(userDataDir())
   await openTodo(win)
   await addTask(win, 'draft')
@@ -153,16 +155,18 @@ test('inline edit keeps text, description, and optional due date without exposin
   const row = openRows(win).filter({ hasText: 'draft' })
   await row.hover()
   await row.locator('.ix-iconbtn[title="Edit"]').click()
-  await expect(win.locator('.ix-todo-prio-picker, [title^="Priority "]')).toHaveCount(0)
+  await expect(win.getByRole('combobox', { name: 'New task priority' })).toBeVisible()
   const editor = openRows(win).filter({ has: win.getByPlaceholder('Task') })
   await editor.getByPlaceholder('Task').fill('edited task')
   await editor.getByPlaceholder('Description').fill('kept detail')
   await editor.locator('input[type="date"]').fill(dayFromToday(2))
+  await editor.getByRole('combobox', { name: 'Priority' }).selectOption('1')
   await editor.getByRole('button', { name: 'Save' }).click()
 
   const edited = openRows(win).filter({ hasText: 'edited task' })
   await expect(edited.locator('.ix-todo-item__description')).toHaveText('kept detail')
   await expect(edited.locator('.ix-todo-item__due')).toBeVisible()
+  await expect(edited.locator('.ix-todo-item__prio')).toHaveText('P1')
 })
 
 test('checking hides a task in the Done drawer and unchecking returns it to the end', async () => {

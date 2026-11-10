@@ -825,15 +825,61 @@ export interface AgentRuntimeDay {
 // TODO list - see docs/specs/2026-07-06-todo-list-design.md
 // ---------------------------------------------------------------------------
 
-/** Legacy persisted priority. Kept only so priority-era rows can round-trip without data loss. */
+/** Lower numbers are more urgent. */
 export type TodoPriority = 1 | 2 | 3 | 4
+export type TodoSize = 'XS' | 'S' | 'M' | 'L' | 'XL'
+export type TodoRecurrenceUnit = 'day' | 'week' | 'month' | 'year'
+export interface TodoRecurrence {
+  mode: 'fixed' | 'after_completion'
+  unit: TodoRecurrenceUnit
+  interval: number
+  anchorDay: string
+}
+export interface TodoProject { id: string; name: string; sortOrder: number }
+export interface TodoTag { id: string; name: string }
+export interface TodoCompletion {
+  taskId: string
+  occurrenceRevision: number
+  dueDay: string
+  dueTime: string | null
+  completedAt: number
+}
+export interface TodoQuery {
+  version: 1
+  projects?: (string | null)[]
+  tags?: string[]
+  date?: 'today' | 'todayView' | 'overdue' | 'upcoming' | 'any'
+  priorities?: TodoPriority[]
+  size?: { mode: 'exact' | 'atMost'; value: TodoSize }
+}
+export interface TodoSavedFilter {
+  id: string
+  name: string
+  query: TodoQuery
+  validity: 'valid' | 'missingReferences'
+  missingReferences: ('project' | 'tag')[]
+}
+export interface TodoCreateInput {
+  text: string
+  dueDay?: string | null
+  dueTime?: string | null
+  projectId?: string | null
+  priority?: TodoPriority
+  size?: TodoSize | null
+  tagIds?: string[]
+  recurrence?: TodoRecurrence | null
+}
+export type TodoCompletionResult =
+  | { status: 'completed'; task: TodoTask }
+  | { status: 'stale'; task: TodoTask }
+export type TodoQueryResult =
+  | { status: 'valid'; tasks: TodoTask[] }
+  | { status: 'invalid'; missingReferences: ('project' | 'tag')[] }
 
 /**
- * One task on the personal TODO list - a lightweight note-to-self with no tie to workspaces or
- * Jira. `dueDay` is the optional local calendar day (`yyyy-mm-dd`) the task is due; `sortOrder`
- * is its persisted manual position in the open list. `priority` is compatibility-only and never
- * affects approved behavior. A non-null `doneAt` (epoch ms) means the task is done and orders the
- * Done section, most recently completed first.
+ * One task in TODO. Its project is separate from repository/workspace projects. `dueDay` and
+ * `dueTime` are local calendar values; `sortOrder` is its manual position inside its project or
+ * Inbox. A non-null `doneAt` means a one-off task is done. Recurring completions are in history.
  */
 export interface TodoTask {
   id: string
@@ -843,6 +889,12 @@ export interface TodoTask {
   priority: TodoPriority
   sortOrder: number
   doneAt: number | null
+  projectId?: string | null
+  dueTime?: string | null
+  size?: TodoSize | null
+  tagIds?: string[]
+  recurrence?: TodoRecurrence | null
+  revision?: number
 }
 
 /** The fields editable in place via inline edit; an omitted field is left unchanged. */
@@ -850,6 +902,12 @@ export interface TodoTaskPatch {
   text?: string
   description?: string
   dueDay?: string | null
+  dueTime?: string | null
+  projectId?: string | null
+  priority?: TodoPriority
+  size?: TodoSize | null
+  tagIds?: string[]
+  recurrence?: TodoRecurrence | null
 }
 
 /** Both TODO lists fetched together, so a single call hydrates the whole section. */

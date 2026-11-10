@@ -742,6 +742,45 @@ const MIGRATIONS: Migration[] = [
         INSERT INTO note_entry_fts(note_entry_fts) VALUES ('rebuild');
       `)
     }
+  },
+  {
+    version: 30,
+    up(db) {
+      db.exec(`
+        CREATE TABLE todo_project (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE,
+          sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE todo_tag (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE
+        );
+        ALTER TABLE todo_task ADD COLUMN todo_project_id TEXT REFERENCES todo_project(id) ON DELETE SET NULL;
+        ALTER TABLE todo_task ADD COLUMN due_time TEXT CHECK(due_time IS NULL OR due_time GLOB '[0-2][0-9]:[0-5][0-9]');
+        ALTER TABLE todo_task ADD COLUMN size TEXT CHECK(size IS NULL OR size IN ('XS','S','M','L','XL'));
+        ALTER TABLE todo_task ADD COLUMN recurrence_mode TEXT CHECK(recurrence_mode IS NULL OR recurrence_mode IN ('fixed','after_completion'));
+        ALTER TABLE todo_task ADD COLUMN recurrence_unit TEXT CHECK(recurrence_unit IS NULL OR recurrence_unit IN ('day','week','month','year'));
+        ALTER TABLE todo_task ADD COLUMN recurrence_interval INTEGER CHECK(recurrence_interval IS NULL OR recurrence_interval > 0);
+        ALTER TABLE todo_task ADD COLUMN recurrence_anchor_day TEXT;
+        ALTER TABLE todo_task ADD COLUMN task_revision INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX todo_task_project_open ON todo_task(todo_project_id, done_at, sort_order);
+        CREATE INDEX todo_task_due_open ON todo_task(due_day, done_at);
+        CREATE TABLE todo_task_tag (
+          task_id TEXT NOT NULL REFERENCES todo_task(id) ON DELETE CASCADE,
+          tag_id TEXT NOT NULL REFERENCES todo_tag(id) ON DELETE CASCADE,
+          PRIMARY KEY(task_id, tag_id)
+        );
+        CREATE TABLE todo_saved_filter (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, query_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE todo_completion (
+          task_id TEXT NOT NULL REFERENCES todo_task(id) ON DELETE CASCADE,
+          occurrence_revision INTEGER NOT NULL,
+          due_day TEXT NOT NULL, due_time TEXT,
+          completed_at INTEGER NOT NULL,
+          PRIMARY KEY(task_id, occurrence_revision)
+        );
+      `)
+    }
   }
 ]
 

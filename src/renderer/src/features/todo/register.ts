@@ -34,7 +34,7 @@ export function registerTodoFeature(): void {
       const { text, dueDay } = parseDueFromText(rest, today)
       if (text === '') return null
       return dueDay === null
-        ? `Add task "${text}"`
+        ? `Add task "${text}", due today`
         : `Add task "${text}", due ${formatDueDay(dueDay, today)}`
     },
     async run(rest) {
@@ -43,10 +43,10 @@ export function registerTodoFeature(): void {
       if (text === '') return
       // Nothing here is on screen to contradict a false confirmation, so the store has to say
       // whether the task was really written. A failure has already raised its own message.
-      if (!(await useTodoStore.getState().add(text, dueDay))) return
+      if (!(await useTodoStore.getState().add({ text, dueDay: dueDay ?? today }))) return
       // The TODO list is not on screen when a task is captured from elsewhere, so the confirmation
       // is the only thing telling the user it was written down - and which day it was pinned to.
-      const when = dueDay === null ? '' : `, due ${formatDueDay(dueDay, today)}`
+      const when = `, due ${formatDueDay(dueDay ?? today, today)}`
       useToastStore.getState().push(`Task added: ${text}${when}`)
     }
   })
