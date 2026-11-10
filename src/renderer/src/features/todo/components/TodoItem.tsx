@@ -115,7 +115,8 @@ export function TodoItem({
     onSave?.({ text: trimmed, description: draftDescription, dueDay: draftDueDay || null,
       dueTime: draftDueDay ? draftDueTime || null : null, projectId: draftProject || null,
       priority: draftPriority, size: (draftSize || null) as TodoSize | null,
-      tagIds: draftTags, recurrence: draftMode && draftDueDay ? {
+      tagIds: draftTags.filter((id) => tags.some((tag) => tag.id === id)),
+      recurrence: draftMode && draftDueDay ? {
         mode: draftMode, unit: draftUnit, interval: draftInterval,
         anchorDay: draftDueDay !== task.dueDay ? draftDueDay
           : task.recurrence?.anchorDay ?? draftDueDay

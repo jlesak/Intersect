@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date(2026, 10, 10, 23, 59, 30))
   vi.clearAllMocks()
+  mocked.update.mockReset()
   mocked.list.mockResolvedValue({ open: [a, b], done: [] })
   mocked.listProjects.mockResolvedValue([])
   mocked.listTags.mockResolvedValue([])
@@ -38,6 +39,46 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers() })
 
 describe('mounted Today view', () => {
+  test('deleting a tag during an edit keeps the draft and saves without the deleted ID', async () => {
+    const tag = { id: 'tag', name: 'Temporary' }
+    let canonical = { ...a, tagIds: [tag.id] }
+    mocked.list.mockImplementation(async () => ({ open: [{ ...canonical }], done: [] }))
+    mocked.query.mockImplementation(async () => ({ status: 'valid', tasks: [{ ...canonical }] }))
+    mocked.listTags.mockResolvedValueOnce([tag]).mockResolvedValueOnce([])
+    mocked.removeTag.mockImplementation(async () => { canonical = { ...canonical, tagIds: [] } })
+    mocked.update.mockImplementation(async (_id, patch) => {
+      if (patch.tagIds?.includes(tag.id)) throw new Error('Deleted tag ID')
+      canonical = { ...canonical, ...patch }
+      return canonical
+    })
+    useTodoStore.setState({ open: [canonical], tags: [tag] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByTitle('Edit'))
+    fireEvent.change(screen.getByPlaceholderText('Task'), { target: { value: 'Keep this edit' } })
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete tag Temporary')) })
+    expect(screen.getByPlaceholderText('Task')).toHaveProperty('value', 'Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', tagIds: [] }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('a rejected task edit stays open with its draft for retry', async () => {
+    mocked.list.mockResolvedValue({ open: [a], done: [] })
+    mocked.query.mockResolvedValue({ status: 'valid', tasks: [{ ...a }] })
+    mocked.update.mockRejectedValueOnce(new Error('Write failed'))
+      .mockResolvedValueOnce({ ...a, text: 'Retry this edit' })
+    useTodoStore.setState({ open: [a] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByTitle('Edit'))
+    fireEvent.change(screen.getByPlaceholderText('Task'), { target: { value: 'Retry this edit' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(screen.getByPlaceholderText('Task')).toHaveProperty('value', 'Retry this edit')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenCalledTimes(2)
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
   test('a stale visible recurring row cannot complete the next occurrence', async () => {
     const recurring = { ...a, recurrence: { mode: 'fixed' as const, unit: 'day' as const,
       interval: 1, anchorDay: today } }

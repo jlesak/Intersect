@@ -425,8 +425,10 @@ export function TodoView() {
           <TodoItem task={open.find((task) => task.id === editingId)!} done={false} editing
             projects={projects} tags={tags} onToggle={() => {}} onDelete={() => removeTask(editingId)}
             onCancelEdit={() => setEditingId(null)} onSave={(patch) => {
-              void useTodoStore.getState().update(editingId, patch)
-              setEditingId(null)
+              const id = editingId
+              void useTodoStore.getState().update(id, patch).then((saved) => {
+                if (saved) setEditingId((current) => current === id ? null : current)
+              })
             }} />}
 
         {view !== 'upcoming' && !invalidFilter && status === 'ready' && visibleOpen.length === 0 ? (
@@ -462,8 +464,9 @@ export function TodoView() {
                 overflow={[copyEntry(task)]}
                 onCancelEdit={() => setEditingId(null)}
                 onSave={(patch) => {
-                  setEditingId(null)
-                  void useTodoStore.getState().update(task.id, patch)
+                  void useTodoStore.getState().update(task.id, patch).then((saved) => {
+                    if (saved) setEditingId((current) => current === task.id ? null : current)
+                  })
                 }}
                 onStartSession={() => launchFromTodoTask(task)}
                 drag={canReorder ? {
