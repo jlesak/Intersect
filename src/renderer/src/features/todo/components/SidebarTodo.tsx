@@ -22,6 +22,8 @@ export function SidebarTodo() {
   const filters = useTodoStore((s) => s.filters)
   const [projectName, setProjectName] = useState('')
   const [addingProject, setAddingProject] = useState(false)
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [renamedProjectName, setRenamedProjectName] = useState('')
 
   const nav = (label: string, destination: TodoViewKey, id?: string): React.JSX.Element => (
     <button type="button" className={`ix-todo-nav__item${view === destination &&
@@ -52,13 +54,25 @@ export function SidebarTodo() {
         }}><input className="ix-input" aria-label="Project name" autoFocus value={projectName}
           onChange={(event) => setProjectName(event.target.value)} /></form>}
         {projects.map((project) => <div className="ix-todo-nav__row" key={project.id}>
-          {nav(project.name, 'project', project.id)}
-          <button type="button" title={`Rename ${project.name}`} onClick={() => {
-            const name = window.prompt('Rename TODO project', project.name)
-            if (name?.trim()) void useTodoStore.getState().updateProject(project.id, name)
-          }}>✎</button>
-          <button type="button" title={`Delete ${project.name}`} onClick={() =>
-            void useTodoStore.getState().removeProject(project.id)}>×</button>
+          {renamingProjectId === project.id ? <form className="ix-todo-nav__rename" onSubmit={(event) => {
+            event.preventDefault()
+            if (!renamedProjectName.trim()) return
+            void useTodoStore.getState().updateProject(project.id, renamedProjectName)
+            setRenamingProjectId(null)
+          }}><input className="ix-input" aria-label="Rename project" autoFocus
+            value={renamedProjectName} onChange={(event) => setRenamedProjectName(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Escape') setRenamingProjectId(null) }} />
+            <button type="submit" title="Save project name">Save</button>
+            <button type="button" title="Cancel project rename" onClick={() =>
+              setRenamingProjectId(null)}>Cancel</button></form> : <>
+            {nav(project.name, 'project', project.id)}
+            <button type="button" title={`Rename ${project.name}`} onClick={() => {
+              setRenamingProjectId(project.id)
+              setRenamedProjectName(project.name)
+            }}>✎</button>
+            <button type="button" title={`Delete ${project.name}`} onClick={() =>
+              void useTodoStore.getState().removeProject(project.id)}>×</button>
+          </>}
         </div>)}
         <div className="ix-todo-nav__heading">Saved filters</div>
         {filters.map((filter) => <div className="ix-todo-nav__row" key={filter.id}>

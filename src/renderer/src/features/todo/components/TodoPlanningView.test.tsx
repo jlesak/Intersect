@@ -8,6 +8,7 @@ vi.mock('@renderer/features/workItems', () => ({ launchFromTodoTask: vi.fn() }))
 import * as api from '../ipc'
 import { useTodoStore } from '../store'
 import { TodoView } from './TodoView'
+import { SidebarTodo } from './SidebarTodo'
 
 const mocked = vi.mocked(api)
 const today = '2026-11-10'
@@ -72,6 +73,43 @@ describe('mounted Today view', () => {
 })
 
 describe('filter and cross-surface focus', () => {
+  test('a saved Today filter changes with the local day and rechecks on focus', async () => {
+    const filter = { id: 'today-filter', name: 'Today only',
+      query: { version: 1 as const, date: 'today' as const }, validity: 'valid' as const,
+      missingReferences: [] }
+    mocked.listFilters.mockResolvedValue([filter])
+    mocked.query.mockImplementation(async (_query, day) => ({ status: 'valid',
+      tasks: [a, b].filter((task) => task.dueDay === day) }))
+    useTodoStore.setState({ view: 'filter', activeFilterId: filter.id, filters: [filter] })
+    await act(async () => { render(<TodoView />) })
+    expect(screen.getByText('Task a')).toBeTruthy()
+    expect(screen.queryByText('Task b')).toBeNull()
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(screen.queryByText('Task a')).toBeNull()
+    expect(screen.getByText('Task b')).toBeTruthy()
+    const calls = mocked.query.mock.calls.length
+    vi.setSystemTime(new Date(2026, 10, 12, 9))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(mocked.query.mock.calls.length).toBeGreaterThan(calls)
+    expect(screen.queryByText('Task b')).toBeNull()
+  })
+
+  test('switching saved filters closes the editor before it can save to another filter', async () => {
+    const filterA = { id: 'a', name: 'Filter A', query: { version: 1 as const,
+      date: 'today' as const }, validity: 'valid' as const, missingReferences: [] }
+    const filterB = { id: 'b', name: 'Filter B', query: { version: 1 as const,
+      date: 'overdue' as const }, validity: 'valid' as const, missingReferences: [] }
+    mocked.listFilters.mockResolvedValue([filterA, filterB])
+    useTodoStore.setState({ view: 'filter', activeFilterId: 'a', filters: [filterA, filterB] })
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit filter' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter name' }),
+      { target: { value: 'A edited' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter B' }))
+    expect(screen.queryByRole('textbox', { name: 'Filter name' })).toBeNull()
+    expect(mocked.updateFilter).not.toHaveBeenCalled()
+  })
+
   test('deleted filter reference shows warning and edit without ordinary empty results', async () => {
     const filter = { id: 'f', name: 'Planning', query: { version: 1 as const,
       projects: ['deleted'] }, validity: 'missingReferences' as const,

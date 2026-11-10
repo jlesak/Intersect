@@ -77,6 +77,8 @@ export function TodoView() {
   const [newInterval, setNewInterval] = useState(1)
   const [showFilterEditor, setShowFilterEditor] = useState(false)
   const [tagName, setTagName] = useState('')
+  const [renamingTagId, setRenamingTagId] = useState<string | null>(null)
+  const [renamedTagName, setRenamedTagName] = useState('')
   const [showDate, setShowDate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -96,8 +98,10 @@ export function TodoView() {
   useEffect(() => {
     if (view === 'today') void useTodoStore.getState().refreshView(clockDay)
     else if (useTodoStore.getState().dayKey !== clockDay)
-      useTodoStore.setState({ dayKey: clockDay })
+      void useTodoStore.getState().recheckDay()
   }, [view, clockDay])
+
+  useEffect(() => { setShowFilterEditor(false) }, [view, filterId])
 
   useEffect(() => {
     const recheck = (): void => { void useTodoStore.getState().recheckDay() }
@@ -300,14 +304,25 @@ export function TodoView() {
 
         <div className="ix-todo__tags-manage">
           <span>Tags</span>
-          {tags.map((tag) => <span key={tag.id}>{tag.name}
-            <button type="button" title={`Rename tag ${tag.name}`} onClick={() => {
-              const name = window.prompt('Rename tag', tag.name)
-              if (name?.trim()) void useTodoStore.getState().updateTag(tag.id, name)
-            }}>✎</button>
-            <button type="button" title={`Delete tag ${tag.name}`} onClick={() =>
-              void useTodoStore.getState().removeTag(tag.id)}>×</button>
-          </span>)}
+          {tags.map((tag) => renamingTagId === tag.id ?
+            <form key={tag.id} className="ix-todo__rename-tag" onSubmit={(event) => {
+              event.preventDefault()
+              if (!renamedTagName.trim()) return
+              void useTodoStore.getState().updateTag(tag.id, renamedTagName)
+              setRenamingTagId(null)
+            }}><input className="ix-input" aria-label="Rename tag" autoFocus
+              value={renamedTagName} onChange={(event) => setRenamedTagName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setRenamingTagId(null) }} />
+              <button type="submit">Save</button>
+              <button type="button" onClick={() => setRenamingTagId(null)}>Cancel</button>
+            </form> : <span key={tag.id}>{tag.name}
+              <button type="button" title={`Rename tag ${tag.name}`} onClick={() => {
+                setRenamingTagId(tag.id)
+                setRenamedTagName(tag.name)
+              }}>✎</button>
+              <button type="button" title={`Delete tag ${tag.name}`} onClick={() =>
+                void useTodoStore.getState().removeTag(tag.id)}>×</button>
+            </span>)}
           <form onSubmit={(event) => { event.preventDefault()
             if (tagName.trim()) void useTodoStore.getState().createTag(tagName)
             setTagName('') }}>

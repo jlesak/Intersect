@@ -191,8 +191,12 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
 
     async recheckDay() {
       const day = dayKeyOf(Date.now())
-      if (get().view === 'today') await get().refreshView(day)
-      else set({ dayKey: day })
+      const { view, activeFilterId, filters, dayKey } = get()
+      const filterDate = view === 'filter'
+        ? filters.find((filter) => filter.id === activeFilterId)?.query.date : undefined
+      if (view === 'today' || (day !== dayKey && filterDate && filterDate !== 'any'))
+        await get().refreshView(day)
+      else if (day !== dayKey) set({ dayKey: day })
     },
 
     async createProject(name) { await mutate(() => api.createProject(name), 'Could not create project'); await get().loadPlanning() },

@@ -21,6 +21,22 @@ async function add(win: Page, text: string) {
   await expect(rows(win).filter({ hasText: text })).toHaveCount(1)
 }
 
+test('renames projects and tags in the desktop app', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await project(win, 'Initial project')
+  await win.getByTitle('Rename Initial project').click()
+  await win.getByRole('textbox', { name: 'Rename project' }).fill('Renamed project')
+  await win.getByRole('textbox', { name: 'Rename project' }).press('Enter')
+  await expect(win.locator('.ix-todo-nav__item', { hasText: 'Renamed project' })).toBeVisible()
+  await win.getByRole('textbox', { name: 'New tag name' }).fill('Initial tag')
+  await win.getByRole('button', { name: 'Add tag' }).click()
+  await win.getByTitle('Rename tag Initial tag').click()
+  await win.getByRole('textbox', { name: 'Rename tag' }).fill('Renamed tag')
+  await win.getByRole('textbox', { name: 'Rename tag' }).press('Enter')
+  await expect(win.getByTitle('Rename tag Renamed tag')).toBeVisible()
+})
+
 test('projects, tags, saved filters, and crowded calendar survive restart', async () => {
   const profile = userDataDir()
   const first = await launch(profile)
