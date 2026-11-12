@@ -38,6 +38,7 @@ describe('TodoView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mocked.list.mockResolvedValue({ open: OPEN, done: [] })
+    mocked.getById.mockImplementation(async (id) => OPEN.find((task) => task.id === id))
     useTodoStore.setState({
       status: 'ready',
       error: null,
@@ -356,7 +357,8 @@ describe('TodoView add box', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
     })
 
-    expect(mocked.add).toHaveBeenCalledWith('call the vendor', '2026-08-08')
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'call the vendor', dueDay: '2026-08-08' }))
   })
 
   test('the whole grammar reaches the add box, not just the words it used to know', async () => {
@@ -367,7 +369,8 @@ describe('TodoView add box', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
     })
 
-    expect(mocked.add).toHaveBeenCalledWith('ship the release', '2026-08-10')
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'ship the release', dueDay: '2026-08-10' }))
   })
 
   test('the hint shows the title and the day before Enter is pressed', async () => {
@@ -406,10 +409,11 @@ describe('TodoView add box', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
     })
 
-    expect(mocked.add).toHaveBeenCalledWith('tomorrow is the deadline', null)
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'tomorrow is the deadline', dueDay: FRIDAY }))
   })
 
-  test('a task that is only a date word keeps its text and gets no due day', async () => {
+  test('a task that is only a date word keeps its text and gets today', async () => {
     const input = await mount()
 
     fireEvent.change(input, { target: { value: 'tomorrow' } })
@@ -417,7 +421,8 @@ describe('TodoView add box', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
     })
 
-    expect(mocked.add).toHaveBeenCalledWith('tomorrow', null)
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'tomorrow', dueDay: FRIDAY }))
   })
 
   test('a picked date wins, and its presence leaves every word in the title', async () => {
@@ -436,7 +441,8 @@ describe('TodoView add box', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
     })
 
-    expect(mocked.add).toHaveBeenCalledWith('call the vendor tomorrow', FRIDAY)
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'call the vendor tomorrow', dueDay: FRIDAY }))
   })
 })
 

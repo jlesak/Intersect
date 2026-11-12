@@ -55,15 +55,16 @@ test('"todo:" writes a task with the due day its wording named', async () => {
   await expect(row.locator('.ix-todo-item__due')).toHaveText('tomorrow')
 })
 
-test('"todo:" without a date word writes the whole line as the task', async () => {
+test('"todo:" without a date word writes the whole line as the task, due today', async () => {
   const { app, win } = await launch(userDataDir())
 
   await capture(app, win, 'todo: tomorrow is the deadline')
 
+  // A capture that names no day is due today, like a task added in the list (#166).
   await openRailSection(win, 'TODO', '.ix-todo')
   const row = win.locator('.ix-todo > .ix-todo__list > .ix-todo-item')
   await expect(row.locator('.ix-todo-item__text')).toHaveText('tomorrow is the deadline')
-  await expect(row.locator('.ix-todo-item__due')).toHaveCount(0)
+  await expect(row.locator('.ix-todo-item__due')).toHaveText('today')
 })
 
 test('"time:" logs a worklog entry against the issue it named', async () => {

@@ -1,54 +1,90 @@
+import { useRef, useState } from 'react'
 import { dayKeyOf } from '@common/week'
 import { useNow } from '@renderer/shared/ui/useNow'
 import { isDueToday, isOverdue } from '../due'
-import { useTodoStore } from '../store'
+import { useTodoStore, type TodoViewKey } from '../store'
 
-/**
- * How often the rail re-reads the clock. What is late and what is due changes when the day does,
- * so a coarse tick is all it takes to roll the counts over at midnight instead of leaving them
- * frozen at whatever day the section was first opened on.
- */
 const DAY_TICK_MS = 60_000
 
-/**
- * The sidebar rail for the TODO section. The list itself lives in the section's mainComponent, so
- * the rail stays a count of what is open plus what the deadlines say: how much is already late,
- * and how much is due before the day is out. Each line is dropped at zero, so a list with nothing
- * pressing stays quiet.
- */
 export function SidebarTodo() {
   const today = dayKeyOf(useNow(DAY_TICK_MS))
   const count = useTodoStore((s) => s.open.length)
-  // Both answer with a count. A selector that allocates internally but returns a primitive is a
-  // stable snapshot, so neither needs useShallow nor a derivation held in the store.
   const overdue = useTodoStore(
     (s) => s.open.filter((t) => t.dueDay !== null && isOverdue(t.dueDay, today)).length
   )
   const dueToday = useTodoStore(
     (s) => s.open.filter((t) => t.dueDay !== null && isDueToday(t.dueDay, today)).length
   )
+  const view = useTodoStore((s) => s.view)
+  const projectId = useTodoStore((s) => s.activeProjectId)
+  const filterId = useTodoStore((s) => s.activeFilterId)
+  const projects = useTodoStore((s) => s.projects)
+  const filters = useTodoStore((s) => s.filters)
+  const [projectName, setProjectName] = useState('')
+  const [addingProject, setAddingProject] = useState(false)
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [renamedProjectName, setRenamedProjectName] = useState('')
+  // The rename waits for main, so a second submit meanwhile must not send it again.
+  const renameInProgress = useRef(false)
 
+  const nav = (label: string, destination: TodoViewKey, id?: string): React.JSX.Element => (
+    <button type="button" className={`ix-todo-nav__item${view === destination &&
+      (destination === 'project' ? projectId === id : destination === 'filter' ? filterId === id : true)
+      ? ' ix-todo-nav__item--active' : ''}`}
+    onClick={() => useTodoStore.getState().setView(destination, id)}>{label}</button>
+  )
   return (
     <div className="ix-sidebar__body">
-      <div className="ix-sidebar__section">
-        <span className="ix-eyebrow">
-          {count} open {count === 1 ? 'task' : 'tasks'}
-        </span>
-      </div>
-      {(overdue > 0 || dueToday > 0) && (
-        <div className="ix-todo-rail__due">
-          {overdue > 0 && (
-            <span className="ix-todo-rail__due-line ix-todo-rail__due-line--overdue">
-              {overdue} overdue
-            </span>
-          )}
-          {dueToday > 0 && <span className="ix-todo-rail__due-line">{dueToday} due today</span>}
+      <div className="ix-sidebar__section"><span className="ix-eyebrow">
+        {count} open {count === 1 ? 'task' : 'tasks'}
+      </span></div>
+      {(overdue > 0 || dueToday > 0) && <div className="ix-todo-rail__due">
+        {overdue > 0 && <span className="ix-todo-rail__due-line ix-todo-rail__due-line--overdue">
+          {overdue} overdue</span>}
+        {dueToday > 0 && <span className="ix-todo-rail__due-line">{dueToday} due today</span>}
+      </div>}
+      <div className="ix-sidebar__list ix-todo-nav">
+        {nav('Today', 'today')}{nav('Upcoming', 'upcoming')}{nav('Inbox', 'inbox')}
+        <div className="ix-todo-nav__heading">Projects
+          <button type="button" title="New TODO project" onClick={() => setAddingProject(true)}>+</button>
         </div>
-      )}
-      <div className="ix-sidebar__list">
-        <p style={{ padding: '2px 10px', color: 'var(--text-faint)' }}>
-          A lightweight personal task list for small items that do not need a Jira ticket.
-        </p>
+        {addingProject && <form onSubmit={(event) => {
+          event.preventDefault()
+          if (projectName.trim()) void useTodoStore.getState().createProject(projectName)
+          setProjectName('')
+          setAddingProject(false)
+        }}><input className="ix-input" aria-label="Project name" autoFocus value={projectName}
+          onChange={(event) => setProjectName(event.target.value)} /></form>}
+        {projects.map((project) => <div className="ix-todo-nav__row" key={project.id}>
+          {renamingProjectId === project.id ? <form className="ix-todo-nav__rename" onSubmit={(event) => {
+            event.preventDefault()
+            if (!renamedProjectName.trim() || renameInProgress.current) return
+            renameInProgress.current = true
+            // A rejected rename keeps the typed name for a retry.
+            void useTodoStore.getState().updateProject(project.id, renamedProjectName).then((saved) => {
+              if (saved) setRenamingProjectId((current) => current === project.id ? null : current)
+            }).finally(() => { renameInProgress.current = false })
+          }}><input className="ix-input" aria-label="Rename project" autoFocus
+            value={renamedProjectName} onChange={(event) => setRenamedProjectName(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Escape') setRenamingProjectId(null) }} />
+            <button type="submit" title="Save project name">Save</button>
+            <button type="button" title="Cancel project rename" onClick={() =>
+              setRenamingProjectId(null)}>Cancel</button></form> : <>
+            {nav(project.name, 'project', project.id)}
+            <button type="button" title={`Rename ${project.name}`} onClick={() => {
+              setRenamingProjectId(project.id)
+              setRenamedProjectName(project.name)
+            }}>✎</button>
+            <button type="button" title={`Delete ${project.name}`} onClick={() =>
+              void useTodoStore.getState().removeProject(project.id)}>×</button>
+          </>}
+        </div>)}
+        <div className="ix-todo-nav__heading">Saved filters</div>
+        {filters.map((filter) => <div className="ix-todo-nav__row" key={filter.id}>
+          {nav(filter.name, 'filter', filter.id)}
+          <button type="button" title={`Delete filter ${filter.name}`} onClick={() =>
+            void useTodoStore.getState().removeFilter(filter.id)}>×</button>
+        </div>)}
       </div>
     </div>
   )

@@ -14,14 +14,17 @@ describe('todoRepo', () => {
 
   test('create stores an open task with a deterministic id and returns the canonical row', () => {
     const task = repo.create('Ask Marek about the review', '2026-07-10')
-    expect(task).toEqual({
+    expect(task).toMatchObject({
       id: 'id-1',
       text: 'Ask Marek about the review',
       description: '',
       dueDay: '2026-07-10',
       priority: 4,
       sortOrder: 0,
-      doneAt: null
+      doneAt: null,
+      projectId: null,
+      revision: 0,
+      tagIds: []
     })
   })
 

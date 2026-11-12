@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import type { TodoTask } from '@common/domain'
+import type { TodoCreateInput, TodoPriority, TodoRecurrence, TodoSize, TodoTask } from '@common/domain'
 import { dayKeyOf } from '@common/week'
 import { launchFromTodoTask } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconPlay, IconTrash } from '@renderer/shared/ui/icons'
+import { useToastStore } from '@renderer/shared/ui/toast'
+import { useNow } from '@renderer/shared/ui/useNow'
 import { copyTodoTask } from '../clipboard'
 import { formatDueDay } from '../due'
 import { parseDueFromText } from '../dueInput'
+import { liveIds } from '../metadata'
 import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
+import { TodoCalendar } from './TodoCalendar'
+import { TodoFilterEditor } from './TodoFilterEditor'
 
 /** Move one id to an insertion index, accounting for the removal shift. */
 function moveId(ids: string[], id: string, insertionIndex: number): string[] {
@@ -28,6 +33,10 @@ function moveId(ids: string[], id: string, insertionIndex: number): string[] {
  * short enough that the mark cannot be mistaken for a persistent selection.
  */
 const FOCUS_MARK_MS = 2500
+const EMPTY: never[] = []
+const emptyDraft = { text: '', dueDay: '', dueTime: '', priority: 4 as TodoPriority,
+  size: '' as TodoSize | '', tagIds: [] as string[], mode: '' as TodoRecurrence['mode'] | '',
+  unit: 'day' as TodoRecurrence['unit'], interval: 1, showDate: false }
 
 /**
  * Getting a task out of the app as text. The one thing a TODO row offers that has no button of
@@ -49,9 +58,33 @@ export function TodoView() {
   const error = useTodoStore((s) => s.error)
   const showDone = useTodoStore((s) => s.showDone)
   const pendingFocusId = useTodoStore((s) => s.pendingFocusId)
+  const focusResolvedId = useTodoStore((s) => s.focusResolvedId)
+  const view = useTodoStore((s) => s.view ?? 'inbox')
+  const projectId = useTodoStore((s) => s.activeProjectId)
+  const filterId = useTodoStore((s) => s.activeFilterId)
+  const projects = useTodoStore((s) => s.projects ?? EMPTY)
+  const tags = useTodoStore((s) => s.tags ?? EMPTY)
+  const filters = useTodoStore((s) => s.filters ?? EMPTY)
+  const planningReady = useTodoStore((s) => s.planningReady)
+  const queryTasks = useTodoStore((s) => s.queryTasks ?? EMPTY)
+  const invalidFilter = useTodoStore((s) => s.invalidFilter)
+  const missingTask = useTodoStore((s) => s.missingTask)
+  const dayKey = useTodoStore((s) => s.dayKey)
+  const clockDay = dayKeyOf(useNow(60_000))
 
   const [text, setText] = useState('')
   const [dueDay, setDueDay] = useState('')
+  const [dueTime, setDueTime] = useState('')
+  const [newPriority, setNewPriority] = useState<TodoPriority>(4)
+  const [newSize, setNewSize] = useState<TodoSize | ''>('')
+  const [newTagIds, setNewTagIds] = useState<string[]>([])
+  const [newMode, setNewMode] = useState<TodoRecurrence['mode'] | ''>('')
+  const [newUnit, setNewUnit] = useState<TodoRecurrence['unit']>('day')
+  const [newInterval, setNewInterval] = useState(1)
+  const [showFilterEditor, setShowFilterEditor] = useState(false)
+  const [tagName, setTagName] = useState('')
+  const [renamingTagId, setRenamingTagId] = useState<string | null>(null)
+  const [renamedTagName, setRenamedTagName] = useState('')
   const [showDate, setShowDate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -62,19 +95,53 @@ export function TodoView() {
   const [markedId, setMarkedId] = useState<string | null>(null)
   const dropIndexRef = useRef<number | null>(null)
   const rowsRef = useRef(new Map<string, HTMLDivElement>())
+  // The draft in the add row was submitted and not typed in since, so a second Enter is a repeat.
+  const draftSubmitted = useRef(false)
+  // What the add row holds now, for an add that fails after the user moved on.
+  const currentText = useRef('')
+  useEffect(() => { currentText.current = text }, [text])
+  // Counts editor openings, so a save that finishes late cannot close an editor opened after it.
+  const filterEditorSession = useRef(0)
+  // A save that waits for main must not be sent twice by a double click or Enter then click.
+  const filterSaveInProgress = useRef(false)
+  const tagRenameInProgress = useRef(false)
 
   useEffect(() => {
     void useTodoStore.getState().load()
+    void useTodoStore.getState().loadPlanning()
+  }, [])
+
+  useEffect(() => {
+    if (view === 'today') void useTodoStore.getState().refreshView(clockDay)
+    else if (useTodoStore.getState().dayKey !== clockDay)
+      void useTodoStore.getState().recheckDay()
+  }, [view, clockDay])
+
+  useEffect(() => { setShowFilterEditor(false) }, [view, filterId])
+
+  function openFilterEditor(): void {
+    filterEditorSession.current += 1
+    setShowFilterEditor(true)
+  }
+
+  useEffect(() => {
+    const recheck = (): void => { void useTodoStore.getState().recheckDay() }
+    window.addEventListener('focus', recheck)
+    document.addEventListener('visibilitychange', recheck)
+    return () => { window.removeEventListener('focus', recheck)
+      document.removeEventListener('visibilitychange', recheck) }
   }, [])
 
   // Land the arrival another surface asked for: bring the row into view and mark it. The request is
   // spent the moment it is honoured, so returning here later does not replay it.
   useEffect(() => {
-    if (pendingFocusId === null) return
+    if (pendingFocusId === null || focusResolvedId !== pendingFocusId) return
+    const row = rowsRef.current.get(pendingFocusId)
+    if (!row) return
     useTodoStore.getState().clearFocus()
     setMarkedId(pendingFocusId)
-    rowsRef.current.get(pendingFocusId)?.scrollIntoView({ block: 'center' })
-  }, [pendingFocusId])
+    row.scrollIntoView({ block: 'center' })
+  }, [pendingFocusId, focusResolvedId, open, done, view, showDone])
 
   useEffect(() => {
     if (markedId === null) return
@@ -129,20 +196,62 @@ export function TodoView() {
   }
 
   const menuTask = menu === null ? undefined : [...open, ...done].find((t) => t.id === menu.id)
+  const visibleOpen = view === 'inbox' ? open.filter((task) => !task.projectId)
+    : view === 'project' ? open.filter((task) => task.projectId === projectId)
+      : view === 'today' || view === 'filter' ? queryTasks : open
+  const canReorder = view === 'inbox' || view === 'project'
+  const activeFilter = filters.find((filter) => filter.id === filterId)
+  const heading = view === 'project' ? projects.find((project) => project.id === projectId)?.name
+    : view === 'filter' ? activeFilter?.name : view === 'today' ? 'Today'
+      : view === 'upcoming' ? 'Upcoming' : 'Inbox'
 
   // A date picked by hand is an explicit instruction, so it wins and suppresses the reading of the
   // text entirely: with the picker holding a day, no word is taken out of the title either.
-  const today = dayKeyOf(Date.now())
+  const today = dayKey ?? clockDay
   const typedDue = dueDay === '' ? parseDueFromText(text, today) : null
 
+  /** Puts a draft into the add row: an empty one after a submit, or a failed one back. */
+  function fillAddRow(draft: typeof emptyDraft): void {
+    setText(draft.text)
+    setDueDay(draft.dueDay)
+    setDueTime(draft.dueTime)
+    setNewPriority(draft.priority)
+    setNewSize(draft.size)
+    setNewTagIds(draft.tagIds)
+    setNewMode(draft.mode)
+    setNewUnit(draft.unit)
+    setNewInterval(draft.interval)
+    setShowDate(draft.showDate)
+  }
+
+  /**
+   * Adds the task and clears the row at once, so the next task can be typed while this one is
+   * written. A failed add puts its draft back for a retry, unless the user has started a newer
+   * one: that is never overwritten, and a toast names the task that was not added.
+   */
   function submit(): void {
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed || draftSubmitted.current) return
     const parsed = typedDue ?? { text: trimmed, dueDay: dueDay || null }
-    void useTodoStore.getState().add(parsed.text, parsed.dueDay)
-    setText('')
-    setDueDay('')
-    setShowDate(false)
+    const scheduled = parsed.dueDay ?? today
+    const input: TodoCreateInput = { text: parsed.text, dueDay: scheduled,
+      dueTime: dueTime || null, priority: newPriority, size: newSize || null,
+      projectId: view === 'project' ? projectId : null,
+      tagIds: liveIds(newTagIds, tags, planningReady),
+      recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
+        anchorDay: scheduled } : null }
+    const draft = { text, dueDay, dueTime, priority: newPriority, size: newSize,
+      tagIds: newTagIds, mode: newMode, unit: newUnit, interval: newInterval, showDate }
+    draftSubmitted.current = true
+    fillAddRow(emptyDraft)
+    // Adds reach the core in submit order over the one IPC channel, and it writes them in turn.
+    void useTodoStore.getState().add(input).then((ok) => {
+      if (ok) return
+      if (currentText.current.trim() === '') {
+        draftSubmitted.current = false
+        fillAddRow(draft)
+      } else useToastStore.getState().push(`Task not added: ${input.text}`)
+    })
   }
 
   function toggleDateInput(): void {
@@ -154,16 +263,16 @@ export function TodoView() {
 
   function persistOrder(ids: string[], movedId: string): void {
     const position = ids.indexOf(movedId) + 1
-    const task = open.find((candidate) => candidate.id === movedId)
+    const task = visibleOpen.find((candidate) => candidate.id === movedId)
     if (position < 1 || !task) return
     setReorderStatus(`Moved ${task.text} to position ${position} of ${ids.length}.`)
     void useTodoStore.getState().reorder(ids)
   }
 
   function handleKeyboardMove(id: string, delta: -1 | 1): void {
-    const ids = open.map((task) => task.id)
+    const ids = visibleOpen.map((task) => task.id)
     const from = ids.indexOf(id)
-    const task = open[from]
+    const task = visibleOpen[from]
     if (!task) return
     const to = from + delta
     if (to < 0 || to >= ids.length) {
@@ -202,7 +311,7 @@ export function TodoView() {
     const target = dropIndexRef.current
     handleDragEnd()
     if (!id || target === null) return
-    const current = open.map((task) => task.id)
+    const current = visibleOpen.map((task) => task.id)
     const next = moveId(current, id, target)
     if (next === current) return
     persistOrder(next, id)
@@ -212,7 +321,9 @@ export function TodoView() {
     <div className="ix-main">
       <div className="ix-todo">
         <div className="ix-todo__head">
-          <span className="ix-todo__title">TODO</span>
+          <span className="ix-todo__title">TODO · {heading}</span>
+          <button type="button" className="ix-btn ix-btn--ghost" onClick={openFilterEditor}>
+            {view === 'filter' ? 'Edit filter' : 'New filter'}</button>
           <button
             type="button"
             className="ix-todo__done-link"
@@ -222,23 +333,81 @@ export function TodoView() {
           </button>
         </div>
 
+        {missingTask && <div className="ix-todo__error" role="status">Task no longer exists.</div>}
+        {view === 'filter' && invalidFilter && <div className="ix-todo__error" role="alert">
+          Filtr odkazuje na smazaný projekt nebo štítek
+          <button type="button" onClick={openFilterEditor}>Edit</button>
+        </div>}
+        {showFilterEditor && <TodoFilterEditor projects={projects} tags={tags}
+          metadataReady={planningReady}
+          initial={view === 'filter' ? activeFilter : undefined}
+          cancel={() => setShowFilterEditor(false)}
+          save={(name, query) => {
+            if (filterSaveInProgress.current) return
+            filterSaveInProgress.current = true
+            const session = filterEditorSession.current
+            const store = useTodoStore.getState()
+            const saved = view === 'filter' && filterId ? store.updateFilter(filterId, name, query)
+              : store.createFilter(name, query)
+            // A rejected save keeps the editor and its draft for a retry.
+            void saved.then((ok) => {
+              if (ok && session === filterEditorSession.current) setShowFilterEditor(false)
+            }).finally(() => { filterSaveInProgress.current = false })
+          }} />}
+
+        <div className="ix-todo__tags-manage">
+          <span>Tags</span>
+          {tags.map((tag) => renamingTagId === tag.id ?
+            <form key={tag.id} className="ix-todo__rename-tag" onSubmit={(event) => {
+              event.preventDefault()
+              if (!renamedTagName.trim() || tagRenameInProgress.current) return
+              tagRenameInProgress.current = true
+              void useTodoStore.getState().updateTag(tag.id, renamedTagName).then((saved) => {
+                if (saved) setRenamingTagId((current) => current === tag.id ? null : current)
+              }).finally(() => { tagRenameInProgress.current = false })
+            }}><input className="ix-input" aria-label="Rename tag" autoFocus
+              value={renamedTagName} onChange={(event) => setRenamedTagName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setRenamingTagId(null) }} />
+              <button type="submit">Save</button>
+              <button type="button" onClick={() => setRenamingTagId(null)}>Cancel</button>
+            </form> : <span key={tag.id}>{tag.name}
+              <button type="button" title={`Rename tag ${tag.name}`} onClick={() => {
+                setRenamingTagId(tag.id)
+                setRenamedTagName(tag.name)
+              }}>✎</button>
+              <button type="button" title={`Delete tag ${tag.name}`} onClick={() =>
+                void useTodoStore.getState().removeTag(tag.id)}>×</button>
+            </span>)}
+          <form onSubmit={(event) => { event.preventDefault()
+            if (tagName.trim()) void useTodoStore.getState().createTag(tagName)
+            setTagName('') }}>
+            <input className="ix-input" aria-label="New tag name" placeholder="New tag"
+              value={tagName} onChange={(event) => setTagName(event.target.value)} />
+            <button type="submit">Add tag</button>
+          </form>
+        </div>
+
         <div className="ix-todo__add">
           <input
             className="ix-input"
             placeholder="Add a task… (Enter)"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              draftSubmitted.current = false
+              setText(e.target.value)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit()
             }}
           />
           {showDate && (
-            <input
+            <><input
               type="date"
               className="ix-input ix-todo__date"
               value={dueDay}
               onChange={(e) => setDueDay(e.target.value)}
-            />
+            /><input type="time" className="ix-input" aria-label="New task due time"
+              value={dueTime} onChange={(e) => setDueTime(e.target.value)} /></>
           )}
           <button
             type="button"
@@ -248,6 +417,33 @@ export function TodoView() {
           >
             <IconCalendar />
           </button>
+        </div>
+
+        <div className="ix-todo__add-options">
+          <select className="ix-input ix-todo__control" aria-label="New task priority" value={newPriority}
+            onChange={(event) => setNewPriority(Number(event.target.value) as TodoPriority)}>
+            {[1, 2, 3, 4].map((value) => <option key={value} value={value}>P{value}</option>)}
+          </select>
+          <select className="ix-input ix-todo__control" aria-label="New task size" value={newSize}
+            onChange={(event) => setNewSize(event.target.value as TodoSize | '')}>
+            <option value="">No size</option>
+            {['XS', 'S', 'M', 'L', 'XL'].map((size) => <option key={size}>{size}</option>)}
+          </select>
+          <select className="ix-input ix-todo__control" aria-label="New task repeat mode" value={newMode}
+            onChange={(event) => setNewMode(event.target.value as TodoRecurrence['mode'] | '')}>
+            <option value="">No repeat</option><option value="fixed">Fixed</option>
+            <option value="after_completion">After completion</option>
+          </select>
+          {newMode && <><select className="ix-input ix-todo__control" aria-label="New task repeat unit" value={newUnit}
+            onChange={(event) => setNewUnit(event.target.value as TodoRecurrence['unit'])}>
+            <option value="day">Day</option><option value="week">Week</option>
+            <option value="month">Month</option><option value="year">Year</option>
+          </select><input type="number" min="1" className="ix-input ix-todo__control" aria-label="New task repeat interval"
+            value={newInterval} onChange={(event) => setNewInterval(Number(event.target.value))} /></>}
+          {tags.map((tag) => <label key={tag.id}><input type="checkbox"
+            checked={newTagIds.includes(tag.id)} onChange={() => setNewTagIds((ids) =>
+              ids.includes(tag.id) ? ids.filter((id) => id !== tag.id) : [...ids, tag.id])} />
+            {tag.name}</label>)}
         </div>
 
         {/*
@@ -272,14 +468,29 @@ export function TodoView() {
           {reorderStatus}
         </div>
 
-        {status === 'ready' && open.length === 0 ? (
+        {view === 'upcoming' && <TodoCalendar tasks={open} today={today} openTask={openEditor} />}
+        {view === 'upcoming' && editingId && open.some((task) => task.id === editingId) &&
+          <TodoItem task={open.find((task) => task.id === editingId)!} done={false} editing
+            projects={projects} tags={tags} metadataReady={planningReady}
+            onToggle={() => {}} onDelete={() => removeTask(editingId)}
+            onCancelEdit={() => setEditingId(null)} onSave={(patch) => {
+              const id = editingId
+              void useTodoStore.getState().update(id, patch).then((saved) => {
+                if (saved) setEditingId((current) => current === id ? null : current)
+              })
+            }} />}
+
+        {view !== 'upcoming' && !invalidFilter && status === 'ready' && visibleOpen.length === 0 ? (
           <div className="ix-todo__empty">No tasks yet - add one above.</div>
-        ) : (
+        ) : view !== 'upcoming' && !invalidFilter ? (
           <div className="ix-todo__list" role="list" aria-label="Open tasks">
-            {open.map((task, index) => (
+            {visibleOpen.map((task, index) => (
               <TodoItem
                 key={task.id}
                 task={task}
+                projects={projects}
+                tags={tags}
+                metadataReady={planningReady}
                 done={false}
                 editing={editingId === task.id}
                 selected={selectedId === task.id}
@@ -290,7 +501,7 @@ export function TodoView() {
                 }}
                 onToggle={() => {
                   forget(task.id)
-                  void useTodoStore.getState().toggleDone(task.id, true)
+                  void useTodoStore.getState().toggleDone(task.id, true, task.revision)
                 }}
                 onDelete={() => removeTask(task.id)}
                 onSelect={() => setSelectedId(task.id)}
@@ -303,13 +514,14 @@ export function TodoView() {
                 overflow={[copyEntry(task)]}
                 onCancelEdit={() => setEditingId(null)}
                 onSave={(patch) => {
-                  setEditingId(null)
-                  void useTodoStore.getState().update(task.id, patch)
+                  void useTodoStore.getState().update(task.id, patch).then((saved) => {
+                    if (saved) setEditingId((current) => current === task.id ? null : current)
+                  })
                 }}
                 onStartSession={() => launchFromTodoTask(task)}
-                drag={{
+                drag={canReorder ? {
                   position: index + 1,
-                  total: open.length,
+                  total: visibleOpen.length,
                   dragging: dragId === task.id,
                   draggable: armedId === task.id,
                   onHandleMouseDown: () => setArmedId(task.id),
@@ -318,11 +530,11 @@ export function TodoView() {
                   onDragOver: (e) => handleDragOver(e, index),
                   onDrop: handleDrop,
                   onDragEnd: handleDragEnd
-                }}
+                } : undefined}
               />
             ))}
           </div>
-        )}
+        ) : null}
 
         {showDone && (
           <div className="ix-todo__done-drawer">
@@ -335,7 +547,13 @@ export function TodoView() {
                 <TodoItem
                   key={task.id}
                   task={task}
+                  tags={tags}
                   done
+                  focused={markedId === task.id}
+                  rowRef={(el) => {
+                    if (el) rowsRef.current.set(task.id, el)
+                    else rowsRef.current.delete(task.id)
+                  }}
                   onToggle={() => void useTodoStore.getState().toggleDone(task.id, false)}
                   onDelete={() => removeTask(task.id)}
                   onContextMenu={(x, y) => setMenu({ x, y, id: task.id })}

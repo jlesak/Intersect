@@ -35,10 +35,11 @@ describe('the todo: capture', () => {
     await capture('todo: call the vendor tomorrow')
 
     const today = dayKeyOf(Date.now())
-    const [text, dueDay] = mocked.add.mock.calls[0]
-    expect(text).toBe('call the vendor')
-    expect(dueDay).not.toBe(today)
-    expect(dueDay).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    const [input] = mocked.add.mock.calls[0]
+    expect(input).toMatchObject({ text: 'call the vendor' })
+    if (typeof input === 'string') throw new Error('Expected typed task input')
+    expect(input.dueDay).not.toBe(today)
+    expect(input.dueDay).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   test('confirms what it wrote, so a user who cannot see the list still knows', async () => {

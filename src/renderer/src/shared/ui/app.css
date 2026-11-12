@@ -5785,3 +5785,54 @@ body.ix-resizing--vertical * {
   cursor: col-resize !important;
   user-select: none !important;
 }
+
+/* TODO planning navigation and editors */
+.ix-todo-nav { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.ix-todo-nav__row { display: flex; align-items: center; min-width: 0; }
+.ix-todo-nav__item { flex: 1; min-width: 0; text-align: left; padding: 5px 10px;
+  background: transparent; border: 0; border-radius: 6px; color: var(--text-dim);
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ix-todo-nav__item:hover, .ix-todo-nav__item--active { background: var(--panel-2); color: var(--text); }
+.ix-todo-nav__row > button:not(.ix-todo-nav__item), .ix-todo-nav__heading button {
+  background: transparent; border: 0; color: var(--text-faint); cursor: pointer; }
+.ix-todo-nav__rename { display: flex; min-width: 0; width: 100%; align-items: center; gap: 3px; }
+.ix-todo-nav__rename input { min-width: 0; width: 100%; }
+.ix-todo-nav__rename button { border: 0; background: transparent; color: var(--text-dim);
+  cursor: pointer; }
+.ix-todo-nav__heading { padding: 12px 10px 4px; display: flex; justify-content: space-between;
+  color: var(--text-faint); font-size: 11px; text-transform: uppercase; }
+.ix-todo__head { gap: 10px; }
+.ix-todo__head .ix-btn { margin-left: auto; }
+.ix-todo__add { flex-wrap: wrap; }
+/* The add row, task editor and filter editor selects and number inputs: the .ix-input look, compact. */
+.ix-todo__control { width: auto; height: 28px; padding: 0 8px; font-size: 12px; }
+.ix-todo__control[type='number'] { width: 64px; }
+.ix-todo__add-options, .ix-todo__tags-manage { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 7px; margin: 4px 0 10px; color: var(--text-dim); font-size: 12px; }
+.ix-todo__tags-manage input { max-width: 110px; }
+.ix-todo__tags-manage button { border: 0; background: transparent; color: var(--text-faint); }
+.ix-todo__rename-tag { display: flex; align-items: center; gap: 4px; }
+.ix-todo-item__editor-row { flex-wrap: wrap; }
+.ix-todo-item__editor-row input[type='time'] { max-width: 105px; }
+.ix-todo-item__editor-row input[type='number'] { max-width: 55px; }
+.ix-todo-item__tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.ix-todo-item__history { width: 100%; max-height: 130px; overflow-y: auto; font-size: 11px; }
+.ix-todo-item__prio, .ix-todo-item__size, .ix-todo-item__repeat { color: var(--text-faint);
+  font-size: 11px; margin-right: 5px; }
+.ix-todo-filter-editor { padding: 10px; margin-bottom: 12px; background: var(--panel-2);
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ix-todo-filter-editor__group { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; }
+.ix-todo-filter-editor__group strong { margin-right: 4px; }
+.ix-todo-calendar { width: 100%; min-width: 0; }
+.ix-todo-calendar__head { display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0 12px; }
+.ix-todo-calendar__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.ix-todo-calendar__weekday { text-align: center; color: var(--text-faint); font-size: 11px; }
+.ix-todo-calendar__day { min-width: 0; min-height: 76px; padding: 4px;
+  border: 1px solid var(--border); overflow: hidden; }
+.ix-todo-calendar__day strong { display: block; font-size: 11px; }
+.ix-todo-calendar__day button, .ix-todo-calendar__expanded button { display: block; width: 100%;
+  background: transparent; border: 0; text-align: left; color: var(--text-dim);
+  font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ix-todo-calendar__expanded { background: var(--panel-2); padding: 8px; margin: 8px 0; }
+.ix-todo-calendar__expanded-list { max-height: 220px; overflow-y: auto; }
