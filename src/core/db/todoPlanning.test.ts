@@ -78,10 +78,15 @@ describe('TODO planning persistence', () => {
       at(completed)
       return repo.complete(task.id, task.revision!).task
     }
-    /** The patch the task editor sends: the whole rule, carrying the anchor it was shown. */
-    const editRule = (task: TodoTask, change: Partial<TodoRecurrence>): TodoTask =>
-      repo.update(task.id, { text: task.text, dueDay: task.dueDay,
-        recurrence: { ...task.recurrence!, ...change } })
+    /**
+     * Saves the task as the task editor does: the whole rule, with the due day in the date field
+     * as its anchor. The editor never sends the stored anchor; the core decides it.
+     */
+    const editRule = (task: TodoTask, change: Partial<Omit<TodoRecurrence, 'anchorDay'>>,
+      dueDay = task.dueDay!): TodoTask =>
+      repo.update(task.id, { text: task.text, dueDay,
+        recurrence: { mode: task.recurrence!.mode, unit: task.recurrence!.unit,
+          interval: task.recurrence!.interval, ...change, anchorDay: dueDay } })
     const completeOn = (task: TodoTask, day: string): string | null => {
       at(day)
       return repo.complete(task.id, task.revision!).task.dueDay
@@ -114,20 +119,26 @@ describe('TODO planning persistence', () => {
       expect(completeOn(repo.getById(task.id)!, '2026-06-30')).toBe('2026-08-31')
     })
 
-    test('an edit that leaves the rule and the date alone keeps the rhythm and revision', () => {
+    test('a rename ignores the shown due day the editor sends as anchor', () => {
       const task = repeating({ mode: 'fixed', unit: 'month', interval: 1 }, '2026-01-31', '2026-01-31')
-      const renamed = repo.update(task.id, { text: 'renamed', dueDay: task.dueDay,
-        recurrence: { ...task.recurrence! } })
+      expect(task.dueDay).toBe('2026-02-28')
+      const renamed = repo.update(task.id, { text: 'renamed', dueDay: '2026-02-28',
+        recurrence: { mode: 'fixed', unit: 'month', interval: 1, anchorDay: '2026-02-28' } })
       expect(renamed.revision).toBe(task.revision)
       expect(completeOn(renamed, '2026-02-28')).toBe('2026-03-31')
+    })
+
+    test('an edit that leaves the rule and the date alone keeps the rhythm and revision', () => {
+      const task = repeating({ mode: 'fixed', unit: 'month', interval: 1 }, '2026-01-31', '2026-01-31')
+      const edited = editRule(task, {})
+      expect(edited.revision).toBe(task.revision)
+      expect(completeOn(edited, '2026-02-28')).toBe('2026-03-31')
     })
 
     test('moving only the due day restarts the rhythm there', () => {
       const task = repeating({ mode: 'fixed', unit: 'day', interval: 3 }, '2026-11-01', '2026-11-02')
       expect(task.dueDay).toBe('2026-11-04')
-      const moved = repo.update(task.id, { dueDay: '2026-11-05',
-        recurrence: { ...task.recurrence! } })
-      expect(completeOn(moved, '2026-11-05')).toBe('2026-11-08')
+      expect(completeOn(editRule(task, {}, '2026-11-05'), '2026-11-05')).toBe('2026-11-08')
     })
   })
 

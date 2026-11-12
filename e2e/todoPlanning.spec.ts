@@ -176,6 +176,8 @@ test('a changed repeat interval counts from the due day the task showed', async 
   await win.getByRole('button', { name: 'Save' }).click()
   await expect(win.locator('.ix-todo-item--editing')).toHaveCount(0)
   await row.locator('.ix-todo-item__check').click()
+  // The editor takes its values when it opens, so wait until the completion has reached the row.
+  await expect(row.locator('.ix-todo-item__due')).not.toHaveText(/tomorrow/)
   await row.getByTitle('Edit').click()
   // Every 3 days from tomorrow's occurrence, not from the day the task was created.
   await expect(win.locator('.ix-todo-item--editing input[type="date"]'))
