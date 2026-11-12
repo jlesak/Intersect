@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import type { TodoPriority, TodoRecurrence, TodoSize, TodoTask } from '@common/domain'
+import type { TodoCreateInput, TodoPriority, TodoRecurrence, TodoSize, TodoTask } from '@common/domain'
 import { dayKeyOf } from '@common/week'
 import { launchFromTodoTask } from '@renderer/features/workItems'
 import { ContextMenu, type MenuEntry } from '@renderer/shared/ui/ContextMenu'
 import { IconCalendar, IconPencil, IconPlay, IconTrash } from '@renderer/shared/ui/icons'
+import { useToastStore } from '@renderer/shared/ui/toast'
 import { useNow } from '@renderer/shared/ui/useNow'
 import { copyTodoTask } from '../clipboard'
 import { formatDueDay } from '../due'
@@ -33,6 +34,9 @@ function moveId(ids: string[], id: string, insertionIndex: number): string[] {
  */
 const FOCUS_MARK_MS = 2500
 const EMPTY: never[] = []
+const emptyDraft = { text: '', dueDay: '', dueTime: '', priority: 4 as TodoPriority,
+  size: '' as TodoSize | '', tagIds: [] as string[], mode: '' as TodoRecurrence['mode'] | '',
+  unit: 'day' as TodoRecurrence['unit'], interval: 1, showDate: false }
 
 /**
  * Getting a task out of the app as text. The one thing a TODO row offers that has no button of
@@ -91,7 +95,11 @@ export function TodoView() {
   const [markedId, setMarkedId] = useState<string | null>(null)
   const dropIndexRef = useRef<number | null>(null)
   const rowsRef = useRef(new Map<string, HTMLDivElement>())
-  const addInProgress = useRef(false)
+  // The draft in the add row was submitted and not typed in since, so a second Enter is a repeat.
+  const draftSubmitted = useRef(false)
+  // What the add row holds now, for an add that fails after the user moved on.
+  const currentText = useRef('')
+  useEffect(() => { currentText.current = text }, [text])
   // Counts editor openings, so a save that finishes late cannot close an editor opened after it.
   const filterEditorSession = useRef(0)
   // A save that waits for main must not be sent twice by a double click or Enter then click.
@@ -202,33 +210,48 @@ export function TodoView() {
   const today = dayKey ?? clockDay
   const typedDue = dueDay === '' ? parseDueFromText(text, today) : null
 
-  async function submit(): Promise<void> {
+  /** Puts a draft into the add row: an empty one after a submit, or a failed one back. */
+  function fillAddRow(draft: typeof emptyDraft): void {
+    setText(draft.text)
+    setDueDay(draft.dueDay)
+    setDueTime(draft.dueTime)
+    setNewPriority(draft.priority)
+    setNewSize(draft.size)
+    setNewTagIds(draft.tagIds)
+    setNewMode(draft.mode)
+    setNewUnit(draft.unit)
+    setNewInterval(draft.interval)
+    setShowDate(draft.showDate)
+  }
+
+  /**
+   * Adds the task and clears the row at once, so the next task can be typed while this one is
+   * written. A failed add puts its draft back for a retry, unless the user has started a newer
+   * one: that is never overwritten, and a toast names the task that was not added.
+   */
+  function submit(): void {
     const trimmed = text.trim()
-    if (!trimmed || addInProgress.current) return
+    if (!trimmed || draftSubmitted.current) return
     const parsed = typedDue ?? { text: trimmed, dueDay: dueDay || null }
     const scheduled = parsed.dueDay ?? today
-    addInProgress.current = true
-    try {
-      const added = await useTodoStore.getState().add({ text: parsed.text, dueDay: scheduled,
-        dueTime: dueTime || null, priority: newPriority, size: newSize || null,
-        projectId: view === 'project' ? projectId : null,
-        tagIds: liveIds(newTagIds, tags, planningReady),
-        recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
-          anchorDay: scheduled } : null })
-      if (!added) return
-    } finally {
-      addInProgress.current = false
-    }
-    setText('')
-    setDueDay('')
-    setDueTime('')
-    setNewPriority(4)
-    setNewSize('')
-    setNewTagIds([])
-    setNewMode('')
-    setNewUnit('day')
-    setNewInterval(1)
-    setShowDate(false)
+    const input: TodoCreateInput = { text: parsed.text, dueDay: scheduled,
+      dueTime: dueTime || null, priority: newPriority, size: newSize || null,
+      projectId: view === 'project' ? projectId : null,
+      tagIds: liveIds(newTagIds, tags, planningReady),
+      recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
+        anchorDay: scheduled } : null }
+    const draft = { text, dueDay, dueTime, priority: newPriority, size: newSize,
+      tagIds: newTagIds, mode: newMode, unit: newUnit, interval: newInterval, showDate }
+    draftSubmitted.current = true
+    fillAddRow(emptyDraft)
+    // Adds reach the core in submit order over the one IPC channel, and it writes them in turn.
+    void useTodoStore.getState().add(input).then((ok) => {
+      if (ok) return
+      if (currentText.current.trim() === '') {
+        draftSubmitted.current = false
+        fillAddRow(draft)
+      } else useToastStore.getState().push(`Task not added: ${input.text}`)
+    })
   }
 
   function toggleDateInput(): void {
@@ -369,9 +392,12 @@ export function TodoView() {
             className="ix-input"
             placeholder="Add a task… (Enter)"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              draftSubmitted.current = false
+              setText(e.target.value)
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void submit()
+              if (e.key === 'Enter') submit()
             }}
           />
           {showDate && (

@@ -6,6 +6,7 @@ import { dayKeyOf } from '@common/week'
 vi.mock('../ipc')
 vi.mock('@renderer/features/workItems', () => ({ launchFromTodoTask: vi.fn() }))
 import * as api from '../ipc'
+import { useToastStore } from '@renderer/shared/ui/toast'
 import { useTodoStore } from '../store'
 import { TodoView } from './TodoView'
 import { SidebarTodo } from './SidebarTodo'
@@ -493,6 +494,80 @@ describe('lists, ordering and the add row', () => {
     await act(async () => { await useTodoStore.getState().refreshView() })
     expect(screen.getByText('Task a')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Move Task/ })).toBeNull()
+  })
+
+  /** Holds each add open until the test answers it, in the order the adds were sent. */
+  function holdAdds(): { texts(): string[]; answer(ok?: boolean): Promise<void> } {
+    const pending: { resolve(): void; reject(): void }[] = []
+    mocked.add.mockImplementation((input) => new Promise((resolve, reject) => {
+      const text = typeof input === 'string' ? input : input.text
+      pending.push({ resolve: () => resolve({ ...a, id: text, text }),
+        reject: () => reject(new Error('Write failed')) })
+    }))
+    return {
+      texts: () => mocked.add.mock.calls.map(([input]) =>
+        typeof input === 'string' ? input : input.text),
+      async answer(ok = true) {
+        await act(async () => { const next = pending.shift()!; if (ok) next.resolve(); else next.reject() })
+      }
+    }
+  }
+  const addBox = (): HTMLElement => screen.getByPlaceholderText('Add a task… (Enter)')
+  async function type(text: string, enter = true): Promise<void> {
+    fireEvent.change(addBox(), { target: { value: text } })
+    if (enter) await act(async () => { fireEvent.keyDown(addBox(), { key: 'Enter' }) })
+  }
+
+  test('a task submitted while the previous add is in flight is added after it', async () => {
+    const adds = holdAdds()
+    await act(async () => { render(<TodoView />) })
+    await type('first')
+    await type('second')
+    await type('third')
+    expect(addBox()).toHaveProperty('value', '')
+    await adds.answer()
+    await adds.answer()
+    await adds.answer()
+    expect(adds.texts()).toEqual(['first', 'second', 'third'])
+  })
+
+  test('text typed while an add is in flight survives that add finishing', async () => {
+    const adds = holdAdds()
+    await act(async () => { render(<TodoView />) })
+    await type('first')
+    await type('still typing', false)
+    await adds.answer()
+    expect(addBox()).toHaveProperty('value', 'still typing')
+  })
+
+  test('a double Enter on one draft adds it once', async () => {
+    const adds = holdAdds()
+    await act(async () => { render(<TodoView />) })
+    fireEvent.change(addBox(), { target: { value: 'only once' } })
+    await act(async () => {
+      fireEvent.keyDown(addBox(), { key: 'Enter' })
+      fireEvent.keyDown(addBox(), { key: 'Enter' })
+    })
+    await adds.answer()
+    expect(adds.texts()).toEqual(['only once'])
+  })
+
+  test('a failed add returns its draft, but never over a newer one', async () => {
+    const adds = holdAdds()
+    await act(async () => { render(<TodoView />) })
+    fireEvent.change(screen.getByLabelText('New task priority'), { target: { value: '1' } })
+    await type('lost write')
+    expect(addBox()).toHaveProperty('value', '')
+    await adds.answer(false)
+    expect(addBox()).toHaveProperty('value', 'lost write')
+    expect(screen.getByLabelText('New task priority')).toHaveProperty('value', '1')
+
+    await type('retry')
+    await type('newer draft', false)
+    await adds.answer(false)
+    expect(addBox()).toHaveProperty('value', 'newer draft')
+    expect(useToastStore.getState().toasts.map((toast) => toast.message))
+      .toContain('Task not added: retry')
   })
 
   test('adding a repeating task resets the repeat interval with the other fields', async () => {
