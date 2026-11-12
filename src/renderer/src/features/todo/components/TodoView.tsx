@@ -8,6 +8,7 @@ import { useNow } from '@renderer/shared/ui/useNow'
 import { copyTodoTask } from '../clipboard'
 import { formatDueDay } from '../due'
 import { parseDueFromText } from '../dueInput'
+import { liveIds } from '../metadata'
 import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
 import { TodoCalendar } from './TodoCalendar'
@@ -60,6 +61,7 @@ export function TodoView() {
   const projects = useTodoStore((s) => s.projects ?? EMPTY)
   const tags = useTodoStore((s) => s.tags ?? EMPTY)
   const filters = useTodoStore((s) => s.filters ?? EMPTY)
+  const planningReady = useTodoStore((s) => s.planningReady)
   const queryTasks = useTodoStore((s) => s.queryTasks ?? EMPTY)
   const invalidFilter = useTodoStore((s) => s.invalidFilter)
   const missingTask = useTodoStore((s) => s.missingTask)
@@ -90,6 +92,8 @@ export function TodoView() {
   const dropIndexRef = useRef<number | null>(null)
   const rowsRef = useRef(new Map<string, HTMLDivElement>())
   const addInProgress = useRef(false)
+  // Counts editor openings, so a save that finishes late cannot close an editor opened after it.
+  const filterEditorSession = useRef(0)
 
   useEffect(() => {
     void useTodoStore.getState().load()
@@ -103,6 +107,11 @@ export function TodoView() {
   }, [view, clockDay])
 
   useEffect(() => { setShowFilterEditor(false) }, [view, filterId])
+
+  function openFilterEditor(): void {
+    filterEditorSession.current += 1
+    setShowFilterEditor(true)
+  }
 
   useEffect(() => {
     const recheck = (): void => { void useTodoStore.getState().recheckDay() }
@@ -200,7 +209,7 @@ export function TodoView() {
       const added = await useTodoStore.getState().add({ text: parsed.text, dueDay: scheduled,
         dueTime: dueTime || null, priority: newPriority, size: newSize || null,
         projectId: view === 'project' ? projectId : null,
-        tagIds: newTagIds.filter((id) => tags.some((tag) => tag.id === id)),
+        tagIds: liveIds(newTagIds, tags, planningReady),
         recurrence: newMode ? { mode: newMode, unit: newUnit, interval: newInterval,
           anchorDay: scheduled } : null })
       if (!added) return
@@ -285,8 +294,8 @@ export function TodoView() {
       <div className="ix-todo">
         <div className="ix-todo__head">
           <span className="ix-todo__title">TODO · {heading}</span>
-          <button type="button" className="ix-btn ix-btn--ghost" onClick={() =>
-            setShowFilterEditor(true)}>{view === 'filter' ? 'Edit filter' : 'New filter'}</button>
+          <button type="button" className="ix-btn ix-btn--ghost" onClick={openFilterEditor}>
+            {view === 'filter' ? 'Edit filter' : 'New filter'}</button>
           <button
             type="button"
             className="ix-todo__done-link"
@@ -299,15 +308,21 @@ export function TodoView() {
         {missingTask && <div className="ix-todo__error" role="status">Task no longer exists.</div>}
         {view === 'filter' && invalidFilter && <div className="ix-todo__error" role="alert">
           Filtr odkazuje na smazaný projekt nebo štítek
-          <button type="button" onClick={() => setShowFilterEditor(true)}>Edit</button>
+          <button type="button" onClick={openFilterEditor}>Edit</button>
         </div>}
         {showFilterEditor && <TodoFilterEditor projects={projects} tags={tags}
+          metadataReady={planningReady}
           initial={view === 'filter' ? activeFilter : undefined}
           cancel={() => setShowFilterEditor(false)}
           save={(name, query) => {
-            if (view === 'filter' && filterId) void useTodoStore.getState().updateFilter(filterId, name, query)
-            else void useTodoStore.getState().createFilter(name, query)
-            setShowFilterEditor(false)
+            const session = filterEditorSession.current
+            const store = useTodoStore.getState()
+            const saved = view === 'filter' && filterId ? store.updateFilter(filterId, name, query)
+              : store.createFilter(name, query)
+            // A rejected save keeps the editor and its draft for a retry.
+            void saved.then((ok) => {
+              if (ok && session === filterEditorSession.current) setShowFilterEditor(false)
+            })
           }} />}
 
         <div className="ix-todo__tags-manage">
@@ -316,8 +331,9 @@ export function TodoView() {
             <form key={tag.id} className="ix-todo__rename-tag" onSubmit={(event) => {
               event.preventDefault()
               if (!renamedTagName.trim()) return
-              void useTodoStore.getState().updateTag(tag.id, renamedTagName)
-              setRenamingTagId(null)
+              void useTodoStore.getState().updateTag(tag.id, renamedTagName).then((saved) => {
+                if (saved) setRenamingTagId((current) => current === tag.id ? null : current)
+              })
             }}><input className="ix-input" aria-label="Rename tag" autoFocus
               value={renamedTagName} onChange={(event) => setRenamedTagName(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Escape') setRenamingTagId(null) }} />
@@ -328,10 +344,8 @@ export function TodoView() {
                 setRenamingTagId(tag.id)
                 setRenamedTagName(tag.name)
               }}>✎</button>
-              <button type="button" title={`Delete tag ${tag.name}`} onClick={() => {
-                setNewTagIds((ids) => ids.filter((id) => id !== tag.id))
-                void useTodoStore.getState().removeTag(tag.id)
-              }}>×</button>
+              <button type="button" title={`Delete tag ${tag.name}`} onClick={() =>
+                void useTodoStore.getState().removeTag(tag.id)}>×</button>
             </span>)}
           <form onSubmit={(event) => { event.preventDefault()
             if (tagName.trim()) void useTodoStore.getState().createTag(tagName)
@@ -423,7 +437,8 @@ export function TodoView() {
         {view === 'upcoming' && <TodoCalendar tasks={open} today={today} openTask={openEditor} />}
         {view === 'upcoming' && editingId && open.some((task) => task.id === editingId) &&
           <TodoItem task={open.find((task) => task.id === editingId)!} done={false} editing
-            projects={projects} tags={tags} onToggle={() => {}} onDelete={() => removeTask(editingId)}
+            projects={projects} tags={tags} metadataReady={planningReady}
+            onToggle={() => {}} onDelete={() => removeTask(editingId)}
             onCancelEdit={() => setEditingId(null)} onSave={(patch) => {
               const id = editingId
               void useTodoStore.getState().update(id, patch).then((saved) => {
@@ -441,6 +456,7 @@ export function TodoView() {
                 task={task}
                 projects={projects}
                 tags={tags}
+                metadataReady={planningReady}
                 done={false}
                 editing={editingId === task.id}
                 selected={selectedId === task.id}
@@ -497,6 +513,7 @@ export function TodoView() {
                 <TodoItem
                   key={task.id}
                   task={task}
+                  tags={tags}
                   done
                   focused={markedId === task.id}
                   rowRef={(el) => {

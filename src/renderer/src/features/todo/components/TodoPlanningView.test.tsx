@@ -33,8 +33,8 @@ beforeEach(() => {
     tasks: [a, b].filter((task) => task.dueDay! <= day) }))
   useTodoStore.setState({ status: 'ready', open: [a, b], done: [], showDone: false,
     pendingFocusId: null, view: 'today', activeProjectId: null, activeFilterId: null,
-    projects: [], tags: [], filters: [], queryTasks: [], invalidFilter: false,
-    dayKey: today, missingTask: false })
+    projects: [], tags: [], filters: [], planningReady: false, queryTasks: [],
+    invalidFilter: false, dayKey: today, missingTask: false })
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -165,6 +165,221 @@ describe('mounted Today view', () => {
     resolveOld({ status: 'valid', tasks: [a] })
     await old
     expect(useTodoStore.getState().queryTasks.map((task) => task.id)).toEqual(['b'])
+  })
+})
+
+describe('drafts that reference projects and tags', () => {
+  const tag = { id: 'tag-1', name: 'Focus' }
+  const build = { id: 'p', name: 'Build', sortOrder: 0 }
+  const ship = { id: 'q', name: 'Ship', sortOrder: 1 }
+
+  /** Serves one task as main would: every read answers a fresh copy of the canonical row. */
+  function serve(task: TodoTask): { get(): TodoTask; set(next: TodoTask): void } {
+    let canonical = { ...task }
+    mocked.list.mockImplementation(async () => ({ open: [{ ...canonical }], done: [] }))
+    mocked.query.mockImplementation(async () => ({ status: 'valid', tasks: [{ ...canonical }] }))
+    mocked.update.mockImplementation(async (_id, patch) => {
+      if (patch.projectId && patch.projectId !== build.id && patch.projectId !== ship.id)
+        throw new Error('TODO project not found')
+      canonical = { ...canonical, ...patch }
+      return { ...canonical }
+    })
+    useTodoStore.setState({ open: [{ ...task }] })
+    return { get: () => canonical, set: (next) => { canonical = next } }
+  }
+
+  async function editAndType(text: string): Promise<void> {
+    fireEvent.click(screen.getByTitle('Edit'))
+    fireEvent.change(screen.getByPlaceholderText('Task'), { target: { value: text } })
+  }
+
+  test('saving after the task list but before tag metadata keeps the task tags', async () => {
+    serve({ ...a, tagIds: [tag.id] })
+    mocked.listTags.mockReturnValue(new Promise(() => {}))
+    await act(async () => { render(<TodoView />) })
+    await editAndType('Edited early')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenCalledWith(a.id,
+      expect.objectContaining({ text: 'Edited early', tagIds: [tag.id] }))
+  })
+
+  test('a failed metadata load keeps the project and tags of a saved task', async () => {
+    serve({ ...a, projectId: build.id, tagIds: [tag.id] })
+    mocked.listProjects.mockRejectedValue(new Error('Metadata offline'))
+    await act(async () => { render(<TodoView />) })
+    await editAndType('Edited offline')
+    expect(screen.getByLabelText('TODO project')).toHaveProperty('value', build.id)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenCalledWith(a.id, expect.objectContaining({
+      text: 'Edited offline', projectId: build.id, tagIds: [tag.id] }))
+  })
+
+  test('deleting the only project during a Today edit saves the task to Inbox', async () => {
+    const server = serve({ ...a, projectId: build.id })
+    mocked.listProjects.mockResolvedValueOnce([build]).mockResolvedValue([])
+    mocked.removeProject.mockImplementationOnce(async () => {
+      server.set({ ...server.get(), projectId: null })
+    })
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    await editAndType('Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete Build')) })
+    expect(screen.getByPlaceholderText('Task')).toHaveProperty('value', 'Keep this edit')
+    expect(screen.getByLabelText('TODO project')).toHaveProperty('value', '')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', projectId: null }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('deleting the only project during an Upcoming edit saves the task to Inbox', async () => {
+    const server = serve({ ...a, projectId: build.id })
+    mocked.listProjects.mockResolvedValueOnce([build]).mockResolvedValue([])
+    mocked.removeProject.mockImplementationOnce(async () => {
+      server.set({ ...server.get(), projectId: null })
+    })
+    useTodoStore.setState({ view: 'upcoming' })
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    fireEvent.click(screen.getByTitle('Task a'))
+    fireEvent.change(screen.getByPlaceholderText('Task'), { target: { value: 'Keep this edit' } })
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete Build')) })
+    expect(screen.getByLabelText('TODO project')).toHaveProperty('value', '')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', projectId: null }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('deleting the open project during an edit there carries the draft to Inbox', async () => {
+    const server = serve({ ...a, projectId: build.id })
+    mocked.listProjects.mockResolvedValueOnce([build]).mockResolvedValue([])
+    mocked.removeProject.mockImplementationOnce(async () => {
+      server.set({ ...server.get(), projectId: null })
+    })
+    useTodoStore.setState({ view: 'project', activeProjectId: build.id })
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    await editAndType('Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete Build')) })
+    expect(useTodoStore.getState().view).toBe('inbox')
+    expect(screen.getByPlaceholderText('Task')).toHaveProperty('value', 'Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', projectId: null }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('deleting the project picked as a move target keeps the task in its own project', async () => {
+    serve({ ...a, projectId: build.id })
+    mocked.listProjects.mockResolvedValueOnce([build, ship]).mockResolvedValue([build])
+    mocked.removeProject.mockImplementationOnce(async () => {})
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    await editAndType('Move me')
+    fireEvent.change(screen.getByLabelText('TODO project'), { target: { value: ship.id } })
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete Ship')) })
+    expect(screen.getByLabelText('TODO project')).toHaveProperty('value', build.id)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Move me', projectId: build.id }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('an older metadata response cannot bring back a tag deleted during an edit', async () => {
+    const server = serve({ ...a, tagIds: [tag.id] })
+    let answerFirstLoad!: (tags: typeof tag[]) => void
+    mocked.listTags.mockReturnValueOnce(new Promise((resolve) => { answerFirstLoad = resolve }))
+      .mockResolvedValue([])
+    mocked.removeTag.mockImplementationOnce(async () => {
+      server.set({ ...server.get(), tagIds: [] })
+    })
+    mocked.update.mockImplementation(async (_id, patch) => {
+      if (patch.tagIds?.includes(tag.id)) throw new Error('TODO tag not found')
+      return { ...server.get(), ...patch }
+    })
+    useTodoStore.setState({ tags: [tag], planningReady: true })
+    await act(async () => { render(<TodoView />) })
+    await editAndType('Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete tag Focus')) })
+    await act(async () => { answerFirstLoad([tag]) })
+    expect(useTodoStore.getState().tags).toEqual([])
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', tagIds: [] }))
+  })
+
+  test('a deleted tag leaves the draft even when the metadata reload fails', async () => {
+    const server = serve({ ...a, tagIds: [tag.id] })
+    mocked.listTags.mockResolvedValueOnce([tag]).mockRejectedValue(new Error('Reload failed'))
+    mocked.removeTag.mockImplementationOnce(async () => {
+      server.set({ ...server.get(), tagIds: [] })
+    })
+    mocked.update.mockImplementation(async (_id, patch) => {
+      if (patch.tagIds?.includes(tag.id)) throw new Error('TODO tag not found')
+      return { ...server.get(), ...patch }
+    })
+    await act(async () => { render(<TodoView />) })
+    await editAndType('Keep this edit')
+    await act(async () => { fireEvent.click(screen.getByTitle('Delete tag Focus')) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenLastCalledWith(a.id,
+      expect.objectContaining({ text: 'Keep this edit', tagIds: [] }))
+    expect(screen.queryByPlaceholderText('Task')).toBeNull()
+  })
+
+  test('a filter editor opened before metadata loads does not call references deleted', async () => {
+    const filter = { id: 'f', name: 'Build focus', query: { version: 1 as const,
+      projects: [build.id], tags: [tag.id] }, validity: 'valid' as const, missingReferences: [] }
+    mocked.listProjects.mockReturnValue(new Promise(() => {}))
+    useTodoStore.setState({ view: 'filter', activeFilterId: filter.id, filters: [filter] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit filter' }))
+    expect(screen.queryByText(/Deleted/)).toBeNull()
+    expect(screen.getByLabelText(/Project not loaded/)).toHaveProperty('checked', true)
+    expect(screen.getByLabelText(/Tag not loaded/)).toHaveProperty('checked', true)
+  })
+
+  test('a rejected filter save keeps the editor and its draft for retry', async () => {
+    mocked.listProjects.mockResolvedValue([build])
+    mocked.createFilter.mockRejectedValueOnce(new Error('Write failed'))
+      .mockResolvedValueOnce({ id: 'f', name: 'Build only', query: { version: 1,
+        projects: [build.id] }, validity: 'valid', missingReferences: [] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByRole('button', { name: 'New filter' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter name' }),
+      { target: { value: 'Build only' } })
+    fireEvent.click(screen.getByLabelText('Build'))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    expect(screen.getByRole('textbox', { name: 'Filter name' })).toHaveProperty('value', 'Build only')
+    expect(screen.getByLabelText('Build')).toHaveProperty('checked', true)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    expect(mocked.createFilter).toHaveBeenLastCalledWith('Build only',
+      { version: 1, projects: [build.id] })
+    expect(screen.queryByRole('textbox', { name: 'Filter name' })).toBeNull()
+  })
+
+  test('a rejected tag or project rename keeps the typed name for retry', async () => {
+    mocked.listTags.mockResolvedValue([tag])
+    mocked.listProjects.mockResolvedValue([build])
+    mocked.updateTag.mockRejectedValueOnce(new Error('Name taken'))
+    mocked.updateProject.mockRejectedValueOnce(new Error('Name taken'))
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    fireEvent.click(screen.getByTitle('Rename tag Focus'))
+    fireEvent.change(screen.getByLabelText('Rename tag'), { target: { value: 'Deep work' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename tag')) })
+    expect(screen.getByLabelText('Rename tag')).toHaveProperty('value', 'Deep work')
+    fireEvent.click(screen.getByTitle('Rename Build'))
+    fireEvent.change(screen.getByLabelText('Rename project'), { target: { value: 'Release' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename project')) })
+    expect(screen.getByLabelText('Rename project')).toHaveProperty('value', 'Release')
+  })
+
+  test('done rows name their tags', async () => {
+    const finished = { ...a, doneAt: 100, tagIds: [tag.id] }
+    mocked.list.mockResolvedValue({ open: [], done: [finished] })
+    mocked.listTags.mockResolvedValue([tag])
+    useTodoStore.setState({ open: [], done: [finished], showDone: true })
+    await act(async () => { render(<TodoView />) })
+    const doneList = screen.getByRole('list', { name: 'Done tasks' })
+    expect(doneList.textContent).toContain('Focus')
+    expect(doneList.textContent).not.toContain(tag.id)
   })
 })
 

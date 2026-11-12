@@ -57,8 +57,10 @@ export function SidebarTodo() {
           {renamingProjectId === project.id ? <form className="ix-todo-nav__rename" onSubmit={(event) => {
             event.preventDefault()
             if (!renamedProjectName.trim()) return
-            void useTodoStore.getState().updateProject(project.id, renamedProjectName)
-            setRenamingProjectId(null)
+            // A rejected rename keeps the typed name for a retry.
+            void useTodoStore.getState().updateProject(project.id, renamedProjectName).then((saved) => {
+              if (saved) setRenamingProjectId((current) => current === project.id ? null : current)
+            })
           }}><input className="ix-input" aria-label="Rename project" autoFocus
             value={renamedProjectName} onChange={(event) => setRenamedProjectName(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Escape') setRenamingProjectId(null) }} />

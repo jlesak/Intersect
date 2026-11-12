@@ -29,6 +29,11 @@ interface TodoState {
   projects: TodoProject[]
   tags: TodoTag[]
   filters: TodoSavedFilter[]
+  /**
+   * Whether projects, tags and filters have loaded successfully at least once. Until then an id
+   * missing from them is unknown, never deleted. A later failed reload keeps the last lists.
+   */
+  planningReady: boolean
   queryTasks: TodoTask[]
   invalidFilter: boolean
   dayKey: string
@@ -39,13 +44,13 @@ interface TodoState {
   refreshView(day?: string): Promise<void>
   recheckDay(): Promise<void>
   createProject(name: string): Promise<void>
-  updateProject(id: string, name: string): Promise<void>
+  updateProject(id: string, name: string): Promise<boolean>
   removeProject(id: string): Promise<void>
   createTag(name: string): Promise<void>
-  updateTag(id: string, name: string): Promise<void>
+  updateTag(id: string, name: string): Promise<boolean>
   removeTag(id: string): Promise<void>
-  createFilter(name: string, query: TodoQuery): Promise<void>
-  updateFilter(id: string, name: string, query: TodoQuery): Promise<void>
+  createFilter(name: string, query: TodoQuery): Promise<boolean>
+  updateFilter(id: string, name: string, query: TodoQuery): Promise<boolean>
   removeFilter(id: string): Promise<void>
   toggleShowDone(): void
   /**
@@ -73,6 +78,7 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
   let reorderRevision = 0
   let queryRevision = 0
   let focusRevision = 0
+  let planningRevision = 0
 
   async function reload(): Promise<void> {
     try {
@@ -87,8 +93,11 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
   /**
    * Run a mutation, then re-read both lists so the section always shows main's truth. Answers
    * whether the mutation itself succeeded; a failure has already been reported to the user.
+   * `applied` runs only after a success and before the re-read, for a known effect that has to
+   * reach the screen in one step.
    */
-  async function mutate(op: () => Promise<unknown>, failure: string): Promise<boolean> {
+  async function mutate(op: () => Promise<unknown>, failure: string,
+    applied?: () => void): Promise<boolean> {
     reorderRevision += 1
     let ok = true
     try {
@@ -97,6 +106,7 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
       ok = false
       reportError(failure, e)
     }
+    if (ok) applied?.()
     await reload()
     return ok
   }
@@ -115,6 +125,7 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     projects: [],
     tags: [],
     filters: [],
+    planningReady: false,
     queryTasks: [],
     invalidFilter: false,
     dayKey: dayKeyOf(Date.now()),
@@ -156,13 +167,15 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     },
 
     async loadPlanning() {
+      // An answer to an older request can predate a deletion, so only the newest one may land.
+      const request = ++planningRevision
       try {
         const [projects, tags, filters] = await Promise.all([
           api.listProjects(), api.listTags(), api.listFilters()
         ])
-        set({ projects, tags, filters })
+        if (request === planningRevision) set({ projects, tags, filters, planningReady: true })
       } catch (e) {
-        reportError('Could not load TODO planning', e)
+        if (request === planningRevision) reportError('Could not load TODO planning', e)
       }
     },
 
@@ -200,20 +213,53 @@ export const useTodoStore = createStore<TodoState>()((set, get) => {
     },
 
     async createProject(name) { await mutate(() => api.createProject(name), 'Could not create project'); await get().loadPlanning() },
-    async updateProject(id, name) { await mutate(() => api.updateProject(id, name), 'Could not rename project'); await get().loadPlanning() },
+    async updateProject(id, name) {
+      const ok = await mutate(() => api.updateProject(id, name), 'Could not rename project')
+      await get().loadPlanning()
+      return ok
+    },
     async removeProject(id) {
-      await mutate(() => api.removeProject(id), 'Could not delete project')
-      if (get().activeProjectId === id) get().setView('inbox')
+      // Main has moved the project's tasks to Inbox. Showing that and leaving the deleted project's
+      // view in one update keeps an open task editor mounted: in two steps the task would first
+      // drop out of the project list and its unsaved draft with it. The deletion is confirmed, so
+      // it also holds if the reloads fail.
+      const toInbox = (task: TodoTask): TodoTask =>
+        task.projectId === id ? { ...task, projectId: null } : task
+      await mutate(() => api.removeProject(id), 'Could not delete project', () => set((s) => ({
+        projects: s.projects.filter((project) => project.id !== id),
+        open: s.open.map(toInbox), done: s.done.map(toInbox), queryTasks: s.queryTasks.map(toInbox),
+        ...(s.view === 'project' && s.activeProjectId === id
+          ? { view: 'inbox' as const, activeProjectId: null } : {})
+      })))
       await get().loadPlanning()
     },
     async createTag(name) { await mutate(() => api.createTag(name), 'Could not create tag'); await get().loadPlanning() },
-    async updateTag(id, name) { await mutate(() => api.updateTag(id, name), 'Could not rename tag'); await get().loadPlanning() },
-    async removeTag(id) { await mutate(() => api.removeTag(id), 'Could not delete tag'); await get().loadPlanning() },
-    async createFilter(name, query) { await mutate(() => api.createFilter(name, query), 'Could not save filter'); await get().loadPlanning() },
-    async updateFilter(id, name, query) { await mutate(() => api.updateFilter(id, name, query), 'Could not save filter'); await get().loadPlanning(); await get().refreshView() },
+    async updateTag(id, name) {
+      const ok = await mutate(() => api.updateTag(id, name), 'Could not rename tag')
+      await get().loadPlanning()
+      return ok
+    },
+    async removeTag(id) {
+      if (await mutate(() => api.removeTag(id), 'Could not delete tag'))
+        set((s) => ({ tags: s.tags.filter((tag) => tag.id !== id) }))
+      await get().loadPlanning()
+    },
+    async createFilter(name, query) {
+      const ok = await mutate(() => api.createFilter(name, query), 'Could not save filter')
+      await get().loadPlanning()
+      return ok
+    },
+    async updateFilter(id, name, query) {
+      const ok = await mutate(() => api.updateFilter(id, name, query), 'Could not save filter')
+      await get().loadPlanning()
+      await get().refreshView()
+      return ok
+    },
     async removeFilter(id) {
-      await mutate(() => api.removeFilter(id), 'Could not delete filter')
-      if (get().activeFilterId === id) get().setView('inbox')
+      if (await mutate(() => api.removeFilter(id), 'Could not delete filter')) {
+        set((s) => ({ filters: s.filters.filter((filter) => filter.id !== id) }))
+        if (get().activeFilterId === id) get().setView('inbox')
+      }
       await get().loadPlanning()
     },
 

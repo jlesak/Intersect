@@ -3,9 +3,15 @@ import type { TodoPriority, TodoProject, TodoQuery, TodoSavedFilter, TodoSize, T
 
 const priorities: TodoPriority[] = [1, 2, 3, 4]
 const sizes: TodoSize[] = ['XS', 'S', 'M', 'L', 'XL']
-export function TodoFilterEditor({ projects, tags, initial, save, cancel }: {
+/**
+ * Edits a saved filter. A reference to a deleted project or tag stays in the draft, checked and
+ * labelled, because dropping it would silently widen the filter; the owner unchecks it to repair.
+ */
+export function TodoFilterEditor({ projects, tags, metadataReady, initial, save, cancel }: {
   projects: TodoProject[]
   tags: TodoTag[]
+  /** Whether projects and tags have loaded; before that a missing reference is unknown, not deleted. */
+  metadataReady: boolean
   initial?: TodoSavedFilter
   save(name: string, query: TodoQuery): void
   cancel(): void
@@ -28,7 +34,7 @@ export function TodoFilterEditor({ projects, tags, initial, save, cancel }: {
       {query.projects?.filter((id) => id !== null && !projects.some((p) => p.id === id))
         .map((id) => <label key={id}><input type="checkbox" checked
           onChange={() => setQuery({ ...query, projects: toggle(query.projects, id) })} />
-          Deleted project ({id})</label>)}
+          {metadataReady ? 'Deleted project' : 'Project not loaded'} ({id})</label>)}
     </div>
     <div className="ix-todo-filter-editor__group"><strong>Tags</strong>
       {tags.map((tag) => <label key={tag.id}><input type="checkbox"
@@ -37,7 +43,7 @@ export function TodoFilterEditor({ projects, tags, initial, save, cancel }: {
       {query.tags?.filter((id) => !tags.some((tag) => tag.id === id))
         .map((id) => <label key={id}><input type="checkbox" checked
           onChange={() => setQuery({ ...query, tags: toggle(query.tags, id) })} />
-          Deleted tag ({id})</label>)}
+          {metadataReady ? 'Deleted tag' : 'Tag not loaded'} ({id})</label>)}
     </div>
     <label>Date <select aria-label="Filter date" value={query.date ?? 'any'}
       onChange={(event) => setQuery({ ...query, date: event.target.value as TodoQuery['date'] })}>

@@ -7,6 +7,7 @@ import { IconCalendar, IconPencil, IconTrash } from '@renderer/shared/ui/icons'
 import { RowActions } from '@renderer/shared/ui/RowActions'
 import { formatDueDay, isOverdue } from '../due'
 import * as api from '../ipc'
+import { isLive, liveIds } from '../metadata'
 
 export interface TodoItemDrag {
   position: number
@@ -49,7 +50,8 @@ export function TodoItem({
   rowRef,
   drag,
   projects = [],
-  tags = []
+  tags = [],
+  metadataReady = false
 }: {
   task: TodoTask
   done: boolean
@@ -76,6 +78,8 @@ export function TodoItem({
   drag?: TodoItemDrag
   projects?: TodoProject[]
   tags?: TodoTag[]
+  /** Whether projects and tags have loaded; until then the draft keeps every id it holds. */
+  metadataReady?: boolean
 }) {
   const today = dayKeyOf(Date.now())
   const overdue = !done && task.dueDay !== null && isOverdue(task.dueDay, today)
@@ -109,13 +113,23 @@ export function TodoItem({
     if (task.recurrence) void api.history(task.id).then(setHistory)
   }, [editing, task.id])
 
+  // The draft keeps what the user chose, and what it may submit is derived from it here, so a
+  // project or tag deleted while the editor is open drops out on the next render. A move target
+  // that was deleted cancels the move and leaves the task in its own project, or in Inbox if that
+  // one is gone too.
+  const live = (id: string | null | undefined): id is string =>
+    !!id && isLive(id, projects, metadataReady)
+  const projectId = draftProject === '' || live(draftProject) ? draftProject
+    : live(task.projectId) ? task.projectId : ''
+  const tagIds = liveIds(draftTags, tags, metadataReady)
+
   function save(): void {
     const trimmed = draftText.trim()
     if (!trimmed) return
     onSave?.({ text: trimmed, description: draftDescription, dueDay: draftDueDay || null,
-      dueTime: draftDueDay ? draftDueTime || null : null, projectId: draftProject || null,
+      dueTime: draftDueDay ? draftDueTime || null : null, projectId: projectId || null,
       priority: draftPriority, size: (draftSize || null) as TodoSize | null,
-      tagIds: draftTags.filter((id) => tags.some((tag) => tag.id === id)),
+      tagIds,
       recurrence: draftMode && draftDueDay ? {
         mode: draftMode, unit: draftUnit, interval: draftInterval,
         anchorDay: draftDueDay !== task.dueDay ? draftDueDay
@@ -157,10 +171,12 @@ export function TodoItem({
             />
             <input type="time" className="ix-input" aria-label="Due time" value={draftDueTime}
               onChange={(e) => setDraftDueTime(e.target.value)} />
-            <select aria-label="TODO project" value={draftProject}
+            <select aria-label="TODO project" value={projectId}
               onChange={(e) => setDraftProject(e.target.value)}>
               <option value="">Inbox</option>
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+              {projectId !== '' && !projects.some((project) => project.id === projectId) &&
+                <option value={projectId}>Project not loaded</option>}
             </select>
             <select aria-label="Priority" value={draftPriority}
               onChange={(e) => setDraftPriority(Number(e.target.value) as TodoTask['priority'])}>
@@ -183,7 +199,7 @@ export function TodoItem({
             </select><input type="number" min="1" aria-label="Repeat interval"
               value={draftInterval} onChange={(e) => setDraftInterval(Number(e.target.value))} /></>}
             <div className="ix-todo-item__tags">{tags.map((tag) => <label key={tag.id}>
-              <input type="checkbox" checked={draftTags.includes(tag.id)} onChange={() =>
+              <input type="checkbox" checked={tagIds.includes(tag.id)} onChange={() =>
                 setDraftTags((ids) => ids.includes(tag.id) ? ids.filter((id) => id !== tag.id)
                   : [...ids, tag.id])} />{tag.name}</label>)}</div>
             {task.recurrence && <div className="ix-todo-item__history">
