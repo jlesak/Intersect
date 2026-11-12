@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { dayKeyOf } from '@common/week'
 import { useNow } from '@renderer/shared/ui/useNow'
 import { isDueToday, isOverdue } from '../due'
@@ -24,6 +24,8 @@ export function SidebarTodo() {
   const [addingProject, setAddingProject] = useState(false)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
   const [renamedProjectName, setRenamedProjectName] = useState('')
+  // The rename waits for main, so a second submit meanwhile must not send it again.
+  const renameInProgress = useRef(false)
 
   const nav = (label: string, destination: TodoViewKey, id?: string): React.JSX.Element => (
     <button type="button" className={`ix-todo-nav__item${view === destination &&
@@ -56,11 +58,12 @@ export function SidebarTodo() {
         {projects.map((project) => <div className="ix-todo-nav__row" key={project.id}>
           {renamingProjectId === project.id ? <form className="ix-todo-nav__rename" onSubmit={(event) => {
             event.preventDefault()
-            if (!renamedProjectName.trim()) return
+            if (!renamedProjectName.trim() || renameInProgress.current) return
+            renameInProgress.current = true
             // A rejected rename keeps the typed name for a retry.
             void useTodoStore.getState().updateProject(project.id, renamedProjectName).then((saved) => {
               if (saved) setRenamingProjectId((current) => current === project.id ? null : current)
-            })
+            }).finally(() => { renameInProgress.current = false })
           }}><input className="ix-input" aria-label="Rename project" autoFocus
             value={renamedProjectName} onChange={(event) => setRenamedProjectName(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Escape') setRenamingProjectId(null) }} />

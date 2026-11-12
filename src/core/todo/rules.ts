@@ -48,6 +48,46 @@ function nth(anchor: string, unit: TodoRecurrence['unit'], count: number): strin
   return clamp(year + count, month, date)
 }
 
+const sameRule = (a: TodoRecurrence, b: TodoRecurrence): boolean =>
+  a.mode === b.mode && a.unit === b.unit && a.interval === b.interval
+
+/**
+ * The anchor a fixed rhythm counts from, which the core owns: the anchor a caller sends is ignored.
+ * A task keeps its stored anchor while its rule and due day stay the same. A new rule, a changed
+ * rule or a moved due day restarts the rhythm at the due day the task shows, so the next date
+ * follows the rule the user set. One exception keeps the month-end promise: a fixed monthly or
+ * yearly rule whose interval alone changes while its due day is clamped (the 31st shown as the
+ * 28th, 29 February as the 28th) keeps the original day, through an earlier anchor that lands on
+ * the shown due day under the new interval.
+ */
+export function anchoredRecurrence(next: TodoRecurrence | null, dueDay: string | null,
+  previous: TodoRecurrence | null, previousDueDay: string | null): TodoRecurrence | null {
+  if (next === null || dueDay === null) return next
+  if (previous !== null && dueDay === previousDueDay) {
+    if (sameRule(next, previous)) return { ...next, anchorDay: previous.anchorDay }
+    if (next.mode === 'fixed' && previous.mode === 'fixed' && next.unit === previous.unit &&
+      (next.unit === 'month' || next.unit === 'year')) {
+      const kept = clampedAnchor(previous.anchorDay, next, dueDay)
+      if (kept) return { ...next, anchorDay: kept }
+    }
+  }
+  return { ...next, anchorDay: dueDay }
+}
+
+/** An anchor with the old anchor's day (and month, yearly) whose rhythm under `rule` hits `dueDay`. */
+function clampedAnchor(oldAnchor: string, rule: TodoRecurrence, dueDay: string): string | null {
+  const [, oldMonth, oldDate] = parts(oldAnchor)
+  const [year, month, date] = parts(dueDay)
+  if (date === oldDate || (rule.unit === 'year' && month !== oldMonth)) return null
+  for (let back = 1; back <= 400; back++) {
+    const steps = back * rule.interval
+    const index = year * 12 + month - 1 - (rule.unit === 'month' ? steps : steps * 12)
+    const candidate = key(Math.floor(index / 12), index % 12 + 1, oldDate)
+    if (validDay(candidate) && nth(candidate, rule.unit, steps) === dueDay) return candidate
+  }
+  return null
+}
+
 export function nextOccurrence(rule: TodoRecurrence, occurrenceDay: string, today: string): string {
   if (rule.mode === 'after_completion') return nth(today, rule.unit, rule.interval)
   const floor = occurrenceDay > today ? occurrenceDay : today

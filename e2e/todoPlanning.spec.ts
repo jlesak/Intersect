@@ -162,6 +162,26 @@ test('recurrence completion is durable and a deleted filter reference is explici
   await expect(second.win.locator('.ix-todo-item__history')).toContainText(dayFromToday(0))
 })
 
+test('a changed repeat interval counts from the due day the task showed', async () => {
+  const { win } = await launch(userDataDir())
+  await openTodo(win)
+  await win.getByRole('combobox', { name: 'New task repeat mode' }).selectOption('fixed')
+  await win.getByRole('combobox', { name: 'New task repeat unit' }).selectOption('day')
+  await add(win, 'edited rhythm')
+  const row = rows(win).filter({ hasText: 'edited rhythm' })
+  await row.locator('.ix-todo-item__check').click()
+  await expect(row.locator('.ix-todo-item__due')).toHaveText(/tomorrow/)
+  await row.getByTitle('Edit').click()
+  await win.getByRole('spinbutton', { name: 'Repeat interval' }).fill('3')
+  await win.getByRole('button', { name: 'Save' }).click()
+  await expect(win.locator('.ix-todo-item--editing')).toHaveCount(0)
+  await row.locator('.ix-todo-item__check').click()
+  await row.getByTitle('Edit').click()
+  // Every 3 days from tomorrow's occurrence, not from the day the task was created.
+  await expect(win.locator('.ix-todo-item--editing input[type="date"]'))
+    .toHaveValue(dayFromToday(4))
+})
+
 test('Dashboard task opens its project even from an excluding filter', async () => {
   const { win } = await launch(userDataDir())
   await openTodo(win)

@@ -94,6 +94,9 @@ export function TodoView() {
   const addInProgress = useRef(false)
   // Counts editor openings, so a save that finishes late cannot close an editor opened after it.
   const filterEditorSession = useRef(0)
+  // A save that waits for main must not be sent twice by a double click or Enter then click.
+  const filterSaveInProgress = useRef(false)
+  const tagRenameInProgress = useRef(false)
 
   useEffect(() => {
     void useTodoStore.getState().load()
@@ -315,6 +318,8 @@ export function TodoView() {
           initial={view === 'filter' ? activeFilter : undefined}
           cancel={() => setShowFilterEditor(false)}
           save={(name, query) => {
+            if (filterSaveInProgress.current) return
+            filterSaveInProgress.current = true
             const session = filterEditorSession.current
             const store = useTodoStore.getState()
             const saved = view === 'filter' && filterId ? store.updateFilter(filterId, name, query)
@@ -322,7 +327,7 @@ export function TodoView() {
             // A rejected save keeps the editor and its draft for a retry.
             void saved.then((ok) => {
               if (ok && session === filterEditorSession.current) setShowFilterEditor(false)
-            })
+            }).finally(() => { filterSaveInProgress.current = false })
           }} />}
 
         <div className="ix-todo__tags-manage">
@@ -330,10 +335,11 @@ export function TodoView() {
           {tags.map((tag) => renamingTagId === tag.id ?
             <form key={tag.id} className="ix-todo__rename-tag" onSubmit={(event) => {
               event.preventDefault()
-              if (!renamedTagName.trim()) return
+              if (!renamedTagName.trim() || tagRenameInProgress.current) return
+              tagRenameInProgress.current = true
               void useTodoStore.getState().updateTag(tag.id, renamedTagName).then((saved) => {
                 if (saved) setRenamingTagId((current) => current === tag.id ? null : current)
-              })
+              }).finally(() => { tagRenameInProgress.current = false })
             }}><input className="ix-input" aria-label="Rename tag" autoFocus
               value={renamedTagName} onChange={(event) => setRenamedTagName(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Escape') setRenamingTagId(null) }} />

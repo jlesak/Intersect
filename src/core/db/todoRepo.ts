@@ -4,7 +4,8 @@ import type {
   TodoQueryResult, TodoSavedFilter, TodoTag, TodoTask, TodoTaskPatch
 } from '@common/domain'
 import { dayKeyOf } from '@common/week'
-import { byDue, matchesQuery, nextOccurrence, validateQuery, validateSchedule } from '../todo/rules'
+import { anchoredRecurrence, byDue, matchesQuery, nextOccurrence, validateQuery, validateSchedule }
+  from '../todo/rules'
 import type { RepoDeps } from './deps'
 import { tx } from './tx'
 
@@ -125,8 +126,9 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
         ? { text: value, dueDay: legacyDay === undefined ? undefined : legacyDay }
         : value
       const createdAt = deps.now()
-      const complete = { ...input, dueDay: input.dueDay === undefined
-        ? dayKeyOf(createdAt) : input.dueDay }
+      const dueDay = input.dueDay === undefined ? dayKeyOf(createdAt) : input.dueDay
+      const complete = { ...input, dueDay,
+        recurrence: anchoredRecurrence(input.recurrence ?? null, dueDay, null, null) }
       validateTask(complete)
       const id = deps.newId()
       db.prepare(`INSERT INTO todo_task
@@ -144,13 +146,16 @@ export function createTodoRepo(db: DatabaseSync, deps: RepoDeps): TodoRepo {
     },
     update(id, patch) {
       const old = mustGet(id)
-      const current: TodoCreateInput = { ...old, ...patch }
+      const merged: TodoCreateInput = { ...old, ...patch }
+      const current: TodoCreateInput = { ...merged, recurrence: anchoredRecurrence(
+        merged.recurrence ?? null, merged.dueDay ?? null, old.recurrence ?? null, old.dueDay) }
       validateTask(current)
+      const rule = (r: TodoCreateInput['recurrence']): string => r
+        ? [r.mode, r.unit, r.interval, r.anchorDay].join('|') : ''
       const scheduleChanged =
         (patch.dueDay !== undefined && patch.dueDay !== old.dueDay) ||
         (patch.dueTime !== undefined && patch.dueTime !== old.dueTime) ||
-        (patch.recurrence !== undefined &&
-          JSON.stringify(patch.recurrence) !== JSON.stringify(old.recurrence))
+        rule(current.recurrence) !== rule(old.recurrence)
       return tx(db, () => {
         if (patch.projectId !== undefined && patch.projectId !== old.projectId) {
           db.prepare('UPDATE todo_task SET todo_project_id = ?, sort_order = ? WHERE id = ?')

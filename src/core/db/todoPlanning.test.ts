@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { createTodoRepo, type TodoRepo } from './todoRepo'
 import { makeTestDb } from './testkit'
 import type { DatabaseSync } from 'node:sqlite'
+import type { TodoRecurrence, TodoTask } from '@common/domain'
 
 let db: DatabaseSync
 let repo: TodoRepo
@@ -63,6 +64,73 @@ describe('TODO planning persistence', () => {
     expect((db.prepare('SELECT count(*) AS n FROM todo_completion').get() as { n: number }).n)
       .toBe(0)
   })
+  describe('editing the repeat rule of a recurring task', () => {
+    const at = (day: string): void => {
+      const [year, month, date] = day.split('-').map(Number)
+      now = new Date(year, month - 1, date, 12).getTime()
+    }
+    /** Creates a task on `created`, then completes it on `completed`, as a user would. */
+    const repeating = (rule: Omit<TodoRecurrence, 'anchorDay'>, created: string,
+      completed: string): TodoTask => {
+      at(created)
+      const task = repo.create({ text: 'repeat', dueDay: created,
+        recurrence: { ...rule, anchorDay: created } })
+      at(completed)
+      return repo.complete(task.id, task.revision!).task
+    }
+    /** The patch the task editor sends: the whole rule, carrying the anchor it was shown. */
+    const editRule = (task: TodoTask, change: Partial<TodoRecurrence>): TodoTask =>
+      repo.update(task.id, { text: task.text, dueDay: task.dueDay,
+        recurrence: { ...task.recurrence!, ...change } })
+    const completeOn = (task: TodoTask, day: string): string | null => {
+      at(day)
+      return repo.complete(task.id, task.revision!).task.dueDay
+    }
+
+    test('a new interval counts from the due day the task showed', () => {
+      const task = repeating({ mode: 'fixed', unit: 'day', interval: 1 }, '2026-11-01', '2026-11-11')
+      expect(task.dueDay).toBe('2026-11-12')
+      expect(completeOn(editRule(task, { interval: 3 }), '2026-11-12')).toBe('2026-11-15')
+    })
+
+    test('a change to weekly keeps the weekday the task showed', () => {
+      const task = repeating({ mode: 'fixed', unit: 'day', interval: 1 }, '2026-11-01', '2026-11-11')
+      expect(completeOn(editRule(task, { unit: 'week' }), '2026-11-12')).toBe('2026-11-19')
+    })
+
+    test('switching after-completion to fixed starts the rhythm at the due day', () => {
+      const task = repeating({ mode: 'after_completion', unit: 'day', interval: 2 },
+        '2026-11-01', '2026-11-10')
+      expect(task.dueDay).toBe('2026-11-12')
+      expect(completeOn(editRule(task, { mode: 'fixed' }), '2026-11-12')).toBe('2026-11-14')
+    })
+
+    test('a new monthly interval keeps returning to the 31st', () => {
+      const task = repeating({ mode: 'fixed', unit: 'month', interval: 1 }, '2026-01-31', '2026-01-31')
+      expect(task.dueDay).toBe('2026-02-28')
+      const edited = editRule(task, { interval: 2 })
+      expect(completeOn(edited, '2026-02-28')).toBe('2026-04-30')
+      expect(completeOn(repo.getById(task.id)!, '2026-04-30')).toBe('2026-06-30')
+      expect(completeOn(repo.getById(task.id)!, '2026-06-30')).toBe('2026-08-31')
+    })
+
+    test('an edit that leaves the rule and the date alone keeps the rhythm and revision', () => {
+      const task = repeating({ mode: 'fixed', unit: 'month', interval: 1 }, '2026-01-31', '2026-01-31')
+      const renamed = repo.update(task.id, { text: 'renamed', dueDay: task.dueDay,
+        recurrence: { ...task.recurrence! } })
+      expect(renamed.revision).toBe(task.revision)
+      expect(completeOn(renamed, '2026-02-28')).toBe('2026-03-31')
+    })
+
+    test('moving only the due day restarts the rhythm there', () => {
+      const task = repeating({ mode: 'fixed', unit: 'day', interval: 3 }, '2026-11-01', '2026-11-02')
+      expect(task.dueDay).toBe('2026-11-04')
+      const moved = repo.update(task.id, { dueDay: '2026-11-05',
+        recurrence: { ...task.recurrence! } })
+      expect(completeOn(moved, '2026-11-05')).toBe('2026-11-08')
+    })
+  })
+
   test('stale schedule and failed history insert cannot advance', () => {
     const task = repo.create({ text: 'repeat', dueDay: '2026-11-10', recurrence: {
       mode: 'fixed', unit: 'day', interval: 1, anchorDay: '2026-11-10' } })

@@ -355,6 +355,65 @@ describe('drafts that reference projects and tags', () => {
     expect(screen.queryByRole('textbox', { name: 'Filter name' })).toBeNull()
   })
 
+  test('a second save of a new filter while the first is in flight saves nothing more', async () => {
+    let answer!: () => void
+    mocked.createFilter.mockReturnValueOnce(new Promise((resolve) => {
+      answer = () => resolve({ id: 'f', name: 'Once', query: { version: 1 }, validity: 'valid',
+        missingReferences: [] })
+    }))
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByRole('button', { name: 'New filter' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter name' }),
+      { target: { value: 'Once' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    expect(mocked.createFilter).toHaveBeenCalledTimes(1)
+    await act(async () => { answer() })
+    expect(screen.queryByRole('textbox', { name: 'Filter name' })).toBeNull()
+  })
+
+  test('a second save of an edited filter while the first is in flight saves nothing more', async () => {
+    const filter = { id: 'f', name: 'Planning', query: { version: 1 as const },
+      validity: 'valid' as const, missingReferences: [] }
+    mocked.listFilters.mockResolvedValue([filter])
+    let answer!: () => void
+    mocked.updateFilter.mockReturnValueOnce(new Promise((resolve) => {
+      answer = () => resolve(filter)
+    }))
+    useTodoStore.setState({ view: 'filter', activeFilterId: filter.id, filters: [filter] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit filter' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save filter' })) })
+    expect(mocked.updateFilter).toHaveBeenCalledTimes(1)
+    await act(async () => { answer() })
+  })
+
+  test('a second rename submit while the first is in flight renames nothing more', async () => {
+    mocked.listTags.mockResolvedValue([tag])
+    mocked.listProjects.mockResolvedValue([build])
+    let answerTag!: () => void
+    let answerProject!: () => void
+    mocked.updateTag.mockReturnValueOnce(new Promise((resolve) => {
+      answerTag = () => resolve({ ...tag, name: 'Deep work' })
+    }))
+    mocked.updateProject.mockReturnValueOnce(new Promise((resolve) => {
+      answerProject = () => resolve({ ...build, name: 'Release' })
+    }))
+    await act(async () => { render(<><SidebarTodo /><TodoView /></>) })
+    fireEvent.click(screen.getByTitle('Rename tag Focus'))
+    fireEvent.change(screen.getByLabelText('Rename tag'), { target: { value: 'Deep work' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename tag')) })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename tag')) })
+    expect(mocked.updateTag).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTitle('Rename Build'))
+    fireEvent.change(screen.getByLabelText('Rename project'), { target: { value: 'Release' } })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename project')) })
+    await act(async () => { fireEvent.submit(screen.getByLabelText('Rename project')) })
+    expect(mocked.updateProject).toHaveBeenCalledTimes(1)
+    await act(async () => { answerTag(); answerProject() })
+  })
+
   test('a rejected tag or project rename keeps the typed name for retry', async () => {
     mocked.listTags.mockResolvedValue([tag])
     mocked.listProjects.mockResolvedValue([build])

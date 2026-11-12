@@ -130,10 +130,10 @@ export function TodoItem({
       dueTime: draftDueDay ? draftDueTime || null : null, projectId: projectId || null,
       priority: draftPriority, size: (draftSize || null) as TodoSize | null,
       tagIds,
+      // The core sets the anchor of a fixed rhythm from the stored rule and due day
+      // (anchoredRecurrence), so the one sent here only fills the field.
       recurrence: draftMode && draftDueDay ? {
-        mode: draftMode, unit: draftUnit, interval: draftInterval,
-        anchorDay: draftDueDay !== task.dueDay ? draftDueDay
-          : task.recurrence?.anchorDay ?? draftDueDay
+        mode: draftMode, unit: draftUnit, interval: draftInterval, anchorDay: draftDueDay
       } : null })
   }
 
