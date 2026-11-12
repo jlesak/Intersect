@@ -226,6 +226,8 @@ export function TodoView() {
     setNewSize('')
     setNewTagIds([])
     setNewMode('')
+    setNewUnit('day')
+    setNewInterval(1)
     setShowDate(false)
   }
 
@@ -392,25 +394,25 @@ export function TodoView() {
         </div>
 
         <div className="ix-todo__add-options">
-          <select aria-label="New task priority" value={newPriority}
+          <select className="ix-input ix-todo__control" aria-label="New task priority" value={newPriority}
             onChange={(event) => setNewPriority(Number(event.target.value) as TodoPriority)}>
             {[1, 2, 3, 4].map((value) => <option key={value} value={value}>P{value}</option>)}
           </select>
-          <select aria-label="New task size" value={newSize}
+          <select className="ix-input ix-todo__control" aria-label="New task size" value={newSize}
             onChange={(event) => setNewSize(event.target.value as TodoSize | '')}>
             <option value="">No size</option>
             {['XS', 'S', 'M', 'L', 'XL'].map((size) => <option key={size}>{size}</option>)}
           </select>
-          <select aria-label="New task repeat mode" value={newMode}
+          <select className="ix-input ix-todo__control" aria-label="New task repeat mode" value={newMode}
             onChange={(event) => setNewMode(event.target.value as TodoRecurrence['mode'] | '')}>
             <option value="">No repeat</option><option value="fixed">Fixed</option>
             <option value="after_completion">After completion</option>
           </select>
-          {newMode && <><select aria-label="New task repeat unit" value={newUnit}
+          {newMode && <><select className="ix-input ix-todo__control" aria-label="New task repeat unit" value={newUnit}
             onChange={(event) => setNewUnit(event.target.value as TodoRecurrence['unit'])}>
             <option value="day">Day</option><option value="week">Week</option>
             <option value="month">Month</option><option value="year">Year</option>
-          </select><input type="number" min="1" aria-label="New task repeat interval"
+          </select><input type="number" min="1" className="ix-input ix-todo__control" aria-label="New task repeat interval"
             value={newInterval} onChange={(event) => setNewInterval(Number(event.target.value))} /></>}
           {tags.map((tag) => <label key={tag.id}><input type="checkbox"
             checked={newTagIds.includes(tag.id)} onChange={() => setNewTagIds((ids) =>

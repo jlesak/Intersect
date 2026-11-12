@@ -45,7 +45,7 @@ export function TodoFilterEditor({ projects, tags, metadataReady, initial, save,
           onChange={() => setQuery({ ...query, tags: toggle(query.tags, id) })} />
           {metadataReady ? 'Deleted tag' : 'Tag not loaded'} ({id})</label>)}
     </div>
-    <label>Date <select aria-label="Filter date" value={query.date ?? 'any'}
+    <label>Date <select className="ix-input ix-todo__control" aria-label="Filter date" value={query.date ?? 'any'}
       onChange={(event) => setQuery({ ...query, date: event.target.value as TodoQuery['date'] })}>
       <option value="any">Any</option><option value="today">Today only</option>
       <option value="overdue">Overdue</option><option value="upcoming">Upcoming</option>
@@ -55,12 +55,12 @@ export function TodoFilterEditor({ projects, tags, metadataReady, initial, save,
         checked={query.priorities?.includes(value) ?? false}
         onChange={() => setQuery({ ...query, priorities: toggle(query.priorities, value) })} />P{value}</label>)}
     </div>
-    <label>Size <select aria-label="Filter size" value={query.size?.value ?? ''}
+    <label>Size <select className="ix-input ix-todo__control" aria-label="Filter size" value={query.size?.value ?? ''}
       onChange={(event) => setQuery({ ...query, size: event.target.value
         ? { mode: query.size?.mode ?? 'exact', value: event.target.value as TodoSize } : undefined })}>
       <option value="">Any</option>{sizes.map((size) => <option key={size}>{size}</option>)}
     </select></label>
-    <label>Size mode <select aria-label="Filter size mode" value={query.size?.mode ?? 'exact'}
+    <label>Size mode <select className="ix-input ix-todo__control" aria-label="Filter size mode" value={query.size?.mode ?? 'exact'}
       onChange={(event) => setQuery({ ...query, size: query.size
         ? { ...query.size, mode: event.target.value as 'exact' | 'atMost' } : undefined })}>
       <option value="exact">Exactly</option><option value="atMost">At most</option>

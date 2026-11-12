@@ -5804,6 +5804,9 @@ body.ix-resizing--vertical * {
 .ix-todo__head { gap: 10px; }
 .ix-todo__head .ix-btn { margin-left: auto; }
 .ix-todo__add { flex-wrap: wrap; }
+/* The add row, task editor and filter editor selects and number inputs: the .ix-input look, compact. */
+.ix-todo__control { width: auto; height: 28px; padding: 0 8px; font-size: 12px; }
+.ix-todo__control[type='number'] { width: 64px; }
 .ix-todo__add-options, .ix-todo__tags-manage { display: flex; flex-wrap: wrap; align-items: center;
   gap: 7px; margin: 4px 0 10px; color: var(--text-dim); font-size: 12px; }
 .ix-todo__tags-manage input { max-width: 110px; }

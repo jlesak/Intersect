@@ -155,4 +155,50 @@ describe('TODO planning persistence', () => {
     expect(() => repo.complete(task.id, current.revision!)).toThrow('history failed')
     expect(repo.getById(task.id)).toEqual(current)
   })
+
+  test('a tag edit replaces the task tags', () => {
+    const first = repo.createTag('First')
+    const second = repo.createTag('Second')
+    const task = repo.create({ text: 'tagged', tagIds: [first.id] })
+    expect(repo.update(task.id, { tagIds: [second.id] }).tagIds).toEqual([second.id])
+    expect(repo.getById(task.id)?.tagIds).toEqual([second.id])
+  })
+
+  test('reordering a project leaves Inbox tasks alone', () => {
+    const p = repo.createProject('Build')
+    repo.create({ text: 'inbox' })
+    const one = repo.create({ text: 'one', projectId: p.id })
+    const two = repo.create({ text: 'two', projectId: p.id })
+    expect(repo.reorder([two.id, one.id], p.id).map((task) => task.text)).toEqual(['two', 'one'])
+    expect(repo.listOpen().filter((task) => task.projectId === null).map((task) => task.text))
+      .toEqual(['inbox'])
+  })
+
+  test('Today and filter results are sorted by due day, then due time', () => {
+    repo.create({ text: 'later day', dueDay: '2026-11-10' })
+    repo.create({ text: 'afternoon', dueDay: '2026-11-09', dueTime: '15:00' })
+    repo.create({ text: 'morning', dueDay: '2026-11-09', dueTime: '08:30' })
+    const result = repo.query({ version: 1, date: 'todayView' }, '2026-11-10')
+    expect(result.status === 'valid' && result.tasks.map((task) => task.text))
+      .toEqual(['morning', 'afternoon', 'later day'])
+  })
+
+  test('a task moved into a project, or to Inbox by a project delete, goes to the end', () => {
+    const p = repo.createProject('Build')
+    const moved = repo.create({ text: 'moved' })
+    repo.create({ text: 'first in project', projectId: p.id })
+    repo.create({ text: 'second in project', projectId: p.id })
+    repo.update(moved.id, { projectId: p.id })
+    const inProject = (): string[] => repo.listOpen()
+      .filter((task) => task.projectId === p.id).map((task) => task.text)
+    expect(inProject()).toEqual(['first in project', 'second in project', 'moved'])
+
+    const q = repo.createProject('Ship')
+    repo.create({ text: 'shipped', projectId: q.id })
+    repo.create({ text: 'inbox one' })
+    repo.create({ text: 'inbox two' })
+    repo.removeProject(q.id)
+    expect(repo.listOpen().filter((task) => task.projectId === null).map((task) => task.text))
+      .toEqual(['inbox one', 'inbox two', 'shipped'])
+  })
 })

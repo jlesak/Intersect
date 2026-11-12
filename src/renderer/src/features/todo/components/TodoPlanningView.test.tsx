@@ -442,6 +442,76 @@ describe('drafts that reference projects and tags', () => {
   })
 })
 
+describe('lists, ordering and the add row', () => {
+  const inboxTask = make('inbox', today)
+  const first = { ...make('first', today, 'p'), sortOrder: 0 }
+  const second = { ...make('second', today, 'p'), sortOrder: 1 }
+
+  test('a size picked in the task editor is saved', async () => {
+    mocked.list.mockResolvedValue({ open: [a], done: [] })
+    mocked.query.mockResolvedValue({ status: 'valid', tasks: [{ ...a }] })
+    mocked.update.mockImplementation(async (_id, patch) => ({ ...a, ...patch }))
+    useTodoStore.setState({ open: [a] })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.click(screen.getByTitle('Edit'))
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'M' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(mocked.update).toHaveBeenCalledWith(a.id, expect.objectContaining({ size: 'M' }))
+  })
+
+  test('the keyboard reorders a project while Inbox holds tasks', async () => {
+    mocked.list.mockResolvedValue({ open: [inboxTask, first, second], done: [] })
+    mocked.listProjects.mockResolvedValue([{ id: 'p', name: 'Build', sortOrder: 0 }])
+    mocked.reorder.mockImplementation(async (ids) => ids.map((id, sortOrder) =>
+      ({ ...(id === first.id ? first : second), sortOrder })))
+    useTodoStore.setState({ view: 'project', activeProjectId: 'p',
+      open: [inboxTask, first, second] })
+    await act(async () => { render(<TodoView />) })
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('button', { name: /Move Task first/ }), { key: 'ArrowDown' })
+    })
+    expect(mocked.reorder).toHaveBeenCalledWith([second.id, first.id], 'p')
+  })
+
+  test('Inbox shows only tasks without a project', async () => {
+    mocked.list.mockResolvedValue({ open: [inboxTask, first], done: [] })
+    useTodoStore.setState({ view: 'inbox', open: [inboxTask, first] })
+    await act(async () => { render(<TodoView />) })
+    expect(screen.getByText('Task inbox')).toBeTruthy()
+    expect(screen.queryByText('Task first')).toBeNull()
+  })
+
+  test('Today and saved filter rows offer no reorder handle', async () => {
+    const filter = { id: 'f', name: 'All', query: { version: 1 as const },
+      validity: 'valid' as const, missingReferences: [] }
+    mocked.listFilters.mockResolvedValue([filter])
+    await act(async () => { render(<TodoView />) })
+    expect(screen.getByText('Task a')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Move Task/ })).toBeNull()
+    await act(async () => { useTodoStore.getState().setView('filter', filter.id) })
+    useTodoStore.setState({ filters: [filter] })
+    await act(async () => { await useTodoStore.getState().refreshView() })
+    expect(screen.getByText('Task a')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Move Task/ })).toBeNull()
+  })
+
+  test('adding a repeating task resets the repeat interval with the other fields', async () => {
+    mocked.add.mockResolvedValue({ ...a, text: 'Water plants' })
+    await act(async () => { render(<TodoView />) })
+    fireEvent.change(screen.getByLabelText('New task repeat mode'), { target: { value: 'fixed' } })
+    fireEvent.change(screen.getByLabelText('New task repeat unit'), { target: { value: 'week' } })
+    fireEvent.change(screen.getByLabelText('New task repeat interval'), { target: { value: '2' } })
+    const input = screen.getByPlaceholderText('Add a task… (Enter)')
+    fireEvent.change(input, { target: { value: 'Water plants' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    expect(mocked.add).toHaveBeenCalledWith(expect.objectContaining({
+      recurrence: expect.objectContaining({ interval: 2 }) }))
+    fireEvent.change(screen.getByLabelText('New task repeat mode'), { target: { value: 'fixed' } })
+    expect(screen.getByLabelText('New task repeat interval')).toHaveProperty('value', '1')
+    expect(screen.getByLabelText('New task repeat unit')).toHaveProperty('value', 'day')
+  })
+})
+
 describe('filter and cross-surface focus', () => {
   test('a saved Today filter changes with the local day and rechecks on focus', async () => {
     const filter = { id: 'today-filter', name: 'Today only',

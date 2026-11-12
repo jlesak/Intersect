@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { TodoTask } from '@common/domain'
+import { IconChevronLeft, IconChevronRight } from '@renderer/shared/ui/icons'
 
 export function monthDays(month: string): (string | null)[] {
   const [year, number] = month.split('-').map(Number)
@@ -34,10 +35,12 @@ export function TodoCalendar({ tasks, today, openTask }: {
   const entries = expandedDay ? grouped.get(expandedDay) ?? [] : []
   return <div className="ix-todo-calendar">
     <div className="ix-todo-calendar__head">
-      <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
+      <button type="button" className="ix-iconbtn" aria-label="Previous month" title="Previous month"
+        onClick={() => setMonth(shiftMonth(month, -1))}><IconChevronLeft /></button>
       <strong>{new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' })
         .format(new Date(`${month}-01T12:00:00`))}</strong>
-      <button type="button" aria-label="Next month" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
+      <button type="button" className="ix-iconbtn" aria-label="Next month" title="Next month"
+        onClick={() => setMonth(shiftMonth(month, 1))}><IconChevronRight /></button>
     </div>
     <div className="ix-todo-calendar__grid">
       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) =>

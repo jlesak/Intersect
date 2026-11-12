@@ -171,32 +171,32 @@ export function TodoItem({
             />
             <input type="time" className="ix-input" aria-label="Due time" value={draftDueTime}
               onChange={(e) => setDraftDueTime(e.target.value)} />
-            <select aria-label="TODO project" value={projectId}
+            <select className="ix-input ix-todo__control" aria-label="TODO project" value={projectId}
               onChange={(e) => setDraftProject(e.target.value)}>
               <option value="">Inbox</option>
               {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
               {projectId !== '' && !projects.some((project) => project.id === projectId) &&
                 <option value={projectId}>Project not loaded</option>}
             </select>
-            <select aria-label="Priority" value={draftPriority}
+            <select className="ix-input ix-todo__control" aria-label="Priority" value={draftPriority}
               onChange={(e) => setDraftPriority(Number(e.target.value) as TodoTask['priority'])}>
               {[1, 2, 3, 4].map((value) => <option value={value} key={value}>P{value}</option>)}
             </select>
-            <select aria-label="Size" value={draftSize}
+            <select className="ix-input ix-todo__control" aria-label="Size" value={draftSize}
               onChange={(e) => setDraftSize(e.target.value as TodoSize | '')}>
               <option value="">No size</option>
               {['XS', 'S', 'M', 'L', 'XL'].map((size) => <option key={size}>{size}</option>)}
             </select>
-            <select aria-label="Repeat mode" value={draftMode}
+            <select className="ix-input ix-todo__control" aria-label="Repeat mode" value={draftMode}
               onChange={(e) => setDraftMode(e.target.value as TodoRecurrence['mode'] | '')}>
               <option value="">No repeat</option><option value="fixed">Fixed</option>
               <option value="after_completion">After completion</option>
             </select>
-            {draftMode && <><select aria-label="Repeat unit" value={draftUnit}
+            {draftMode && <><select className="ix-input ix-todo__control" aria-label="Repeat unit" value={draftUnit}
               onChange={(e) => setDraftUnit(e.target.value as TodoRecurrence['unit'])}>
               <option value="day">Day</option><option value="week">Week</option>
               <option value="month">Month</option><option value="year">Year</option>
-            </select><input type="number" min="1" aria-label="Repeat interval"
+            </select><input type="number" min="1" className="ix-input ix-todo__control" aria-label="Repeat interval"
               value={draftInterval} onChange={(e) => setDraftInterval(Number(e.target.value))} /></>}
             <div className="ix-todo-item__tags">{tags.map((tag) => <label key={tag.id}>
               <input type="checkbox" checked={tagIds.includes(tag.id)} onChange={() =>
