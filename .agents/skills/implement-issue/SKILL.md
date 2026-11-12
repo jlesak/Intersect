@@ -217,11 +217,10 @@ fast-forward it.
 
 Start Codex for this repository with `codex -p intersect`. The owner installs that user-level
 profile; project config cannot filter global skills in CLI 0.156.1. The issue number arrives in
-the owner's invoking message, not through `$ARGUMENTS`. The owner removes the registered GitNexus
-index after this setup merges, making the global hook a no-op for Intersect. Check that
+the owner's invoking message, not through `$ARGUMENTS`. Check that
 `~/.codex/intersect.config.toml` exists before continuing: CLI 0.156.1 accepts `-p intersect`
-without an installed profile and gives no warning, leaving global GitNexus and superpowers
-skills visible. Stop and ask the owner to install the profile if it is missing.
+without an installed profile and gives no warning, leaving global skills visible. Stop and ask
+the owner to install the profile if it is missing.
 
 The pipeline has two starts. When `$implement-issue <N>` is invoked from the shared checkout,
 run stage 1's `git fetch origin` and exact parity check
