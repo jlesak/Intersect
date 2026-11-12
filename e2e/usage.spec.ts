@@ -37,6 +37,21 @@ test('the panel still shows its own state while the question is open', async () 
   await expect(win.locator('.ix-usage__empty')).toBeVisible()
 })
 
+test('the question can be answered at the minimum window, where the sidebar has to scroll', async () => {
+  const { app, win } = await launch(userDataDir())
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(940, 600))
+  await expect
+    .poll(() => win.evaluate(() => [window.innerWidth, window.innerHeight <= 600]))
+    .toEqual([940, true])
+
+  const notNow = win.locator(PROMPT).getByText('Not now')
+  await notNow.scrollIntoViewIfNeeded()
+  await expect(notNow).toBeInViewport()
+  await notNow.click()
+  await expect(win.locator(PROMPT)).toHaveCount(0)
+  await expect(win.locator(ENABLE)).toBeVisible()
+})
+
 test('a no closes the question, leaves a way back, and is not asked again after a relaunch', async () => {
   const profileDir = userDataDir()
 

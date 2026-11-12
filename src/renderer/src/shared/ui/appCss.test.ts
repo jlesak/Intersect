@@ -96,6 +96,14 @@ describe('the resizable sidebar panels', () => {
     expect(slot).not.toMatch(/min-height:\s*0/)
   })
 
+  test('an empty middle slot keeps a floor of its own, so a short window cannot close it', () => {
+    // An empty slot's min-content is zero. On a window too short for the panels around it the
+    // slot was squeezed to nothing and the dividers met; the layout itself is checked by
+    // e2e/sidebar-resize.spec.ts at the CI and minimum window sizes.
+    const floor = ruleBody('.ix-sidebar__slot:empty').match(/min-height:\s*(\d+)px/)
+    expect(Number(floor?.[1])).toBeGreaterThanOrEqual(20)
+  })
+
   test('the width divider tracks the sidebar column rather than a fixed offset', () => {
     // The grid column is the single source of the sidebar's width; a hard-coded left would drift
     // away from the edge it is supposed to sit on the moment the width changes.

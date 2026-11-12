@@ -1,3 +1,4 @@
+import { type ElectronApplication, type Page } from '@playwright/test'
 import { expect, launch, test, tempDir } from './harness'
 
 /**
@@ -5,6 +6,34 @@ import { expect, launch, test, tempDir } from './harness'
  * against the same profile to prove the size was written and not merely held in memory. Nothing in
  * jsdom can show that a drag moves the actual layout, because jsdom runs no layout at all.
  */
+/**
+ * Window sizes the stacked panels have to survive, as outer window sizes. 685 high is what the CI
+ * runner's screen gives the app (653px inside): there the rail, the usage panel and the footer
+ * leave the middle slot almost nothing. 600 is the app's minimum, where they no longer fit at all
+ * and the sidebar scrolls.
+ */
+const SHORT_WINDOWS = [
+  { width: 1280, height: 685 },
+  { width: 940, height: 600 }
+]
+
+/** Pin the window, and fail loudly if the screen would not give it that size. */
+async function pinWindow(
+  app: ElectronApplication,
+  win: Page,
+  size: { width: number; height: number }
+): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, s) => {
+    BrowserWindow.getAllWindows()[0].setSize(s.width, s.height)
+  }, size)
+  await expect
+    .poll(() => win.evaluate(() => [window.innerWidth, window.innerHeight]))
+    .toEqual([size.width, expect.any(Number)])
+  const inner = await win.evaluate(() => window.innerHeight)
+  expect(inner).toBeLessThanOrEqual(size.height)
+  expect(inner).toBeGreaterThan(size.height - 60)
+}
+
 const sidebarWidth = async (win: Awaited<ReturnType<typeof launch>>['win']): Promise<number> =>
   (await win.locator('.ix-sidebar').boundingBox())!.width
 
@@ -40,44 +69,55 @@ test('the sidebar is resized by dragging, and the size survives a restart', asyn
     .toBe(Math.round(before))
 })
 
-test('every divider has its own place, even with nothing in the middle slot', async () => {
-  // A fresh profile draws no workspace list, and with nothing between them the two horizontal
-  // dividers landed on the same pixel: the lower one took every press, so dragging the section
-  // rail silently resized the usage panel instead.
-  const { win } = await launch(tempDir('intersect-sidebar-stack-'))
+for (const size of [null, ...SHORT_WINDOWS]) {
+  const at = size === null ? 'the default window' : `${size.width}x${size.height}`
 
-  const boxes = await win.evaluate(() =>
-    [...document.querySelectorAll('[role="separator"][aria-orientation="horizontal"]')].map(
-      (el) => el.getBoundingClientRect().top
+  test(`every divider has its own place, even with nothing in the middle slot, at ${at}`, async () => {
+    // A fresh profile draws no workspace list, and with nothing between them the two horizontal
+    // dividers landed on the same pixel: the lower one took every press, so dragging the section
+    // rail silently resized the usage panel instead. A short window squeezes the empty slot the
+    // same way, which is how one more rail section brought the overlap back on CI.
+    const { app, win } = await launch(tempDir('intersect-sidebar-stack-'))
+    if (size !== null) await pinWindow(app, win, size)
+
+    const boxes = await win.evaluate(() =>
+      [...document.querySelectorAll('[role="separator"][aria-orientation="horizontal"]')].map(
+        (el) => el.getBoundingClientRect().top
+      )
     )
-  )
 
-  expect(boxes).toHaveLength(2)
-  expect(Math.abs(boxes[0] - boxes[1])).toBeGreaterThan(20)
-})
+    expect(boxes).toHaveLength(2)
+    expect(Math.abs(boxes[0] - boxes[1])).toBeGreaterThan(20)
+  })
+}
 
-test('a stacked panel keeps the height it was dragged to, and the keyboard drives it too', async () => {
-  const { win } = await launch(tempDir('intersect-sidebar-panels-'))
+for (const size of [null, ...SHORT_WINDOWS]) {
+  const at = size === null ? 'the default window' : `${size.width}x${size.height}`
 
-  const rail = win.locator('.ix-rail')
-  const startHeight = (await rail.boundingBox())!.height
+  test(`a stacked panel keeps the height it was dragged to, and the keyboard drives it too, at ${at}`, async () => {
+    const { app, win } = await launch(tempDir('intersect-sidebar-panels-'))
+    if (size !== null) await pinWindow(app, win, size)
 
-  const divider = win.locator('[data-testid="sidebar-rail-resizer"]')
-  const box = (await divider.boundingBox())!
-  await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await win.mouse.down()
-  await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 70, { steps: 8 })
-  await win.mouse.up()
+    const rail = win.locator('.ix-rail')
+    const startHeight = (await rail.boundingBox())!.height
 
-  await expect.poll(async () => (await rail.boundingBox())!.height).toBeGreaterThan(startHeight + 40)
+    const divider = win.locator('[data-testid="sidebar-rail-resizer"]')
+    const box = (await divider.boundingBox())!
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await win.mouse.down()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 70, { steps: 8 })
+    await win.mouse.up()
 
-  // Arrow keys move the same divider, so the layout is reachable without a pointer.
-  const dragged = (await rail.boundingBox())!.height
-  await divider.focus()
-  await divider.press('ArrowUp')
-  await divider.press('ArrowUp')
-  await expect.poll(async () => (await rail.boundingBox())!.height).toBeLessThan(dragged)
+    await expect.poll(async () => (await rail.boundingBox())!.height).toBeGreaterThan(startHeight + 40)
 
-  // Nothing may cover the controls above a resized panel: the section rail scrolls inside it.
-  expect(await rail.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
-})
+    // Arrow keys move the same divider, so the layout is reachable without a pointer.
+    const dragged = (await rail.boundingBox())!.height
+    await divider.focus()
+    await divider.press('ArrowUp')
+    await divider.press('ArrowUp')
+    await expect.poll(async () => (await rail.boundingBox())!.height).toBeLessThan(dragged)
+
+    // Nothing may cover the controls above a resized panel: the section rail scrolls inside it.
+    expect(await rail.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
+  })
+}

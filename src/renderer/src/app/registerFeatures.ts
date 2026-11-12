@@ -1,6 +1,7 @@
 import { registerCommandPaletteFeature } from '@renderer/features/commandPalette'
 import { registerDashboardFeature } from '@renderer/features/dashboard'
 import { registerMyWorkFeature } from '@renderer/features/myWork'
+import { registerNotesFeature } from '@renderer/features/notes'
 import { registerOneOnOneFeature } from '@renderer/features/oneOnOne'
 import { registerPrInboxFeature } from '@renderer/features/prInbox'
 import { registerSessionsFeature } from '@renderer/features/sessions'
@@ -22,6 +23,7 @@ export function registerFeatures(): void {
   registerMyWorkFeature()
   registerTimeTrackingFeature()
   registerTodoFeature()
+  registerNotesFeature()
   registerOneOnOneFeature()
   registerWorkspacesFeature()
   registerTabsFeature()

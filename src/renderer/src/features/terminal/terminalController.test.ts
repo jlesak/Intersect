@@ -412,3 +412,24 @@ describe('spawn gate', () => {
     expect(ipcMock.spawn).not.toHaveBeenCalled()
   })
 })
+
+describe('keyboard', () => {
+  const typed = async (sessionId: string, init: KeyboardEventInit): Promise<unknown[]> => {
+    ipcMock.attach.mockResolvedValue({ live: true, data: '', cols: 80, rows: 24, lastSeq: 0 })
+    await ensureSession(sessionId, 'claude', '/repo')
+    const host = document.createElement('div')
+    attachSession(sessionId, host)
+    const textarea = host.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
+    return ipcMock.write.mock.calls.filter((c) => c[0] === sessionId).map((c) => c[1])
+  }
+
+  test('Enter submits with a carriage return', async () => {
+    expect(await typed('keys:enter', { key: 'Enter', code: 'Enter', keyCode: 13 })).toEqual(['\r'])
+  })
+
+  test('Shift+Enter sends ESC CR, which Claude Code reads as a new line instead of a submit', async () => {
+    const init = { key: 'Enter', code: 'Enter', keyCode: 13, shiftKey: true }
+    expect(await typed('keys:shift-enter', init)).toEqual(['\x1b\r'])
+  })
+})

@@ -120,8 +120,12 @@ open findings.
    rebuttal goes to the next reviewer together with the finding. Commit each round's fixes. The
    review ends with the first round that has no blocking findings. Non-blocking findings go into
    `state.md` and the PR body and never start a round. A run gets three review rounds in total,
-   including the rounds after verifier and CI fixes; if the third still has blocking findings,
-   or a later stage needs a round when all three are used, ask the owner.
+   including the rounds after verifier and CI fixes. When the third still has blocking findings,
+   send those that ask only for a missing test to the resumed implementer. The fix needs no
+   further round when its diff touches test files alone and the implementer reports, for each new
+   test, a planted mutation of the code it covers that makes the test fail. Commit it, and the
+   review ends there. Any other blocking finding in the third round, or a later stage that needs
+   a round when all three are used, goes to the owner.
 
 7. **Verify.** The verifier checks the result black-box against the acceptance criteria: the full
    gate including e2e, a UAT pass through the `run-app` skill, and mutation testing of the new
@@ -201,6 +205,10 @@ fast-forward it.
   these without `cd`, `&&` chains, pipes, redirection or subshells. A sandboxed
   `git worktree remove` fails halfway and leaves a damaged worktree. The agent definitions say
   the same for the test commands.
+- Inside the worktree, a compound Bash command (a heredoc, `node -e`, `$(...)`) whose text
+  mentions `git`, even a string that merely contains `git worktree`, is refused by the
+  worktree-isolation guard as too complex to verify. Plain git commands are unaffected. Write
+  `state.md` and the other run files with the Write and Edit tools, not through the shell.
 - `git merge origin/main` and `npm install` are not excluded. A merge that touches `.claude/`
   fails in the sandbox with "unable to unlink old", and `npm install` needs the network; retry
   either outside the sandbox, which goes through the owner's normal permission flow.
@@ -209,11 +217,10 @@ fast-forward it.
 
 Start Codex for this repository with `codex -p intersect`. The owner installs that user-level
 profile; project config cannot filter global skills in CLI 0.156.1. The issue number arrives in
-the owner's invoking message, not through `$ARGUMENTS`. The owner removes the registered GitNexus
-index after this setup merges, making the global hook a no-op for Intersect. Check that
+the owner's invoking message, not through `$ARGUMENTS`. Check that
 `~/.codex/intersect.config.toml` exists before continuing: CLI 0.156.1 accepts `-p intersect`
-without an installed profile and gives no warning, leaving global GitNexus and superpowers
-skills visible. Stop and ask the owner to install the profile if it is missing.
+without an installed profile and gives no warning, leaving global skills visible. Stop and ask
+the owner to install the profile if it is missing.
 
 The pipeline has two starts. When `$implement-issue <N>` is invoked from the shared checkout,
 run stage 1's `git fetch origin` and exact parity check

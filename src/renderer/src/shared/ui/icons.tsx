@@ -122,6 +122,13 @@ export const IconTodo = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+/** A notepad with a folded corner: the daily notes. */
+export const IconNote = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 2.5h9v7l-3 3h-6zM12.5 9.5h-3v3M5.5 5.5h5M5.5 8h3" />
+  </svg>
+)
+
 export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />

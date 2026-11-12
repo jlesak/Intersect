@@ -122,6 +122,37 @@ describe('refresh', () => {
   })
 })
 
+describe('an answer given while boot is still reading', () => {
+  // The question is on screen from the first paint, before the boot read has come back. An answer
+  // clicked in that gap is newer than whatever the core read before it was written.
+  async function answerDuringBoot(granted: boolean): Promise<void> {
+    let finishBootRead: (consent: 'unasked') => void = () => {}
+    mocked.liveConsent.mockImplementation(
+      () => new Promise((resolve) => (finishBootRead = resolve))
+    )
+    const booting = useUsageStore.getState().hydrate()
+    await useUsageStore.getState().setConsent(granted)
+    finishBootRead('unasked')
+    await booting
+  }
+
+  test('a no is not undone by the boot read that started before it', async () => {
+    await answerDuringBoot(false)
+    expect(useUsageStore.getState().consent).toBe('declined')
+  })
+
+  test('a yes is not undone by the boot read either', async () => {
+    await answerDuringBoot(true)
+    expect(useUsageStore.getState().consent).toBe('granted')
+  })
+
+  test('the boot read still applies the snapshot it fetched', async () => {
+    mocked.get.mockResolvedValue(snapshot)
+    await answerDuringBoot(false)
+    expect(useUsageStore.getState().usage).toEqual(snapshot)
+  })
+})
+
 describe('setConsent', () => {
   test('a yes is recorded and applies the snapshot the immediate query returns', async () => {
     mocked.setConsent.mockResolvedValue({ usage: live, live: 'ok' })

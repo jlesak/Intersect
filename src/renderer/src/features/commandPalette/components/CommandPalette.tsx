@@ -32,6 +32,9 @@ export function CommandPalette() {
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // The element that had focus when the palette opened, which closing hands focus back to. Cleared
+  // when a command runs: a command that opens a view decides focus for itself.
+  const returnFocusTo = useRef<HTMLElement | null>(null)
 
   // Snapshot the registry when the palette opens; command registration happens once at startup, so
   // the set is stable while it is open.
@@ -85,7 +88,16 @@ export function CommandPalette() {
   }
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      const previous = returnFocusTo.current
+      returnFocusTo.current = null
+      // The element may have been removed while the palette was open; focusing it would do
+      // nothing, so leave focus wherever the browser put it.
+      if (previous?.isConnected) previous.focus()
+      return
+    }
+    const active = document.activeElement
+    returnFocusTo.current = active instanceof HTMLElement && active !== document.body ? active : null
     // Positional commands - "Tab 4" and its siblings - are noise nobody would type, so they stay
     // out of the list while keeping their accelerators.
     setCommands(getAllCommands().filter((c) => shortcutActionFor(c.id)?.hidden !== true))
@@ -109,6 +121,7 @@ export function CommandPalette() {
   function run(index: number): void {
     const command = rows[index]
     if (!command || !runnable[index]) return
+    returnFocusTo.current = null
     close()
     // Only registered commands are remembered. A state-derived target's id names one workspace or
     // one past session, so remembering it would fill the recents with history rather than habits -
@@ -147,7 +160,15 @@ export function CommandPalette() {
   if (!open) return null
 
   return createPortal(
-    <div className="ix-palette-overlay" onMouseDown={() => close()}>
+    <div
+      className="ix-palette-overlay"
+      onMouseDown={(e) => {
+        // The browser moves focus to the body once this handler returns, which would undo the
+        // restore that closing triggers.
+        e.preventDefault()
+        close()
+      }}
+    >
       <div
         className="ix-palette"
         role="dialog"

@@ -34,6 +34,7 @@ export const RAIL_LABELS = [
   'Other',
   '1:1',
   'TODO',
+  'Notes',
   'Time Tracking',
   'My Work',
   'PR Review',
