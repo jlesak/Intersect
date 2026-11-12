@@ -8,6 +8,7 @@ import {
   fixWorktreePath,
   fixWorktreesRoot,
   isFixWorktreePath,
+  selectOrphanFixFolders,
   sourceBranch,
   worktreesRoot
 } from './worktreeManager'
@@ -146,5 +147,53 @@ describe('fix worktree paths', () => {
     expect(sourceBranch('refs/heads/feature/rate-limit')).toBe('feature/rate-limit')
     expect(() => sourceBranch('refs/tags/v1')).toThrow(/not a branch/)
     expect(() => sourceBranch('refs/heads/')).toThrow(/not a branch/)
+  })
+})
+
+describe('selecting orphaned fix worktrees', () => {
+  // Stands in for canonicalizePath: the spelling `/alias` names the same folder as `/fix`.
+  const canonical = (path: string): string => path.replace(/^\/alias\//, '/fix/')
+
+  test('a fix folder no workspace uses is an orphan; one a workspace uses is not', () => {
+    expect(
+      selectOrphanFixFolders(['/fix/a-pr1', '/fix/b-pr2'], ['/repos/a', '/fix/b-pr2'], canonical)
+    ).toEqual(['/fix/a-pr1'])
+  })
+
+  test('paths are compared in canonical form, from either side', () => {
+    expect(selectOrphanFixFolders(['/alias/a-pr1'], ['/fix/a-pr1'], canonical)).toEqual([])
+    expect(selectOrphanFixFolders(['/fix/a-pr1'], ['/alias/a-pr1'], canonical)).toEqual([])
+    // An orphan is answered in canonical form, the form the removal and the fix start key on.
+    expect(selectOrphanFixFolders(['/alias/a-pr1'], [], canonical)).toEqual(['/fix/a-pr1'])
+  })
+
+  test('a folder listed twice under two spellings is answered once', () => {
+    expect(selectOrphanFixFolders(['/fix/a-pr1', '/alias/a-pr1'], [], canonical)).toEqual([
+      '/fix/a-pr1'
+    ])
+  })
+
+  test('with no fix folders there is nothing to select', () => {
+    expect(selectOrphanFixFolders([], ['/repos/a'], canonical)).toEqual([])
+  })
+
+  test('by default the real canonical form is used, so a symlinked profile cannot hide a use', () => {
+    const root = mkdtempSync(join(tmpdir(), 'intersect-orphan-'))
+    try {
+      const real = join(root, 'real')
+      mkdirSync(join(real, 'pr-fix-worktrees', 'x-pr1'), { recursive: true })
+      mkdirSync(join(real, 'pr-fix-worktrees', 'y-pr2'), { recursive: true })
+      const link = join(root, 'link')
+      symlinkSync(real, link)
+
+      expect(
+        selectOrphanFixFolders(
+          [join(real, 'pr-fix-worktrees', 'x-pr1'), join(real, 'pr-fix-worktrees', 'y-pr2')],
+          [join(link, 'pr-fix-worktrees', 'x-pr1')]
+        )
+      ).toEqual([join(realpathSync(real), 'pr-fix-worktrees', 'y-pr2')])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

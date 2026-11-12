@@ -8,6 +8,7 @@ import { buildFixPrompt } from './fixPrompt'
 import {
   fixWorktreePath,
   isFixWorktreePath,
+  selectOrphanFixFolders,
   sourceBranch,
   type WorktreeManager
 } from './worktreeManager'
@@ -20,7 +21,7 @@ export interface FixManagerDeps {
   ado: Pick<AdoService, 'getThreads'>
   worktrees: Pick<
     WorktreeManager,
-    'resolveRepoDir' | 'createBranchWorktree' | 'removeCleanWorktree'
+    'resolveRepoDir' | 'createBranchWorktree' | 'removeCleanWorktree' | 'listFixFolders'
   >
   sessions: Pick<SessionManager, 'whenWorkspaceExited'>
   /** Every workspace folder; fix worktrees among them are skipped when looking for the clone. */
@@ -31,7 +32,7 @@ export interface FixManagerDeps {
   removeWorkspaceIfEmpty: (workspaceId: string) => boolean
   /** How a cleanup ended, for the app to show or to drop the workspace. */
   onClosed: (event: FixWorktreeClosedEvent) => void
-  logger?: Pick<Logger, 'warn'>
+  logger?: Pick<Logger, 'warn' | 'info'>
 }
 
 export interface FixManager {
@@ -49,6 +50,11 @@ export interface FixManager {
    * clean, then the workspace. Runs in the background and reports through `onClosed`.
    */
   scheduleClose(workspaceId: string, folderPath: string): void
+  /**
+   * The boot sweep: remove each fix worktree an earlier run left behind with no workspace on it,
+   * when clean. A dirty or unrecognised folder is kept and logged. Never rejects per folder.
+   */
+  pruneOrphans(): Promise<void>
 }
 
 const prKeyOf = (pr: PullRequest): string => `${pr.repositoryId}:${pr.prId}`
@@ -59,8 +65,12 @@ export function createFixManager(d: FixManagerDeps): FixManager {
   const prompts = new Map<string, string>()
   // Synchronous guard per pull request: a double click must not race two worktree creations.
   const starting = new Set<string>()
-  // The cleanup running for each folder, so a start waits for it instead of racing the removal.
+  // The cleanup running for each folder, a close or the boot sweep, so a start waits for it
+  // instead of racing the removal.
   const closing = new Map<string, Promise<void>>()
+  // Every folder a start of this session worked on. Its worktree is this session's, never an
+  // orphan, even before the workspace for it exists.
+  const startedHere = new Set<string>()
   // The cleanup of each folder that is still waiting for sessions to exit, not yet removing.
   const waiting = new Map<string, { workspaceId: string; again: boolean }>()
 
@@ -69,6 +79,7 @@ export function createFixManager(d: FixManagerDeps): FixManager {
     if (threads.length === 0) throw new Error('No open reviewer comments on this pull request.')
 
     const path = fixWorktreePath(d.userDataDir, pr)
+    startedHere.add(path)
     await closing.get(path)
     if (d.hasOpenTabs(path)) return { worktreePath: path, alreadyOpen: true }
 
@@ -112,6 +123,34 @@ export function createFixManager(d: FixManagerDeps): FixManager {
     report('removed', d.removeWorkspaceIfEmpty(workspaceId), null)
   }
 
+  /** Run cleanup work on a folder after the one already running there; a start waits for it. */
+  function queueOn(path: string, work: () => Promise<void>, data: object): Promise<void> {
+    const previous = closing.get(path) ?? Promise.resolve()
+    const run = previous.then(work).catch((err: unknown) => {
+      d.logger?.warn('fix worktree cleanup failed', { data: { ...data, path }, err })
+    })
+    closing.set(path, run)
+    void run.then(() => {
+      if (closing.get(path) === run) closing.delete(path)
+    })
+    return run
+  }
+
+  async function sweepOrphan(path: string): Promise<void> {
+    // Checked again now rather than only when listing: a workspace may have been made on the
+    // folder, or a start may have reused it, since.
+    if (startedHere.has(path)) return
+    if (selectOrphanFixFolders([path], d.workspaceFolders()).length === 0) return
+    const result = await d.worktrees.removeCleanWorktree(path)
+    if (result.outcome === 'removed') {
+      d.logger?.info('orphaned fix worktree removed', { data: { path } })
+      return
+    }
+    d.logger?.warn('orphaned fix worktree kept', {
+      data: { path, outcome: result.outcome, detail: result.detail }
+    })
+  }
+
   return {
     async start(pr) {
       if (pr.role !== 'author') {
@@ -144,16 +183,17 @@ export function createFixManager(d: FixManagerDeps): FixManager {
         waitingRun.again = true
         return
       }
-      const previous = closing.get(path) ?? Promise.resolve()
-      const run = previous
-        .then(() => close(workspaceId, path))
-        .catch((err: unknown) => {
-          d.logger?.warn('fix worktree cleanup failed', { data: { workspaceId, path }, err })
-        })
-      closing.set(path, run)
-      void run.then(() => {
-        if (closing.get(path) === run) closing.delete(path)
-      })
+      void queueOn(path, () => close(workspaceId, path), { workspaceId })
+    },
+
+    async pruneOrphans() {
+      const orphans = selectOrphanFixFolders(
+        await d.worktrees.listFixFolders(),
+        d.workspaceFolders()
+      )
+      // One folder at a time, each registered as that folder's cleanup only when its turn comes:
+      // a start for a folder still waiting its turn is recorded in `startedHere` and skipped.
+      for (const path of orphans) await queueOn(path, () => sweepOrphan(path), {})
     }
   }
 }
