@@ -459,9 +459,10 @@ app.whenReady().then(() => {
     if (action === 'create') createWindow()
   })
 
-  // A reminder delivered while the Mac slept is in Notification Center now; give it its click.
+  // Timers stop while the Mac sleeps. The service re-arms them from the wall clock and gives the
+  // reminders delivered during or just after the sleep their click.
   powerMonitor.on('resume', () => {
-    void reminders?.refreshHistory()
+    reminders?.resume()
   })
 
   // The one signal that says a quit will have nobody in front of it. On macOS this is

@@ -283,6 +283,77 @@ describe('fire-time polls', () => {
   })
 })
 
+describe('waking from sleep', () => {
+  // Timers in main measure a clock that stops while the Mac sleeps. vi.setSystemTime moves the
+  // wall clock and leaves every fake timer with the time it had left, which is what a sleep does.
+  const sleepUntil = (ms: number): void => {
+    vi.setSystemTime(ms)
+  }
+
+  test('a timer delayed by the sleep is re-armed at the wall-clock fire time', async () => {
+    const s = makeService(fakeNative().native)
+    await s.apply([reminder('t1', 60)])
+    sleepUntil(START.getTime() + 30 * MINUTE)
+    s.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getHistory).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(30 * MINUTE)
+    expect(getHistory).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+    // The timer armed before the sleep would fire 30 minutes late; it must be gone.
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+  })
+
+  test('a reminder beyond 24 hours at the last apply gets its timer when the wake brings it close', async () => {
+    const s = makeService(fakeNative().native)
+    // Friday 14:00 apply, Monday 14:00 reminder, the Mac sleeps over the weekend.
+    await s.apply([reminder('monday', 72 * 60)])
+    sleepUntil(START.getTime() + 72 * HOUR - 5 * MINUTE)
+    s.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getHistory).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5 * MINUTE + 2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+  })
+
+  test('a reminder whose time passed during the sleep is polled for after the wake', async () => {
+    const s = makeService(fakeNative().native)
+    await s.apply([reminder('t1', 60)])
+    sleepUntil(START.getTime() + 90 * MINUTE)
+    s.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getHistory).toHaveBeenCalledTimes(1)
+    // macOS delivers it a moment after the wake.
+    const delivered = historyObject('todo-reminder:t1')
+    history = [delivered]
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    delivered.click()
+    expect(activate).toHaveBeenCalledWith('t1')
+  })
+
+  test('the wake polls run at +2, +5 and +15 s while the passed reminder is not delivered', async () => {
+    const s = makeService(fakeNative().native)
+    await s.apply([reminder('t1', 60)])
+    sleepUntil(START.getTime() + 90 * MINUTE)
+    s.resume()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(getHistory).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+  })
+})
+
 describe('reconcile', () => {
   test('schedules the wanted reminders with their content and time', async () => {
     const { native, store } = fakeNative()

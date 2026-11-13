@@ -33,12 +33,18 @@ export interface ReminderService {
   apply(reminders: TodoReminder[]): Promise<void>
   /** Attach clicks to delivered reminders. Resolves with the reminder ids that are delivered. */
   refreshHistory(): Promise<Set<string>>
+  /**
+   * The Mac woke from sleep. Timers measure a clock that stops during sleep, so every armed fire
+   * timer is late by the length of the sleep. Re-arm them from the wall clock, and poll for the
+   * reminders whose time passed while the Mac slept.
+   */
+  resume(): void
   dispose(): void
 }
 
 /** Fire-time timers are armed only this far ahead; the core's hourly refresh rolls the window. */
 const TIMER_HORIZON_MS = 24 * 60 * 60 * 1000
-/** When to look for a delivered reminder after its fire time, relative to that time. */
+/** When to look for a delivered reminder after its fire time or after a wake, relative to it. */
 const POLL_OFFSETS_MS = [2_000, 5_000, 15_000]
 
 interface FireTimer {
@@ -111,13 +117,14 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
     }
   }
 
-  const poll = (id: string, fireAt: number, index: number): void => {
+  /** Poll at each offset after `base` until every one of `ids` is delivered. */
+  const poll = (ids: string[], base: number, index: number): void => {
     if (disposed || index >= POLL_OFFSETS_MS.length) return
-    const delay = Math.max(0, fireAt + POLL_OFFSETS_MS[index] - deps.now())
+    const delay = Math.max(0, base + POLL_OFFSETS_MS[index] - deps.now())
     const handle = timers.setTimeout(() => {
       pollHandles.delete(handle)
       void refreshHistory().then((delivered) => {
-        if (!delivered.has(id)) poll(id, fireAt, index + 1)
+        if (ids.some((id) => !delivered.has(id))) poll(ids, base, index + 1)
       })
     }, delay)
     pollHandles.add(handle)
@@ -128,7 +135,7 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
    * time is still beyond the guard, so a reminder that macOS may already be delivering keeps it;
    * once a timer has fired, its polls run to the end whatever later applies do.
    */
-  const armTimers = (reminders: TodoReminder[]): void => {
+  const armTimers = (reminders: readonly Pick<TodoReminder, 'id' | 'fireAt'>[]): void => {
     const now = deps.now()
     const wantedAt = new Set(reminders.map((r) => `${r.id}@${r.fireAt}`))
     for (const [key, timer] of fireTimers) {
@@ -142,7 +149,7 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
         reminder.fireAt > now + TIMER_HORIZON_MS) continue
       const handle = timers.setTimeout(() => {
         fireTimers.delete(key)
-        poll(reminder.id, reminder.fireAt, 0)
+        poll([reminder.id], reminder.fireAt, 0)
       }, reminder.fireAt - now)
       fireTimers.set(key, { id: reminder.id, fireAt: reminder.fireAt, handle })
     }
@@ -222,6 +229,23 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
       return drain()
     },
     refreshHistory,
+    resume() {
+      const now = deps.now()
+      // A timer the guard kept for a reminder that is no longer wanted still stands for one that
+      // macOS delivers, so it is re-armed or polled for like a wanted one.
+      const kept = [...fireTimers.values()].filter(
+        (timer) => timer.fireAt <= now + GUARD_AHEAD_MS && !wanted.has(timer.id))
+      for (const timer of fireTimers.values()) timers.clearTimeout(timer.handle)
+      fireTimers.clear()
+      // The 24-hour window is measured from now, so a reminder that was too far ahead at the last
+      // apply gets its timer without waiting for the core's next hourly refresh.
+      armTimers([...latest, ...kept])
+      const passed = [...latest, ...kept].filter((r) => r.fireAt <= now).map((r) => r.id)
+      void refreshHistory().then((delivered) => {
+        const missing = passed.filter((id) => !delivered.has(id))
+        if (missing.length > 0) poll(missing, now, 0)
+      })
+    },
     dispose() {
       disposed = true
       for (const timer of fireTimers.values()) timers.clearTimeout(timer.handle)
