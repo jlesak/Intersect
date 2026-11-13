@@ -84,7 +84,10 @@ one Claude" is the pattern.
 ## Failures
 
 The suite has a known flake. Re-run a failed run once; a second failure is real and needs
-investigating, never a third run. A failure keeps its trace in `test-results/`
+investigating, never a third run. Keep the Mac awake during a full run (start `caffeinate -i` as its
+own background command, stop it after) and run nothing heavy beside it (no `build:native`, no second build or test run): in the #167 verification a parallel
+`build:native` caused one failure, and the Mac sleeping mid-run caused three more, which spent
+the one re-run and needed a third. A failure keeps its trace in `test-results/`
 (`npx playwright show-trace <trace.zip>`), and CI uploads the same traces as the
 `playwright-traces` artifact. Without the trace, most failures read as a bare timeout.
 
