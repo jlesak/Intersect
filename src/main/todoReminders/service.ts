@@ -47,6 +47,9 @@ const TIMER_HORIZON_MS = 24 * 60 * 60 * 1000
 /** When to look for a delivered reminder after its fire time or after a wake, relative to it. */
 const POLL_OFFSETS_MS = [2_000, 5_000, 15_000]
 
+/** A fire timer belongs to one reminder at one time, so a moved reminder can have two. */
+const timerKey = (r: Pick<TodoReminder, 'id' | 'fireAt'>): string => `${r.id}@${r.fireAt}`
+
 interface FireTimer {
   id: string
   fireAt: number
@@ -137,14 +140,14 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
    */
   const armTimers = (reminders: readonly Pick<TodoReminder, 'id' | 'fireAt'>[]): void => {
     const now = deps.now()
-    const wantedAt = new Set(reminders.map((r) => `${r.id}@${r.fireAt}`))
+    const wantedAt = new Set(reminders.map(timerKey))
     for (const [key, timer] of fireTimers) {
       if (wantedAt.has(key) || timer.fireAt <= now + GUARD_AHEAD_MS) continue
       timers.clearTimeout(timer.handle)
       fireTimers.delete(key)
     }
     for (const reminder of reminders) {
-      const key = `${reminder.id}@${reminder.fireAt}`
+      const key = timerKey(reminder)
       if (fireTimers.has(key) || reminder.fireAt <= now ||
         reminder.fireAt > now + TIMER_HORIZON_MS) continue
       const handle = timers.setTimeout(() => {
@@ -231,10 +234,12 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
     refreshHistory,
     resume() {
       const now = deps.now()
-      // A timer the guard kept for a reminder that is no longer wanted still stands for one that
-      // macOS delivers, so it is re-armed or polled for like a wanted one.
+      // A timer the guard kept for a reminder that is no longer wanted at that time (moved or
+      // completed in its last 5 s) still stands for one that macOS delivers, so it is re-armed or
+      // polled for like a wanted one.
+      const wantedAt = new Set(latest.map(timerKey))
       const kept = [...fireTimers.values()].filter(
-        (timer) => timer.fireAt <= now + GUARD_AHEAD_MS && !wanted.has(timer.id))
+        (timer) => timer.fireAt <= now + GUARD_AHEAD_MS && !wantedAt.has(timerKey(timer)))
       for (const timer of fireTimers.values()) timers.clearTimeout(timer.handle)
       fireTimers.clear()
       // The 24-hour window is measured from now, so a reminder that was too far ahead at the last

@@ -352,6 +352,39 @@ describe('waking from sleep', () => {
     await vi.advanceTimersByTimeAsync(HOUR)
     expect(getHistory).toHaveBeenCalledTimes(4)
   })
+
+  // In the last 5 s the guard keeps the old reminder pending and keeps its timer, so macOS still
+  // delivers it. A sleep right then must not lose its click.
+  const sleepThroughGuardKeptReminder = async (s: ReminderService,
+    lastApply: TodoReminder[]): Promise<void> => {
+    await s.apply([reminder('t1', 30)])
+    await vi.advanceTimersByTimeAsync(30 * MINUTE - 3000)
+    await s.apply(lastApply)
+    sleepUntil(START.getTime() + 31 * MINUTE)
+    s.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getHistory).toHaveBeenCalledTimes(1)
+  }
+
+  test('a reminder moved in its last 5 s and then slept through is polled for at its old time', async () => {
+    const s = makeService(fakeNative().native)
+    await sleepThroughGuardKeptReminder(s, [reminder('t1', 60)])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+  })
+
+  test('a reminder completed in its last 5 s and then slept through is polled for', async () => {
+    const s = makeService(fakeNative().native)
+    await sleepThroughGuardKeptReminder(s, [])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(getHistory).toHaveBeenCalledTimes(4)
+  })
 })
 
 describe('reconcile', () => {
