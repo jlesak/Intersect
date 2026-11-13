@@ -31,6 +31,7 @@ export type LogScope =
   | 'agentRuntime'
   | 'oneOnOne'
   | 'settings'
+  | 'todo'
   | 'renderer'
   | 'log'
 

@@ -5,9 +5,12 @@ import {
   ELECTRON_ONLY_CHANNELS,
   NATIVE_DOCK_BADGE_PUSH,
   NATIVE_NOTIFICATION_PUSH,
+  NATIVE_TODO_REMINDERS_PUSH,
   RENDERER_PUSH_CHANNELS,
   type NativeDockBadgeRequest,
-  type NativeNotificationRequest
+  type NativeNotificationRequest,
+  type TodoReminder,
+  type TodoRemindersRequest
 } from '@common/coreBridge'
 import type { Logger } from '@common/logging/logger'
 
@@ -30,6 +33,8 @@ export interface CoreBridgeDeps {
   sendToRenderer: (channel: string, payload: unknown) => void
   showNotification: (request: NativeNotificationRequest) => void
   setDockBadge: (count: number) => void
+  /** Make the system's pending TODO reminders match the core's full list. */
+  applyTodoReminders: (reminders: TodoReminder[]) => void
   /** Records a core push that matched no route, which has nowhere else to surface. */
   logger?: Logger
 }
@@ -64,6 +69,10 @@ export function registerCoreBridge(deps: CoreBridgeDeps): void {
     }
     if (channel === NATIVE_DOCK_BADGE_PUSH) {
       deps.setDockBadge((payload as NativeDockBadgeRequest).count)
+      return
+    }
+    if (channel === NATIVE_TODO_REMINDERS_PUSH) {
+      deps.applyTodoReminders((payload as TodoRemindersRequest).reminders)
       return
     }
     deps.logger?.error('unroutable core push', { data: { channel } })

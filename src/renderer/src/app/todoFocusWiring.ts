@@ -1,4 +1,4 @@
-import { TODO_SECTION_ID, useTodoStore } from '@renderer/features/todo'
+import { onReminderActivated, TODO_SECTION_ID, useTodoStore } from '@renderer/features/todo'
 import { useShellStore } from './shellStore'
 
 /**
@@ -18,4 +18,15 @@ export function wireTodoFocus(): () => void {
     if (id === null || id === prev.pendingFocusId) return
     useShellStore.getState().setActiveSection(TODO_SECTION_ID)
   })
+}
+
+/**
+ * Open the task whose macOS reminder the user clicked. Main sends the id only once this window has
+ * loaded, and the focus request above does the rest: the section switch, the project or Inbox, and
+ * the highlighted row, or "Task no longer exists." for a deleted task.
+ *
+ * Returns an unsubscribe so a test can wire a fresh copy without accumulating listeners.
+ */
+export function wireTodoReminderActivation(): () => void {
+  return onReminderActivated(({ taskId }) => useTodoStore.getState().focusTask(taskId))
 }

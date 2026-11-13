@@ -5,7 +5,9 @@ import {
   ELECTRON_ONLY_CHANNELS,
   NATIVE_DOCK_BADGE_PUSH,
   NATIVE_NOTIFICATION_PUSH,
-  type NativeNotificationRequest
+  NATIVE_TODO_REMINDERS_PUSH,
+  type NativeNotificationRequest,
+  type TodoReminder
 } from '@common/coreBridge'
 import { Channel } from '@common/ipc'
 import { registerCoreBridge, type CoreBridgeDeps } from './bridge'
@@ -20,6 +22,7 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
   rendered: Array<{ channel: string; payload: unknown }>
   notifications: NativeNotificationRequest[]
   badges: number[]
+  reminderLists: TodoReminder[][]
   emitPush: (channel: string, payload: unknown) => void
 } {
   const handles = new Map<string, Listener>()
@@ -29,6 +32,7 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
   const rendered: Array<{ channel: string; payload: unknown }> = []
   const notifications: NativeNotificationRequest[] = []
   const badges: number[] = []
+  const reminderLists: TodoReminder[][] = []
   let pushHandler: ((channel: string, payload: unknown) => void) | null = null
 
   registerCoreBridge({
@@ -67,6 +71,7 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
     sendToRenderer: (channel, payload) => rendered.push({ channel, payload }),
     showNotification: (request) => notifications.push(request),
     setDockBadge: (count) => badges.push(count),
+    applyTodoReminders: (reminders) => reminderLists.push(reminders),
     ...overrides
   })
 
@@ -78,6 +83,7 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
     rendered,
     notifications,
     badges,
+    reminderLists,
     emitPush: (channel, payload) => pushHandler!(channel, payload)
   }
 }
@@ -148,11 +154,28 @@ describe('registerCoreBridge routing', () => {
     expect(h.notifications).toEqual([request])
   })
 
+  test('routes the TODO reminder list to the reminder adapter, never to the window', () => {
+    const h = makeHarness()
+    const reminder: TodoReminder = {
+      id: 'todo-reminder:t1',
+      taskId: 't1',
+      title: 'Ship it',
+      body: 'Due 14:30 · Inbox',
+      fireAt: 1_763_040_600_000,
+      local: { year: 2026, month: 11, day: 13, hour: 14, minute: 30 }
+    }
+    h.emitPush(NATIVE_TODO_REMINDERS_PUSH, { reminders: [reminder] })
+    h.emitPush(NATIVE_TODO_REMINDERS_PUSH, { reminders: [] })
+    expect(h.reminderLists).toEqual([[reminder], []])
+    expect(h.rendered).toEqual([])
+  })
+
   test('main-sourced renderer channels are never expected from the core', () => {
     const h = makeHarness()
     // terminalNotificationClicked originates in main itself; a core push claiming it is a
     // routing bug and must not be forwarded as if legitimate.
     h.emitPush(Channel.terminalNotificationClicked, { sessionId: 's1' })
+    h.emitPush(Channel.todoReminderActivated, { taskId: 't1' })
     expect(h.rendered).toEqual([])
   })
 })

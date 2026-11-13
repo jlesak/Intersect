@@ -1,7 +1,30 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { TodoReminderActivatedEvent } from '@common/ipc'
+
+// One fake preload bridge: a reminder click arrives through it, and the task lookup the focus
+// request starts never answers, so no test depends on what the list would show.
+const bridge = vi.hoisted(() => {
+  let listener: ((msg: TodoReminderActivatedEvent) => void) | null = null
+  return {
+    api: {
+      todo: {
+        getById: () => new Promise(() => {}),
+        onReminderActivated: (cb: (msg: TodoReminderActivatedEvent) => void) => {
+          listener = cb
+          return () => {
+            if (listener === cb) listener = null
+          }
+        }
+      }
+    },
+    click: (taskId: string) => listener?.({ taskId })
+  }
+})
+vi.mock('@renderer/shared/ipc/client', () => ({ ipc: () => bridge.api }))
+
 import { TODO_SECTION_ID, useTodoStore } from '@renderer/features/todo'
 import { useShellStore } from './shellStore'
-import { wireTodoFocus } from './todoFocusWiring'
+import { wireTodoFocus, wireTodoReminderActivation } from './todoFocusWiring'
 
 let unwire: () => void
 
@@ -36,5 +59,21 @@ describe('wireTodoFocus', () => {
     unwire()
     useTodoStore.getState().focusTask('t1')
     expect(useShellStore.getState().context).toEqual({ kind: 'section', id: 'dashboard' })
+  })
+})
+
+describe('wireTodoReminderActivation', () => {
+  test('a clicked reminder opens its task in the TODO section', () => {
+    const unwireReminders = wireTodoReminderActivation()
+    bridge.click('t9')
+    expect(useTodoStore.getState().pendingFocusId).toBe('t9')
+    expect(useShellStore.getState().context).toEqual({ kind: 'section', id: TODO_SECTION_ID })
+    unwireReminders()
+  })
+
+  test('unwiring stops reminder clicks from opening tasks', () => {
+    wireTodoReminderActivation()()
+    bridge.click('t9')
+    expect(useTodoStore.getState().pendingFocusId).toBeNull()
   })
 })

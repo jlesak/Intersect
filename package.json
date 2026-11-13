@@ -18,7 +18,8 @@
     "e2e": "npm run build && playwright test",
     "e2e:nobuild": "playwright test",
     "lint": "eslint .",
-    "pack:mac": "npm run build && electron-builder --mac"
+    "build:native": "node-gyp rebuild --directory=native/todo-reminders --arch=arm64 --dist-url=https://electronjs.org/headers --target=$(node -p \"require('electron/package.json').version\") && mkdir -p out/native && cp native/todo-reminders/build/Release/todo_reminders.node out/native/todo_reminders.node",
+    "pack:mac": "npm run build && npm run build:native && electron-builder --mac"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -52,6 +53,7 @@
     "electron-vite": "^5.0.0",
     "eslint": "^9.0.0",
     "jsdom": "^25.0.0",
+    "node-gyp": "12.4.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.0.0",
     "vite": "^7.2.6",

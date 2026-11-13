@@ -21,7 +21,7 @@ import { wireSessionResume } from './app/sessionResumeWiring'
 import { wireSettings } from './app/settingsWiring'
 import { wireShortcuts } from './app/shortcutWiring'
 import { useSidebarLayoutStore } from '@renderer/shared/layout/sidebarLayout'
-import { wireTodoFocus } from './app/todoFocusWiring'
+import { wireTodoFocus, wireTodoReminderActivation } from './app/todoFocusWiring'
 import { wireWorkItemLaunch } from './app/workItemLaunchWiring'
 import { useCommandPaletteStore } from './features/commandPalette'
 import { useMyWorkStore } from './features/myWork'
@@ -99,6 +99,8 @@ wireAttention()
 wireMyWorkPrNav()
 // Send the user to the TODO section when any surface asks to focus a task (cross-slice, app-layer).
 wireTodoFocus()
+// Open the task of a clicked TODO reminder (main sends it once this window has loaded).
+wireTodoReminderActivation()
 // Turn the Dashboard's rows into the PR detail and terminal they point at (cross-slice, app-layer).
 wireDashboardNav()
 // Follow the tabs slice's workspace with its work-item refs and execute card launches.

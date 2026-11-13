@@ -11,7 +11,8 @@ import {
   type TerminalDataEvent,
   type TerminalExitEvent,
   type TerminalNotificationClickEvent,
-  type TerminalSessionStatusEvent
+  type TerminalSessionStatusEvent,
+  type TodoReminderActivatedEvent
 } from '@common/ipc'
 
 const api: IpcApi = {
@@ -204,7 +205,12 @@ const api: IpcApi = {
     listFilters: () => ipcRenderer.invoke(Channel.todoListFilters),
     createFilter: (name, query) => ipcRenderer.invoke(Channel.todoCreateFilter, name, query),
     updateFilter: (id, name, query) => ipcRenderer.invoke(Channel.todoUpdateFilter, id, name, query),
-    removeFilter: (id) => ipcRenderer.invoke(Channel.todoRemoveFilter, id)
+    removeFilter: (id) => ipcRenderer.invoke(Channel.todoRemoveFilter, id),
+    onReminderActivated: (cb) => {
+      const listener = (_e: unknown, msg: TodoReminderActivatedEvent): void => cb(msg)
+      ipcRenderer.on(Channel.todoReminderActivated, listener)
+      return () => ipcRenderer.removeListener(Channel.todoReminderActivated, listener)
+    }
   },
   notes: {
     list: (query) => ipcRenderer.invoke(Channel.notesList, query),

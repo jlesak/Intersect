@@ -11,13 +11,14 @@ import {
   shell,
   utilityProcess
 } from 'electron'
-import { Channel, type CoreStatus } from '@common/ipc'
+import { Channel, type CoreStatus, type TodoReminderActivatedEvent } from '@common/ipc'
 import { effectiveAdoOrgUrl } from '@common/ado'
 import type { AppSettings, LiveClaudeSession } from '@common/domain'
 import {
   WINDOW_FOCUS_CHANGED,
   type CoreInitMessage,
-  type NativeNotificationRequest
+  type NativeNotificationRequest,
+  type TodoReminder
 } from '@common/coreBridge'
 import type { RpcPort } from '@common/portRpc'
 import type { Logger } from '@common/logging/logger'
@@ -36,6 +37,11 @@ import {
   shouldZeroDockBadge,
   windowPresentation
 } from './lifecycle'
+import { createReminderActivation, reminderTaskIdFromLaunchInfo } from './todoReminders/activation'
+import { useNativeReminders } from './todoReminders/gate'
+import { loadNativeReminders, type NativeReminders } from './todoReminders/native'
+import { createRecordingReminders } from './todoReminders/recording'
+import { createReminderService, type ReminderService } from './todoReminders/service'
 import {
   createMainLogger,
   createMainSink,
@@ -76,6 +82,46 @@ const unattendedShutdown = createUnattendedShutdown()
 // moment a file-backed logger can exist. Every call site stays optional so a failure before that
 // point cannot turn into a second failure inside the reporting itself.
 let log: Logger | null = null
+// Set once at startup when this run schedules TODO reminders: the installed app with the addon, or
+// an e2e run with the recording stand-in. Null everywhere else.
+let reminders: ReminderService | null = null
+const isE2e = process.env.INTERSECT_E2E === '1'
+
+/**
+ * Every click on a TODO reminder goes through this one module: a cold launch from Notification
+ * Center, a click while the app runs, and a click while it runs with no window.
+ */
+const reminderActivation = createReminderActivation({
+  getWindow: () => mainWindow,
+  createWindow: () => {
+    if (!quitting) createWindow()
+  },
+  // A test driver's hidden window must never take the foreground.
+  focusApp: () => {
+    if (!hiddenWindow) app.focus({ steal: true })
+  },
+  send: (taskId) => {
+    const event: TodoReminderActivatedEvent = { taskId }
+    sendToRenderer(Channel.todoReminderActivated, event)
+  }
+})
+
+// Registered synchronously at the top level, because `ready` fires once and carries the
+// notification response a cold launch came from. It only queues the task: the startup below stays
+// the one path that creates the first window, whichever of the two runs first.
+app.once('ready', (_event, launchInfo) => {
+  const fromE2e = isE2e ? process.env.INTERSECT_E2E_REMINDER_LAUNCH || null : null
+  const taskId = reminderTaskIdFromLaunchInfo(launchInfo) ?? fromE2e
+  if (taskId) reminderActivation.enqueue(taskId)
+})
+
+// The e2e suite drives a warm reminder click through this hook, since it cannot click a real
+// notification. It exists only under INTERSECT_E2E=1.
+if (isE2e) {
+  ;(globalThis as unknown as { __intersectE2e: unknown }).__intersectE2e = {
+    activateReminder: (taskId: string) => reminderActivation.activate(taskId)
+  }
+}
 
 /** The one place the Dock badge is written: the count of sessions awaiting interaction. */
 function setDockBadge(count: number): void {
@@ -159,12 +205,15 @@ function createWindow(): void {
     }
   })
 
+  reminderActivation.windowCreated()
+
   // A hidden window is never shown: showing is what activates the app and takes the foreground.
   mainWindow.on('ready-to-show', () => {
     if (!hiddenWindow) mainWindow?.show()
   })
   mainWindow.on('closed', () => {
     mainWindow = null
+    reminderActivation.windowClosed()
     host?.notify(WINDOW_FOCUS_CHANGED, [{ focused: false }])
   })
 
@@ -183,6 +232,7 @@ function createWindow(): void {
   mainWindow.webContents.on('did-finish-load', () => {
     sendToRenderer(Channel.systemCoreStatus, coreStatus)
     host?.notify(WINDOW_FOCUS_CHANGED, [{ focused: mainWindow?.isFocused() ?? false }])
+    reminderActivation.windowLoaded()
   })
 
   // The renderer shows content that originates outside the app (Notion, Slack, LLM output); a
@@ -224,7 +274,11 @@ function spawnCore(init: CoreInitMessage): {
   }
 }
 
-function wireCore(userDataDir: string, logger: Logger): void {
+function wireCore(
+  userDataDir: string,
+  logger: Logger,
+  applyTodoReminders: (list: TodoReminder[]) => void
+): void {
   const lifecycle = logger.child('lifecycle')
   host = createCoreHost({
     spawnCore,
@@ -307,8 +361,55 @@ function wireCore(userDataDir: string, logger: Logger): void {
     showNotification: showCoreNotification,
     // The dock badge is the at-a-glance count of sessions awaiting interaction, sourced
     // solely from the core's canonical attention count.
-    setDockBadge
+    setDockBadge,
+    applyTodoReminders
   })
+}
+
+/**
+ * Pick what makes the core's reminder list real. Only the installed app on its default profile
+ * schedules with macOS, because pending requests belong to the bundle id. An e2e run records the
+ * list in its profile instead, and every other run only logs that it schedules nothing.
+ */
+function wireTodoReminders(userDataDir: string, logger: Logger): (list: TodoReminder[]) => void {
+  const native: NativeReminders | null = useNativeReminders({
+    packaged: app.isPackaged,
+    e2e: isE2e,
+    userDataDir,
+    defaultUserDataDir: join(app.getPath('appData'), 'Intersect')
+  })
+    ? loadNativeReminders({ mainDir: __dirname, logger })
+    : isE2e
+      ? createRecordingReminders(join(userDataDir, 'todo-reminders.e2e.json'))
+      : null
+  if (!native) {
+    let logged = false
+    return (list) => {
+      if (logged) return
+      logged = true
+      logger.info('todo reminders are scheduled only by the installed app', {
+        data: { reminders: list.length }
+      })
+    }
+  }
+  const service = createReminderService({
+    native,
+    // An e2e run must not read the real Notification Center either.
+    getHistory: isE2e ? async () => [] : () => Notification.getHistory(),
+    timers: {
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
+    },
+    now: () => Date.now(),
+    activation: reminderActivation,
+    logger
+  })
+  reminders = service
+  // Reading the history creates Electron's notification presenter, which installs the delegate
+  // that lets macOS show a reminder's banner while Intersect is frontmost. So it runs even when no
+  // reminder is due yet.
+  service.start()
+  return (list) => void service.apply(list)
 }
 
 app.whenReady().then(() => {
@@ -328,7 +429,8 @@ app.whenReady().then(() => {
   pruneLogsOnStartup(userDataDir, log)
   registerRendererLogReceiver({ ipcMain, sink, level, logger: log })
   log.info('app ready', { data: { userDataDir, packaged: app.isPackaged } })
-  wireCore(userDataDir, log)
+  const applyTodoReminders = wireTodoReminders(userDataDir, log.child('todo'))
+  wireCore(userDataDir, log, applyTodoReminders)
   // Hiding the Dock icon also makes the app an accessory: macOS then never activates it on launch
   // and it stays out of Cmd+Tab, so a suite run is invisible from the desktop.
   if (hiddenWindow) app.dock?.hide()
@@ -350,10 +452,16 @@ app.whenReady().then(() => {
   // so a burst of activations cannot create a second window.
   app.on('activate', () => {
     markUserPresent()
+    void reminders?.refreshHistory()
     const hasLiveWindow = mainWindow !== null && !mainWindow.isDestroyed()
     const action = activateAction({ hasLiveWindow, quitting })
     if (action === 'focus') mainWindow!.focus()
     if (action === 'create') createWindow()
+  })
+
+  // A reminder delivered while the Mac slept is in Notification Center now; give it its click.
+  powerMonitor.on('resume', () => {
+    void reminders?.refreshHistory()
   })
 
   // The one signal that says a quit will have nobody in front of it. On macOS this is

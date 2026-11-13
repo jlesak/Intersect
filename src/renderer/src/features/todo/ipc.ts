@@ -1,4 +1,5 @@
 import type { TodoCreateInput, TodoLists, TodoQuery, TodoTask, TodoTaskPatch } from '@common/domain'
+import type { TodoReminderActivatedEvent } from '@common/ipc'
 import { ipc } from '@renderer/shared/ipc/client'
 
 export const list = (): Promise<TodoLists> => ipc().todo.list()
@@ -28,3 +29,6 @@ export const createFilter = (name: string, filter: TodoQuery) => ipc().todo.crea
 export const updateFilter = (id: string, name: string, filter: TodoQuery) =>
   ipc().todo.updateFilter(id, name, filter)
 export const removeFilter = (id: string) => ipc().todo.removeFilter(id)
+/** The user clicked a task's macOS reminder. Returns an unsubscribe. */
+export const onReminderActivated = (cb: (e: TodoReminderActivatedEvent) => void): (() => void) =>
+  ipc().todo.onReminderActivated(cb)

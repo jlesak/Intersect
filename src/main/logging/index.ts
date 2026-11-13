@@ -125,6 +125,7 @@ const SCOPES: ReadonlySet<string> = new Set<LogScope>([
   'agentRuntime',
   'oneOnOne',
   'settings',
+  'todo',
   'renderer',
   'log'
 ])

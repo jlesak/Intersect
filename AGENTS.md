@@ -33,6 +33,10 @@ failure once; a second failure is real.
 - `src/core` - the headless core, an Electron utilityProcess (plain Node, no `electron` imports).
   It owns the SQLite database (`node:sqlite`), the PTYs (`node-pty`, imported only by
   `src/core/pty/nodePtySpawn.ts`) and every service.
+- `native/todo-reminders` - the Objective-C++ Node-API addon that schedules TODO reminders with
+  macOS UserNotifications. `npm run build:native` compiles it (Xcode) into `out/native`, and only
+  `src/main/todoReminders/native.ts` loads it, only in the installed app. It must never set the
+  notification center's delegate, which Electron owns.
 - `src/preload` - the typed contextBridge, `window.intersect`.
 - `src/renderer/src` - the React UI: `app/` is the shell, `shared/` holds primitives, the store
   factory and the UI kit, and `features/<slice>/` are vertical slices. A slice imports another

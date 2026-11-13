@@ -45,6 +45,10 @@ jobs:
 
       - run: npm run lint
 
+      # Proves the TODO reminder addon (Objective-C++, UserNotifications) still compiles. Only the
+      # packaged app loads it, so nothing else in CI would notice a broken build.
+      - run: npm run build:native
+
   e2e:
     name: e2e
     runs-on: macos-15
