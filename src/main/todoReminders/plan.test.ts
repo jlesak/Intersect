@@ -85,16 +85,20 @@ describe('planSync', () => {
   test('two changes held by the guard ask for the earlier of their retries', () => {
     // At 14:30:57 both 14:30 and 14:31 are inside the guard. 14:30 should have been delivered and
     // is retried when it leaves the guard (14:31:00.001); 14:31 is retried 2 s after it fires.
+    // Both orders, so neither keeping the first nor keeping the last retry can pass.
     const early = reminder('early', at1430())
     const late = reminder('late', new Date(T1430 + 60_000))
-    const result = planSync(
-      [pendingOf(early), pendingOf(late)],
-      [reminder('early', at1500()), reminder('late', at1500())],
-      T1430 + 57_000
-    )
-    expect(result.add).toEqual([])
-    expect(result.remove).toEqual([])
-    expect(result.retryAt).toBe(T1430 + 60_001)
+    const moved = { early: reminder('early', at1500()), late: reminder('late', at1500()) }
+    for (const order of [['early', 'late'], ['late', 'early']] as const) {
+      const result = planSync(
+        [pendingOf(early), pendingOf(late)],
+        order.map((name) => ({ ...moved[name] })),
+        T1430 + 57_000
+      )
+      expect(result.add, order.join(',')).toEqual([])
+      expect(result.remove, order.join(',')).toEqual([])
+      expect(result.retryAt, order.join(',')).toBe(T1430 + 60_001)
+    }
   })
 
   test('an unwanted future request is removed', () => {
