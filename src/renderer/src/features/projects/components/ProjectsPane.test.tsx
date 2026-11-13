@@ -35,22 +35,22 @@ describe('ProjectsPane', () => {
     const host = render('ready', [
       project({
         id: 'p1',
-        name: 'SPOT',
-        repoPaths: ['/repos/spot', '/repos/spot-backend'],
-        jiraJql: 'project = FID2507',
-        adoRepositories: ['spot-backend']
+        name: 'Example',
+        repoPaths: ['/repos/orders', '/repos/orders-backend'],
+        jiraJql: 'project = PROJ',
+        adoRepositories: ['orders-backend']
       }),
       project({ id: 'p2', name: 'Archived one', archived: true })
     ])
 
-    expect(host.querySelector<HTMLInputElement>('#ix-proj-name-p1')?.value).toBe('SPOT')
+    expect(host.querySelector<HTMLInputElement>('#ix-proj-name-p1')?.value).toBe('Example')
     expect(host.querySelector<HTMLInputElement>('#ix-proj-jql-p1')?.value).toBe(
-      'project = FID2507'
+      'project = PROJ'
     )
-    expect(host.querySelector<HTMLInputElement>('#ix-proj-ado-p1')?.value).toBe('spot-backend')
+    expect(host.querySelector<HTMLInputElement>('#ix-proj-ado-p1')?.value).toBe('orders-backend')
     expect([...host.querySelectorAll('.ix-proj__path')].map((el) => el.textContent)).toEqual([
-      '/repos/spot',
-      '/repos/spot-backend',
+      '/repos/orders',
+      '/repos/orders-backend',
       '/repos/p2'
     ])
     // The sole binding of a project cannot be removed.

@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { NATIVE_DOCK_BADGE_PUSH, WINDOW_FOCUS_CHANGED } from '@common/coreBridge'
+import {
+  NATIVE_DOCK_BADGE_PUSH,
+  NATIVE_TODO_REMINDERS_PUSH,
+  WINDOW_FOCUS_CHANGED,
+  type TodoRemindersRequest
+} from '@common/coreBridge'
 import { Channel } from '@common/ipc'
 import type { PtyProcess, SpawnFn } from './pty/sessionManager'
 import { buildMarker, PERMISSION_TOKEN, STOP_TOKEN } from './pty/attentionMarkers'
@@ -108,6 +113,38 @@ describe('createCoreRuntime', () => {
       workspaces: unknown[]
     }
     expect(Array.isArray(state.workspaces)).toBe(true)
+  })
+
+  test('pushes the TODO reminder list at boot, after a timed save and every hour', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const reminderPushes = (): TodoRemindersRequest[] =>
+        pushes
+          .filter((p) => p.channel === NATIVE_TODO_REMINDERS_PUSH)
+          .map((p) => p.payload as TodoRemindersRequest)
+      const rt = boot()
+      expect(reminderPushes()).toEqual([{ reminders: [] }])
+
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      const day = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+      const task = (await rt.handleRequest(Channel.todoAdd, [
+        { text: 'timed', dueDay: day, dueTime: '23:59' }
+      ])) as { id: string }
+      expect(reminderPushes().at(-1)?.reminders.map((r) => r.taskId)).toEqual([task.id])
+
+      vi.advanceTimersByTime(60 * 60 * 1000)
+      expect(reminderPushes()).toHaveLength(3)
+
+      rt.shutdown()
+      runtime = null
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000)
+      expect(reminderPushes()).toHaveLength(3)
+      // A refresh left running would read the closed database, which the sync only logs.
+      expect(readRecords(logSink).filter((r) => r.msg === 'todo reminder refresh failed'))
+        .toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('serves slice requests end to end through the composed routes', async () => {
@@ -401,10 +438,10 @@ describe('createCoreRuntime', () => {
       expect(board.error).toBeNull()
       expect(board.fetchedAt).not.toBeNull()
       expect(board.issues.map((i) => i.key)).toEqual([
-        'FID2507-3',
-        'FID2507-2',
-        'FID2507-4',
-        'FID2507-1'
+        'PROJ-3',
+        'PROJ-2',
+        'PROJ-4',
+        'PROJ-1'
       ])
       // The zero-Claude guarantee: the whole sync never touched the spawn seam.
       expect(fake.procs).toHaveLength(0)

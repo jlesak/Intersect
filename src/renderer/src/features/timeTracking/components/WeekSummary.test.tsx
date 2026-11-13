@@ -26,13 +26,13 @@ const PROJECT: Project = {
   sortOrder: 0,
   archived: false,
   repoPaths: ['/repo'],
-  jiraJql: 'project = FID2507',
+  jiraJql: 'project = PROJ',
   jiraBoardUrl: null,
   adoRepositories: []
 }
 
 const WEEK = [
-  entry('a', { issueKey: 'FID2507-611', durationMs: 90 * MIN }),
+  entry('a', { issueKey: 'PROJ-611', durationMs: 90 * MIN }),
   entry('b', { issueKey: null, durationMs: 30 * MIN })
 ]
 
@@ -93,7 +93,7 @@ describe('WeekSummary', () => {
       document.querySelector<HTMLButtonElement>('.ix-tt-summary__toggle')?.click()
     })
     expect(rows('By issue')).toEqual([
-      ['FID2507-611', '1', '1h 30m'],
+      ['PROJ-611', '1', '1h 30m'],
       ['No issue', '1', '30m']
     ])
     expect(rows('By project')).toEqual([

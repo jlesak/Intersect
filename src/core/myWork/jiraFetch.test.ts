@@ -62,7 +62,7 @@ describe('createJiraFetcher', () => {
           ok: true,
           issues: [
             {
-              key: 'FID2507-611',
+              key: 'PROJ-611',
               summary: 'Do the thing',
               status: 'In Review',
               priority: 'High',
@@ -84,7 +84,7 @@ describe('createJiraFetcher', () => {
     const result = await fetcher.fetchBoard()
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.issues.map((i) => i.key)).toEqual(['FID2507-611'])
+      expect(result.issues.map((i) => i.key)).toEqual(['PROJ-611'])
       expect(result.issues[0].column).toBe('review')
     }
     expect(pty.kill).toHaveBeenCalled()

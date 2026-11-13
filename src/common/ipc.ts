@@ -377,6 +377,8 @@ export interface IpcApi {
     createFilter(name: string, query: TodoQuery): Promise<TodoSavedFilter>
     updateFilter(id: string, name: string, query: TodoQuery): Promise<TodoSavedFilter>
     removeFilter(id: string): Promise<void>
+    /** The user clicked a task's macOS reminder; open the task. */
+    onReminderActivated(cb: (msg: TodoReminderActivatedEvent) => void): () => void
   }
   notes: {
     /** The days with matching entries, newest day first, each day's entries in capture order. */
@@ -616,6 +618,10 @@ export interface TerminalNotificationClickEvent {
   sessionId: string
 }
 
+export interface TodoReminderActivatedEvent {
+  taskId: string
+}
+
 /** Broadcast when a Jira source's background refresh completes (successfully or not). */
 export interface MyWorkChangedEvent {
   sourceKey: string
@@ -773,6 +779,8 @@ export const Channel = {
   todoCreateFilter: 'todo:createFilter',
   todoUpdateFilter: 'todo:updateFilter',
   todoRemoveFilter: 'todo:removeFilter',
+  // todo (main -> renderer broadcast: the user clicked a TODO reminder)
+  todoReminderActivated: 'todo:reminderActivated',
   // notes (request/response)
   notesList: 'notes:list',
   notesAdd: 'notes:add',

@@ -10,7 +10,7 @@ describe('parseOtoReport', () => {
         ok: true,
         notionUrl: 'https://www.notion.so/page',
         slackDraftCreated: true,
-        slackChannelLink: 'https://greencode.slack.com/archives/D1'
+        slackChannelLink: 'https://example.slack.com/archives/D1'
       })
     )
     expect(payload).toEqual({
@@ -19,7 +19,7 @@ describe('parseOtoReport', () => {
       ok: true,
       notionUrl: 'https://www.notion.so/page',
       slackDraftCreated: true,
-      slackChannelLink: 'https://greencode.slack.com/archives/D1',
+      slackChannelLink: 'https://example.slack.com/archives/D1',
       error: ''
     })
   })

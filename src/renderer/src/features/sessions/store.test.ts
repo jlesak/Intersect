@@ -58,7 +58,7 @@ describe('selectFiltered', () => {
   const all: SessionSummary[] = [
     summary('a', {
       title: 'Lock owner on reservation card',
-      folderName: 'SPOT',
+      folderName: 'Example',
       lastTimestamp: 3000,
       userPrompts: ['show the lock owner of a locked reservation']
     }),
@@ -117,7 +117,7 @@ describe('selectFiltered', () => {
   })
 
   test('folder multiselect keeps only the chosen folders', () => {
-    const s = { ...useSessionsStore.getState(), all, folders: ['SPOT', 'Intersect'] }
+    const s = { ...useSessionsStore.getState(), all, folders: ['Example', 'Intersect'] }
     expect(selectFiltered(s).map((x) => x.id)).toEqual(['a', 'c'])
   })
 
@@ -133,7 +133,7 @@ describe('selectFiltered', () => {
       query: 'owner',
       from: 1500,
       to: 3500,
-      folders: ['SPOT', 'Attendance']
+      folders: ['Example', 'Attendance']
     }
     expect(selectFiltered(s).map((x) => x.id)).toEqual(['a', 'b'])
   })

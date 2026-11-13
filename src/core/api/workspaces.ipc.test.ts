@@ -128,16 +128,16 @@ describe('workspace handlers', () => {
   })
 
   test('create resolves the project from the folder path (worktrees included)', async () => {
-    const p = ctx.projects.create('SPOT', '/repos/spot')
-    expect((await ws.create('/repos/spot/src')).projectId).toBe(p.id)
-    expect((await ws.create('/wt/spot/feature')).projectId).toBe(p.id)
+    const p = ctx.projects.create('Example', '/repos/orders')
+    expect((await ws.create('/repos/orders/src')).projectId).toBe(p.id)
+    expect((await ws.create('/wt/orders/feature')).projectId).toBe(p.id)
     const other = await ws.create('/elsewhere')
     expect(other.projectId).toBeNull()
     expect(other.projectSource).toBe('auto')
   })
 
   test('assignProject places the workspace manually and wins over inference', async () => {
-    const p = ctx.projects.create('SPOT', '/repos/spot')
+    const p = ctx.projects.create('Example', '/repos/orders')
     const w = await ws.create('/elsewhere')
     const assigned = await ws.assignProject(w.id, p.id)
     expect(assigned.projectId).toBe(p.id)
@@ -145,8 +145,8 @@ describe('workspace handlers', () => {
   })
 
   test('autoAssignProject re-resolves from the folder and restores automatic tracking', async () => {
-    const p = ctx.projects.create('SPOT', '/repos/spot')
-    const w = await ws.create('/repos/spot/src')
+    const p = ctx.projects.create('Example', '/repos/orders')
+    const w = await ws.create('/repos/orders/src')
     await ws.assignProject(w.id, null)
     const reverted = await ws.autoAssignProject(w.id)
     expect(reverted.projectId).toBe(p.id)

@@ -32,8 +32,8 @@ import { wireSessionResume } from './sessionResumeWiring'
 
 const WORKSPACE: Workspace = {
   id: 'ws1',
-  name: 'spot',
-  folderPath: '/repos/spot',
+  name: 'orders',
+  folderPath: '/repos/orders',
   layout: 'single',
   activeTabId: null,
   sortOrder: 0,
@@ -47,8 +47,8 @@ const summary = (over: Partial<SessionSummary> = {}): SessionSummary =>
   ({
     id: 's1',
     filePath: '/p/s1.jsonl',
-    cwd: '/repos/spot',
-    folderName: 'spot',
+    cwd: '/repos/orders',
+    folderName: 'orders',
     title: 'Fix the sync',
     gitBranch: null,
     firstTimestamp: 0,
@@ -96,7 +96,7 @@ describe('wireSessionResume', () => {
     workspaces.selectedWorkspaceId = null
     workspaces.create.mockResolvedValue(WORKSPACE)
     await resume()
-    expect(workspaces.create).toHaveBeenCalledWith('/repos/spot')
+    expect(workspaces.create).toHaveBeenCalledWith('/repos/orders')
     expect(workspaces.select).toHaveBeenCalledWith('ws1')
     expect(messages()).toEqual(['Resumed Fix the sync'])
   })

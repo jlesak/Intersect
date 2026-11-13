@@ -29,7 +29,7 @@ const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,
   description: 'Refactor validators',
-  issueKey: 'FID2507-611'
+  issueKey: 'PROJ-611'
 }
 
 const reset = (): void => {
@@ -217,8 +217,8 @@ describe('the work timer', () => {
 
   test('start puts the returned timer in state', async () => {
     mocked.startTimer.mockResolvedValue(TIMER)
-    await useTimeTrackingStore.getState().startTimer('Refactor validators', 'FID2507-611')
-    expect(mocked.startTimer).toHaveBeenCalledWith('Refactor validators', 'FID2507-611')
+    await useTimeTrackingStore.getState().startTimer('Refactor validators', 'PROJ-611')
+    expect(mocked.startTimer).toHaveBeenCalledWith('Refactor validators', 'PROJ-611')
     expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
   })
 
@@ -275,7 +275,7 @@ describe('the work timer', () => {
   test('update replaces the attribution in state', async () => {
     useTimeTrackingStore.setState({ timer: { ...TIMER, description: '', issueKey: null } })
     mocked.updateTimer.mockResolvedValue(TIMER)
-    await useTimeTrackingStore.getState().updateTimer('Refactor validators', 'FID2507-611')
+    await useTimeTrackingStore.getState().updateTimer('Refactor validators', 'PROJ-611')
     expect(useTimeTrackingStore.getState().timer).toEqual(TIMER)
   })
 })
@@ -308,10 +308,10 @@ describe('copying the week', () => {
   })
 
   test('puts the shown week on the clipboard as a readable block', async () => {
-    loaded(entry('a', { issueKey: 'FID2507-611', description: 'Refactor', durationMs: 90 * 60_000 }))
+    loaded(entry('a', { issueKey: 'PROJ-611', description: 'Refactor', durationMs: 90 * 60_000 }))
     await useTimeTrackingStore.getState().copyWeek('text')
     expect(clipboard.writeText).toHaveBeenCalledWith(
-      `Date\tIssue\tDescription\tDuration\n${CURRENT_WEEK}\tFID2507-611\tRefactor\t1h 30m\nTotal\t\t\t1h 30m`
+      `Date\tIssue\tDescription\tDuration\n${CURRENT_WEEK}\tPROJ-611\tRefactor\t1h 30m\nTotal\t\t\t1h 30m`
     )
     expect(toastMocks.push).toHaveBeenCalledWith(`Copied 1 entry as text (${RANGE}).`)
   })
@@ -329,7 +329,7 @@ describe('copying the week', () => {
   // the board has never been mounted and the week has therefore never been read.
   test('a copy from a never-loaded store reads the week rather than exporting nothing', async () => {
     mocked.getWeek.mockResolvedValue([
-      entry('a', { issueKey: 'FID2507-611', description: 'Refactor', durationMs: 90 * 60_000 })
+      entry('a', { issueKey: 'PROJ-611', description: 'Refactor', durationMs: 90 * 60_000 })
     ])
     expect(useTimeTrackingStore.getState().status).toBe('idle')
 
@@ -337,7 +337,7 @@ describe('copying the week', () => {
 
     expect(mocked.getWeek).toHaveBeenCalledWith(CURRENT_WEEK)
     expect(clipboard.writeText).toHaveBeenCalledWith(
-      `Date,Issue,Description,Duration\n${CURRENT_WEEK},FID2507-611,Refactor,1.50`
+      `Date,Issue,Description,Duration\n${CURRENT_WEEK},PROJ-611,Refactor,1.50`
     )
     expect(toastMocks.push).toHaveBeenCalledWith(`Copied 1 entry as CSV (${RANGE}).`)
   })

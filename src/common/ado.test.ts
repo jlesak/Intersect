@@ -11,7 +11,7 @@ describe('hasAdoConnection', () => {
   })
 
   test('an org URL and a token from the fallback alone are a connection', () => {
-    expect(hasAdoConnection(blank, { orgUrl: 'https://ado', project: 'SPOT', hasPat: true })).toBe(
+    expect(hasAdoConnection(blank, { orgUrl: 'https://ado', project: 'Example', hasPat: true })).toBe(
       true
     )
   })
@@ -57,17 +57,17 @@ describe('effectiveAdoOrgUrl', () => {
 })
 
 describe('prWebUrl', () => {
-  const pr = { projectId: 'SPOT', repositoryName: 'intersect-app', prId: 501 }
+  const pr = { projectId: 'Example', repositoryName: 'intersect-app', prId: 501 }
 
   test('builds the browsable pull-request page from the org URL, project, repository and id', () => {
     expect(prWebUrl('https://devops.example.com/tfs/DefaultCollection', pr)).toBe(
-      'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/intersect-app/pullrequest/501'
+      'https://devops.example.com/tfs/DefaultCollection/Example/_git/intersect-app/pullrequest/501'
     )
   })
 
   test('a trailing slash on the org URL does not double up', () => {
     expect(prWebUrl('https://devops.example.com/tfs/DefaultCollection//', pr)).toBe(
-      'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/intersect-app/pullrequest/501'
+      'https://devops.example.com/tfs/DefaultCollection/Example/_git/intersect-app/pullrequest/501'
     )
   })
 

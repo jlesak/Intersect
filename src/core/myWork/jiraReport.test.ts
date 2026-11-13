@@ -9,7 +9,7 @@ describe('parseJiraReport', () => {
         ok: true,
         issues: [
           {
-            key: 'FID2507-611',
+            key: 'PROJ-611',
             summary: 'Do the thing',
             status: 'In Progress',
             priority: 'High',
@@ -22,7 +22,7 @@ describe('parseJiraReport', () => {
     expect(p.ok).toBe(true)
     expect(p.issues).toEqual([
       {
-        key: 'FID2507-611',
+        key: 'PROJ-611',
         summary: 'Do the thing',
         status: 'In Progress',
         priority: 'High',

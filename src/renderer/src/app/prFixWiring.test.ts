@@ -28,7 +28,7 @@ const PR: PullRequest = {
   prId: 501,
   repositoryId: 'e2e-repo',
   repositoryName: 'intersect-app',
-  projectId: 'SPOT',
+  projectId: 'Example',
   title: 'Add rate limiting',
   description: '',
   authorId: 'me',

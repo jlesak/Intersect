@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  JIRA_HOST,
   mapPriority,
   mapStatusToColumn,
   toIssues,
@@ -9,7 +10,7 @@ import {
 } from './jiraMapping'
 
 const raw = (over: Partial<RawJiraIssue> = {}): RawJiraIssue => ({
-  key: 'FID2507-1',
+  key: 'PROJ-1',
   summary: 'An issue',
   status: 'To Do',
   priority: 'Medium',
@@ -84,8 +85,8 @@ describe('mapPriority', () => {
 
 describe('toIssues', () => {
   test('builds the canonical browse URL from the key', () => {
-    const [issue] = toIssues([raw({ key: 'FID2507-611' })])
-    expect(issue.url).toBe('https://jira.skoda.vwgroup.com/browse/FID2507-611')
+    const [issue] = toIssues([raw({ key: 'PROJ-611' })])
+    expect(issue.url).toBe(`https://${JIRA_HOST}/browse/PROJ-611`)
   })
 
   test('maps status and priority and parses updated to epoch ms', () => {
@@ -119,13 +120,13 @@ describe('toIssues', () => {
 
 describe('toSnapshots', () => {
   const remote = (over: Partial<JiraRemoteIssue> = {}): JiraRemoteIssue => ({
-    key: 'FID2507-1',
+    key: 'PROJ-1',
     summary: 'An issue',
     description: 'Details',
     rawStatus: 'In Review',
     rawPriority: 'High',
     assignee: 'Jan',
-    epicKey: 'FID2507-100',
+    epicKey: 'PROJ-100',
     epicSummary: 'The epic',
     estimateSeconds: 3600,
     components: ['Backend'],
@@ -136,8 +137,8 @@ describe('toSnapshots', () => {
   test('keeps the raw remote fields next to the normalized buckets and stamps the fetch time', () => {
     const [snapshot] = toSnapshots([remote()], 4242)
     expect(snapshot).toEqual({
-      key: 'FID2507-1',
-      url: 'https://jira.skoda.vwgroup.com/browse/FID2507-1',
+      key: 'PROJ-1',
+      url: `https://${JIRA_HOST}/browse/PROJ-1`,
       summary: 'An issue',
       column: 'review',
       priority: 'high',
@@ -146,7 +147,7 @@ describe('toSnapshots', () => {
       rawStatus: 'In Review',
       rawPriority: 'High',
       assignee: 'Jan',
-      epicKey: 'FID2507-100',
+      epicKey: 'PROJ-100',
       epicSummary: 'The epic',
       estimateSeconds: 3600,
       components: ['Backend'],

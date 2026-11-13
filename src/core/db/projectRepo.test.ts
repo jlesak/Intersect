@@ -24,14 +24,14 @@ describe('projectRepo', () => {
   })
 
   test('create binds one canonicalized repo folder and lists in manual order', () => {
-    const a = repo.create('SPOT', '/link/spot')
+    const a = repo.create('Example', '/link/orders')
     const b = repo.create('Intersect', '/real/intersect')
     expect(a).toEqual({
       id: 'id-1',
-      name: 'SPOT',
+      name: 'Example',
       sortOrder: 0,
       archived: false,
-      repoPaths: ['/real/spot'],
+      repoPaths: ['/real/orders'],
       jiraJql: null,
       jiraBoardUrl: null,
       adoRepositories: []
@@ -41,34 +41,34 @@ describe('projectRepo', () => {
   })
 
   test('create rejects a blank name and a folder already bound elsewhere, even via symlink alias', () => {
-    repo.create('SPOT', '/real/spot')
+    repo.create('Example', '/real/orders')
     expect(() => repo.create('  ', '/real/other')).toThrow('name must not be empty')
-    expect(() => repo.create('Dup', '/real/spot')).toThrow('already bound to project "SPOT"')
-    expect(() => repo.create('Dup', '/link/spot')).toThrow('already bound to project "SPOT"')
+    expect(() => repo.create('Dup', '/real/orders')).toThrow('already bound to project "Example"')
+    expect(() => repo.create('Dup', '/link/orders')).toThrow('already bound to project "Example"')
   })
 
   test('update edits name, Jira and ADO bindings; omitted fields stay', () => {
-    const p = repo.create('SPOT', '/real/spot')
+    const p = repo.create('Example', '/real/orders')
     const updated = repo.update(p.id, {
-      name: ' SPOT 2 ',
-      jiraJql: ' project = FID2507 ',
+      name: ' Example 2 ',
+      jiraJql: ' project = PROJ ',
       jiraBoardUrl: 'https://jira/board/1',
-      adoRepositories: ['spot-backend', 'spot-frontend']
+      adoRepositories: ['orders-backend', 'orders-frontend']
     })
-    expect(updated.name).toBe('SPOT 2')
-    expect(updated.jiraJql).toBe('project = FID2507')
+    expect(updated.name).toBe('Example 2')
+    expect(updated.jiraJql).toBe('project = PROJ')
     expect(updated.jiraBoardUrl).toBe('https://jira/board/1')
-    expect(updated.adoRepositories).toEqual(['spot-backend', 'spot-frontend'])
+    expect(updated.adoRepositories).toEqual(['orders-backend', 'orders-frontend'])
 
     const untouched = repo.update(p.id, { jiraBoardUrl: 'https://jira/board/2' })
     expect(untouched.jiraBoardUrl).toBe('https://jira/board/2')
-    expect(untouched.name).toBe('SPOT 2')
-    expect(untouched.jiraJql).toBe('project = FID2507')
-    expect(untouched.adoRepositories).toEqual(['spot-backend', 'spot-frontend'])
+    expect(untouched.name).toBe('Example 2')
+    expect(untouched.jiraJql).toBe('project = PROJ')
+    expect(untouched.adoRepositories).toEqual(['orders-backend', 'orders-frontend'])
   })
 
   test('update normalizes blank Jira fields to null and validates inputs', () => {
-    const p = repo.create('SPOT', '/real/spot')
+    const p = repo.create('Example', '/real/orders')
     const cleared = repo.update(p.id, { jiraJql: '  ', jiraBoardUrl: '' })
     expect(cleared.jiraJql).toBeNull()
     expect(cleared.jiraBoardUrl).toBeNull()
@@ -80,18 +80,18 @@ describe('projectRepo', () => {
   })
 
   test('a failed update rolls back every part of it', () => {
-    const p = repo.create('SPOT', '/real/spot')
+    const p = repo.create('Example', '/real/orders')
     repo.update(p.id, { adoRepositories: ['keep-me'] })
     expect(() =>
       repo.update(p.id, { adoRepositories: ['new-a', 'new-a'], name: 'Renamed' })
     ).toThrow()
     const after = repo.getById(p.id)!
-    expect(after.name).toBe('SPOT')
+    expect(after.name).toBe('Example')
     expect(after.adoRepositories).toEqual(['keep-me'])
   })
 
   test('archive is reversible app-state', () => {
-    const p = repo.create('SPOT', '/real/spot')
+    const p = repo.create('Example', '/real/orders')
     expect(repo.setArchived(p.id, true).archived).toBe(true)
     expect(repo.setArchived(p.id, false).archived).toBe(false)
   })

@@ -13,7 +13,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
     prId: 7,
     repositoryId: 'repo-1',
-    repositoryName: 'spot-backend',
+    repositoryName: 'orders-backend',
     projectId: 'ado',
     title: 'Fix the sync',
     description: '',
@@ -26,7 +26,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     sourceCommitId: 'a',
     targetCommitId: 'b',
     // What Azure DevOps really puts on a pull request: the REST resource, which answers JSON.
-    url: 'https://devops.example/e2e/_apis/git/repositories/spot-backend/pullRequests/7',
+    url: 'https://devops.example/e2e/_apis/git/repositories/orders-backend/pullRequests/7',
     role: 'reviewer',
     myVote: null,
     myReviewerId: null,
@@ -143,7 +143,7 @@ describe('PrRadar row actions', () => {
   const opened = expect.objectContaining({
     prId: 7,
     projectId: 'ado',
-    repositoryName: 'spot-backend'
+    repositoryName: 'orders-backend'
   })
   const real = {
     openPr: useMyWorkStore.getState().openPr,

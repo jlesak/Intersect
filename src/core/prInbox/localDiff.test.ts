@@ -474,7 +474,7 @@ describe('createLocalDiffService', () => {
     ({
       repositoryId: 'repo-1',
       prId: 42,
-      repositoryName: 'spot-backend',
+      repositoryName: 'orders-backend',
       sourceCommitId: repo.source,
       targetCommitId: repo.target,
       sourceRefName: 'refs/heads/feature',
@@ -503,7 +503,7 @@ describe('createLocalDiffService', () => {
   test('surfaces the missing-clone error', async () => {
     const svc = createLocalDiffService({
       resolveRepoDir: async () => {
-        throw new Error('No local clone found for repository "spot-backend".')
+        throw new Error('No local clone found for repository "orders-backend".')
       }
     })
     await expect(svc.getChanges(prFor(), [])).rejects.toThrow(/No local clone/)

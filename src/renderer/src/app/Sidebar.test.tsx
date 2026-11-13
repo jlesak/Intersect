@@ -43,14 +43,14 @@ function project(id: string, name: string, sortOrder: number): Project {
 }
 
 const PROJECTS = [
-  project('p1', 'SPOT', 0),
+  project('p1', 'Example', 0),
   project('p2', 'Atlas', 1),
   { ...project('p3', 'Legacy', 2), archived: true }
 ]
 
 const WORKSPACES = [
-  workspace('spot-api', { name: 'SPOT API', projectId: 'p1', projectSource: 'manual' }),
-  workspace('spot-web', { name: 'SPOT Web', projectId: 'p1', sortOrder: 1 }),
+  workspace('orders-api', { name: 'Example API', projectId: 'p1', projectSource: 'manual' }),
+  workspace('orders-web', { name: 'Example Web', projectId: 'p1', sortOrder: 1 }),
   workspace('atlas', { name: 'Atlas', projectId: 'p2', sortOrder: 2 }),
   workspace('scratch', { name: 'Scratch', sortOrder: 3 })
 ]
@@ -80,7 +80,7 @@ function seedRail(): void {
   })
   useAttentionStore.setState({
     status: {
-      'spot-web:t1': { status: 'waiting', since: 1 },
+      'orders-web:t1': { status: 'waiting', since: 1 },
       'atlas:t1': { status: 'working', since: 1 },
       'scratch:t1': { status: 'done', since: 1 }
     }
@@ -172,10 +172,10 @@ describe('Sidebar', () => {
 
       expect(logged).toEqual([])
       // Archived projects hold no pin, and the Other bucket always closes the pin run.
-      expect(railLabels()).toEqual(['Dashboard', 'SPOT', 'Atlas', 'Other'])
+      expect(railLabels()).toEqual(['Dashboard', 'Example', 'Atlas', 'Other'])
       expect(document.querySelectorAll('.ix-rail__btn--project')).toHaveLength(2)
 
-      // Each dot proves its pin's subscription resolved to that bucket's workspaces: SPOT
+      // Each dot proves its pin's subscription resolved to that bucket's workspaces: Example
       // aggregates a waiting session, Atlas a working one, and Other the unassigned Scratch.
       const dots = [...document.querySelectorAll('.ix-rail__btn--project .ix-rail__dot')].map(
         (e) => e.className
@@ -188,7 +188,7 @@ describe('Sidebar', () => {
       // No explicit context yet, so the first live project owns the body.
       expect(document.querySelector('.ix-rail__btn--project.ix-rail__btn--active')).toBeTruthy()
       const names = [...document.querySelectorAll('.ix-ws__name')].map((e) => e.textContent)
-      expect(names).toEqual(['SPOT API', 'SPOT Web'])
+      expect(names).toEqual(['Example API', 'Example Web'])
     } finally {
       consoleError.mockRestore()
     }

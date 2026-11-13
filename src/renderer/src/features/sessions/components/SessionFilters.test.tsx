@@ -10,9 +10,9 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
   const last = Date.now() - HOUR
   return {
     id: 's1',
-    filePath: '/home/jan/.claude/projects/-repos-spot/s1.jsonl',
-    cwd: '/repos/spot',
-    folderName: 'spot',
+    filePath: '/home/jan/.claude/projects/-repos-orders/s1.jsonl',
+    cwd: '/repos/orders',
+    folderName: 'orders',
     title: 'Fix the sync',
     gitBranch: 'main',
     firstTimestamp: last - HOUR,
@@ -85,7 +85,7 @@ describe('SessionFilters', () => {
     })
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('spot'))
+      fireEvent.click(screen.getByLabelText('orders'))
     })
 
     expect(useSessionsStore.getState().folders).toEqual(['atlas', 'intersect'])
@@ -100,11 +100,11 @@ describe('SessionFilters', () => {
       document.querySelector<HTMLButtonElement>('[data-testid="sessions-folders"]')?.click()
     })
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('spot'))
+      fireEvent.click(screen.getByLabelText('orders'))
     })
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('spot'))
+      fireEvent.click(screen.getByLabelText('orders'))
     })
 
     expect(useSessionsStore.getState().folders).toBeNull()
@@ -123,6 +123,6 @@ describe('SessionFilters', () => {
     const names = [...document.querySelectorAll('.ix-msel__item span')].map(
       (e) => e.textContent
     )
-    expect(names).toEqual(['atlas', 'intersect', 'spot'])
+    expect(names).toEqual(['atlas', 'intersect', 'orders'])
   })
 })

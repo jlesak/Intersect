@@ -7,7 +7,7 @@ import {
   type JiraClient
 } from './jiraClient'
 
-const BOARD_URL = 'https://jira.skoda.vwgroup.com/secure/RapidBoard.jspa?rapidView=51682&projectKey=FID2507'
+const BOARD_URL = 'https://jira.example.com/secure/RapidBoard.jspa?rapidView=51682&projectKey=PROJ'
 const BOARD_URL_WITH_QF = `${BOARD_URL}&quickFilter=84114`
 
 interface RecordedCall {
@@ -107,7 +107,7 @@ describe('searchByJql', () => {
       calls,
       responses: [
         NO_EPIC_FIELD,
-        { status: 200, body: { issues: [searchHit('FID2507-1')], total: 1 } }
+        { status: 200, body: { issues: [searchHit('PROJ-1')], total: 1 } }
       ]
     })
     const result = await client.searchByJql('assignee = currentUser() AND resolution = EMPTY')
@@ -116,8 +116,8 @@ describe('searchByJql', () => {
     expect(result.partial).toBe(false)
     expect(result.issues).toEqual([
       {
-        key: 'FID2507-1',
-        summary: 'Issue FID2507-1',
+        key: 'PROJ-1',
+        summary: 'Issue PROJ-1',
         description: null,
         rawStatus: 'In Progress',
         rawPriority: 'High',
@@ -224,18 +224,18 @@ describe('searchByJql', () => {
         { status: 200, body: [{ id: 'customfield_10006', name: 'Epic Link' }, { id: 'x', name: 'Sprint' }] },
         {
           status: 200,
-          body: { issues: [searchHit('FID2507-9', { customfield_10006: 'FID2507-100' })], total: 1 }
+          body: { issues: [searchHit('PROJ-9', { customfield_10006: 'PROJ-100' })], total: 1 }
         },
         {
           status: 200,
-          body: { issues: [{ key: 'FID2507-100', fields: { summary: 'Direct Jira sync' } }] }
+          body: { issues: [{ key: 'PROJ-100', fields: { summary: 'Direct Jira sync' } }] }
         }
       ]
     })
     const result = await client.searchByJql('x = y')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.issues[0].epicKey).toBe('FID2507-100')
+    expect(result.issues[0].epicKey).toBe('PROJ-100')
     expect(result.issues[0].epicSummary).toBe('Direct Jira sync')
 
     expect(new URL(calls[0].url).pathname).toBe('/rest/api/2/field')
@@ -243,7 +243,7 @@ describe('searchByJql', () => {
     // The discovered field is added to the requested fields.
     expect((calls[1].body as { fields: string[] }).fields).toContain('customfield_10006')
     // Epic summaries go through the read-only search POST as a key batch.
-    expect((calls[2].body as { jql: string }).jql).toBe('key in (FID2507-100)')
+    expect((calls[2].body as { jql: string }).jql).toBe('key in (PROJ-100)')
   })
 
   test('a failed epic summary lookup degrades to the epic key without a summary', async () => {
@@ -272,7 +272,7 @@ describe('fetchBoard', () => {
       calls,
       responses: [
         NO_EPIC_FIELD,
-        { status: 200, body: { issues: [searchHit('FID2507-1')], isLast: true } }
+        { status: 200, body: { issues: [searchHit('PROJ-1')], isLast: true } }
       ]
     })
     const result = await client.fetchBoard({ boardId: 51682, quickFilterId: null })

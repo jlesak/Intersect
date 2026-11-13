@@ -11,6 +11,8 @@ import {
   test,
   userDataDir
 } from './harness'
+// The app's configured Jira host; issue links are anchored to it.
+import { JIRA_BASE_URL } from '../src/core/myWork/jiraMapping'
 
 /**
  * Launch the app with the stubbed My Work backends in the given modes (see jiraE2eStub / adoE2eStub).
@@ -48,9 +50,9 @@ test('with no saved session, My Work offers the login without opening it, and a 
   await loginButton.click()
   await expect(win.locator('.ix-mw-loading')).toContainText('Complete the SSO login')
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
-  await expect(win.locator('.ix-mw-col--todo .ix-mw-card2 .ix-mw-key')).toHaveText('FID2507-1')
-  await expect(win.locator('.ix-mw-col--progress .ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-4'])
-  await expect(win.locator('.ix-mw-col--review .ix-mw-card2 .ix-mw-key')).toHaveText('FID2507-3')
+  await expect(win.locator('.ix-mw-col--todo .ix-mw-card2 .ix-mw-key')).toHaveText('PROJ-1')
+  await expect(win.locator('.ix-mw-col--progress .ix-mw-card2 .ix-mw-key')).toHaveText(['PROJ-2', 'PROJ-4'])
+  await expect(win.locator('.ix-mw-col--review .ix-mw-card2 .ix-mw-key')).toHaveText('PROJ-3')
   await expect(win.locator('.ix-mw-section__count')).toHaveText('4')
 })
 
@@ -107,7 +109,7 @@ test('typing narrows the board to the one issue meant, and the emptied columns s
   // "Verify the Board STates", so a filter falling back to substring search would show nothing.
   await win.getByTestId('jira-filter').fill('vbst')
 
-  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-3'])
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['PROJ-3'])
   await expect(win.getByTestId('jira-filter-count')).toHaveText('1 of 4')
 
   // Every column is still a column - the four with nothing left are strips that still say which
@@ -139,7 +141,7 @@ test('narrowing to one epic keeps only the issues under it', async () => {
   await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
   await win.locator('.ix-msel__item', { hasText: 'Platform' }).click()
 
-  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-4'])
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['PROJ-2', 'PROJ-4'])
   await expect(win.getByTestId('jira-filter-epic')).toHaveText(/1\/3/)
 
   // The issue under the other epic is gone, and its column with it.
@@ -150,18 +152,18 @@ test('hiding one epic leaves the issues that are under no epic where they were',
   const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   await expect(win.locator('.ix-mw-card2')).toHaveCount(4)
 
-  // The gesture is "hide the Release epic". FID2507-3 is under no epic at all and was never asked
+  // The gesture is "hide the Release epic". PROJ-3 is under no epic at all and was never asked
   // about, so it has to stay - on a real board it is the largest group there is.
   await win.getByTestId('jira-filter-epic').click()
   await win.locator('.ix-msel__item', { hasText: 'Release' }).click()
 
-  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-2', 'FID2507-4', 'FID2507-3'])
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['PROJ-2', 'PROJ-4', 'PROJ-3'])
   await expect(win.getByTestId('jira-filter-epic')).toHaveText(/2\/3/)
 
   // And they are reachable on their own: ask for exactly the issues under no epic.
   await win.locator('.ix-msel__pop button', { hasText: 'None' }).click()
   await win.locator('.ix-msel__item', { hasText: '(none)' }).click()
-  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['FID2507-3'])
+  await expect(win.locator('.ix-mw-card2 .ix-mw-key')).toHaveText(['PROJ-3'])
 })
 
 test('Escape puts the chip popover away and hands focus back to its button', async () => {
@@ -271,7 +273,7 @@ const cardOf = (win: Page, key: string): Locator =>
 
 test('a card keeps its actions out of the way until the pointer is on it', async () => {
   const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
-  const card = cardOf(win, 'FID2507-1')
+  const card = cardOf(win, 'PROJ-1')
   const bar = card.locator('.ix-rowactions')
 
   await expect(bar).toHaveCSS('opacity', '0')
@@ -292,7 +294,7 @@ test('a card keeps its actions out of the way until the pointer is on it', async
 
 test('a card reveals its actions to the keyboard too, without a pointer anywhere near it', async () => {
   const { win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
-  const card = cardOf(win, 'FID2507-1')
+  const card = cardOf(win, 'PROJ-1')
 
   await card.focus()
 
@@ -302,22 +304,22 @@ test('a card reveals its actions to the keyboard too, without a pointer anywhere
 test('the card’s Jira button opens the issue in the browser', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   const opened = await stubOpenExternal(app)
-  const card = cardOf(win, 'FID2507-1')
+  const card = cardOf(win, 'PROJ-1')
 
   await card.hover()
   await card.getByRole('button', { name: 'Jira' }).click()
 
-  await expect.poll(opened).toEqual(['https://jira.skoda.vwgroup.com/browse/FID2507-1'])
+  await expect.poll(opened).toEqual([`${JIRA_BASE_URL}/browse/PROJ-1`])
 })
 
 test('Cmd+Enter on a focused card opens the issue in the browser', async () => {
   const { app, win } = await launch({ INTERSECT_E2E_JIRA: 'board' })
   const opened = await stubOpenExternal(app)
 
-  await cardOf(win, 'FID2507-1').focus()
+  await cardOf(win, 'PROJ-1').focus()
   await win.keyboard.press('Meta+Enter')
 
-  await expect.poll(opened).toEqual(['https://jira.skoda.vwgroup.com/browse/FID2507-1'])
+  await expect.poll(opened).toEqual([`${JIRA_BASE_URL}/browse/PROJ-1`])
 })
 
 test('the card’s Start session button opens a Claude tab carrying the issue', async () => {
@@ -331,14 +333,14 @@ test('the card’s Start session button opens a Claude tab carrying the issue', 
   await stubQuitConfirm(app)
   await openRailSection(win, 'My Work', '.ix-mywork')
 
-  const card = cardOf(win, 'FID2507-1')
+  const card = cardOf(win, 'PROJ-1')
   await card.hover()
   await card.getByRole('button', { name: 'Start session' }).click()
 
   // The tab and its terminal exist whether or not `claude` is installed on this machine, and the
   // chip proves the session was opened on the issue rather than on nothing.
   await expect(win.locator('.ix-tab')).toHaveCount(1)
-  await expect(win.locator('.ix-tab__workitem')).toHaveText('FID2507-1')
+  await expect(win.locator('.ix-tab__workitem')).toHaveText('PROJ-1')
   await expect(win.locator('.ix-tab__preset')).toHaveText('AI')
 
   // A live session makes quitting prompt; this close walks the real teardown with it answered.

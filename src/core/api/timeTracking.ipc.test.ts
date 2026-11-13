@@ -9,7 +9,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   source: 'auto',
   day: '2026-07-06',
   description: 'Session s1',
-  issueKey: 'FID2507-611',
+  issueKey: 'PROJ-611',
   durationMs: 60 * 60_000,
   ...over
 })
@@ -17,7 +17,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,
   description: 'Refactor validators',
-  issueKey: 'FID2507-611'
+  issueKey: 'PROJ-611'
 }
 
 function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingService {
@@ -103,8 +103,8 @@ describe('timeTracking handlers', () => {
   test('startTimer forwards the description and issue key', async () => {
     const service = makeService()
     const h = createTimeTrackingHandlers({ service })
-    await expect(h.startTimer('Refactor validators', 'FID2507-611')).resolves.toEqual(TIMER)
-    expect(service.startTimer).toHaveBeenCalledWith('Refactor validators', 'FID2507-611')
+    await expect(h.startTimer('Refactor validators', 'PROJ-611')).resolves.toEqual(TIMER)
+    expect(service.startTimer).toHaveBeenCalledWith('Refactor validators', 'PROJ-611')
   })
 
   test('updateTimer forwards both fields, including a cleared issue key', async () => {
@@ -165,7 +165,7 @@ describe('timeTrackingWireRoutes', () => {
     const started = (await call(
       Channel.timeTrackingStartTimer,
       'Refactor validators',
-      'FID2507-611'
+      'PROJ-611'
     )) as RunningTimer
     expect(started).toEqual(TIMER)
   })

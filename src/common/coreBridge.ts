@@ -63,6 +63,7 @@ export const RENDERER_PUSH_CHANNELS: ReadonlyMap<ChannelName, 'core' | 'main'> =
   [Channel.myWorkChanged, 'core'],
   [Channel.usageChanged, 'core'],
   [Channel.terminalNotificationClicked, 'main'],
+  [Channel.todoReminderActivated, 'main'],
   [Channel.systemCoreStatus, 'main'],
   [Channel.shortcutInvoked, 'main']
 ])
@@ -91,6 +92,33 @@ export interface NativeNotificationRequest {
   subtitle?: string
   body: string
   silent: boolean
+}
+
+/**
+ * The complete list of TODO reminders that should be waiting in macOS, replacing the previous one.
+ * The core decides which tasks get a reminder; main only makes the system's pending requests match.
+ */
+export const NATIVE_TODO_REMINDERS_PUSH = 'native:todoReminders'
+export interface TodoRemindersRequest {
+  reminders: TodoReminder[]
+}
+/** A local calendar date and time, the fields a macOS calendar trigger matches on. */
+export interface TodoReminderLocalTime {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+}
+export interface TodoReminder {
+  /** The notification identifier, `todo-reminder:<taskId>`; one task has one pending reminder. */
+  id: string
+  taskId: string
+  title: string
+  body: string
+  /** The epoch milliseconds of `local` in the core's time zone. */
+  fireAt: number
+  local: TodoReminderLocalTime
 }
 
 /** Set the macOS Dock badge to the canonical count of sessions awaiting interaction. */

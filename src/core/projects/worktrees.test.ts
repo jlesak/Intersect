@@ -4,20 +4,20 @@ import { parseWorktreeList } from './worktrees'
 describe('parseWorktreeList', () => {
   test('parses the main checkout plus linked worktrees', () => {
     const porcelain = [
-      'worktree /repos/spot',
+      'worktree /repos/orders',
       'HEAD 1111111111111111111111111111111111111111',
       'branch refs/heads/main',
       '',
-      'worktree /wt/spot-feature',
+      'worktree /wt/orders-feature',
       'HEAD 2222222222222222222222222222222222222222',
       'branch refs/heads/feature/rail',
       ''
     ].join('\n')
 
     expect(parseWorktreeList(porcelain)).toEqual([
-      { path: '/repos/spot', head: '1111111111111111111111111111111111111111', branch: 'main' },
+      { path: '/repos/orders', head: '1111111111111111111111111111111111111111', branch: 'main' },
       {
-        path: '/wt/spot-feature',
+        path: '/wt/orders-feature',
         head: '2222222222222222222222222222222222222222',
         branch: 'feature/rail'
       }

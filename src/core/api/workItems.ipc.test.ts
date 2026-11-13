@@ -28,7 +28,7 @@ const issue = (key: string, summary = `Issue ${key}`): JiraIssueSnapshot => ({
   absent: false
 })
 
-const pullRequest = (prId: number, title: string, repositoryName = 'spot-backend'): PullRequest => ({
+const pullRequest = (prId: number, title: string, repositoryName = 'orders-backend'): PullRequest => ({
   prId,
   repositoryId: 'repo-guid',
   repositoryName,
@@ -168,8 +168,8 @@ describe('workItems handlers', () => {
   })
 
   test('searchCandidates groups by source, matches key+title, and prebuilds override-aware refs', async () => {
-    const p1 = ctx.projects.create('SPOT', '/repos/spot')
-    ctx.projects.update(p1.id, { jiraJql: 'project = FID', adoRepositories: ['spot-backend'] })
+    const p1 = ctx.projects.create('Example', '/repos/orders')
+    ctx.projects.update(p1.id, { jiraJql: 'project = FID', adoRepositories: ['orders-backend'] })
     jiraCache.putSuccess('global', [issue('FID-1', 'Fix login'), issue('OTHER-1', 'Elsewhere')], 1, false)
     todos.create('Fix the fence', null)
     prCache.replaceAll([pullRequest(12, 'Fix build')])
@@ -188,9 +188,9 @@ describe('workItems handlers', () => {
   })
 
   test('searchCandidates ranks the workspace project\'s items first', async () => {
-    const p1 = ctx.projects.create('SPOT', '/repos/spot')
+    const p1 = ctx.projects.create('Example', '/repos/orders')
     ctx.projects.update(p1.id, { jiraJql: 'project = FID' })
-    const projectWs = ctx.workspaces.create('/repos/spot', undefined, p1.id)
+    const projectWs = ctx.workspaces.create('/repos/orders', undefined, p1.id)
     expect(projectWs.projectId).toBe(p1.id)
     jiraCache.putSuccess('global', [issue('OTHER-1'), issue('FID-1')], 1, false)
 

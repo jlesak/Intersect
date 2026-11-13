@@ -9,7 +9,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   source: 'manual',
   day: '2026-08-17',
   description: 'Refactor validators',
-  issueKey: 'FID2507-611',
+  issueKey: 'PROJ-611',
   durationMs: 90 * MIN,
   ...over
 })
@@ -22,7 +22,7 @@ const WEEK: TimeEntry[] = [
     id: 'c',
     day: '2026-08-18',
     description: 'Pair on the migration',
-    issueKey: 'FID2507-900',
+    issueKey: 'PROJ-900',
     durationMs: 45 * MIN
   })
 ]
@@ -32,9 +32,9 @@ describe('weekAsText', () => {
     expect(weekAsText(WEEK)).toBe(
       [
         'Date\tIssue\tDescription\tDuration',
-        '2026-08-17\tFID2507-611\tRefactor validators\t1h 30m',
+        '2026-08-17\tPROJ-611\tRefactor validators\t1h 30m',
         '2026-08-17\t\tSprint review\t30m',
-        '2026-08-18\tFID2507-900\tPair on the migration\t45m',
+        '2026-08-18\tPROJ-900\tPair on the migration\t45m',
         'Total\t\t\t2h 45m'
       ].join('\n')
     )
@@ -46,7 +46,7 @@ describe('weekAsText', () => {
 
   test('a tab or a newline inside a description cannot break the column layout', () => {
     const text = weekAsText([entry({ description: 'Review\tof the\nspec' })])
-    expect(text.split('\n')[1]).toBe('2026-08-17\tFID2507-611\tReview of the spec\t1h 30m')
+    expect(text.split('\n')[1]).toBe('2026-08-17\tPROJ-611\tReview of the spec\t1h 30m')
   })
 })
 
@@ -55,9 +55,9 @@ describe('weekAsCsv', () => {
     expect(weekAsCsv(WEEK)).toBe(
       [
         'Date,Issue,Description,Duration',
-        '2026-08-17,FID2507-611,Refactor validators,1.50',
+        '2026-08-17,PROJ-611,Refactor validators,1.50',
         '2026-08-17,,Sprint review,0.50',
-        '2026-08-18,FID2507-900,Pair on the migration,0.75'
+        '2026-08-18,PROJ-900,Pair on the migration,0.75'
       ].join('\n')
     )
   })

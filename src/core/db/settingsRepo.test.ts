@@ -121,7 +121,7 @@ describe('settingsRepo', () => {
   test('ado settings round-trip and overwrite', () => {
     const ado = {
       orgUrl: 'https://devops.example.com/tfs/Collection',
-      project: 'FID2507',
+      project: 'PROJ',
       repository: 'intersect-app',
       pat: 'secret-pat'
     }

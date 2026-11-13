@@ -1,6 +1,6 @@
 /**
  * The Jira issue key embedded in a git branch name, normalized to the canonical uppercase form
- * (e.g. `feature/fid2507-611-slug` yields `FID2507-611`), or null when the session has no branch
+ * (e.g. `feature/proj9-611-slug` yields `PROJ9-611`), or null when the session has no branch
  * or the branch carries no key. Matches the first `<PROJECT>-<number>` shaped token,
  * case-insensitively; the project part needs at least two leading alphanumerics so plain
  * hyphenated words never qualify.

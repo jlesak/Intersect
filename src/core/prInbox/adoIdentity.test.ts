@@ -12,7 +12,7 @@ describe('classifyIdentity', () => {
   })
 
   test('a domain\\user becomes a uniqueName', () => {
-    expect(classifyIdentity('SKODA\\jlesak')).toEqual({ uniqueName: 'SKODA\\jlesak' })
+    expect(classifyIdentity('CORP\\jlesak')).toEqual({ uniqueName: 'CORP\\jlesak' })
   })
 
   test('anything else becomes a display name', () => {

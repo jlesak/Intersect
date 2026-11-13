@@ -3,12 +3,12 @@ import { jiraWorkItem, prWorkItem, todoWorkItem, workItemTabTitle } from './work
 
 describe('work item builders', () => {
   test('jiraWorkItem keys the ref by the issue key and snapshots key/summary', () => {
-    const ref = jiraWorkItem({ key: 'FID2507-611', summary: 'Fix the thing' }, 'p1')
+    const ref = jiraWorkItem({ key: 'PROJ-611', summary: 'Fix the thing' }, 'p1')
     expect(ref).toEqual({
       source: 'jira',
-      externalKey: 'FID2507-611',
+      externalKey: 'PROJ-611',
       projectId: 'p1',
-      snapshot: { key: 'FID2507-611', title: 'Fix the thing', type: 'issue' }
+      snapshot: { key: 'PROJ-611', title: 'Fix the thing', type: 'issue' }
     })
   })
 

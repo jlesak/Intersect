@@ -19,7 +19,7 @@ import { createSettingsHandlers, settingsWireRoutes } from './settings.ipc'
 
 const FALLBACK_ADO: AdoSettings = {
   orgUrl: 'https://devops.example.com/tfs/Collection',
-  project: 'SPOT',
+  project: 'Example',
   repository: '',
   pat: 'env-pat'
 }

@@ -7,13 +7,13 @@ import { ProjectOverview } from './ProjectOverview'
 
 const project: Project = {
   id: 'p1',
-  name: 'SPOT',
+  name: 'Example',
   sortOrder: 0,
   archived: false,
-  repoPaths: ['/repos/spot'],
-  jiraJql: 'project = FID2507',
+  repoPaths: ['/repos/orders'],
+  jiraJql: 'project = PROJ',
   jiraBoardUrl: null,
-  adoRepositories: ['spot-backend']
+  adoRepositories: ['orders-backend']
 }
 
 /**

@@ -12,7 +12,7 @@ const mocked = vi.mocked(api)
 const TIMER: RunningTimer = {
   startedAt: new Date(2026, 6, 28, 9, 35, 0).getTime(),
   description: 'Refactor validators',
-  issueKey: 'FID2507-611'
+  issueKey: 'PROJ-611'
 }
 
 const text = (selector: string): string =>
@@ -92,7 +92,7 @@ describe('TimerControl', () => {
       render(<TimerControl />)
     })
     expect(text('.ix-timer__elapsed')).toBe('25:00')
-    expect(text('.ix-timer__what')).toBe('FID2507-611')
+    expect(text('.ix-timer__what')).toBe('PROJ-611')
     expect(labelField().value).toBe('Refactor validators')
     expect(text('.ix-timer__action')).toBe('Stop')
   })
@@ -193,7 +193,7 @@ describe('TimerControl', () => {
     // Nothing is sent while the user is still typing: a keystroke is not a decision.
     expect(mocked.updateTimer).not.toHaveBeenCalled()
     await blurLabel()
-    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'PROJ-611')
   })
 
   test('Enter saves the label without waiting for the focus to move', async () => {
@@ -204,7 +204,7 @@ describe('TimerControl', () => {
     })
     await typeLabel('Code review')
     await pressLabel('Enter')
-    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'PROJ-611')
   })
 
   test('Escape drops the draft and leaves the timer as it was', async () => {
@@ -245,7 +245,7 @@ describe('TimerControl', () => {
     // the entry, and in this order - the core reads the description off the running row at stop.
     await typeLabel('Code review')
     await clickAction()
-    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'FID2507-611')
+    expect(mocked.updateTimer).toHaveBeenCalledWith('Code review', 'PROJ-611')
     expect(order).toEqual(['update', 'stop'])
   })
 

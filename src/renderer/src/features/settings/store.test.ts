@@ -14,7 +14,7 @@ const mocked = vi.mocked(api)
 
 const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
-  ado: { orgUrl: 'https://devops.example.com', project: 'SPOT', repository: 'app', pat: 'pat-1' },
+  ado: { orgUrl: 'https://devops.example.com', project: 'Example', repository: 'app', pat: 'pat-1' },
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },
   appearance: { terminalFontSize: 14 },
   review: { prompt: 'Review precisely.', model: 'sonnet' },
@@ -87,11 +87,11 @@ describe('setNotification', () => {
 describe('setAdoField', () => {
   test('updates the field, resets a stale test result, and persists', async () => {
     useSettingsStore.setState({ adoTest: { status: 'success', displayName: 'Jan' } })
-    await useSettingsStore.getState().setAdoField('project', 'FID2507')
+    await useSettingsStore.getState().setAdoField('project', 'PROJ')
     const s = useSettingsStore.getState()
-    expect(s.ado.project).toBe('FID2507')
+    expect(s.ado.project).toBe('PROJ')
     expect(s.adoTest).toEqual({ status: 'idle' })
-    expect(mocked.setAdo).toHaveBeenCalledWith(expect.objectContaining({ project: 'FID2507' }))
+    expect(mocked.setAdo).toHaveBeenCalledWith(expect.objectContaining({ project: 'PROJ' }))
   })
 })
 

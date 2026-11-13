@@ -9,7 +9,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 501,
   repositoryId: 'repo',
   repositoryName: 'intersect-app',
-  projectId: 'SPOT',
+  projectId: 'Example',
   title: 'Add rate limiting',
   description: '',
   authorId: 'me',

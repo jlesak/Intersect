@@ -6,7 +6,7 @@ function pr(over: Partial<PullRequest> & Pick<PullRequest, 'prId'>): PullRequest
   return {
     repositoryId: 'repo-1',
     repositoryName: 'intersect-app',
-    projectId: 'SPOT',
+    projectId: 'Example',
     title: '',
     description: '',
     authorId: 'u1',

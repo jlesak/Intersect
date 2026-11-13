@@ -29,13 +29,13 @@ describe('manualTimeEntryRepo', () => {
   })
 
   test('create stores a manual entry with a deterministic id and returns the canonical row', () => {
-    const e = repo.create(entry({ issueKey: 'FID2507-611' }))
+    const e = repo.create(entry({ issueKey: 'PROJ-611' }))
     expect(e).toEqual({
       id: 'id-1',
       source: 'manual',
       day: '2026-07-06',
       description: 'Team sync meeting',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 30 * 60_000
     })
   })
@@ -64,7 +64,7 @@ describe('manualTimeEntryRepo', () => {
   })
 
   test('update overwrites description, time and issue key, including clearing the key', () => {
-    const e = repo.create(entry({ issueKey: 'FID2507-611' }))
+    const e = repo.create(entry({ issueKey: 'PROJ-611' }))
     const updated = repo.update(e.id, {
       description: 'Renamed meeting',
       issueKey: null,
@@ -100,14 +100,14 @@ describe('timeOverrideRepo', () => {
   test('upsert inserts a new override and get reads it back', () => {
     repo.upsert('sess-1', {
       description: 'Edited label',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 90 * 60_000,
       deleted: false
     })
     expect(repo.get('sess-1')).toEqual({
       sessionId: 'sess-1',
       description: 'Edited label',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 90 * 60_000,
       deleted: false
     })
@@ -121,7 +121,7 @@ describe('timeOverrideRepo', () => {
   test('upsert replaces an existing override whole, including clearing the issue key', () => {
     repo.upsert('sess-1', {
       description: 'first',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 1000,
       deleted: false
     })
@@ -138,13 +138,13 @@ describe('timeOverrideRepo', () => {
   test('a tombstone survives round-trip and keeps its snapshot fields', () => {
     repo.upsert('sess-1', {
       description: 'kept',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 1000,
       deleted: true
     })
     const o = repo.get('sess-1')
     expect(o?.deleted).toBe(true)
-    expect(o?.issueKey).toBe('FID2507-611')
+    expect(o?.issueKey).toBe('PROJ-611')
   })
 
   test('get of an unknown session is undefined', () => {
@@ -179,11 +179,11 @@ describe('runningTimerRepo', () => {
   })
 
   test('start stores the timer and get reads it back', () => {
-    const started = repo.start(1_700_000_000_000, 'Refactor validators', 'FID2507-611')
+    const started = repo.start(1_700_000_000_000, 'Refactor validators', 'PROJ-611')
     expect(started).toEqual({
       startedAt: 1_700_000_000_000,
       description: 'Refactor validators',
-      issueKey: 'FID2507-611'
+      issueKey: 'PROJ-611'
     })
     expect(repo.get()).toEqual(started)
   })
@@ -202,11 +202,11 @@ describe('runningTimerRepo', () => {
 
   test('update replaces both editable fields without moving startedAt', () => {
     repo.start(1_700_000_000_000, 'Rough note', null)
-    const updated = repo.update('Refactor validators', 'FID2507-611')
+    const updated = repo.update('Refactor validators', 'PROJ-611')
     expect(updated).toEqual({
       startedAt: 1_700_000_000_000,
       description: 'Refactor validators',
-      issueKey: 'FID2507-611'
+      issueKey: 'PROJ-611'
     })
   })
 

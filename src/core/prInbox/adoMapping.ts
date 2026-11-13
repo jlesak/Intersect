@@ -88,7 +88,7 @@ const lc = (s: string | undefined): string => (s ?? '').trim().toLowerCase()
 
 /**
  * Whether an ADO person is me. Matches by identity id first (most reliable), then the domain
- * uniqueName (e.g. `dmz\DZCUP4C`), then displayName - because on-prem Server has no get_me and the
+ * uniqueName (e.g. `corp\USER1`), then displayName - because on-prem Server has no get_me and the
  * identity is resolved from configuration.
  */
 export function matchesIdentity(person: AdoPerson | undefined, identity: AdoIdentity): boolean {

@@ -124,7 +124,7 @@ describe('parseSummary', () => {
     const lines = [
       userLine('meta noise', { isMeta: true }),
       userLine('<command-name>/clear</command-name>'),
-      userLine('the real first prompt', { cwd: '/repo/spot' })
+      userLine('the real first prompt', { cwd: '/repo/orders' })
     ]
     expect(parseSummary('/p/s.jsonl', lines).title).toBe('the real first prompt')
   })
@@ -132,7 +132,7 @@ describe('parseSummary', () => {
   test('a turn that only echoed command output is neither the title nor a searchable prompt', () => {
     const lines = [
       userLine('<local-command-stdout>Set model to \u001b[1mopus\u001b[22m</local-command-stdout>'),
-      userLine('the real first prompt', { cwd: '/repo/spot' })
+      userLine('the real first prompt', { cwd: '/repo/orders' })
     ]
     const s = parseSummary('/p/s.jsonl', lines)
     expect(s.title).toBe('the real first prompt')
@@ -152,10 +152,10 @@ describe('parseSummary', () => {
   })
 
   test('reads cwd and folderName from the first line that has a cwd', () => {
-    const lines = [userLine('hi', { cwd: '/Users/me/GC/SPOT' })]
+    const lines = [userLine('hi', { cwd: '/Users/me/work/Example' })]
     const s = parseSummary('/p/s.jsonl', lines)
-    expect(s.cwd).toBe('/Users/me/GC/SPOT')
-    expect(s.folderName).toBe('SPOT')
+    expect(s.cwd).toBe('/Users/me/work/Example')
+    expect(s.folderName).toBe('Example')
   })
 
   test('reads the first non-empty gitBranch, else null', () => {

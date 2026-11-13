@@ -14,25 +14,25 @@ import {
 
 const me: AdoIdentity = {
   id: '6dc11d09-387d-4a25-8699-0dc709e21280',
-  uniqueName: 'dmz\\DZCUP4C',
-  displayName: 'Lesak, Jan (Green:Code s.r.o.)'
+  uniqueName: 'corp\\USER1',
+  displayName: 'Lesak, Jan (Example s.r.o.)'
 }
 
-// Trimmed from a real on-prem SPOT PR payload.
+// Trimmed from a real on-prem Example PR payload.
 const rawAuthored: AdoRawPullRequest = {
   pullRequestId: 33719,
-  title: 'FID2507-809 cycle start plans overview endpoints',
+  title: 'PROJ-809 cycle start plans overview endpoints',
   status: 1,
   creationDate: '2026-07-02T15:19:42.045Z',
-  sourceRefName: 'refs/heads/feature/FID2507-809',
+  sourceRefName: 'refs/heads/feature/PROJ-809',
   targetRefName: 'refs/heads/main',
   url: 'https://devops/pr/33719',
-  createdBy: { id: '6dc11d09-387d-4a25-8699-0dc709e21280', displayName: 'Lesak, Jan (Green:Code s.r.o.)', uniqueName: 'dmz\\DZCUP4C' },
-  repository: { id: 'c2941d43', name: 'spot-backend', project: { id: 'e0fc249c', name: 'SPOT' } },
+  createdBy: { id: '6dc11d09-387d-4a25-8699-0dc709e21280', displayName: 'Lesak, Jan (Example s.r.o.)', uniqueName: 'corp\\USER1' },
+  repository: { id: 'c2941d43', name: 'orders-backend', project: { id: 'e0fc249c', name: 'Example' } },
   lastMergeSourceCommit: { commitId: 'ad67eb11' },
   lastMergeTargetCommit: { commitId: 'ed283352' },
   reviewers: [
-    { id: 'fcb74157', displayName: 'Novacek, Radek', uniqueName: 'dmz\\DZCDERH', vote: 10, isRequired: true }
+    { id: 'fcb74157', displayName: 'Novacek, Radek', uniqueName: 'corp\\USER2', vote: 10, isRequired: true }
   ]
 }
 
@@ -78,13 +78,13 @@ describe('matchesIdentity', () => {
     expect(matchesIdentity({ id: '6DC11D09-387D-4A25-8699-0DC709E21280' }, me)).toBe(true)
   })
   test('matches on uniqueName when id absent', () => {
-    expect(matchesIdentity({ uniqueName: 'dmz\\dzcup4c' }, me)).toBe(true)
+    expect(matchesIdentity({ uniqueName: 'corp\\user1' }, me)).toBe(true)
   })
   test('matches on displayName as last resort', () => {
-    expect(matchesIdentity({ displayName: 'Lesak, Jan (Green:Code s.r.o.)' }, me)).toBe(true)
+    expect(matchesIdentity({ displayName: 'Lesak, Jan (Example s.r.o.)' }, me)).toBe(true)
   })
   test('does not match a different person', () => {
-    expect(matchesIdentity({ id: 'other', uniqueName: 'dmz\\DZCDERH' }, me)).toBe(false)
+    expect(matchesIdentity({ id: 'other', uniqueName: 'corp\\USER2' }, me)).toBe(false)
   })
   test('undefined person never matches', () => {
     expect(matchesIdentity(undefined, me)).toBe(false)
@@ -117,9 +117,9 @@ describe('mapPullRequest', () => {
   test('maps the real payload including commit ids and reviewers', () => {
     const pr = mapPullRequest(rawAuthored, 'author', me)
     expect(pr.prId).toBe(33719)
-    expect(pr.repositoryName).toBe('spot-backend')
-    expect(pr.projectId).toBe('SPOT')
-    expect(pr.authorName).toBe('Lesak, Jan (Green:Code s.r.o.)')
+    expect(pr.repositoryName).toBe('orders-backend')
+    expect(pr.projectId).toBe('Example')
+    expect(pr.authorName).toBe('Lesak, Jan (Example s.r.o.)')
     expect(pr.createdAt).toBe(Date.parse('2026-07-02T15:19:42.045Z'))
     expect(pr.sourceCommitId).toBe('ad67eb11')
     expect(pr.targetCommitId).toBe('ed283352')
@@ -159,7 +159,7 @@ describe('mapPullRequest', () => {
   test('myVote matches by uniqueName when the reviewer entry has no id', () => {
     const raw: AdoRawPullRequest = {
       ...rawAuthored,
-      reviewers: [{ uniqueName: 'dmz\\dzcup4c', vote: 10 }]
+      reviewers: [{ uniqueName: 'corp\\user1', vote: 10 }]
     }
     expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('approved')
   })
@@ -167,7 +167,7 @@ describe('mapPullRequest', () => {
   test('myVote matches by displayName as last resort', () => {
     const raw: AdoRawPullRequest = {
       ...rawAuthored,
-      reviewers: [{ displayName: 'Lesak, Jan (Green:Code s.r.o.)', vote: 5 }]
+      reviewers: [{ displayName: 'Lesak, Jan (Example s.r.o.)', vote: 5 }]
     }
     expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('approvedWithSuggestions')
   })
@@ -201,7 +201,7 @@ describe('mapPullRequest', () => {
   test('myReviewerId is null when my entry matched by name carries no id', () => {
     const raw: AdoRawPullRequest = {
       ...rawAuthored,
-      reviewers: [{ uniqueName: 'dmz\\dzcup4c', vote: 10 }]
+      reviewers: [{ uniqueName: 'corp\\user1', vote: 10 }]
     }
     const pr = mapPullRequest(raw, 'reviewer', me)
     expect(pr.myVote).toBe('approved')
@@ -219,7 +219,7 @@ describe('mergeMyPrs', () => {
   })
   test('keeps distinct PRs across repos', () => {
     const a = mapPullRequest(rawAuthored, 'author', me)
-    const b = mapPullRequest({ ...rawAuthored, repository: { id: 'other', name: 'spot-frontend' } }, 'reviewer', me)
+    const b = mapPullRequest({ ...rawAuthored, repository: { id: 'other', name: 'orders-frontend' } }, 'reviewer', me)
     expect(mergeMyPrs([a, b])).toHaveLength(2)
   })
 })

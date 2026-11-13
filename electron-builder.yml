@@ -1,4 +1,4 @@
-appId: cz.greencode.intersect
+appId: io.github.jlesak.intersect
 productName: Intersect
 
 directories:
@@ -17,15 +17,22 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{vitest.config.ts,playwright.config.ts}'
   - '!{README.md,AGENTS.md,CLAUDE.md}'
+  # The TODO reminder addon's sources and node-gyp output. build:native copies the one built file
+  # to out/native, which ships.
+  - '!native/**'
   # Agent tooling and its scratch: .claude also holds settings.local.json and other worktrees.
   - '!{.agents,.agent-runs,.claude,.codex,.lavish,.serena}/**'
 
-# node-pty is the only native module. Its pty.node and spawn-helper must live on disk
-# outside the asar archive so (a) electron-builder can sign them and (b) node-pty's own
-# runtime path rewrite (app.asar -> app.asar.unpacked in unixTerminal.js) can locate
-# spawn-helper. Without this the app launches but every terminal fails to spawn.
+# Two native modules ship. node-pty's pty.node and spawn-helper must live on disk outside the
+# asar archive so (a) electron-builder can sign them and (b) node-pty's own runtime path rewrite
+# (app.asar -> app.asar.unpacked in unixTerminal.js) can locate spawn-helper. Without this the app
+# launches but every terminal fails to spawn. The TODO reminder addon (native/todo-reminders,
+# built by `npm run build:native` into out/native) is unpacked for the same signing reason, and
+# because a native library cannot be loaded from inside the archive; src/main/todoReminders/
+# native.ts loads it from app.asar.unpacked.
 asarUnpack:
   - node_modules/node-pty/**
+  - out/native/**
   # Claude launches these three MCP servers as `node <path>`, outside Electron. Plain Node cannot
   # read inside app.asar, so the bundles and the chunks they share must also exist as ordinary
   # files. hookHelper.js is deliberately absent: it runs under the Electron binary with
@@ -44,7 +51,8 @@ asarUnpack:
   - node_modules/fast-uri/**
   - node_modules/require-from-string/**
 
-# node-pty ships ABI-stable N-API prebuilds; there is nothing to compile.
+# node-pty ships ABI-stable N-API prebuilds, and the reminder addon is compiled by
+# `npm run build:native` before electron-builder runs; there is nothing for it to rebuild.
 npmRebuild: false
 
 mac:

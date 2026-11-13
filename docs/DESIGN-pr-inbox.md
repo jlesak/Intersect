@@ -33,14 +33,14 @@ Settled by the user (2026-07-06):
   Intersect-owned stdio MCP server** process.
 - **U2** The review worktree is built by **reusing an existing local clone** (a Intersect workspace
   folder whose git origin matches the PR's repo). No clone-on-demand. Assumes git is already
-  authenticated to `devops.skoda.vwgroup.com`.
+  authenticated to `devops.example.com`.
 - **U3** During verification I **pause before any real publish** - the full flow is exercised live
   up to (but not through) posting a comment to a real PR; the real write happens only after an
   explicit go-ahead on a specific PR.
 
 Environment facts (verified):
-- ADO is **on-prem Azure DevOps Server** `https://devops.skoda.vwgroup.com/projects/SkodaAuto/`,
-  default project `SPOT` (needs VPN). MCP server `@tiberriver256/mcp-server-azure-devops@0.1.46`,
+- ADO is **on-prem Azure DevOps Server** `https://devops.example.com/projects/Acme/`,
+  default project `Example` (needs VPN). MCP server `@tiberriver256/mcp-server-azure-devops@0.1.46`,
   configured in `~/.claude.json` under `mcpServers.azureDevOps` (command `npx -y ...`, env carries
   `AZURE_DEVOPS_*` incl. the PAT). The same `AZURE_DEVOPS_*` vars are also in the shell env.
 - `claude` v2.1.201 at `~/.local/bin/claude`; login via macOS Keychain (no `ANTHROPIC_API_KEY`).

@@ -7,9 +7,11 @@ import { debounce } from '@common/debounce'
 import {
   NATIVE_DOCK_BADGE_PUSH,
   NATIVE_NOTIFICATION_PUSH,
+  NATIVE_TODO_REMINDERS_PUSH,
   WINDOW_FOCUS_CHANGED,
   type NativeDockBadgeRequest,
   type NativeNotificationRequest,
+  type TodoRemindersRequest,
   type WindowFocusChangedEvent,
   type WireRoutes
 } from '@common/coreBridge'
@@ -97,6 +99,7 @@ import {
   createTimeOverrideRepo
 } from './db/timeTrackingRepo'
 import { createTodoRepo } from './db/todoRepo'
+import { createTodoReminderSync } from './todo/reminders'
 import { createNoteRepo } from './db/noteRepo'
 import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
@@ -170,6 +173,9 @@ const STATUS_BODY: Record<SessionStatus, string> = {
   waiting: 'Needs your permission',
   done: 'Finished - waiting for your next prompt'
 }
+
+/** How often the TODO reminder list is recomputed without a write. */
+const TODO_REMINDER_REFRESH_MS = 60 * 60 * 1000
 
 /** Best-effort resolution of the `claude` binary for hidden Claude sessions. */
 function resolveClaudePath(env: NodeJS.ProcessEnv): string {
@@ -697,7 +703,22 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
 
   // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---
   const todos = createTodoRepo(db, repoDeps)
-  const todoHandlers = createTodoHandlers({ todos })
+  // The reminders that should wait in macOS, pushed to main as one full list after every write
+  // that can change them, at boot (a core restart included), and hourly, which rolls tasks beyond
+  // the cap and beyond main's 24-hour timer window into the list.
+  const todoReminders = createTodoReminderSync({
+    listOpen: () => todos.listOpen(),
+    listProjects: () => todos.listProjects(),
+    now: () => Date.now(),
+    apply: (reminders) => {
+      const request: TodoRemindersRequest = { reminders }
+      emitPush(NATIVE_TODO_REMINDERS_PUSH, request)
+    },
+    logger: deps.logger.child('todo')
+  })
+  const todoHandlers = createTodoHandlers({ todos, onChanged: () => todoReminders.refresh() })
+  todoReminders.refresh()
+  const todoReminderTimer = setInterval(() => todoReminders.refresh(), TODO_REMINDER_REFRESH_MS)
   // --- Daily notes slice: pure local state, searched through the repo's FTS5 index ---
   const notesHandlers = createNotesHandlers({ notes: createNoteRepo(db, repoDeps) })
   const paletteHandlers = createPaletteHandlers({ appState })
@@ -894,6 +915,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     hookListenerStopped = true
     void hookListenerHandle?.stop().catch(() => {})
     clearInterval(hookRetentionTimer)
+    clearInterval(todoReminderTimer)
     // Genuine persisted suspend, committed BEFORE anything destructive: while the DB is still open
     // and every PTY still alive, mark each live managed claude session `suspended` in one
     // transaction. runtime.shutdown() is only reached on a coordinated quit (never a window close

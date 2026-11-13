@@ -171,7 +171,7 @@ export interface Project {
   archived: boolean
   /** Canonical absolute repository folders bound to this project, in binding order (never empty). */
   repoPaths: string[]
-  /** Jira JQL filter selecting this project's issues (e.g. `project = FID2507`), or null. */
+  /** Jira JQL filter selecting this project's issues (e.g. `project = PROJ`), or null. */
   jiraJql: string | null
   /** Jira board URL opened from the project context, or null. */
   jiraBoardUrl: string | null

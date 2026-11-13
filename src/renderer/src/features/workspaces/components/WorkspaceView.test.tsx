@@ -26,8 +26,8 @@ const WORKSPACE_ID = 'ws1'
 
 const workspace: Workspace = {
   id: WORKSPACE_ID,
-  name: 'SPOT',
-  folderPath: '/repos/spot',
+  name: 'Example',
+  folderPath: '/repos/orders',
   layout: 'columns',
   activeTabId: 't2',
   sortOrder: 0,

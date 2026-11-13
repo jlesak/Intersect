@@ -7,7 +7,7 @@ import { makeTestDb } from './testkit'
 
 const snapshot = (key: string, over: Partial<JiraIssueSnapshot> = {}): JiraIssueSnapshot => ({
   key,
-  url: `https://jira.skoda.vwgroup.com/browse/${key}`,
+  url: `https://jira.example.com/browse/${key}`,
   summary: `Issue ${key}`,
   column: 'todo',
   priority: 'high',
@@ -117,8 +117,8 @@ describe('migration 17: legacy my_work_cache seeds the global source', () => {
     runMigrations(db, 16)
     const legacyIssues = [
       {
-        key: 'FID2507-1',
-        url: 'https://jira.skoda.vwgroup.com/browse/FID2507-1',
+        key: 'PROJ-1',
+        url: 'https://jira.example.com/browse/PROJ-1',
         summary: 'Legacy issue',
         column: 'progress',
         priority: 'high',
@@ -138,7 +138,7 @@ describe('migration 17: legacy my_work_cache seeds the global source', () => {
     expect(board?.error).toBeNull()
     expect(board?.issues).toHaveLength(1)
     expect(board?.issues[0]).toMatchObject({
-      key: 'FID2507-1',
+      key: 'PROJ-1',
       summary: 'Legacy issue',
       column: 'progress',
       priority: 'high',

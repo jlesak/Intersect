@@ -33,26 +33,26 @@ function workspace(id: string, projectId: string | null, sortOrder: number): Wor
 }
 
 const WORKSPACES = [
-  workspace('spot-api', 'p1', 0),
-  workspace('spot-web', 'p1', 1),
+  workspace('orders-api', 'p1', 0),
+  workspace('orders-web', 'p1', 1),
   workspace('atlas', 'p2', 2),
   workspace('scratch', null, 3)
 ]
 
 const PROJECT: Project = {
   id: 'p1',
-  name: 'SPOT',
+  name: 'Example',
   sortOrder: 0,
   archived: false,
-  repoPaths: ['/repos/spot-api', '/repos/spot-web'],
-  jiraJql: 'project = FID2507',
+  repoPaths: ['/repos/orders-api', '/repos/orders-web'],
+  jiraJql: 'project = PROJ',
   jiraBoardUrl: null,
-  adoRepositories: ['spot-backend']
+  adoRepositories: ['orders-backend']
 }
 
 const TAB: Tab = {
   id: 't1',
-  workspaceId: 'spot-api',
+  workspaceId: 'orders-api',
   title: 'shell',
   preset: 'shell',
   paneSlot: 0,
@@ -71,7 +71,7 @@ function stubBridge(): void {
       getState: () => Promise.resolve({ workspaces: WORKSPACES, selectedWorkspaceId: null }),
       setActive: () => Promise.resolve()
     },
-    tabs: { listByWorkspace: (id: string) => Promise.resolve(id === 'spot-api' ? [TAB] : []) }
+    tabs: { listByWorkspace: (id: string) => Promise.resolve(id === 'orders-api' ? [TAB] : []) }
   }
 }
 
@@ -123,11 +123,11 @@ describe('ProjectContextView', () => {
       })
 
       expect(logged).toEqual([])
-      expect(document.querySelector('.ix-ctx__title')?.textContent).toBe('SPOT')
+      expect(document.querySelector('.ix-ctx__title')?.textContent).toBe('Example')
       const tabs = [...document.querySelectorAll('[role="tab"]')].map((e) => e.textContent)
       expect(tabs).toEqual(['Terminals', 'Kanban', 'Pull Requests', 'Worktrees', 'Overview'])
       // The scoped workspaces resolved, so the restore effect could claim the project's first one.
-      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('spot-api')
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('orders-api')
       expect(document.querySelector('[data-testid="split-stage"]')).toBeTruthy()
     } finally {
       consoleError.mockRestore()
@@ -137,13 +137,13 @@ describe('ProjectContextView', () => {
   test('re-entering a project restores the workspace it last showed', async () => {
     stubBridge()
     seedContext()
-    useProjectContextStore.setState({ activeTab: {}, lastWorkspace: { p1: 'spot-web' } })
+    useProjectContextStore.setState({ activeTab: {}, lastWorkspace: { p1: 'orders-web' } })
 
     await act(async () => {
       render(<ProjectContextView context={{ kind: 'project', id: 'p1' }} />)
     })
 
-    expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('spot-web')
+    expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('orders-web')
   })
 
   test('the Other bucket drops the binding-only sections and scopes to unassigned workspaces', async () => {

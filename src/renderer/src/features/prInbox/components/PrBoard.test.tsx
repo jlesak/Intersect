@@ -28,7 +28,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
     prId: 7,
     repositoryId: 'repo-1',
-    repositoryName: 'spot-backend',
+    repositoryName: 'orders-backend',
     projectId: 'ado',
     title: 'Fix the sync',
     description: '',

@@ -5,8 +5,8 @@ import { decorateNewChanges, planWatermarks } from './reviewWatermark'
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 100,
   repositoryId: 'repo-a',
-  repositoryName: 'spot-backend',
-  projectId: 'SPOT',
+  repositoryName: 'orders-backend',
+  projectId: 'Example',
   title: 'a change',
   description: '',
   authorId: 'a1',

@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import type { TodoTask } from '@common/domain'
-import { Channel, type IpcApi } from '@common/ipc'
+import { CORE_INVOKE_CHANNELS } from '@common/coreBridge'
+import { Channel } from '@common/ipc'
 import { createTodoRepo, type TodoRepo } from '../db/todoRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
-import { createTodoHandlers, todoWireRoutes } from './todo.ipc'
+import { createTodoHandlers, todoWireRoutes, type TodoHandlers } from './todo.ipc'
 
 describe('todo handlers', () => {
   let db: DatabaseSync
   let todos: TodoRepo
-  let h: IpcApi['todo']
+  let h: TodoHandlers
 
   beforeEach(() => {
     db = makeTestDb()
@@ -79,6 +80,20 @@ describe('todo handlers', () => {
     })
     await expect(throwing.list()).rejects.toThrow(/boom/)
   })
+
+  test('a write still succeeds when the change listener throws, because it is already saved', async () => {
+    const withFailingListener = createTodoHandlers({
+      todos,
+      onChanged: () => {
+        throw new Error('reminder sync is gone')
+      }
+    })
+    const task = await withFailingListener.add('saved anyway', null)
+    expect(task.text).toBe('saved anyway')
+    await expect(withFailingListener.update(task.id, { text: 'edited' }))
+      .resolves.toMatchObject({ text: 'edited' })
+    expect((await h.list()).open.map((t) => t.text)).toEqual(['edited'])
+  })
 })
 
 describe('todoWireRoutes', () => {
@@ -90,7 +105,9 @@ describe('todoWireRoutes', () => {
       (routes[channel] as (...a: unknown[]) => unknown)(...args)
 
     expect(Object.keys(routes).sort()).toEqual(
-      Object.values(Channel).filter((channel) => channel.startsWith('todo:')).sort()
+      Object.values(Channel)
+        .filter((channel) => channel.startsWith('todo:') && CORE_INVOKE_CHANNELS.has(channel))
+        .sort()
     )
 
     const added = (await call(Channel.todoAdd, 'buy a monitor', null)) as TodoTask

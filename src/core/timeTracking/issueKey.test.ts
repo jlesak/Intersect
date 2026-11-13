@@ -3,19 +3,19 @@ import { issueKeyFromBranch } from './issueKey'
 
 describe('issueKeyFromBranch', () => {
   test('extracts an uppercase key from a plain branch', () => {
-    expect(issueKeyFromBranch('FID2507-611')).toBe('FID2507-611')
+    expect(issueKeyFromBranch('PROJ9-611')).toBe('PROJ9-611')
   })
 
   test('normalizes a lowercase key inside a feature branch to uppercase', () => {
-    expect(issueKeyFromBranch('feature/fid2507-611-lock-owner')).toBe('FID2507-611')
+    expect(issueKeyFromBranch('feature/proj9-611-lock-owner')).toBe('PROJ9-611')
   })
 
   test('matches mixed case and a prefix path', () => {
-    expect(issueKeyFromBranch('bugfix/Spot-42')).toBe('SPOT-42')
+    expect(issueKeyFromBranch('bugfix/Proj-42')).toBe('PROJ-42')
   })
 
   test('takes the first key when several appear', () => {
-    expect(issueKeyFromBranch('fid2507-611-and-fid2507-612')).toBe('FID2507-611')
+    expect(issueKeyFromBranch('proj9-611-and-proj9-612')).toBe('PROJ9-611')
   })
 
   test('a branch without a key yields null', () => {

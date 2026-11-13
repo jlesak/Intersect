@@ -96,7 +96,7 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await win.locator('#ix-set-ado-orgUrl').fill('https://devops.example.com/tfs/Col')
-  await win.locator('#ix-set-ado-project').fill('SPOT')
+  await win.locator('#ix-set-ado-project').fill('Example')
 
   // Away to the shortcuts overview and back: the typed values are still there.
   await win.locator('.ix-settings__nav-btn', { hasText: 'Klávesové zkratky' }).click()
@@ -108,7 +108,7 @@ test('switching categories never loses the typed ADO values, and the shortcuts t
 
   await win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
   await expect(win.locator('#ix-set-ado-orgUrl')).toHaveValue('https://devops.example.com/tfs/Col')
-  await expect(win.locator('#ix-set-ado-project')).toHaveValue('SPOT')
+  await expect(win.locator('#ix-set-ado-project')).toHaveValue('Example')
 })
 
 test('test connection reports the authenticated user inline', async () => {
@@ -137,7 +137,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
   await expect(first.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
-  await first.win.locator('#ix-set-ado-repository').fill('spot-repo')
+  await first.win.locator('#ix-set-ado-repository').fill('orders-repo')
 
   await first.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
   await first.win.locator('#ix-set-review-prompt').fill(reviewPrompt)
@@ -158,7 +158,7 @@ test('notification, ADO, PR-review prompt, and font-size changes survive a relau
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Notifikace' }).click()
   await expect(second.win.getByLabel('Zvuk', { exact: true })).not.toBeChecked()
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Azure DevOps' }).click()
-  await expect(second.win.locator('#ix-set-ado-repository')).toHaveValue('spot-repo')
+  await expect(second.win.locator('#ix-set-ado-repository')).toHaveValue('orders-repo')
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'PR Review' }).click()
   await expect(second.win.locator('#ix-set-review-prompt')).toHaveValue(reviewPrompt)
   await expect(second.win.locator('#ix-set-review-model')).toHaveValue('claude-opus-5')
