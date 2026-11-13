@@ -45,12 +45,12 @@ describe('otoRunRepo', () => {
       type: 'process',
       notionUrl: 'https://www.notion.so/page-1',
       slackDraftCreated: true,
-      slackChannelLink: 'https://greencode.slack.com/archives/D1'
+      slackChannelLink: 'https://example.slack.com/archives/D1'
     })
     expect(done.status).toBe('done')
     expect(done.notionUrl).toBe('https://www.notion.so/page-1')
     expect(done.slackDraftCreated).toBe(true)
-    expect(done.slackChannelLink).toBe('https://greencode.slack.com/archives/D1')
+    expect(done.slackChannelLink).toBe('https://example.slack.com/archives/D1')
     expect(done.resultMarkdown).toBeNull()
     expect(done.finishedAt).not.toBeNull()
   })

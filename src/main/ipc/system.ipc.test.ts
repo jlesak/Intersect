@@ -14,13 +14,13 @@ describe('isAllowedExternalUrl', () => {
   test.each([
     ['https://jira.skoda.vwgroup.com/browse/FID2507-611', true],
     ['https://jira.skoda.vwgroup.com/', true],
-    ['https://www.notion.so/greencode/1-1-Marek-abc123', true],
+    ['https://www.notion.so/example/1-1-Marek-abc123', true],
     ['https://notion.so/some-page', true],
-    ['https://greencode.notion.so/some-page', true],
-    ['https://greencode.slack.com/archives/D0000000', true],
+    ['https://example.notion.so/some-page', true],
+    ['https://example.slack.com/archives/D0000000', true],
     ['https://app.slack.com/client/T0/D0', true],
     ['http://jira.skoda.vwgroup.com/browse/FID2507-611', false],
-    ['http://greencode.slack.com/archives/D0', false],
+    ['http://example.slack.com/archives/D0', false],
     ['https://evil-slack.com/x', false],
     ['https://evil.example.com/browse/FID2507-611', false],
     ['https://jira.skoda.vwgroup.com.evil.example.com/x', false],
@@ -72,7 +72,7 @@ describe('isAllowedExternalUrl - the configured Azure DevOps organisation', () =
     expect(isAllowedExternalUrl('http://devops.example.com/x', ORG_URL)).toBe(false)
     expect(isAllowedExternalUrl('https://evil.example.com/x', ORG_URL)).toBe(false)
     expect(isAllowedExternalUrl('https://jira.skoda.vwgroup.com/browse/A-1', ORG_URL)).toBe(true)
-    expect(isAllowedExternalUrl('https://greencode.slack.com/archives/D0', ORG_URL)).toBe(true)
+    expect(isAllowedExternalUrl('https://example.slack.com/archives/D0', ORG_URL)).toBe(true)
   })
 })
 

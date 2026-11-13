@@ -15,7 +15,7 @@ import {
 const me: AdoIdentity = {
   id: '6dc11d09-387d-4a25-8699-0dc709e21280',
   uniqueName: 'dmz\\DZCUP4C',
-  displayName: 'Lesak, Jan (Green:Code s.r.o.)'
+  displayName: 'Lesak, Jan (Example s.r.o.)'
 }
 
 // Trimmed from a real on-prem SPOT PR payload.
@@ -27,7 +27,7 @@ const rawAuthored: AdoRawPullRequest = {
   sourceRefName: 'refs/heads/feature/FID2507-809',
   targetRefName: 'refs/heads/main',
   url: 'https://devops/pr/33719',
-  createdBy: { id: '6dc11d09-387d-4a25-8699-0dc709e21280', displayName: 'Lesak, Jan (Green:Code s.r.o.)', uniqueName: 'dmz\\DZCUP4C' },
+  createdBy: { id: '6dc11d09-387d-4a25-8699-0dc709e21280', displayName: 'Lesak, Jan (Example s.r.o.)', uniqueName: 'dmz\\DZCUP4C' },
   repository: { id: 'c2941d43', name: 'spot-backend', project: { id: 'e0fc249c', name: 'SPOT' } },
   lastMergeSourceCommit: { commitId: 'ad67eb11' },
   lastMergeTargetCommit: { commitId: 'ed283352' },
@@ -81,7 +81,7 @@ describe('matchesIdentity', () => {
     expect(matchesIdentity({ uniqueName: 'dmz\\dzcup4c' }, me)).toBe(true)
   })
   test('matches on displayName as last resort', () => {
-    expect(matchesIdentity({ displayName: 'Lesak, Jan (Green:Code s.r.o.)' }, me)).toBe(true)
+    expect(matchesIdentity({ displayName: 'Lesak, Jan (Example s.r.o.)' }, me)).toBe(true)
   })
   test('does not match a different person', () => {
     expect(matchesIdentity({ id: 'other', uniqueName: 'dmz\\DZCDERH' }, me)).toBe(false)
@@ -119,7 +119,7 @@ describe('mapPullRequest', () => {
     expect(pr.prId).toBe(33719)
     expect(pr.repositoryName).toBe('spot-backend')
     expect(pr.projectId).toBe('SPOT')
-    expect(pr.authorName).toBe('Lesak, Jan (Green:Code s.r.o.)')
+    expect(pr.authorName).toBe('Lesak, Jan (Example s.r.o.)')
     expect(pr.createdAt).toBe(Date.parse('2026-07-02T15:19:42.045Z'))
     expect(pr.sourceCommitId).toBe('ad67eb11')
     expect(pr.targetCommitId).toBe('ed283352')
@@ -167,7 +167,7 @@ describe('mapPullRequest', () => {
   test('myVote matches by displayName as last resort', () => {
     const raw: AdoRawPullRequest = {
       ...rawAuthored,
-      reviewers: [{ displayName: 'Lesak, Jan (Green:Code s.r.o.)', vote: 5 }]
+      reviewers: [{ displayName: 'Lesak, Jan (Example s.r.o.)', vote: 5 }]
     }
     expect(mapPullRequest(raw, 'reviewer', me).myVote).toBe('approvedWithSuggestions')
   })

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Intersect - personal macOS workspace & terminal manager",
   "private": true,
-  "author": "jan.lesak@greencode.cz",
+  "author": "jlesak",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

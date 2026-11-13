@@ -105,7 +105,7 @@ describe('createOtoManager', () => {
           ok: true,
           notionUrl: 'https://www.notion.so/page-1',
           slackDraftCreated: true,
-          slackChannelLink: 'https://greencode.slack.com/archives/D1'
+          slackChannelLink: 'https://example.slack.com/archives/D1'
         })
       )
       return pty
@@ -129,7 +129,7 @@ describe('createOtoManager', () => {
     expect(finished.status).toBe('done')
     expect(finished.notionUrl).toBe('https://www.notion.so/page-1')
     expect(finished.slackDraftCreated).toBe(true)
-    expect(finished.slackChannelLink).toBe('https://greencode.slack.com/archives/D1')
+    expect(finished.slackChannelLink).toBe('https://example.slack.com/archives/D1')
     expect(h.repo.get(started.id)!.status).toBe('done')
     expect(pty.kill).toHaveBeenCalled()
   })
