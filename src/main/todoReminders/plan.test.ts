@@ -62,6 +62,41 @@ describe('planSync', () => {
     expect(planSync([pendingOf(before)], [moved], now).add).toEqual([moved])
   })
 
+  test('a pending request that differs in any one field of its local time is added again', () => {
+    // The body is held fixed, so only the trigger fields can tell the two apart.
+    const base = reminder('a', at1430(), { body: 'fixed' })
+    // Two days ahead, so no variant falls inside the guard.
+    const now = T1430 - 2 * 24 * 60 * 60_000
+    const fields = ['year', 'month', 'day', 'hour', 'minute'] as const
+    for (const field of fields) {
+      const stale = pendingOf(base)
+      stale.local = { ...base.local, [field]: base.local[field] - 1 }
+      expect(planSync([stale], [{ ...base }], now).add, field).toEqual([base])
+    }
+  })
+
+  test('a wanted request more than 60 s past its time is removed, macOS will never fire it', () => {
+    // main reconciles the last list again later, on a retry, so a wanted time can have passed.
+    const missed = reminder('a', at1430())
+    const result = planSync([pendingOf(missed)], [{ ...missed }], T1430 + 61_000)
+    expect(result).toEqual({ add: [], remove: ['todo-reminder:a'], retryAt: null })
+  })
+
+  test('two changes held by the guard ask for the earlier of their retries', () => {
+    // At 14:30:57 both 14:30 and 14:31 are inside the guard. 14:30 should have been delivered and
+    // is retried when it leaves the guard (14:31:00.001); 14:31 is retried 2 s after it fires.
+    const early = reminder('early', at1430())
+    const late = reminder('late', new Date(T1430 + 60_000))
+    const result = planSync(
+      [pendingOf(early), pendingOf(late)],
+      [reminder('early', at1500()), reminder('late', at1500())],
+      T1430 + 57_000
+    )
+    expect(result.add).toEqual([])
+    expect(result.remove).toEqual([])
+    expect(result.retryAt).toBe(T1430 + 60_001)
+  })
+
   test('an unwanted future request is removed', () => {
     const stale = reminder('gone', at1500())
     expect(planSync([pendingOf(stale)], [], T1430).remove).toEqual(['todo-reminder:gone'])

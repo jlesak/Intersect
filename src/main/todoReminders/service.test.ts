@@ -429,6 +429,18 @@ describe('permission', () => {
     expect(store.has('todo-reminder:t1')).toBe(true)
   })
 
+  test('a prompt that is still open is not raised again by later applies', async () => {
+    const { native, fake } = fakeNative('notDetermined')
+    // The user has not answered yet, so the status stays undecided and the request never returns.
+    fake.requestAuthorization.mockImplementation(() => new Promise<boolean>(() => {}))
+    const s = makeService(native)
+    await s.apply([reminder('t1', 30)])
+    await s.apply([reminder('t1', 30), reminder('t2', 40)])
+    await s.apply([reminder('t2', 40)])
+    expect(fake.requestAuthorization).toHaveBeenCalledTimes(1)
+    expect(fake.schedule).not.toHaveBeenCalled()
+  })
+
   test('an undecided permission is not asked for while there is nothing to schedule', async () => {
     const { native, fake } = fakeNative('notDetermined')
     const s = makeService(native)

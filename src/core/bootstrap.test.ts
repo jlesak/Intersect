@@ -139,6 +139,9 @@ describe('createCoreRuntime', () => {
       runtime = null
       vi.advanceTimersByTime(2 * 60 * 60 * 1000)
       expect(reminderPushes()).toHaveLength(3)
+      // A refresh left running would read the closed database, which the sync only logs.
+      expect(readRecords(logSink).filter((r) => r.msg === 'todo reminder refresh failed'))
+        .toEqual([])
     } finally {
       vi.useRealTimers()
     }

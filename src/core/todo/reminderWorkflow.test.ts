@@ -30,6 +30,8 @@ const silentLogger: Logger = {
 let clock: number
 let pending: Map<string, PendingReminder>
 let applied: number
+/** Every request id handed to macOS, in order, so a request asked for twice shows up twice. */
+let scheduled: string[]
 let failApply: boolean
 let todos: TodoRepo
 let sync: TodoReminderSync
@@ -42,6 +44,7 @@ function applyToMacos(reminders: TodoReminder[]): void {
   const plan = planSync([...pending.values()], reminders, clock)
   for (const id of plan.remove) pending.delete(id)
   for (const r of plan.add) {
+    scheduled.push(r.id)
     pending.set(r.id, { id: r.id, title: r.title, body: r.body, local: { ...r.local } })
   }
 }
@@ -55,6 +58,7 @@ beforeEach(() => {
   clock = START
   pending = new Map()
   applied = 0
+  scheduled = []
   failApply = false
   let ids = 0
   todos = createTodoRepo(makeTestDb(), { now: () => clock, newId: () => `task${++ids}` })
@@ -165,13 +169,17 @@ describe('changing a task updates or cancels its reminder', () => {
 })
 
 describe('restarts and failures', () => {
-  test('two boot refreshes still leave one pending request per task', async () => {
+  test('two boot refreshes leave one pending request per task and ask macOS for nothing again', async () => {
     const a = await h.add({ text: 'a', dueDay: TOMORROW, dueTime: '14:30' })
     const b = await h.add({ text: 'b', dueDay: TOMORROW, dueTime: '15:00' })
     sync.refresh()
     clock += 60_000
     sync.refresh()
-    expect([...pending.keys()].sort()).toEqual([`todo-reminder:${a.id}`, `todo-reminder:${b.id}`])
+    const ids = [`todo-reminder:${a.id}`, `todo-reminder:${b.id}`]
+    expect([...pending.keys()].sort()).toEqual(ids)
+    // The pending store cannot hold two requests with one id, so the proof that a restart does not
+    // duplicate is that it does not schedule an unchanged reminder again at all.
+    expect(scheduled).toEqual(ids)
   })
 
   test('every TODO operation still succeeds when the scheduler throws', async () => {

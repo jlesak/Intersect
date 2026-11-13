@@ -80,6 +80,20 @@ describe('todo handlers', () => {
     })
     await expect(throwing.list()).rejects.toThrow(/boom/)
   })
+
+  test('a write still succeeds when the change listener throws, because it is already saved', async () => {
+    const withFailingListener = createTodoHandlers({
+      todos,
+      onChanged: () => {
+        throw new Error('reminder sync is gone')
+      }
+    })
+    const task = await withFailingListener.add('saved anyway', null)
+    expect(task.text).toBe('saved anyway')
+    await expect(withFailingListener.update(task.id, { text: 'edited' }))
+      .resolves.toMatchObject({ text: 'edited' })
+    expect((await h.list()).open.map((t) => t.text)).toEqual(['edited'])
+  })
 })
 
 describe('todoWireRoutes', () => {
