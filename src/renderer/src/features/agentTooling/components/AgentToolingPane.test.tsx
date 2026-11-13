@@ -42,7 +42,7 @@ const propsWith = (
   config,
   skills: [],
   agents: [],
-  projects: [{ id: 'p1', name: 'SPOT' }],
+  projects: [{ id: 'p1', name: 'Example' }],
   onScopeChange: noop,
   onReveal: noop,
   ...over
@@ -70,7 +70,7 @@ describe('AgentToolingPaneBody', () => {
 
     const scope = host.querySelector('select[aria-label="Scope"]')
     const options = [...(scope?.querySelectorAll('option') ?? [])].map((o) => o.textContent)
-    expect(options).toEqual(['Global (~/.claude)', 'SPOT'])
+    expect(options).toEqual(['Global (~/.claude)', 'Example'])
   })
 
   test('reflects the selected scope in the scope selector value', () => {
@@ -252,7 +252,7 @@ describe('AgentToolingPane container', () => {
   function stubBridge(): void {
     ;(window as { intersect?: unknown }).intersect = {
       projects: {
-        list: () => Promise.resolve([{ id: 'p1', name: 'SPOT', archived: false }]),
+        list: () => Promise.resolve([{ id: 'p1', name: 'Example', archived: false }]),
         listOverrides: () => Promise.resolve([])
       },
       agentTooling: {
@@ -290,7 +290,7 @@ describe('AgentToolingPane container', () => {
 
     const scope = document.querySelector<HTMLSelectElement>('select[aria-label="Scope"]')
     const options = [...(scope?.querySelectorAll('option') ?? [])].map((o) => o.textContent)
-    expect(options).toEqual(['Global (~/.claude)', 'SPOT'])
+    expect(options).toEqual(['Global (~/.claude)', 'Example'])
   })
 })
 

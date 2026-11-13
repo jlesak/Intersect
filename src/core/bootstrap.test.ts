@@ -438,10 +438,10 @@ describe('createCoreRuntime', () => {
       expect(board.error).toBeNull()
       expect(board.fetchedAt).not.toBeNull()
       expect(board.issues.map((i) => i.key)).toEqual([
-        'FID2507-3',
-        'FID2507-2',
-        'FID2507-4',
-        'FID2507-1'
+        'PROJ-3',
+        'PROJ-2',
+        'PROJ-4',
+        'PROJ-1'
       ])
       // The zero-Claude guarantee: the whole sync never touched the spawn seam.
       expect(fake.procs).toHaveLength(0)

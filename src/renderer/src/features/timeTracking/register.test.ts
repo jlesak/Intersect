@@ -119,7 +119,7 @@ describe('the week export commands', () => {
     source: 'manual',
     day: WEEK,
     description: 'Sprint review',
-    issueKey: 'FID2507-611',
+    issueKey: 'PROJ-611',
     durationMs: 30 * 60_000
   }
 
@@ -136,7 +136,7 @@ describe('the week export commands', () => {
     await getCommand('timeTracking.copyWeekText')!.handler()
     expect(mocked.getWeek).toHaveBeenCalledWith(WEEK)
     expect(clipboard.writeText).toHaveBeenCalledWith(
-      `Date\tIssue\tDescription\tDuration\n${WEEK}\tFID2507-611\tSprint review\t30m\nTotal\t\t\t30m`
+      `Date\tIssue\tDescription\tDuration\n${WEEK}\tPROJ-611\tSprint review\t30m\nTotal\t\t\t30m`
     )
     expect(messages().some((m) => m.includes('no entries'))).toBe(false)
   })
@@ -144,7 +144,7 @@ describe('the week export commands', () => {
   test('copy as CSV puts the same week on the clipboard as columns', async () => {
     await getCommand('timeTracking.copyWeekCsv')!.handler()
     expect(clipboard.writeText).toHaveBeenCalledWith(
-      `Date,Issue,Description,Duration\n${WEEK},FID2507-611,Sprint review,0.50`
+      `Date,Issue,Description,Duration\n${WEEK},PROJ-611,Sprint review,0.50`
     )
   })
 })

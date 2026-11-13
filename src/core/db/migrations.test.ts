@@ -106,7 +106,7 @@ describe('migrations', () => {
     ).run()
     db.prepare(
       `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, updated_at)
-       VALUES ('s1', 'FID2507-611', 3600000, 1)`
+       VALUES ('s1', 'PROJ-611', 3600000, 1)`
     ).run()
     expect(
       (db.prepare('SELECT deleted AS d FROM time_entry_override').get() as { d: number }).d
@@ -322,9 +322,9 @@ describe('migrations', () => {
     const insertWs = db.prepare(
       'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?)'
     )
-    insertWs.run('w1', 'SPOT', '/repos/spot', 'grid', 't1', 0, 100)
+    insertWs.run('w1', 'Example', '/repos/orders', 'grid', 't1', 0, 100)
     insertWs.run('w2', 'Intersect', '/repos/intersect', 'single', null, 1, 200)
-    insertWs.run('w3', 'SPOT again', '/repos/spot', 'columns', null, 2, 300)
+    insertWs.run('w3', 'Example again', '/repos/orders', 'columns', null, 2, 300)
     db.prepare(
       'INSERT INTO tabs (id,workspace_id,title,preset,pane_slot,sort_order,created_at,resume_session_id) VALUES (?,?,?,?,?,?,?,?)'
     ).run('t1', 'w1', 'Claude', 'claude', 0, 0, 100, 'resume-uuid')
@@ -335,16 +335,16 @@ describe('migrations', () => {
       .prepare('SELECT id, name, sort_order AS s, archived AS a FROM projects ORDER BY sort_order')
       .all() as unknown as Array<Record<string, unknown>>
     expect(projects).toEqual([
-      { id: 'w1', name: 'SPOT', s: 0, a: 0 },
+      { id: 'w1', name: 'Example', s: 0, a: 0 },
       { id: 'w2', name: 'Intersect', s: 1, a: 0 },
-      { id: 'w3', name: 'SPOT again', s: 2, a: 0 }
+      { id: 'w3', name: 'Example again', s: 2, a: 0 }
     ])
     expect(
       db.prepare('SELECT project_id AS p, path FROM project_repo ORDER BY project_id').all()
     ).toEqual([
-      { p: 'w1', path: '/repos/spot' },
+      { p: 'w1', path: '/repos/orders' },
       { p: 'w2', path: '/repos/intersect' },
-      { p: 'w3', path: '/repos/spot' }
+      { p: 'w3', path: '/repos/orders' }
     ])
     // Workspace state survives verbatim: layout, active tab, ordering, tabs, resume ids.
     expect(
@@ -377,10 +377,10 @@ describe('migrations', () => {
     ).run('p1', 'P', 0, 0, 1)
     db.prepare(
       'INSERT INTO project_repo (project_id,path,sort_order,created_at) VALUES (?,?,?,?)'
-    ).run('p1', '/repos/spot', 0, 1)
+    ).run('p1', '/repos/orders', 0, 1)
     db.prepare(
       'INSERT INTO workspaces (id,name,folder_path,layout,active_tab_id,sort_order,created_at,project_id) VALUES (?,?,?,?,?,?,?,?)'
-    ).run('w1', 'W', '/repos/spot', 'single', null, 0, 1, 'p1')
+    ).run('w1', 'W', '/repos/orders', 'single', null, 0, 1, 'p1')
     db.prepare('DELETE FROM projects WHERE id=?').run('p1')
     expect((db.prepare('SELECT count(*) AS c FROM project_repo').get() as { c: number }).c).toBe(0)
     expect(
@@ -552,7 +552,7 @@ describe('migrations', () => {
     runMigrations(db, 20)
     db.prepare(
       `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, deleted, updated_at)
-       VALUES ('s1', 'FID2507-611', 3600000, 0, 1)`
+       VALUES ('s1', 'PROJ-611', 3600000, 0, 1)`
     ).run()
 
     runMigrations(db)
@@ -589,10 +589,10 @@ describe('migrations', () => {
     runMigrations(db, 23)
     db.prepare(
       'INSERT INTO projects (id,name,sort_order,archived,jira_jql,jira_board_url,toggl_project_id,created_at) VALUES (?,?,?,?,?,?,?,?)'
-    ).run('p1', 'SPOT', 0, 0, 'project = FID2507', 'https://jira/board/1', 42, 100)
+    ).run('p1', 'Example', 0, 0, 'project = PROJ', 'https://jira/board/1', 42, 100)
     db.prepare(
       'INSERT INTO project_repo (project_id,path,sort_order,created_at) VALUES (?,?,?,?)'
-    ).run('p1', '/repos/spot', 0, 100)
+    ).run('p1', '/repos/orders', 0, 100)
 
     runMigrations(db)
 
@@ -602,16 +602,16 @@ describe('migrations', () => {
     expect(cols).not.toContain('toggl_project_id')
     expect(db.prepare('SELECT * FROM projects').get()).toEqual({
       id: 'p1',
-      name: 'SPOT',
+      name: 'Example',
       sort_order: 0,
       archived: 0,
-      jira_jql: 'project = FID2507',
+      jira_jql: 'project = PROJ',
       jira_board_url: 'https://jira/board/1',
       created_at: 100
     })
     // The rebuild-free drop leaves child bindings and their foreign key intact.
     expect(db.prepare('SELECT project_id AS p, path FROM project_repo').all()).toEqual([
-      { p: 'p1', path: '/repos/spot' }
+      { p: 'p1', path: '/repos/orders' }
     ])
   })
 

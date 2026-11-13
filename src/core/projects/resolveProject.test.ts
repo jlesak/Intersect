@@ -38,59 +38,59 @@ describe('resolveProjectForPath', () => {
   })
 
   test('a sibling folder sharing a name prefix never matches', () => {
-    const projects = [project({ id: 'spot', repoPaths: ['/real/spot'] })]
-    expect(resolveProjectForPath('/real/spot2', projects, makeDeps())).toBeNull()
-    expect(resolveProjectForPath('/real/spot2/src', projects, makeDeps())).toBeNull()
+    const projects = [project({ id: 'orders', repoPaths: ['/real/orders'] })]
+    expect(resolveProjectForPath('/real/orders2', projects, makeDeps())).toBeNull()
+    expect(resolveProjectForPath('/real/orders2/src', projects, makeDeps())).toBeNull()
   })
 
   test('symlink aliases of the cwd and of the binding both resolve', () => {
-    const viaBinding = [project({ id: 'spot', repoPaths: ['/link/spot'] })]
-    expect(resolveProjectForPath('/real/spot/src', viaBinding, makeDeps())).toBe('spot')
-    const viaCwd = [project({ id: 'spot', repoPaths: ['/real/spot'] })]
-    expect(resolveProjectForPath('/link/spot/src', viaCwd, makeDeps())).toBe('spot')
+    const viaBinding = [project({ id: 'orders', repoPaths: ['/link/orders'] })]
+    expect(resolveProjectForPath('/real/orders/src', viaBinding, makeDeps())).toBe('orders')
+    const viaCwd = [project({ id: 'orders', repoPaths: ['/real/orders'] })]
+    expect(resolveProjectForPath('/link/orders/src', viaCwd, makeDeps())).toBe('orders')
   })
 
   test('any of a project\'s multiple bindings matches', () => {
-    const projects = [project({ id: 'spot', repoPaths: ['/real/spot', '/real/spot-backend'] })]
-    expect(resolveProjectForPath('/real/spot-backend/src', projects, makeDeps())).toBe('spot')
+    const projects = [project({ id: 'orders', repoPaths: ['/real/orders', '/real/orders-backend'] })]
+    expect(resolveProjectForPath('/real/orders-backend/src', projects, makeDeps())).toBe('orders')
   })
 
   test('a worktree resolves through its parent repository binding', () => {
-    const projects = [project({ id: 'spot', repoPaths: ['/real/spot'] })]
-    const deps = makeDeps({ '/real/worktrees/spot-fix': '/real/spot' })
-    expect(resolveProjectForPath('/real/worktrees/spot-fix/src', projects, deps)).toBe('spot')
+    const projects = [project({ id: 'orders', repoPaths: ['/real/orders'] })]
+    const deps = makeDeps({ '/real/worktrees/orders-fix': '/real/orders' })
+    expect(resolveProjectForPath('/real/worktrees/orders-fix/src', projects, deps)).toBe('orders')
   })
 
   test('a directly-bound worktree wins over its parent repository binding', () => {
     const projects = [
-      project({ id: 'parent', repoPaths: ['/real/spot'] }),
-      project({ id: 'wt', repoPaths: ['/real/worktrees/spot-fix'] })
+      project({ id: 'parent', repoPaths: ['/real/orders'] }),
+      project({ id: 'wt', repoPaths: ['/real/worktrees/orders-fix'] })
     ]
-    const deps = makeDeps({ '/real/worktrees/spot-fix': '/real/spot' })
-    expect(resolveProjectForPath('/real/worktrees/spot-fix', projects, deps)).toBe('wt')
+    const deps = makeDeps({ '/real/worktrees/orders-fix': '/real/orders' })
+    expect(resolveProjectForPath('/real/worktrees/orders-fix', projects, deps)).toBe('wt')
   })
 
   test('unmatched and missing paths resolve to the virtual Other bucket (null)', () => {
-    const projects = [project({ id: 'spot', repoPaths: ['/real/spot'] })]
+    const projects = [project({ id: 'orders', repoPaths: ['/real/orders'] })]
     expect(resolveProjectForPath('/somewhere/else', projects, makeDeps())).toBeNull()
     expect(resolveProjectForPath('/somewhere/else', [], makeDeps())).toBeNull()
   })
 
   test('archived projects never receive new work', () => {
-    const projects = [project({ id: 'spot', repoPaths: ['/real/spot'], archived: true })]
-    expect(resolveProjectForPath('/real/spot/src', projects, makeDeps())).toBeNull()
+    const projects = [project({ id: 'orders', repoPaths: ['/real/orders'], archived: true })]
+    expect(resolveProjectForPath('/real/orders/src', projects, makeDeps())).toBeNull()
   })
 
   test('equivalent bindings on two projects tie-break by manual order, then id', () => {
     const bySort = [
-      project({ id: 'b', repoPaths: ['/real/spot'], sortOrder: 1 }),
-      project({ id: 'a', repoPaths: ['/real/spot'], sortOrder: 0 })
+      project({ id: 'b', repoPaths: ['/real/orders'], sortOrder: 1 }),
+      project({ id: 'a', repoPaths: ['/real/orders'], sortOrder: 0 })
     ]
-    expect(resolveProjectForPath('/real/spot/src', bySort, makeDeps())).toBe('a')
+    expect(resolveProjectForPath('/real/orders/src', bySort, makeDeps())).toBe('a')
     const byId = [
-      project({ id: 'z', repoPaths: ['/real/spot'], sortOrder: 0 }),
-      project({ id: 'a', repoPaths: ['/link/spot'], sortOrder: 0 })
+      project({ id: 'z', repoPaths: ['/real/orders'], sortOrder: 0 }),
+      project({ id: 'a', repoPaths: ['/link/orders'], sortOrder: 0 })
     ]
-    expect(resolveProjectForPath('/real/spot/src', byId, makeDeps())).toBe('a')
+    expect(resolveProjectForPath('/real/orders/src', byId, makeDeps())).toBe('a')
   })
 })

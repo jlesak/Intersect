@@ -4,7 +4,7 @@ import { castVote, type CastVoteRequest } from './adoVote'
 const req: CastVoteRequest = {
   orgUrl: 'https://devops.example.com/tfs/DefaultCollection/',
   pat: 'secret-pat',
-  projectId: 'SPOT',
+  projectId: 'Example',
   repositoryId: 'c2941d43',
   prId: 33719,
   reviewerId: '6dc11d09-387d-4a25-8699-0dc709e21280',
@@ -22,7 +22,7 @@ describe('castVote', () => {
 
     const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit]
     expect(url).toBe(
-      'https://devops.example.com/tfs/DefaultCollection/SPOT/_apis/git/repositories/' +
+      'https://devops.example.com/tfs/DefaultCollection/Example/_apis/git/repositories/' +
         'c2941d43/pullRequests/33719/reviewers/6dc11d09-387d-4a25-8699-0dc709e21280' +
         '?api-version=7.0'
     )

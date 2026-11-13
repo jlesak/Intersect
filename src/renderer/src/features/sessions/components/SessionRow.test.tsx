@@ -6,8 +6,8 @@ import { SessionRow } from './SessionRow'
 const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   id: 's1',
   filePath: '/p/s1.jsonl',
-  cwd: '/repos/spot',
-  folderName: 'spot',
+  cwd: '/repos/orders',
+  folderName: 'orders',
   title: 'Nightly import',
   gitBranch: null,
   firstTimestamp: 1_000_000,

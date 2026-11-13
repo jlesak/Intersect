@@ -32,20 +32,20 @@ describe('project handlers', () => {
   })
 
   test('full CRUD and binding management round-trips through the handlers', async () => {
-    const created = await h.create('SPOT', '/repos/spot')
-    expect(created.repoPaths).toEqual(['/repos/spot'])
+    const created = await h.create('Example', '/repos/orders')
+    expect(created.repoPaths).toEqual(['/repos/orders'])
 
     const updated = await h.update(created.id, {
-      jiraJql: 'project = FID2507',
-      adoRepositories: ['spot-backend']
+      jiraJql: 'project = PROJ',
+      adoRepositories: ['orders-backend']
     })
-    expect(updated.jiraJql).toBe('project = FID2507')
-    expect(updated.adoRepositories).toEqual(['spot-backend'])
+    expect(updated.jiraJql).toBe('project = PROJ')
+    expect(updated.adoRepositories).toEqual(['orders-backend'])
 
-    const withPath = await h.addRepoPath(created.id, '/repos/spot-backend')
-    expect(withPath.repoPaths).toEqual(['/repos/spot', '/repos/spot-backend'])
-    const withoutPath = await h.removeRepoPath(created.id, '/repos/spot-backend')
-    expect(withoutPath.repoPaths).toEqual(['/repos/spot'])
+    const withPath = await h.addRepoPath(created.id, '/repos/orders-backend')
+    expect(withPath.repoPaths).toEqual(['/repos/orders', '/repos/orders-backend'])
+    const withoutPath = await h.removeRepoPath(created.id, '/repos/orders-backend')
+    expect(withoutPath.repoPaths).toEqual(['/repos/orders'])
 
     const archived = await h.setArchived(created.id, true)
     expect(archived.archived).toBe(true)
@@ -59,26 +59,26 @@ describe('project handlers', () => {
   })
 
   test('resolvePath answers with the owning project or null for Other', async () => {
-    const p = await h.create('SPOT', '/repos/spot')
-    expect(await h.resolvePath('/repos/spot/src')).toBe(p.id)
-    expect(await h.resolvePath('/wt/spot/deep')).toBe(p.id)
+    const p = await h.create('Example', '/repos/orders')
+    expect(await h.resolvePath('/repos/orders/src')).toBe(p.id)
+    expect(await h.resolvePath('/wt/orders/deep')).toBe(p.id)
     expect(await h.resolvePath('/elsewhere')).toBeNull()
   })
 
   test('repo failures surface as message-only Errors', async () => {
-    await h.create('SPOT', '/repos/spot')
-    await expect(h.create('Dup', '/repos/spot')).rejects.toThrow(
-      'already bound to project "SPOT"'
+    await h.create('Example', '/repos/orders')
+    await expect(h.create('Dup', '/repos/orders')).rejects.toThrow(
+      'already bound to project "Example"'
     )
     await expect(h.update('missing', { name: 'X' })).rejects.toThrow('Project not found')
   })
 
   test('binding changes re-resolve auto-assigned workspaces but never manual ones', async () => {
     const made = makeHandlers()
-    const auto = made.workspaces.create('/repos/spot/src')
-    const manual = made.workspaces.create('/repos/spot/tools')
+    const auto = made.workspaces.create('/repos/orders/src')
+    const manual = made.workspaces.create('/repos/orders/tools')
 
-    const p = await made.h.create('SPOT', '/repos/spot')
+    const p = await made.h.create('Example', '/repos/orders')
     expect(made.workspaces.getById(auto.id)?.projectId).toBe(p.id)
 
     made.workspaces.setProject(manual.id, null, 'manual')
@@ -89,24 +89,24 @@ describe('project handlers', () => {
 
   test('archiving a project releases its auto-assigned workspaces to Other', async () => {
     const made = makeHandlers()
-    const p = await made.h.create('SPOT', '/repos/spot')
-    const w = made.workspaces.create('/repos/spot/src', undefined, p.id)
+    const p = await made.h.create('Example', '/repos/orders')
+    const w = made.workspaces.create('/repos/orders/src', undefined, p.id)
     await made.h.setArchived(p.id, true)
     expect(made.workspaces.getById(w.id)?.projectId).toBeNull()
   })
 
   test('overrides round-trip: set wins, clear falls back, project delete cascades', async () => {
     const made = makeHandlers()
-    const p = await made.h.create('SPOT', '/repos/spot')
+    const p = await made.h.create('Example', '/repos/orders')
 
     await made.h.setOverride('pr', 'repo1:42', p.id)
-    await made.h.setOverride('jira', 'FID2507-1', null)
+    await made.h.setOverride('jira', 'PROJ-1', null)
     expect(await made.h.listOverrides()).toEqual([
       { kind: 'pr', key: 'repo1:42', projectId: p.id },
-      { kind: 'jira', key: 'FID2507-1', projectId: null }
+      { kind: 'jira', key: 'PROJ-1', projectId: null }
     ])
 
-    await made.h.clearOverride('jira', 'FID2507-1')
+    await made.h.clearOverride('jira', 'PROJ-1')
     expect((await made.h.listOverrides()).map((o) => o.key)).toEqual(['repo1:42'])
 
     await made.h.remove(p.id)
@@ -140,7 +140,7 @@ describe('project handlers', () => {
   })
 
   test('removing a project drops its terminal layouts but keeps the Other bucket', async () => {
-    const p = await h.create('SPOT', '/repos/spot')
+    const p = await h.create('Example', '/repos/orders')
     await h.setTerminalLayout(p.id, 'columns', [70, 30])
     await h.setTerminalLayout('other', 'columns', [20, 80])
     await h.remove(p.id)
@@ -181,13 +181,13 @@ describe('projectsWireRoutes', () => {
   test('routes apply wire args and delegate to the handlers', async () => {
     const call = (channel: string, ...args: unknown[]): unknown =>
       (routes[channel] as (...a: unknown[]) => unknown)(...args)
-    const created = (await call(Channel.projectsCreate, 'SPOT', '/repos/spot')) as { id: string }
+    const created = (await call(Channel.projectsCreate, 'Example', '/repos/orders')) as { id: string }
     const list = (await call(Channel.projectsList)) as unknown[]
     expect(list).toHaveLength(1)
-    const updated = (await call(Channel.projectsUpdate, created.id, { name: 'SPOT 2' })) as {
+    const updated = (await call(Channel.projectsUpdate, created.id, { name: 'Example 2' })) as {
       name: string
     }
-    expect(updated.name).toBe('SPOT 2')
-    expect(await call(Channel.projectsResolvePath, '/repos/spot/x')).toBe(created.id)
+    expect(updated.name).toBe('Example 2')
+    expect(await call(Channel.projectsResolvePath, '/repos/orders/x')).toBe(created.id)
   })
 })

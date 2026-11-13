@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
+import { JIRA_HOST } from './jiraMapping'
 import { probeJiraSession } from './jiraProbe'
 
 async function stateFile(content: unknown): Promise<string> {
@@ -11,11 +12,14 @@ async function stateFile(content: unknown): Promise<string> {
   return path
 }
 
+// The probe always uses the app's Jira host. The identity cookie sits on a sibling of it, under the
+// same parent domain, which is the cookie that must not leak into the request.
+const siblingHost = `identity.${JIRA_HOST.split('.').slice(1).join('.')}`
 const jiraCookies = {
   cookies: [
-    { name: 'JSESSIONID', value: 'abc', domain: 'jira.skoda.vwgroup.com' },
-    { name: 'TS01585851', value: 'xyz', domain: '.jira.skoda.vwgroup.com' },
-    { name: 'KEYCLOAK_SESSION', value: 'idp', domain: 'identity.skoda.vwgroup.com' }
+    { name: 'JSESSIONID', value: 'abc', domain: JIRA_HOST },
+    { name: 'TS01585851', value: 'xyz', domain: `.${JIRA_HOST}` },
+    { name: 'KEYCLOAK_SESSION', value: 'idp', domain: siblingHost }
   ]
 }
 
@@ -42,7 +46,7 @@ describe('probeJiraSession', () => {
     const path = await stateFile(jiraCookies)
     expect(await probeJiraSession(path, fetchFn as unknown as typeof fetch)).toBe('ok')
     const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('https://jira.skoda.vwgroup.com/rest/api/2/myself')
+    expect(url).toBe(`https://${JIRA_HOST}/rest/api/2/myself`)
     const cookie = (init.headers as Record<string, string>).Cookie
     expect(cookie).toContain('JSESSIONID=abc')
     expect(cookie).toContain('TS01585851=xyz')

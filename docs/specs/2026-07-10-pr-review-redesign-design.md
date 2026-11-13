@@ -61,7 +61,7 @@ rejected). Board header keeps the Sync button + last-sync time; background sync 
 ### Detail - Files tab (default)
 
 - Left: compact collapsible directory tree built from the flat change paths. Single-child
-  directory chains merge into one row (`src/Skoda.Spot.Api/Features/Planning`). Everything starts
+  directory chains merge into one row (`src/Acme.Orders.Api/Features/Planning`). Everything starts
   expanded; a collapsed directory shows the count of files inside. Files show a change-type badge
   (A/M/D) and the count of unresolved comments.
 - Right: the existing side-by-side Monaco diff.

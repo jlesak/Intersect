@@ -27,8 +27,8 @@ const YESTERDAY = '2026-07-28'
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 1,
   repositoryId: 'repo-a',
-  repositoryName: 'spot-backend',
-  projectId: 'SPOT',
+  repositoryName: 'orders-backend',
+  projectId: 'Example',
   title: 'Fix the sync',
   description: '',
   authorId: 'u1',
@@ -91,8 +91,8 @@ const prKey = (p: PullRequest): string => `${p.repositoryId}:${p.prId}`
 
 const ADO_CONNECTED: AdoSettings = {
   orgUrl: 'https://dev.azure.com/acme',
-  project: 'SPOT',
-  repository: 'spot-backend',
+  project: 'Example',
+  repository: 'orders-backend',
   pat: 'token'
 }
 
@@ -124,7 +124,7 @@ function seedPopulated(): void {
       'ws-1:tab-b': { status: 'working', since: NOW - 60_000 }
     }
   })
-  useWorkspacesStore.setState({ byId: { 'ws-1': workspace('ws-1', 'spot-backend') }, order: ['ws-1'] })
+  useWorkspacesStore.setState({ byId: { 'ws-1': workspace('ws-1', 'orders-backend') }, order: ['ws-1'] })
   useTimeTrackingStore.setState({
     status: 'ready',
     weekStart: weekStartOf(NOW),
@@ -315,7 +315,7 @@ describe('DashboardView', () => {
   test('a connection inherited from the environment counts as set up', async () => {
     // A blank saved field defers to the ~/.claude.json / env fallback rather than overriding it, so
     // a user who never filled the form in must not be told to.
-    seedSettings(ADO_BLANK, { orgUrl: 'https://dev.azure.com/acme', project: 'SPOT', hasPat: true })
+    seedSettings(ADO_BLANK, { orgUrl: 'https://dev.azure.com/acme', project: 'Example', hasPat: true })
     await mountClean()
 
     expect(texts('.ix-dash-group__empty .ix-dash-note__text')[0]).toBe(
@@ -375,7 +375,7 @@ describe('DashboardView', () => {
     seedPopulated()
     await mountClean()
 
-    expect(texts('.ix-dash-session__name')).toEqual(['spot-backend', 'spot-backend'])
+    expect(texts('.ix-dash-session__name')).toEqual(['orders-backend', 'orders-backend'])
     expect(texts('.ix-dash-session__state')[0]).toContain('waiting for you')
     // Only a session that has something for the user is worth a jump; working needs nothing.
     expect(document.querySelectorAll('.ix-dash-session__go')).toHaveLength(1)

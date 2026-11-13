@@ -82,7 +82,7 @@ describe('timeTracking service', () => {
 
   test('buckets sessions into local days of the shown week and derives issue keys', async () => {
     const svc = make([
-      session('mon', { lastTimestamp: at(6, 15), gitBranch: 'feature/fid2507-611-slug' }),
+      session('mon', { lastTimestamp: at(6, 15), gitBranch: 'feature/proj-611-slug' }),
       session('wed', { lastTimestamp: at(8, 11), gitBranch: 'feature/time-tracking' })
     ])
     const week = await svc.getWeek(WEEK)
@@ -92,7 +92,7 @@ describe('timeTracking service', () => {
         source: 'auto',
         day: '2026-07-06',
         description: 'Session mon',
-        issueKey: 'FID2507-611',
+        issueKey: 'PROJ-611',
         durationMs: 60 * 60_000
       },
       {
@@ -126,7 +126,7 @@ describe('timeTracking service', () => {
   })
 
   test('an override replaces both editable fields, including a cleared issue key', async () => {
-    const svc = make([session('s1', { gitBranch: 'fid2507-611' })])
+    const svc = make([session('s1', { gitBranch: 'proj-611' })])
     overrides.upsert('s1', {
       description: 'Edited',
       issueKey: null,
@@ -172,16 +172,16 @@ describe('timeTracking service', () => {
   })
 
   test('updateEntry on an auto card upserts the override and survives a re-read', async () => {
-    const svc = make([session('s1', { gitBranch: 'fid2507-611' })])
+    const svc = make([session('s1', { gitBranch: 'proj-611' })])
     const updated = await svc.updateEntry('auto', 's1', {
       description: 'Session s1',
-      issueKey: 'FID2507-999',
+      issueKey: 'PROJ-999',
       durationMs: 2 * 60 * 60_000
     })
-    expect(updated.issueKey).toBe('FID2507-999')
+    expect(updated.issueKey).toBe('PROJ-999')
     expect(updated.day).toBe('2026-07-06')
     const [e] = await svc.getWeek(WEEK)
-    expect(e.issueKey).toBe('FID2507-999')
+    expect(e.issueKey).toBe('PROJ-999')
     expect(e.durationMs).toBe(2 * 60 * 60_000)
   })
 
@@ -195,10 +195,10 @@ describe('timeTracking service', () => {
     })
     const updated = await svc.updateEntry('manual', created.id, {
       description: '1:1 with Marek',
-      issueKey: 'FID2507-1',
+      issueKey: 'PROJ-1',
       durationMs: 30 * 60_000
     })
-    expect(updated.issueKey).toBe('FID2507-1')
+    expect(updated.issueKey).toBe('PROJ-1')
     expect((await svc.getWeek(WEEK))[0].durationMs).toBe(30 * 60_000)
   })
 
@@ -376,11 +376,11 @@ describe('timeTracking service', () => {
 
     test('start records the clock and the given attribution', () => {
       const svc = make([])
-      const started = svc.startTimer('Refactor validators', 'FID2507-611')
+      const started = svc.startTimer('Refactor validators', 'PROJ-611')
       expect(started).toEqual({
         startedAt: at(28, 10),
         description: 'Refactor validators',
-        issueKey: 'FID2507-611'
+        issueKey: 'PROJ-611'
       })
       expect(svc.getRunningTimer()).toEqual(started)
     })
@@ -394,7 +394,7 @@ describe('timeTracking service', () => {
 
     test('stop writes one entry for the elapsed span and leaves nothing running', () => {
       const svc = make([])
-      svc.startTimer('Refactor validators', 'FID2507-611')
+      svc.startTimer('Refactor validators', 'PROJ-611')
       advance(25 * 60_000)
       const entry = svc.stopTimer()
 
@@ -403,7 +403,7 @@ describe('timeTracking service', () => {
         source: 'manual',
         day: '2026-07-28',
         description: 'Refactor validators',
-        issueKey: 'FID2507-611',
+        issueKey: 'PROJ-611',
         durationMs: 25 * 60_000
       })
       expect(manual.listByDays(['2026-07-28'])).toEqual([entry])
@@ -412,7 +412,7 @@ describe('timeTracking service', () => {
 
     test('a stopped timer reaches the board of the week it was logged to', async () => {
       const svc = make([])
-      svc.startTimer('Refactor validators', 'FID2507-611')
+      svc.startTimer('Refactor validators', 'PROJ-611')
       advance(25 * 60_000)
       const entry = svc.stopTimer()
 
@@ -439,7 +439,7 @@ describe('timeTracking service', () => {
           throw new Error('disk full')
         }
       })
-      const started = svc.startTimer('Refactor validators', 'FID2507-611')
+      const started = svc.startTimer('Refactor validators', 'PROJ-611')
       advance(25 * 60_000)
 
       expect(() => svc.stopTimer()).toThrow(/disk full/)
@@ -449,9 +449,9 @@ describe('timeTracking service', () => {
 
     test('a blank description falls back to the issue key rather than logging an unlabelled row', () => {
       const svc = make([])
-      svc.startTimer('', 'FID2507-611')
+      svc.startTimer('', 'PROJ-611')
       advance(10 * 60_000)
-      expect(svc.stopTimer()?.description).toBe('FID2507-611')
+      expect(svc.stopTimer()?.description).toBe('PROJ-611')
     })
 
     test('a blank description with no issue key falls back to a neutral label', () => {
@@ -489,11 +489,11 @@ describe('timeTracking service', () => {
     test('update replaces the attribution of a running timer without moving what it measured', () => {
       const svc = make([])
       svc.startTimer('', null)
-      const updated = svc.updateTimer('Refactor validators', 'FID2507-611')
+      const updated = svc.updateTimer('Refactor validators', 'PROJ-611')
       expect(updated).toEqual({
         startedAt: at(28, 10),
         description: 'Refactor validators',
-        issueKey: 'FID2507-611'
+        issueKey: 'PROJ-611'
       })
       expect(svc.getRunningTimer()).toEqual(updated)
     })

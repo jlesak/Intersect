@@ -57,7 +57,7 @@ describe('parseDuration', () => {
 
 describe('normalizeIssueKey', () => {
   test('trims and uppercases', () => {
-    expect(normalizeIssueKey('  fid2507-611 ')).toBe('FID2507-611')
+    expect(normalizeIssueKey('  proj-611 ')).toBe('PROJ-611')
   })
 
   test('empty input means no issue', () => {

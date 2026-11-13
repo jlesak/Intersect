@@ -2,15 +2,15 @@ import { describe, expect, test } from 'vitest'
 import { normalizeRemoteUrl, remoteMatchesRepoName, remotesMatch, repoNameFromUrl } from './worktreeMatch'
 
 describe('normalizeRemoteUrl', () => {
-  const canonical = 'devops.skoda.vwgroup.com/projects/skodaauto/spot/_git/spot-backend'
+  const canonical = 'devops.example.com/projects/acme/example/_git/orders-backend'
 
   test.each([
-    ['https', 'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend'],
-    ['https + .git', 'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend.git'],
-    ['ssh + port', 'ssh://devops.skoda.vwgroup.com:22/projects/SkodaAuto/SPOT/_git/spot-backend'],
-    ['pat embedded', 'https://user:ghp_secret@devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend'],
-    ['user only', 'https://DZCUP4C@devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend'],
-    ['trailing slash', 'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend/']
+    ['https', 'https://devops.example.com/projects/Acme/Example/_git/orders-backend'],
+    ['https + .git', 'https://devops.example.com/projects/Acme/Example/_git/orders-backend.git'],
+    ['ssh + port', 'ssh://devops.example.com:22/projects/Acme/Example/_git/orders-backend'],
+    ['pat embedded', 'https://user:ghp_secret@devops.example.com/projects/Acme/Example/_git/orders-backend'],
+    ['user only', 'https://USER1@devops.example.com/projects/Acme/Example/_git/orders-backend'],
+    ['trailing slash', 'https://devops.example.com/projects/Acme/Example/_git/orders-backend/']
   ])('%s form normalizes to the canonical key', (_label, url) => {
     expect(normalizeRemoteUrl(url)).toBe(canonical)
   })
@@ -24,8 +24,8 @@ describe('remotesMatch', () => {
   test('https and ssh forms of the same repo match', () => {
     expect(
       remotesMatch(
-        'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend',
-        'ssh://devops.skoda.vwgroup.com:22/projects/SkodaAuto/SPOT/_git/spot-backend.git'
+        'https://devops.example.com/projects/Acme/Example/_git/orders-backend',
+        'ssh://devops.example.com:22/projects/Acme/Example/_git/orders-backend.git'
       )
     ).toBe(true)
   })
@@ -33,8 +33,8 @@ describe('remotesMatch', () => {
   test('different repos do not match', () => {
     expect(
       remotesMatch(
-        'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend',
-        'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-frontend'
+        'https://devops.example.com/projects/Acme/Example/_git/orders-backend',
+        'https://devops.example.com/projects/Acme/Example/_git/orders-frontend'
       )
     ).toBe(false)
   })
@@ -42,8 +42,8 @@ describe('remotesMatch', () => {
 
 describe('repoNameFromUrl', () => {
   test('extracts the segment after _git/', () => {
-    expect(repoNameFromUrl('https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend')).toBe(
-      'spot-backend'
+    expect(repoNameFromUrl('https://devops.example.com/projects/Acme/Example/_git/orders-backend')).toBe(
+      'orders-backend'
     )
   })
   test('falls back to the last path segment', () => {
@@ -55,16 +55,16 @@ describe('remoteMatchesRepoName', () => {
   test('matches the clone origin to the ADO repo name case-insensitively', () => {
     expect(
       remoteMatchesRepoName(
-        'ssh://devops.skoda.vwgroup.com:22/projects/SkodaAuto/SPOT/_git/spot-backend',
-        'spot-backend'
+        'ssh://devops.example.com:22/projects/Acme/Example/_git/orders-backend',
+        'orders-backend'
       )
     ).toBe(true)
   })
   test('does not match a different repo', () => {
     expect(
       remoteMatchesRepoName(
-        'https://devops.skoda.vwgroup.com/projects/SkodaAuto/SPOT/_git/spot-backend',
-        'spot-frontend'
+        'https://devops.example.com/projects/Acme/Example/_git/orders-backend',
+        'orders-frontend'
       )
     ).toBe(false)
   })

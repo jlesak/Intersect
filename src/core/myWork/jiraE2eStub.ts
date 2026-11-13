@@ -40,40 +40,40 @@ const remoteIssue = (over: Partial<JiraRemoteIssue> & Pick<JiraRemoteIssue, 'key
  */
 const SAMPLE_ISSUES: JiraRemoteIssue[] = [
   remoteIssue({
-    key: 'FID2507-1',
+    key: 'PROJ-1',
     summary: 'Prepare the release notes',
     rawStatus: 'To Do',
     rawPriority: 'Medium',
     assignee: 'Jan Lesak',
-    epicKey: 'FID2507-90',
+    epicKey: 'PROJ-90',
     epicSummary: 'Release',
     components: ['Docs'],
     updatedAt: Date.now() - 60 * 60_000
   }),
   remoteIssue({
-    key: 'FID2507-2',
+    key: 'PROJ-2',
     summary: 'Implement the login flow',
     rawStatus: 'In Progress',
     rawPriority: 'High',
     assignee: 'Marek Kral',
-    epicKey: 'FID2507-91',
+    epicKey: 'PROJ-91',
     epicSummary: 'Platform',
     components: ['Backend'],
     updatedAt: Date.now() - 30 * 60_000
   }),
   remoteIssue({
-    key: 'FID2507-4',
+    key: 'PROJ-4',
     summary: 'Add the password reset screen',
     rawStatus: 'In Progress',
     rawPriority: 'Medium',
     assignee: 'Marek Kral',
-    epicKey: 'FID2507-91',
+    epicKey: 'PROJ-91',
     epicSummary: 'Platform',
     components: ['Backend'],
     updatedAt: Date.now() - 45 * 60_000
   }),
   remoteIssue({
-    key: 'FID2507-3',
+    key: 'PROJ-3',
     summary: 'Verify the board states',
     rawStatus: 'In Review',
     rawPriority: 'Low',

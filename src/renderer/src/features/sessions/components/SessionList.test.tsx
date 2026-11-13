@@ -10,9 +10,9 @@ function session(over: Partial<SessionSummary> = {}): SessionSummary {
   const last = Date.now() - HOUR
   return {
     id: 's1',
-    filePath: '/home/jan/.claude/projects/-repos-spot/s1.jsonl',
-    cwd: '/repos/spot',
-    folderName: 'spot',
+    filePath: '/home/jan/.claude/projects/-repos-orders/s1.jsonl',
+    cwd: '/repos/orders',
+    folderName: 'orders',
     title: 'Fix the sync',
     gitBranch: 'main',
     firstTimestamp: last - HOUR,
@@ -48,7 +48,7 @@ describe('SessionList', () => {
       all: [
         session(),
         session({ id: 's2', folderName: 'intersect', cwd: '/repos/intersect', title: 'Add the radar' }),
-        session({ id: 's3', folderName: 'spot', title: 'Rework the importer' })
+        session({ id: 's3', folderName: 'orders', title: 'Rework the importer' })
       ],
       query: '',
       folders: null,

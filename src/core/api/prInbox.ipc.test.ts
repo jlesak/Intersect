@@ -27,8 +27,8 @@ import {
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 100,
   repositoryId: 'repo-a',
-  repositoryName: 'spot-backend',
-  projectId: 'SPOT',
+  repositoryName: 'orders-backend',
+  projectId: 'Example',
   title: 'a change',
   description: '',
   authorId: 'a1',
@@ -256,18 +256,18 @@ describe('prInbox handlers', () => {
 
   test('sync warns about repos that failed but still caches the rest', async () => {
     const warn = vi.fn()
-    const ado = makeAdo({ syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['spot-frontend'] })) })
+    const ado = makeAdo({ syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['orders-frontend'] })) })
     const { h } = handlers({ ado, warn })
     await h.sync()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('spot-frontend'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('orders-frontend'))
   })
 
   test('a failed repo keeps its last-known PRs and their review watermark across the sync', async () => {
-    // First sync: I have reviewed PR 200 in spot-frontend at commit c1; the author pushes c2.
+    // First sync: I have reviewed PR 200 in orders-frontend at commit c1; the author pushes c2.
     const reviewed = pr({
       prId: 200,
       repositoryId: 'repo-b',
-      repositoryName: 'spot-frontend',
+      repositoryName: 'orders-frontend',
       role: 'reviewer',
       myVote: 'approved',
       sourceCommitId: 'c1'
@@ -288,7 +288,7 @@ describe('prInbox handlers', () => {
 
     // The repo fails one sync: its PR must survive with the flag, not vanish or re-baseline.
     const failedSync = makeAdo({
-      syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['spot-frontend'] }))
+      syncMyPrs: vi.fn(async () => ({ prs: [pr()], failedRepos: ['orders-frontend'] }))
     })
     const { h: h3 } = handlers({ ado: failedSync, warn: vi.fn() })
     const afterFailure = await h3.sync()

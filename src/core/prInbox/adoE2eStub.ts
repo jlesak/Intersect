@@ -13,13 +13,13 @@ import type { LocalDiffService } from './localDiff'
  * reflects them exactly like the real server would.
  */
 
-const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projectId: 'SPOT' }
+const REPO = { repositoryId: 'e2e-repo', repositoryName: 'intersect-app', projectId: 'Example' }
 
 /**
  * A second repository, so the canned board spans more than one. A board whose pull requests all
  * come from the same place cannot tell a repository filter that works from one that does nothing.
  */
-const OTHER_REPO = { repositoryId: 'e2e-repo-2', repositoryName: 'intersect-docs', projectId: 'SPOT' }
+const OTHER_REPO = { repositoryId: 'e2e-repo-2', repositoryName: 'intersect-docs', projectId: 'Example' }
 
 const basePr = {
   ...REPO,

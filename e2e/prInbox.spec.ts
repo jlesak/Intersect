@@ -33,7 +33,7 @@ async function launch(
  * about the header's outbound links need a machine that has one. Everything else stays on the
  * unconnected launch above, where sync counts are the thing under test.
  */
-const PR_501_WEB_URL = 'https://devops.example/e2e/SPOT/_git/intersect-app/pullrequest/501'
+const PR_501_WEB_URL = 'https://devops.example/e2e/Example/_git/intersect-app/pullrequest/501'
 
 async function launchConnected(): Promise<{
   app: ElectronApplication

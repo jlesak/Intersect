@@ -4,7 +4,7 @@ import { testAdoConnection } from './adoTestConnection'
 
 const input = (over: Partial<AdoSettings> = {}): AdoSettings => ({
   orgUrl: 'https://devops.example.com/tfs/Collection',
-  project: 'SPOT',
+  project: 'Example',
   repository: 'intersect-app',
   pat: 'the-pat',
   ...over
@@ -34,7 +34,7 @@ describe('testAdoConnection', () => {
     )
     const [repoUrl] = fetchFn.mock.calls[1] as [string]
     expect(repoUrl).toBe(
-      'https://devops.example.com/tfs/Collection/SPOT/_apis/git/repositories/intersect-app?api-version=7.0'
+      'https://devops.example.com/tfs/Collection/Example/_apis/git/repositories/intersect-app?api-version=7.0'
     )
   })
 
@@ -113,7 +113,7 @@ describe('testAdoConnection', () => {
     const result = await testAdoConnection(input(), { fetchFn })
     expect(result).toEqual({
       ok: false,
-      error: 'Project "SPOT" or repository "intersect-app" was not found.'
+      error: 'Project "Example" or repository "intersect-app" was not found.'
     })
   })
 

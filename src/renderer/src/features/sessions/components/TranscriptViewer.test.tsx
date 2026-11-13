@@ -7,8 +7,8 @@ import { groupTranscriptItems, TranscriptViewer } from './TranscriptViewer'
 const summary: SessionSummary = {
   id: 's1',
   filePath: '/p/s1.jsonl',
-  cwd: '/repos/spot',
-  folderName: 'spot',
+  cwd: '/repos/orders',
+  folderName: 'orders',
   title: 'Fix the sync',
   gitBranch: 'main',
   firstTimestamp: 1_000_000,
@@ -33,7 +33,7 @@ const entry = (over: Partial<TranscriptEntry>): TranscriptEntry => ({
 const transcript: SessionTranscript = {
   id: 's1',
   title: 'Fix the sync',
-  cwd: '/repos/spot',
+  cwd: '/repos/orders',
   entries: [
     entry({ role: 'user', text: 'Find the red needle' }),
     entry({ tools: ['Read src/sync.ts', 'Grep "needle"'] }),

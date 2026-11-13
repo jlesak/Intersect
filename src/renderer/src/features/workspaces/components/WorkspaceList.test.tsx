@@ -39,18 +39,18 @@ function seedSidebar(): void {
     status: 'ready',
     error: null,
     byId: {
-      spot: workspace('spot', { name: 'SPOT', projectId: 'p1', projectSource: 'manual' }),
+      orders: workspace('orders', { name: 'Example', projectId: 'p1', projectSource: 'manual' }),
       atlas: workspace('atlas', { name: 'Atlas', projectId: 'p2', sortOrder: 1 }),
       scratch: workspace('scratch', { name: 'Scratch', sortOrder: 2 })
     },
-    order: ['spot', 'atlas', 'scratch'],
+    order: ['orders', 'atlas', 'scratch'],
     selectedWorkspaceId: 'atlas'
   })
   useProjectsStore.setState({
     status: 'ready',
     error: null,
     overrides: [],
-    projects: [project('p1', 'SPOT'), project('p2', 'Atlas'), { ...project('p3', 'Legacy'), archived: true }]
+    projects: [project('p1', 'Example'), project('p2', 'Atlas'), { ...project('p3', 'Legacy'), archived: true }]
   })
 }
 
@@ -84,7 +84,7 @@ describe('WorkspaceList', () => {
 
       expect(logged).toEqual([])
       const names = [...document.querySelectorAll('.ix-ws__name')].map((e) => e.textContent)
-      expect(names).toEqual(['SPOT', 'Atlas', 'Scratch'])
+      expect(names).toEqual(['Example', 'Atlas', 'Scratch'])
       expect(document.querySelectorAll('.ix-ws--active')).toHaveLength(1)
     } finally {
       consoleError.mockRestore()
@@ -99,6 +99,6 @@ describe('WorkspaceList', () => {
     })
 
     const names = [...document.querySelectorAll('.ix-ws__name')].map((e) => e.textContent)
-    expect(names).toEqual(['SPOT'])
+    expect(names).toEqual(['Example'])
   })
 })

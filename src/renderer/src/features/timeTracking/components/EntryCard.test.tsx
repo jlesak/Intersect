@@ -11,7 +11,7 @@ const ENTRY: TimeEntry = {
   source: 'auto',
   day: '2026-07-06',
   description: 'Fix the login redirect',
-  issueKey: 'FID2507-611',
+  issueKey: 'PROJ-611',
   durationMs: 60 * 60_000
 }
 
@@ -71,7 +71,7 @@ describe('EntryCard description editing', () => {
     blur(input)
     expect(updateEntry).toHaveBeenCalledWith(ENTRY, {
       description: 'Fix the logout flow',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 60 * 60_000
     })
   })
@@ -84,7 +84,7 @@ describe('EntryCard description editing', () => {
     expect(updateEntry).toHaveBeenCalledTimes(1)
     expect(updateEntry).toHaveBeenCalledWith(ENTRY, {
       description: 'Refactor the parser',
-      issueKey: 'FID2507-611',
+      issueKey: 'PROJ-611',
       durationMs: 60 * 60_000
     })
   })

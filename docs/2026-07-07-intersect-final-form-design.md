@@ -77,8 +77,8 @@ sémantika je jednotná napříč typy položek (PR, Jira, TODO, session).
 
 Deštníková entita, pojivo celé appky:
 
-- Projekt = 1+ repo složek (včetně worktrees; "SPOT + SPOT2/spot-backend je jeden projekt"),
-  Jira filtr (např. `project = FID2507`) a volitelný board URL, ADO repo(s), Toggl projekt.
+- Projekt = 1+ repo složek (včetně worktrees; "Example + Example2/orders-backend je jeden projekt"),
+  Jira filtr (např. `project = PROJ`) a volitelný board URL, ADO repo(s), Toggl projekt.
 - Vše ostatní se přiřazuje **automaticky přes vazby**: session podle složky, PR podle repa,
   issue podle filtru, čas podle session/větve, worktree podle mateřského repa. Ruční override
   pro výjimky, nezařazené padá do "Ostatní".
@@ -123,7 +123,7 @@ Trvalá stránka per člověk - pojivo pro 1:1 i spolupráci:
 
 - Lehký seznam dle schválené spec (#4): text, termín, drag&drop, skrytá sekce "Hotové".
 - **Globální macOS zkratka** → plovoucí capture box i mimo Intersect: zápis do 2 sekund,
-  syntaxe `@marek #spot pátek`. Enter a zpátky do práce.
+  syntaxe `@marek #orders pátek`. Enter a zpátky do práce.
 - TODO zmínky osob a projektů se propisují do Person Pages a projektových pohledů.
 
 ### 3.6 Čas + náklady [evoluce]

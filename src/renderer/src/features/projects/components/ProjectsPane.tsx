@@ -198,7 +198,7 @@ function ProjectCard({
         id={`ix-proj-jql-${project.id}`}
         label="Jira JQL filtr"
         value={project.jiraJql ?? ''}
-        placeholder="project = FID2507"
+        placeholder="project = PROJ"
         onCommit={(v) => void store().update(project.id, { jiraJql: v || null })}
       />
       <CommitField
@@ -212,7 +212,7 @@ function ProjectCard({
         id={`ix-proj-ado-${project.id}`}
         label="ADO repozitáře (oddělené čárkou)"
         value={project.adoRepositories.join(', ')}
-        placeholder="spot-backend, spot-frontend"
+        placeholder="orders-backend, orders-frontend"
         onCommit={(v) =>
           void store().update(project.id, {
             adoRepositories: v

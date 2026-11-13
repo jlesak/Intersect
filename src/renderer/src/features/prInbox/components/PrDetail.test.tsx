@@ -59,7 +59,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     prId: 1,
     repositoryId: 'repo-1',
     repositoryName: 'intersect-app',
-    projectId: 'SPOT',
+    projectId: 'Example',
     title: 'Add rate limiting',
     description: '',
     authorId: 'u1',

@@ -61,7 +61,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             items: {
               type: 'object',
               properties: {
-                key: { type: 'string', description: 'Issue key, e.g. FID2507-611' },
+                key: { type: 'string', description: 'Issue key, e.g. PROJ-611' },
                 summary: { type: 'string', description: 'Issue summary/title' },
                 status: { type: 'string', description: 'Jira workflow status name' },
                 priority: {

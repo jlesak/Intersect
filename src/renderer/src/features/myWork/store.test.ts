@@ -25,7 +25,7 @@ import { formatRelativeTime, groupByColumn, useMyWorkStore } from './store'
 
 const issue = (key: string, over: Partial<JiraIssueSnapshot> = {}): JiraIssueSnapshot => ({
   key,
-  url: `https://jira.skoda.vwgroup.com/browse/${key}`,
+  url: `https://jira.example.com/browse/${key}`,
   summary: `Issue ${key}`,
   column: 'todo',
   priority: null,
@@ -356,10 +356,10 @@ describe('loginAndRefresh', () => {
 describe('openIssue', () => {
   test('hands the issue URL to the system browser bridge', async () => {
     mocked.openExternal.mockResolvedValue(undefined)
-    const target = issue('FID2507-611')
+    const target = issue('PROJ-611')
     useMyWorkStore.getState().openIssue(target)
     expect(mocked.openExternal).toHaveBeenCalledWith(
-      'https://jira.skoda.vwgroup.com/browse/FID2507-611'
+      'https://jira.example.com/browse/PROJ-611'
     )
   })
 
@@ -380,9 +380,9 @@ describe('copyIssueLink', () => {
   })
 
   test('puts the issue’s browsable link on the clipboard', async () => {
-    await useMyWorkStore.getState().copyIssueLink(issue('FID2507-611'))
+    await useMyWorkStore.getState().copyIssueLink(issue('PROJ-611'))
     expect(clipboard.writeText).toHaveBeenCalledWith(
-      'https://jira.skoda.vwgroup.com/browse/FID2507-611'
+      'https://jira.example.com/browse/PROJ-611'
     )
   })
 

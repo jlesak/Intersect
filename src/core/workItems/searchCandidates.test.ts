@@ -36,7 +36,7 @@ const todo = (id: string, text: string): TodoTask => ({
   doneAt: null
 })
 
-const pr = (prId: number, title: string, repositoryName = 'spot-backend'): PullRequest => ({
+const pr = (prId: number, title: string, repositoryName = 'orders-backend'): PullRequest => ({
   prId,
   repositoryId: 'repo-guid',
   repositoryName,
@@ -110,7 +110,7 @@ describe('searchWorkItemCandidates', () => {
   test('candidates carry prebuilt refs with binding-resolved projects', () => {
     const projects = [
       project('p1', { jiraJql: 'project = FID' }),
-      project('p2', { adoRepositories: ['spot-backend'] })
+      project('p2', { adoRepositories: ['orders-backend'] })
     ]
     const groups = searchWorkItemCandidates('', undefined, data({ projects }))
     const jira = groups.find((g) => g.source === 'jira')
@@ -137,7 +137,7 @@ describe('searchWorkItemCandidates', () => {
   test('ranks the given project\'s candidates first within each group', () => {
     const projects = [
       project('p1', { jiraJql: 'project = OTHER' }),
-      project('p2', { adoRepositories: ['spot-backend'] })
+      project('p2', { adoRepositories: ['orders-backend'] })
     ]
     const groups = searchWorkItemCandidates(
       '',

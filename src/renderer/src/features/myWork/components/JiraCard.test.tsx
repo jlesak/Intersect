@@ -9,8 +9,8 @@ import { useMyWorkStore } from '../store'
 import { JiraCard } from './JiraCard'
 
 const ISSUE: JiraIssue = {
-  key: 'FID2507-11',
-  url: 'https://jira.test/browse/FID2507-11',
+  key: 'PROJ-11',
+  url: 'https://jira.test/browse/PROJ-11',
   summary: 'Rework the spreadsheet exporter',
   column: 'todo',
   priority: 'high',
@@ -21,7 +21,7 @@ const launch = vi.mocked(launchFromJiraIssue)
 const openIssue = vi.fn()
 const copyIssueLink = vi.fn()
 
-const card = (): HTMLElement => screen.getByRole('button', { name: /FID2507-11/ })
+const card = (): HTMLElement => screen.getByRole('button', { name: /PROJ-11/ })
 const press = (name: string): void => {
   fireEvent.click(screen.getByRole('button', { name }))
 }

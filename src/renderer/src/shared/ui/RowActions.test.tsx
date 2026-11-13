@@ -9,7 +9,7 @@ const names = (): string[] => screen.getAllByRole('button').map((b) => b.getAttr
 function inRow(bar: ReactNode, onRowClick: () => void, onRowDoubleClick?: () => void) {
   return render(
     <div role="button" tabIndex={0} onClick={onRowClick} onDoubleClick={onRowDoubleClick}>
-      <span>FID2507-1</span>
+      <span>PROJ-1</span>
       {bar}
     </div>
   )

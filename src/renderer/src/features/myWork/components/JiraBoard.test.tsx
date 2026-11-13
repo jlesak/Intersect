@@ -28,25 +28,25 @@ function issue(
 
 const ISSUES: JiraIssueSnapshot[] = [
   issue({
-    key: 'FID2507-11',
+    key: 'PROJ-11',
     summary: 'Rework the spreadsheet exporter',
     column: 'todo',
     components: ['Excel'],
-    epicKey: 'FID2507-90',
+    epicKey: 'PROJ-90',
     epicSummary: 'Reporting'
   }),
   issue({
-    key: 'FID2507-12',
+    key: 'PROJ-12',
     summary: 'Implement the login flow',
     column: 'progress',
     components: ['Backend'],
-    epicKey: 'FID2507-91',
+    epicKey: 'PROJ-91',
     epicSummary: 'Platform'
   })
 ]
 
 const cardKeys = (): string[] =>
-  screen.queryAllByText(/^FID2507-\d+$/).map((node) => node.textContent ?? '')
+  screen.queryAllByText(/^PROJ-\d+$/).map((node) => node.textContent ?? '')
 
 const column = (name: string): HTMLElement =>
   document.querySelector<HTMLElement>(`.ix-mw-col--${name}`)!
@@ -65,11 +65,11 @@ const pickOnly = (testId: string, option = 'Backend'): void => {
 describe('JiraBoard filtering', () => {
   test('typing letters scattered through a summary leaves only that issue on the board', () => {
     render(<JiraBoard issues={ISSUES} />)
-    expect(cardKeys()).toEqual(['FID2507-11', 'FID2507-12'])
+    expect(cardKeys()).toEqual(['PROJ-11', 'PROJ-12'])
 
     type('sprdsht')
 
-    expect(cardKeys()).toEqual(['FID2507-11'])
+    expect(cardKeys()).toEqual(['PROJ-11'])
   })
 
   test('a column the filter emptied collapses but still says which column it is', () => {
@@ -104,14 +104,14 @@ describe('JiraBoard filtering', () => {
     render(<JiraBoard issues={ISSUES} />)
     pickOnly('jira-filter-component')
 
-    expect(cardKeys()).toEqual(['FID2507-12'])
+    expect(cardKeys()).toEqual(['PROJ-12'])
   })
 
   test('picking an epic leaves only the issues under it', () => {
     render(<JiraBoard issues={ISSUES} />)
     pickOnly('jira-filter-epic', 'Reporting')
 
-    expect(cardKeys()).toEqual(['FID2507-11'])
+    expect(cardKeys()).toEqual(['PROJ-11'])
   })
 
   test('unticking one value keeps everything else, so the control narrows rather than resets', () => {
@@ -119,7 +119,7 @@ describe('JiraBoard filtering', () => {
     fireEvent.click(screen.getByTestId('jira-filter-component'))
     fireEvent.click(screen.getByLabelText('Backend'))
 
-    expect(cardKeys()).toEqual(['FID2507-11'])
+    expect(cardKeys()).toEqual(['PROJ-11'])
   })
 
   test('the box you type in tells a screen reader what it filters', () => {
@@ -129,7 +129,7 @@ describe('JiraBoard filtering', () => {
   })
 
   test('a board whose issues carry no epic offers no epic control to press', () => {
-    render(<JiraBoard issues={[issue({ key: 'FID2507-13', summary: 'Tidy the changelog' })]} />)
+    render(<JiraBoard issues={[issue({ key: 'PROJ-13', summary: 'Tidy the changelog' })]} />)
 
     expect(screen.queryByTestId('jira-filter-epic')).toBeNull()
     expect(screen.queryByTestId('jira-filter-component')).toBeNull()
@@ -140,7 +140,7 @@ describe('JiraBoard filtering', () => {
   test('a chip whose choices all vanish stops narrowing instead of trapping an empty board', () => {
     const { rerender } = render(<JiraBoard issues={ISSUES} />)
     pickOnly('jira-filter-component')
-    expect(cardKeys()).toEqual(['FID2507-12'])
+    expect(cardKeys()).toEqual(['PROJ-12'])
 
     // A refresh brings back issues that carry no components at all: the control that set this
     // narrowing is about to leave the screen, so the narrowing has to leave with it.
@@ -148,7 +148,7 @@ describe('JiraBoard filtering', () => {
     rerender(<JiraBoard issues={componentless} />)
 
     expect(screen.queryByTestId('jira-filter-component')).toBeNull()
-    expect(cardKeys()).toEqual(['FID2507-11', 'FID2507-12'])
+    expect(cardKeys()).toEqual(['PROJ-11', 'PROJ-12'])
   })
 
   test('a chip counts only choices it still offers, so it never claims more than it ticks', () => {
@@ -169,22 +169,22 @@ describe('JiraBoard filtering', () => {
   })
 
   test('unticking one epic keeps the issues that are under no epic at all', () => {
-    const loose = issue({ key: 'FID2507-13', summary: 'Tidy the changelog', column: 'todo' })
+    const loose = issue({ key: 'PROJ-13', summary: 'Tidy the changelog', column: 'todo' })
     render(<JiraBoard issues={[...ISSUES, loose]} />)
 
     // The gesture is "hide the Reporting epic", not "hide everything that is not Platform".
     fireEvent.click(screen.getByTestId('jira-filter-epic'))
     fireEvent.click(screen.getByLabelText('Reporting'))
 
-    expect(cardKeys()).toEqual(['FID2507-13', 'FID2507-12'])
+    expect(cardKeys()).toEqual(['PROJ-13', 'PROJ-12'])
   })
 
   test('issues under no epic can be asked for on their own', () => {
-    const loose = issue({ key: 'FID2507-13', summary: 'Tidy the changelog', column: 'todo' })
+    const loose = issue({ key: 'PROJ-13', summary: 'Tidy the changelog', column: 'todo' })
     render(<JiraBoard issues={[...ISSUES, loose]} />)
     pickOnly('jira-filter-epic', '(none)')
 
-    expect(cardKeys()).toEqual(['FID2507-13'])
+    expect(cardKeys()).toEqual(['PROJ-13'])
   })
 
   test('a board where every issue has an epic offers no "(none)" to pick', () => {

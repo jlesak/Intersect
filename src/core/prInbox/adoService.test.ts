@@ -25,7 +25,7 @@ const deps = (
 ) => ({
   client,
   resolveIdentity: async () => ({ id: 'me-uuid', displayName: 'Me', uniqueName: 'me@x' }),
-  projectId: () => 'SPOT',
+  projectId: () => 'Example',
   priorThreadCount,
   priorActivityAt,
   resolveVoteCredentials: () => ({ orgUrl: 'https://o', pat: 'p' })
@@ -259,7 +259,7 @@ const rawPr = {
   creationDate: CREATED,
   createdBy: { id: 'other', displayName: 'O' },
   reviewers: [{ id: 'me-uuid', displayName: 'Me', vote: 0 }],
-  repository: { id: 'repo-1', name: 'repo', project: { id: 'SPOT' } },
+  repository: { id: 'repo-1', name: 'repo', project: { id: 'Example' } },
   sourceRefName: 'refs/heads/f',
   targetRefName: 'refs/heads/main'
 }

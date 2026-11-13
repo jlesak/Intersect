@@ -5,7 +5,7 @@ import type { Project } from '@common/domain'
 import { createJiraCacheRepo } from '../db/jiraCacheRepo'
 import { makeTestDb } from '../db/testkit'
 import type { JiraFetchResult } from './jiraClient'
-import { JIRA_GLOBAL_JQL, type JiraRemoteIssue } from './jiraMapping'
+import { JIRA_GLOBAL_JQL, JIRA_HOST, type JiraRemoteIssue } from './jiraMapping'
 import { createJiraSyncEngine, type JiraQuery, type JiraSyncEngineDeps } from './jiraSyncEngine'
 
 const remote = (key: string, over: Partial<JiraRemoteIssue> = {}): JiraRemoteIssue => ({
@@ -238,19 +238,19 @@ describe('project sources', () => {
     const { engine, runQuery } = makeEngine({
       getProject: () =>
         project({
-          jiraJql: 'project = FID2507',
-          jiraBoardUrl: 'https://jira.skoda.vwgroup.com/secure/RapidBoard.jspa?rapidView=7'
+          jiraJql: 'project = PROJ',
+          jiraBoardUrl: `https://${JIRA_HOST}/secure/RapidBoard.jspa?rapidView=7`
         })
     })
     await engine.refresh('project:p1')
-    expect(runQuery).toHaveBeenCalledWith('project:p1', { kind: 'jql', jql: 'project = FID2507' })
+    expect(runQuery).toHaveBeenCalledWith('project:p1', { kind: 'jql', jql: 'project = PROJ' })
   })
 
   test('a board URL is parsed and used when no JQL is configured', async () => {
     const { engine, runQuery } = makeEngine({
       getProject: () =>
         project({
-          jiraBoardUrl: 'https://jira.skoda.vwgroup.com/secure/RapidBoard.jspa?rapidView=51682&quickFilter=84114'
+          jiraBoardUrl: `https://${JIRA_HOST}/secure/RapidBoard.jspa?rapidView=51682&quickFilter=84114`
         })
     })
     await engine.refresh('project:p1')
@@ -272,7 +272,7 @@ describe('project sources', () => {
 
   test('a malformed board URL is not-configured with a readable message', async () => {
     const { engine, runQuery } = makeEngine({
-      getProject: () => project({ jiraBoardUrl: 'https://jira.skoda.vwgroup.com/browse/FID2507-1' })
+      getProject: () => project({ jiraBoardUrl: `https://${JIRA_HOST}/browse/PROJ-1` })
     })
     const board = await engine.getBoard('project:p1')
     expect(board.error?.kind).toBe('not-configured')
@@ -289,7 +289,7 @@ describe('project sources', () => {
 
   test('project sources refresh independently of the global one', async () => {
     const { engine, runQuery } = makeEngine({
-      getProject: () => project({ jiraJql: 'project = FID2507' })
+      getProject: () => project({ jiraJql: 'project = PROJ' })
     })
     await engine.refresh('global')
     await engine.refresh('project:p1')
@@ -303,10 +303,10 @@ describe('normalization', () => {
       async (): Promise<JiraFetchResult> => ({
         ok: true,
         issues: [
-          remote('FID2507-9', {
+          remote('PROJ-9', {
             rawStatus: 'Ready for Test',
             rawPriority: 'Blocker',
-            epicKey: 'FID2507-100',
+            epicKey: 'PROJ-100',
             epicSummary: 'Direct sync',
             estimateSeconds: 7200,
             components: ['Backend'],
@@ -320,13 +320,13 @@ describe('normalization', () => {
     const { engine } = makeEngine({ runQuery })
     const board = await engine.refresh('global')
     expect(board.issues[0]).toMatchObject({
-      key: 'FID2507-9',
-      url: 'https://jira.skoda.vwgroup.com/browse/FID2507-9',
+      key: 'PROJ-9',
+      url: `https://${JIRA_HOST}/browse/PROJ-9`,
       column: 'test',
       priority: 'high',
       rawStatus: 'Ready for Test',
       rawPriority: 'Blocker',
-      epicKey: 'FID2507-100',
+      epicKey: 'PROJ-100',
       epicSummary: 'Direct sync',
       estimateSeconds: 7200,
       components: ['Backend'],

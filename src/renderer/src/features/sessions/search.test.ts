@@ -5,8 +5,8 @@ import { bestPromptMatch, scoreSession } from './search'
 const summary = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   id: 's',
   filePath: '/p/s.jsonl',
-  cwd: '/repos/spot',
-  folderName: 'spot',
+  cwd: '/repos/orders',
+  folderName: 'orders',
   title: 'Lock owner on the reservation card',
   gitBranch: null,
   firstTimestamp: 0,

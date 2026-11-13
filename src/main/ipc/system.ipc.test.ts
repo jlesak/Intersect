@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { Channel } from '@common/ipc'
+import { JIRA_HOST } from '../../core/myWork/jiraMapping'
 import {
   createSystemHandlers,
   isAllowedExternalUrl,
@@ -12,18 +13,18 @@ import {
 
 describe('isAllowedExternalUrl', () => {
   test.each([
-    ['https://jira.skoda.vwgroup.com/browse/FID2507-611', true],
-    ['https://jira.skoda.vwgroup.com/', true],
+    [`https://${JIRA_HOST}/browse/PROJ-611`, true],
+    [`https://${JIRA_HOST}/`, true],
     ['https://www.notion.so/example/1-1-Marek-abc123', true],
     ['https://notion.so/some-page', true],
     ['https://example.notion.so/some-page', true],
     ['https://example.slack.com/archives/D0000000', true],
     ['https://app.slack.com/client/T0/D0', true],
-    ['http://jira.skoda.vwgroup.com/browse/FID2507-611', false],
+    [`http://${JIRA_HOST}/browse/PROJ-611`, false],
     ['http://example.slack.com/archives/D0', false],
     ['https://evil-slack.com/x', false],
-    ['https://evil.example.com/browse/FID2507-611', false],
-    ['https://jira.skoda.vwgroup.com.evil.example.com/x', false],
+    ['https://evil.example.com/browse/PROJ-611', false],
+    [`https://${JIRA_HOST}.evil.example.com/x`, false],
     ['file:///etc/passwd', false],
     ['javascript:alert(1)', false],
     ['not a url', false],
@@ -44,14 +45,14 @@ describe('isAllowedExternalUrl - the configured Azure DevOps organisation', () =
   test('a pull request on the configured server is allowed', () => {
     expect(
       isAllowedExternalUrl(
-        'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/501',
+        'https://devops.example.com/tfs/DefaultCollection/Example/_git/app/pullrequest/501',
         ORG_URL
       )
     ).toBe(true)
   })
 
   test('another Azure DevOps server is still blocked', () => {
-    expect(isAllowedExternalUrl('https://dev.azure.com/acme/SPOT/_git/app/pullrequest/1', ORG_URL)).toBe(
+    expect(isAllowedExternalUrl('https://dev.azure.com/acme/Example/_git/app/pullrequest/1', ORG_URL)).toBe(
       false
     )
     expect(
@@ -62,7 +63,7 @@ describe('isAllowedExternalUrl - the configured Azure DevOps organisation', () =
   test('no configured organisation blocks every Azure DevOps address', () => {
     for (const org of ['', '   ', 'not a url']) {
       expect(
-        isAllowedExternalUrl('https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/1', org)
+        isAllowedExternalUrl('https://devops.example.com/tfs/DefaultCollection/Example/_git/app/pullrequest/1', org)
       ).toBe(false)
     }
   })
@@ -71,7 +72,7 @@ describe('isAllowedExternalUrl - the configured Azure DevOps organisation', () =
     // Still https-only, and still no host outside the list.
     expect(isAllowedExternalUrl('http://devops.example.com/x', ORG_URL)).toBe(false)
     expect(isAllowedExternalUrl('https://evil.example.com/x', ORG_URL)).toBe(false)
-    expect(isAllowedExternalUrl('https://jira.skoda.vwgroup.com/browse/A-1', ORG_URL)).toBe(true)
+    expect(isAllowedExternalUrl(`https://${JIRA_HOST}/browse/A-1`, ORG_URL)).toBe(true)
     expect(isAllowedExternalUrl('https://example.slack.com/archives/D0', ORG_URL)).toBe(true)
   })
 })
@@ -251,8 +252,8 @@ describe('system handlers', () => {
       openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
-    await h.openExternal('https://jira.skoda.vwgroup.com/browse/FID2507-611')
-    expect(openExternal).toHaveBeenCalledWith('https://jira.skoda.vwgroup.com/browse/FID2507-611')
+    await h.openExternal(`https://${JIRA_HOST}/browse/PROJ-611`)
+    expect(openExternal).toHaveBeenCalledWith(`https://${JIRA_HOST}/browse/PROJ-611`)
   })
 
   test('rejects a disallowed URL without ever calling the launcher', async () => {
@@ -268,7 +269,7 @@ describe('system handlers', () => {
       openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
-    await expect(h.openExternal('http://jira.skoda.vwgroup.com/x')).rejects.toThrow(/Blocked external URL/)
+    await expect(h.openExternal(`http://${JIRA_HOST}/x`)).rejects.toThrow(/Blocked external URL/)
     await expect(h.openExternal('https://example.com')).rejects.toThrow(/Blocked external URL/)
     expect(openExternal).not.toHaveBeenCalled()
   })
@@ -287,7 +288,7 @@ describe('system handlers', () => {
       openPath: vi.fn(async () => ''),
       adoOrgUrl: async () => ''
     })
-    await expect(h.openExternal('https://jira.skoda.vwgroup.com/x')).rejects.toThrow(/no browser/)
+    await expect(h.openExternal(`https://${JIRA_HOST}/x`)).rejects.toThrow(/no browser/)
   })
 })
 
@@ -296,7 +297,7 @@ describe('system handlers', () => {
  * Settings takes effect immediately and a link to the server the user just left stops working.
  */
 describe('system handlers - the Azure DevOps organisation is resolved per call', () => {
-  const PR_URL = 'https://devops.example.com/tfs/DefaultCollection/SPOT/_git/app/pullrequest/501'
+  const PR_URL = 'https://devops.example.com/tfs/DefaultCollection/Example/_git/app/pullrequest/501'
 
   const handlers = (
     adoOrgUrl: () => Promise<string>,
@@ -342,8 +343,8 @@ describe('system handlers - the Azure DevOps organisation is resolved per call',
       throw new Error('core is down')
     })
     await expect(h.openExternal(PR_URL)).rejects.toThrow(/Blocked external URL/)
-    await h.openExternal('https://jira.skoda.vwgroup.com/browse/A-1')
-    expect(openExternal).toHaveBeenCalledExactlyOnceWith('https://jira.skoda.vwgroup.com/browse/A-1')
+    await h.openExternal(`https://${JIRA_HOST}/browse/A-1`)
+    expect(openExternal).toHaveBeenCalledExactlyOnceWith(`https://${JIRA_HOST}/browse/A-1`)
   })
 })
 
@@ -387,8 +388,8 @@ describe('registerSystemHandlers', () => {
         Channel.systemRevealUserData
       ].sort()
     )
-    await registered.get(Channel.systemOpenExternal)!({}, 'https://jira.skoda.vwgroup.com/browse/A-1')
-    expect(openExternal).toHaveBeenCalledWith('https://jira.skoda.vwgroup.com/browse/A-1')
+    await registered.get(Channel.systemOpenExternal)!({}, `https://${JIRA_HOST}/browse/A-1`)
+    expect(openExternal).toHaveBeenCalledWith(`https://${JIRA_HOST}/browse/A-1`)
     await registered.get(Channel.systemRestartApp)!({})
     expect(restartApp).toHaveBeenCalledOnce()
     await registered.get(Channel.systemRetryCore)!({})

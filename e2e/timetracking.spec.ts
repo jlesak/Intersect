@@ -127,13 +127,13 @@ function buildProjectsFixture(): string {
       MONDAY,
       9,
       MONDAY_LONG_GAPS,
-      'feature/fid2507-611-lock-owner'
+      'feature/proj-611-lock-owner'
     )
   )
   write(
     'proj-a',
     'dddddddd-1111-2222-3333-444444444444',
-    session('Rail spacing pass', MONDAY, 14, MONDAY_SHORT_GAPS, 'feature/fid2507-650-rail-spacing')
+    session('Rail spacing pass', MONDAY, 14, MONDAY_SHORT_GAPS, 'feature/proj-650-rail-spacing')
   )
   write(
     'proj-a',
@@ -143,7 +143,7 @@ function buildProjectsFixture(): string {
   write(
     'proj-b',
     'cccccccc-9999-aaaa-bbbb-cccccccccccc',
-    session('Weekend experiment', SATURDAY, 10, [9, 9], 'feature/fid2507-999-weekend')
+    session('Weekend experiment', SATURDAY, 10, [9, 9], 'feature/proj-999-weekend')
   )
 
   return projectsDir
@@ -162,7 +162,7 @@ function buildManyIssuesFixture(issues: number): string {
       projectsDir,
       'proj-a',
       `eeeeeeee-0000-0000-0000-${String(i).padStart(12, '0')}`,
-      session(`Work item ${key}`, MONDAY, 8, [5], `feature/fid2507-${key}-work`)
+      session(`Work item ${key}`, MONDAY, 8, [5], `feature/proj-${key}-work`)
     )
   }
   return projectsDir
@@ -221,10 +221,10 @@ test('the rail lists every section and the board shows the week with auto cards 
   // Monday's two session cards, chronological: derived issue key, title and summed active time.
   const monday = dayColumn(win, MONDAY)
   await expect(monday.locator('.ix-tt-card')).toHaveCount(2)
-  await expect(cardAt(monday, 0).locator('.ix-tt-card__key')).toHaveValue('FID2507-611')
+  await expect(cardAt(monday, 0).locator('.ix-tt-card__key')).toHaveValue('PROJ-611')
   await expect(cardAt(monday, 0).locator('.ix-tt-card__title')).toHaveValue('Lock owner on the card')
   await expect(cardAt(monday, 0).locator('.ix-tt-card__dur')).toHaveValue('1h 3m')
-  await expect(cardAt(monday, 1).locator('.ix-tt-card__key')).toHaveValue('FID2507-650')
+  await expect(cardAt(monday, 1).locator('.ix-tt-card__key')).toHaveValue('PROJ-650')
   await expect(cardAt(monday, 1).locator('.ix-tt-card__title')).toHaveValue('Rail spacing pass')
   await expect(cardAt(monday, 1).locator('.ix-tt-card__dur')).toHaveValue('12m')
 
@@ -282,9 +282,9 @@ test('manual add, inline edits and delete update the cards and totals', async ()
 
   // Edit the Tuesday auto card's issue key in place (it had none).
   const tuesday = dayColumn(win, TUESDAY)
-  await tuesday.locator('.ix-tt-card__key').fill('fid2507-612')
+  await tuesday.locator('.ix-tt-card__key').fill('proj-612')
   await tuesday.locator('.ix-tt-card__key').press('Enter')
-  await expect(tuesday.locator('.ix-tt-card__key')).toHaveValue('FID2507-612')
+  await expect(tuesday.locator('.ix-tt-card__key')).toHaveValue('PROJ-612')
 
   // An unparsable duration edit reverts to the previous value.
   await mondayFirstDur.fill('garbage')
@@ -330,7 +330,7 @@ test('manual entries, auto-card edits and deletions persist across a relaunch', 
   const wednesday = dayColumn(first.win, WEDNESDAY)
   await wednesday.locator('.ix-tt__add').click()
   await wednesday.getByPlaceholder('Description (e.g. 1:1 with Marek)').fill('1:1 with Marek')
-  await wednesday.getByPlaceholder('Issue key (optional)').fill('FID2507-700')
+  await wednesday.getByPlaceholder('Issue key (optional)').fill('PROJ-700')
   await wednesday.getByPlaceholder('Time (e.g. 45m)').fill('1h')
   await wednesday.locator('.ix-tt-form__actions .ix-btn--primary', { hasText: 'Save' }).click()
   await expect(wednesday.locator('.ix-tt-card')).toHaveCount(1)
@@ -355,7 +355,7 @@ test('manual entries, auto-card edits and deletions persist across a relaunch', 
     '1:1 with Marek'
   )
   await expect(dayColumn(second.win, WEDNESDAY).locator('.ix-tt-card__key')).toHaveValue(
-    'FID2507-700'
+    'PROJ-700'
   )
   await expect(
     cardAt(dayColumn(second.win, MONDAY), 0).locator('.ix-tt-card__dur')
@@ -447,8 +447,8 @@ test('the weekly summary rolls the board up two ways and copies the week for a t
   // session in its own named bucket rather than dropped.
   const byIssue = summary.locator('[data-rollup="By issue"]')
   await expect(byIssue.locator('.ix-tt-summary__label')).toHaveText([
-    'FID2507-611',
-    'FID2507-650',
+    'PROJ-611',
+    'PROJ-650',
     'No issue'
   ])
   await expect(byIssue.locator('.ix-tt-summary__total')).toHaveText(['1h 3m', '12m', '10m'])
@@ -469,8 +469,8 @@ test('the weekly summary rolls the board up two ways and copies the week for a t
     .toBe(
       [
         'Date,Issue,Description,Duration',
-        `${MONDAY},FID2507-611,Lock owner on the card,1.05`,
-        `${MONDAY},FID2507-650,Rail spacing pass,0.20`,
+        `${MONDAY},PROJ-611,Lock owner on the card,1.05`,
+        `${MONDAY},PROJ-650,Rail spacing pass,0.20`,
         `${TUESDAY},,Board scaffolding,0.17`
       ].join('\n')
     )

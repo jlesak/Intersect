@@ -23,7 +23,7 @@ import { resolveAdoServerConfig, resolveVoteCredentials } from './adoConfig'
 
 const saved: AdoSettings = {
   orgUrl: 'https://devops.example.com/tfs/Collection',
-  project: 'SPOT',
+  project: 'Example',
   repository: 'intersect-app',
   pat: 'saved-pat'
 }

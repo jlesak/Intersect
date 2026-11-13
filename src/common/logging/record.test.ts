@@ -867,7 +867,7 @@ describe('the redaction audit', () => {
       covers: 'a credential named in free text, nowhere near a URL',
       was: 'the vocabulary was reachable only from inside a URL, so a settings line and a stringified configuration both went to disk intact - and those are the shapes a log line carrying raw file text actually takes',
       shapes: {
-        'a settings line': `settings: pat=${SECRET} project=SPOT`,
+        'a settings line': `settings: pat=${SECRET} project=Example`,
         'a stringified configuration': `{"orgUrl":"https://dev.azure.com/o","pat":"${SECRET}"}`,
         'an environment dump': `AZURE_DEVOPS_PAT=${SECRET} HOME=/Users/x`,
         'a header written as a header': `set-cookie: session=${SECRET}`,
@@ -1140,7 +1140,7 @@ describe('the redaction count', () => {
   it('does not count a named value a previous pass already took', () => {
     // Free text with no URL in it, so the named-value scan is the only pass that sees the pair.
     expect(
-      JSON.parse(serialize({ ...base, msg: `settings: pat=${REDACTED} project=SPOT` }))
+      JSON.parse(serialize({ ...base, msg: `settings: pat=${REDACTED} project=Example` }))
     ).not.toHaveProperty('redactions')
   })
 

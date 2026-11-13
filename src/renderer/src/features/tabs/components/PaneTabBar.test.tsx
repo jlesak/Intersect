@@ -33,9 +33,9 @@ function workItem(tabId: string): WorkItemRef {
   return {
     tabId,
     source: 'jira',
-    externalKey: 'FID2507-611',
+    externalKey: 'PROJ-611',
     projectId: 'p1',
-    snapshot: { key: 'FID2507-611', title: 'Repair the importer', type: 'Task' },
+    snapshot: { key: 'PROJ-611', title: 'Repair the importer', type: 'Task' },
     state: 'linked',
     assignedAt: 1
   }
@@ -132,7 +132,7 @@ describe('PaneTabBar', () => {
       expect(titlesIn(0)).toEqual(['shell', 'logs'])
       expect(titlesIn(1)).toEqual(['claude'])
       // The work item and the attention state belong to the tab, so they travel with it.
-      expect(barOf(1).querySelector('.ix-tab__workitem')?.textContent).toBe('FID2507-611')
+      expect(barOf(1).querySelector('.ix-tab__workitem')?.textContent).toBe('PROJ-611')
       expect(barOf(1).querySelector('.ix-tab--waiting')).not.toBeNull()
       expect(barOf(0).querySelector('.ix-tab--waiting')).toBeNull()
     } finally {

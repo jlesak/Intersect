@@ -5,8 +5,8 @@ import { actionPrs, adoSetup, deadlineTodos, emptyState, isWeekend, timeToday } 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   prId: 1,
   repositoryId: 'repo-a',
-  repositoryName: 'spot-backend',
-  projectId: 'SPOT',
+  repositoryName: 'orders-backend',
+  projectId: 'Example',
   title: 'a change',
   description: '',
   authorId: 'u1',
@@ -137,7 +137,7 @@ describe('adoSetup', () => {
     )
     // A blank saved field defers to the fallback rather than overriding it.
     expect(
-      adoSetup('ready', blank, { orgUrl: 'https://ado', project: 'SPOT', hasPat: true })
+      adoSetup('ready', blank, { orgUrl: 'https://ado', project: 'Example', hasPat: true })
     ).toBe('configured')
     expect(adoSetup('ready', { ...blank, pat: 't' }, { orgUrl: 'https://ado', project: '', hasPat: false })).toBe(
       'configured'

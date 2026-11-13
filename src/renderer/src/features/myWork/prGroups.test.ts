@@ -6,7 +6,7 @@ const pr = (prId: number, over: Partial<PullRequest> = {}): PullRequest => ({
   prId,
   repositoryId: 'repo',
   repositoryName: 'intersect-app',
-  projectId: 'SPOT',
+  projectId: 'Example',
   title: `PR ${prId}`,
   description: '',
   authorId: 'u1',

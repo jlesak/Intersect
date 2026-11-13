@@ -9,7 +9,7 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
     prId: 7,
     repositoryId: 'repo-1',
-    repositoryName: 'spot-backend',
+    repositoryName: 'orders-backend',
     projectId: 'ado',
     title: 'Fix the sync',
     description: '',
@@ -83,13 +83,13 @@ describe('ProjectPrList', () => {
       projects: [
         {
           id: 'p1',
-          name: 'SPOT',
+          name: 'Example',
           sortOrder: 0,
           archived: false,
-          repoPaths: ['/repos/spot'],
+          repoPaths: ['/repos/orders'],
           jiraJql: null,
           jiraBoardUrl: null,
-          adoRepositories: ['spot-backend']
+          adoRepositories: ['orders-backend']
         }
       ]
     })
