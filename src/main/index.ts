@@ -11,7 +11,8 @@ import {
   shell,
   utilityProcess
 } from 'electron'
-import { Channel, type CoreStatus, type TodoReminderActivatedEvent } from '@common/ipc'
+import { Channel, type CoreStatus, type TodoReminderActivatedEvent,
+  type TodoReminderPermission } from '@common/ipc'
 import { effectiveAdoOrgUrl } from '@common/ado'
 import type { AppSettings, LiveClaudeSession } from '@common/domain'
 import {
@@ -40,6 +41,7 @@ import {
 import { createReminderActivation, reminderTaskIdFromLaunchInfo } from './todoReminders/activation'
 import { useNativeReminders } from './todoReminders/gate'
 import { loadNativeReminders, type NativeReminders } from './todoReminders/native'
+import { createReminderPermissionHandlers } from './todoReminders/permission'
 import { createRecordingReminders } from './todoReminders/recording'
 import { createReminderService, type ReminderService } from './todoReminders/service'
 import {
@@ -85,6 +87,9 @@ let log: Logger | null = null
 // Set once at startup when this run schedules TODO reminders: the installed app with the addon, or
 // an e2e run with the recording stand-in. Null everywhere else.
 let reminders: ReminderService | null = null
+let reminderNative: NativeReminders | null = null
+let e2eReminderPermission: TodoReminderPermission = 'authorized'
+const e2eReminderSettingsRequests: string[] = []
 const isE2e = process.env.INTERSECT_E2E === '1'
 
 /**
@@ -119,7 +124,9 @@ app.once('ready', (_event, launchInfo) => {
 // notification. It exists only under INTERSECT_E2E=1.
 if (isE2e) {
   ;(globalThis as unknown as { __intersectE2e: unknown }).__intersectE2e = {
-    activateReminder: (taskId: string) => reminderActivation.activate(taskId)
+    activateReminder: (taskId: string) => reminderActivation.activate(taskId),
+    setReminderPermission: (permission: TodoReminderPermission) => { e2eReminderPermission = permission },
+    reminderSettingsRequests: e2eReminderSettingsRequests
   }
 }
 
@@ -342,11 +349,21 @@ function wireCore(
     }
   })
 
+  const permission = createReminderPermissionHandlers({
+    getNative: () => isE2e && e2eReminderPermission === 'unavailable' ? null : reminderNative,
+    openExternal: isE2e
+      ? async (url) => { e2eReminderSettingsRequests.push(url) }
+      : (url) => shell.openExternal(url),
+    logger: logger.child('todo')
+  })
+
   registerCoreBridge({
     ipcMain,
     host,
     logger: lifecycle,
     electronOnly: {
+      [Channel.todoGetReminderPermission]: permission.getReminderPermission,
+      [Channel.todoOpenReminderSettings]: permission.openReminderSettings,
       [Channel.workspacesPickFolder]: pickFolder,
       [Channel.oneOnOnePickVtt]: pickVttFile,
       [Channel.systemOpenExternal]: system.openExternal,
@@ -380,8 +397,12 @@ function wireTodoReminders(userDataDir: string, logger: Logger): (list: TodoRemi
   })
     ? loadNativeReminders({ mainDir: __dirname, logger })
     : isE2e
-      ? createRecordingReminders(join(userDataDir, 'todo-reminders.e2e.json'))
+      ? createRecordingReminders(join(userDataDir, 'todo-reminders.e2e.json'), async () => {
+        if (e2eReminderPermission === 'error') throw new Error('E2E permission read failure')
+        return e2eReminderPermission === 'unavailable' ? 'unknown' : e2eReminderPermission
+      })
       : null
+  reminderNative = native
   if (!native) {
     let logged = false
     return (list) => {

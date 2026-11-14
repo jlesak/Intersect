@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { AuthorizationStatus } from './native'
 import { createRecordingReminders } from './recording'
 
 let dir: string
@@ -22,6 +23,15 @@ const request = (id: string, title = id) => ({
 const recorded = (): { id: string; title: string }[] => JSON.parse(readFileSync(file, 'utf8'))
 
 describe('createRecordingReminders', () => {
+  test('uses the injected live permission without changing its pending store', async () => {
+    let status: AuthorizationStatus = 'denied'
+    const native = createRecordingReminders(file, async () => status)
+    expect(await native.authorizationStatus()).toBe('denied')
+    status = 'provisional'
+    expect(await native.authorizationStatus()).toBe('provisional')
+    expect(recorded()).toEqual([])
+  })
+
   test('starts with an empty file and records every pending request', async () => {
     const native = createRecordingReminders(file)
     expect(recorded()).toEqual([])

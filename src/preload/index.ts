@@ -184,6 +184,8 @@ const api: IpcApi = {
     refresh: () => ipcRenderer.invoke(Channel.agentRuntimeRefresh)
   },
   todo: {
+    getReminderPermission: () => ipcRenderer.invoke(Channel.todoGetReminderPermission),
+    openReminderSettings: () => ipcRenderer.invoke(Channel.todoOpenReminderSettings),
     list: () => ipcRenderer.invoke(Channel.todoList),
     add: (input, dueDay) => ipcRenderer.invoke(Channel.todoAdd, input, dueDay),
     update: (id, patch) => ipcRenderer.invoke(Channel.todoUpdate, id, patch),
