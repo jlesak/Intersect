@@ -102,6 +102,7 @@ issue: #<N> <title>
 kind: feature | bug
 branch: feature/gh<N>-<slug>
 worktree: .claude/worktrees/gh<N>-<slug>
+absolute-worktree: <absolute path to the same worktree>
 stage: plan | plan-review | approval | implement | review | verify | ship | merged | retro | done
 rounds: plan review <n> of 2, code review <n> of 3, verify <n> of 2
 agents: planner=<id> implementer=<id> verifier=<id>

@@ -107,6 +107,7 @@ test('a command that opens a view still decides focus itself', async () => {
   // ignored the command would hand the keys back to it instead of the new tab's terminal.
   await invokeMenu(app, 'palette.open')
   await win.locator('.ix-palette__input').fill('new shell')
+  await expect(win.locator('.ix-palette__item--active .ix-palette__title')).toHaveText('New Shell Tab')
   await win.keyboard.press('Enter')
   await expect(win.locator('.ix-palette')).toHaveCount(0)
   await expect(win.locator('.ix-tab')).toHaveCount(2)
