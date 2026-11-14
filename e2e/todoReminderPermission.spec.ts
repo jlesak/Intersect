@@ -27,8 +27,14 @@ async function pinSize(app: ElectronApplication, win: Page, width: number, heigh
   await app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()[0].setSize(size.width, size.height)
   }, { width, height })
-  await expect.poll(() => win.evaluate(() => ({ width: innerWidth, height: innerHeight })))
-    .toEqual({ width, height: height - 32 })
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getSize()
+  )).toEqual([width, height])
+  // Native titlebar height varies by macOS version; verify the actual content area exactly.
+  const contentSize = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getContentSize()
+  )
+  await expect.poll(() => win.evaluate(() => [innerWidth, innerHeight])).toEqual(contentSize)
 }
 
 async function withinViewport(control: Locator): Promise<void> {
