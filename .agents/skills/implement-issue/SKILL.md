@@ -222,36 +222,51 @@ the owner's invoking message, not through `$ARGUMENTS`. Check that
 without an installed profile and gives no warning, leaving global skills visible. Stop and ask
 the owner to install the profile if it is missing.
 
-The pipeline has two starts. When `$implement-issue <N>` is invoked from the shared checkout,
-run stage 1's `git fetch origin` and exact parity check
-`git diff --quiet origin/main -- AGENTS.md CLAUDE.md .claude .agents docs/agents`. If it fails,
-stop as the shared stage says. Otherwise find or create `.claude/worktrees/gh<N>-<slug>` with
-`git worktree add --no-track -b <branch> .claude/worktrees/gh<N>-<slug> origin/main` for a new
-run, and write
-`.agent-runs/gh<N>/state.md` there in the `stages.md` format, recording the issue, kind,
-branch, relative and absolute worktree paths, `stage: plan` for a new run, and no agent ids.
-Preserve existing state when resuming. Do not delegate or run
-later stages in this session. Tell the owner the exact command
-`codex -p intersect -C <absolute-worktree-path>` and to invoke `$implement-issue <N>` again in
-that new session. `--worktree` creates another checkout and is not this handoff.
-If the shared-checkout session's sandbox blocks writing the run state under `.claude/worktrees`,
-request a narrow interactive approval for that write before stopping; do not start delegation
-without durable state.
+Keep the orchestrator in the current session, whether it started in the shared checkout or
+the issue's worktree. Continue through planning, approval, implementation, review, verification,
+shipping and cleanup here. Delegate the SDLC work to subagents; do not launch another Codex CLI
+process, create a replacement chat or ask the owner to restart merely to enter a worktree.
 
-In the worktree-started session, confirm the Codex project root and `git rev-parse --show-toplevel`
-are this issue worktree and that its branch matches `state.md`. Read this worktree's `AGENTS.md`,
-skill and `stages.md`; rehydrate from `state.md` and `git log origin/main..HEAD`. If the lockfiles
-match, run exactly `ln -s ../../../node_modules node_modules` from this worktree when it lacks
-`node_modules`; if they differ, run `npm ci` here instead. Then continue at the first stage
-without recorded evidence.
-Only this session delegates. A new session cannot resume the earlier session's agent ids; brief
-fresh agents from the run files, diff and open findings. Do not use per-command `workdir` or
-shell `cd` as a substitute for starting Codex in the worktree: those do not reload project
-config, rules or agents or change the session sandbox root.
+When invoked from the shared checkout, run stage 1's fetch and exact parity check. Also run
+`git diff --quiet origin/main -- .codex` there: the custom agents and command rules must match
+too. A setup mismatch still stops the run as stage 1 requires; changing a command's directory
+does not reload session configuration. Otherwise find or create the issue worktree as stage 1
+describes. Record the issue, kind, branch, relative and absolute worktree paths, `stage: plan`
+and no agent ids in `.agent-runs/gh<N>/state.md` for a new run. Preserve existing state when
+resuming. Read the worktree's `AGENTS.md`, this skill, `stages.md`, state and
+`git log origin/main..HEAD`; continue at the first stage without recorded evidence. A session
+already started in the issue worktree resumes the same way. For both entry paths, compare the
+target worktree's `AGENTS.md`, `CLAUDE.md`, `.claude`, `.agents`, `.codex` and `docs/agents`
+with the session-start checkout before delegation, including uncommitted differences. If the
+instructions, agents or rules differ, stop and report the mismatch rather than mixing
+configurations. A matching path alone does not establish that configuration was reloaded after
+an in-session edit; report any known changes to loaded configuration too.
+
+Use the command tool's explicit absolute `workdir` for every repository command: the issue
+worktree for inspection, installs, builds, tests, staging, commits and shipping; the shared
+checkout only for fetch/parity checks, worktree creation and post-merge cleanup. Use absolute
+paths inside the issue worktree for file tools. Do not use `git -C`, shell `cd` wrappers or
+implicit current-directory assumptions. With `workdir` set to the issue worktree, confirm
+`git rev-parse --show-toplevel` and `git branch --show-current` match the recorded path and
+branch before work begins and before staging, committing or pushing. The session root and
+sandbox remain unchanged: request narrowly scoped approval if access is blocked, and never
+use broader permissions or a replacement process to bypass a refusal.
+
+If the lockfiles match, run exactly `ln -s ../../../node_modules node_modules` with the issue
+worktree as `workdir` when it lacks `node_modules`; if they differ, run `npm ci` there instead.
+Write durable run state before delegating. Every brief includes the absolute worktree path,
+expected branch, absolute instruction and run-file paths, and the command/file routing rules
+above. Agents may inherit the shared checkout as their default directory; each must verify the
+target worktree explicitly and keep all task work there. A new session cannot resume an earlier
+session's agent ids: brief fresh agents from the run files, diff and open findings. If another
+orchestrator is still running this issue, coordinate a stop and record its final state before
+taking over; never run two orchestrators against the same issue worktree.
 
 Spawn the named `planner`, `reviewer`, `implementer`, and `verifier` custom agents with the
-self-contained briefs in `stages.md`. Delegate every stage for a fresh context even though the
-next step waits on it; this workflow overrides Codex's general advice against delegating
+self-contained briefs in `stages.md`, using a fresh context (`fork_turns: "none"` when available).
+The orchestrator owns git, run state, owner communication and approval, and shipping; the
+planner, implementer, reviewer and verifier own their respective SDLC stages. Delegate each
+stage even though the next step waits on it; this workflow overrides Codex's general advice against delegating
 blocking work. Use `wait_agent` before consuming a result. Resume the planner or implementer
 with the runtime's follow-up/resume action and its recorded id. Close each plan reviewer after
 collecting its findings. Close the planner immediately after the owner approves and the final
@@ -262,8 +277,8 @@ subagent threads remain open and record current ids in `state.md`. A fresh revie
 thread every round. Parent runtime overrides can replace an agent's sandbox, so the planner's
 and reviewer's written no-edit constraints still apply.
 
-From the worktree session, stage only explicit paths from a reviewed `git status` and diff with
-`git add -- <explicit paths>`; never stage the `node_modules` symlink. Inspect the staged diff
+With the issue worktree as `workdir`, review `git status` and the diff, then stage explicit paths
+with `git add -- <explicit paths>`; never stage the `node_modules` symlink. Inspect the staged diff
 before every commit. Push only this run's branch with `git push -u origin <branch>`. If a
 conflict blocks the PR merge, run `git fetch origin` and then `git merge origin/main` here;
 resume the implementer for conflicts, commit the merge, and request a fresh review. If all
@@ -274,17 +289,16 @@ run, record that fact and request approval for
 Otherwise merge here with `gh pr merge <PR> --merge --delete-branch --repo jlesak/Intersect`;
 the `--repo` flag prevents gh from trying to switch this worktree to `main`. Confirm with
 `gh pr view <PR> --json state,mergeCommit` and record `stage: merged` and the commit in
-`state.md` before ending the worktree session. Do not use `git push` to delete a branch.
+`state.md` before cleanup. Do not use `git push` to delete a branch.
 
-Cleanup runs from a Codex process started in the main checkout, after the merge. Return to the
-original shared-checkout session or start `codex -p intersect -C <absolute-main-checkout-path>`
-for a cleanup-only request naming issue <N>. Read the worktree's `state.md`, preserve its lessons
-and decisions for the report and retro, verify the recorded PR is merged, then request approval
+Cleanup stays in this session after the merge, with command `workdir` set to the shared
+checkout. Read the worktree's `state.md`, preserve its lessons and decisions for the report and
+retro, verify the recorded PR is merged and inspect the worktree status, then request approval
 for `git worktree remove .claude/worktrees/gh<N>-<slug>` and
-`git branch -D <branch>` separately. Never use `--force` on worktree removal. This cleanup-only
-session does not repeat stage 1 or delegate. Each command is `prompt`, so wait for the owner's
-decision; do not bypass a refusal. A `codex exec` session cannot surface these approvals. If
-there are lessons, continue into the retro bootstrap in this same main-checkout session and
+`git branch -D <branch>` separately. Never use `--force` on worktree removal. Cleanup does not
+repeat stage 1 or delegate. Each command is `prompt`, so wait for the approval result and do
+not bypass a refusal. If the runtime cannot surface approval, report the blocked command rather
+than launching another process. If there are lessons, continue into the retro bootstrap here and
 write its self-contained brief under the retro worktree's `.agent-runs/` before stopping;
 the removed issue worktree cannot serve as a later source.
 

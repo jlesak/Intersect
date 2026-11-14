@@ -244,7 +244,7 @@ prefix_rule(
 prefix_rule(
     pattern = ["git","-C"],
     decision = "forbidden",
-    justification = "Start Codex in the worktree instead of using git -C.",
+    justification = "Use the command tool's explicit workdir for the verified issue worktree and plain git commands so these prefix rules still apply.",
     match = ["git -C x add -A"],
     not_match = ["git add -- src/main.ts"],
 )
