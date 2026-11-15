@@ -13,6 +13,7 @@ import { INITIAL_NOTIFICATIONS, useSettingsStore } from './store'
 const mocked = vi.mocked(api)
 
 const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
+  timeTracking: { excludedPathPrefixes: [] },
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
   ado: { orgUrl: 'https://devops.example.com', project: 'Example', repository: 'app', pat: 'pat-1' },
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },

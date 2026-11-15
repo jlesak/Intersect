@@ -41,6 +41,7 @@ vi.mock('@renderer/features/agentTooling', async () => {
 })
 
 const SETTINGS: AppSettings = {
+  timeTracking: { excludedPathPrefixes: [] },
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
   ado: { orgUrl: '', project: '', repository: '', pat: '' },
   adoFallback: { orgUrl: '', project: '', hasPat: false },
@@ -95,6 +96,7 @@ const CATEGORY_LABELS = [
   'Azure DevOps',
   'PR Review',
   'Sessions',
+  'Time Tracking',
   'Klávesové zkratky',
   'Vzhled'
 ]
@@ -181,7 +183,7 @@ describe('SettingsView', () => {
 
     expect(document.querySelectorAll('.ix-settings__pane').length).toBe(1)
     expect(document.querySelector('.ix-settings__title')?.textContent).toBe('Projekty')
-    expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(8)
+    expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(CATEGORY_LABELS.length)
   })
 
   test('an unvisited pane never runs its mount effect', async () => {
@@ -221,9 +223,9 @@ describe('SettingsView', () => {
       await selectCategory('Agent Tooling')
 
       expect(document.querySelector('.ix-crash--region')).toBeTruthy()
-      expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(8)
+      expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(CATEGORY_LABELS.length)
 
-      // Those eight buttons are the way out of a crashed pane, so the fallback names them. The
+      // Those category buttons are the way out of a crashed pane, so the fallback names them. The
       // sidebar would send the user out of Settings altogether, which is a longer way round.
       const card = document.querySelector('.ix-crash__card')?.textContent ?? ''
       expect(card).toContain('Pick another category in the list on the left')
@@ -320,7 +322,7 @@ describe('SettingsView', () => {
     try {
       await renderSettings()
       expect(document.querySelector('.ix-settings')).toBeTruthy()
-      expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(8)
+      expect(document.querySelectorAll('.ix-settings__nav-btn').length).toBe(CATEGORY_LABELS.length)
 
       for (const label of CATEGORY_LABELS) {
         await selectCategory(label)
@@ -434,4 +436,27 @@ describe('an unsaved raw JSON edit across a Settings category switch', () => {
     expect(document.querySelector('.ix-settings__title')?.textContent).toBe('Agent Tooling')
     expect(rawEditor()?.value).toBe('{ "model": "opus" }')
   })
+})
+
+
+test('Time Tracking excludes paths only on Save and keeps failed drafts across rerenders', async () => {
+  installIpc()
+  const save = vi.fn().mockRejectedValueOnce(new Error('Invalid path prefix')).mockResolvedValue({
+    ...SETTINGS, timeTracking: { excludedPathPrefixes: ['/work/project/'] }
+  })
+  window.intersect.settings.setTimeTracking = save
+  await renderSettings()
+  await selectCategory('Time Tracking')
+  const input = document.querySelector<HTMLTextAreaElement>('#ix-set-time-prefixes')!
+  act(() => fireEvent.change(input, { target: { value: '/work/project/' } }))
+  expect(save).not.toHaveBeenCalled()
+  act(() => useSettingsStore.setState({ terminalFontSize: 14 }))
+  expect(input.value).toBe('/work/project/')
+  await clickButton('Save exclusions')
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe('Invalid path prefix')
+  expect(input.value).toBe('/work/project/')
+  await clickButton('Save exclusions')
+  expect(save).toHaveBeenLastCalledWith({ excludedPathPrefixes: ['/work/project/'] })
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  cleanup()
 })

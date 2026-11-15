@@ -7,6 +7,7 @@ const MIN = 60_000
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 'e1',
   source: 'manual',
+  ...{ sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2 },
   day: '2026-08-17',
   description: 'Refactor validators',
   issueKey: 'PROJ-611',
@@ -74,4 +75,17 @@ describe('weekAsCsv', () => {
       '2026-08-17,,"Review, then ""ship""\nand write it up",1.50'
     )
   })
+})
+
+
+test('two days of one session export as separate work rows without session metadata', () => {
+  const base = entry({ source: 'auto', sessionId: 'shared', sessionTitle: 'Metadata only',
+    cwd: '/private/synthetic', folderName: 'synthetic', gitBranch: 'feature/XYZ-1',
+    firstTimestamp: 1, lastTimestamp: 2, description: 'Work description', durationMs: 300000 })
+  const rows = [{ ...base, id: 'shared:2026-08-17', day: '2026-08-17' },
+    { ...base, id: 'shared:2026-08-18', day: '2026-08-18', durationMs: 600000 }]
+  expect(weekAsText(rows)).toBe('Date\tIssue\tDescription\tDuration\n2026-08-17\tPROJ-611\tWork description\t5m\n2026-08-18\tPROJ-611\tWork description\t10m\nTotal\t\t\t15m')
+  expect(weekAsCsv(rows).split('\n')).toHaveLength(3)
+  expect(weekAsCsv(rows)).not.toContain('Metadata only')
+  expect(weekAsCsv(rows)).not.toContain('/private/synthetic')
 })

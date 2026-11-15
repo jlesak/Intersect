@@ -4,6 +4,7 @@ import type {
   AppSettings,
   NotificationSettings,
   ReviewSettings,
+  TimeTrackingSettings,
   SessionSettings
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
@@ -21,3 +22,6 @@ export const setSession = (session: SessionSettings): Promise<AppSettings> =>
   ipc().settings.setSession(session)
 export const testAdoConnection = (ado: AdoSettings): Promise<AdoConnectionResult> =>
   ipc().settings.testAdoConnection(ado)
+
+export const setTimeTracking = (settings: TimeTrackingSettings): Promise<AppSettings> =>
+  ipc().settings.setTimeTracking(settings)

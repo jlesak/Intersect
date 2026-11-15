@@ -30,6 +30,7 @@ const transcript: SessionTranscript = { id: 's1', title: 'A session', cwd: '/rep
 
 function makeIndex(over: Partial<SessionIndex> = {}): SessionIndex {
   return {
+    scan: vi.fn(async () => []),
     list: vi.fn(async () => [summary()]),
     refresh: vi.fn(async () => [summary({ id: 's2' })]),
     getTranscript: vi.fn(async () => transcript),

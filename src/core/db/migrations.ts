@@ -781,6 +781,31 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    version: 31,
+    up(db) {
+      db.exec(`
+        ALTER TABLE time_entry_override RENAME TO time_entry_override_legacy;
+        CREATE TABLE time_session_day (
+          session_id TEXT NOT NULL, day TEXT NOT NULL,
+          title TEXT NOT NULL, cwd TEXT NOT NULL, git_branch TEXT,
+          auto_description TEXT NOT NULL, first_timestamp INTEGER NOT NULL,
+          last_timestamp INTEGER NOT NULL,
+          active_duration_ms INTEGER NOT NULL CHECK (active_duration_ms >= 0),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (session_id, day)
+        );
+        CREATE INDEX idx_time_session_day_day ON time_session_day(day);
+        CREATE TABLE time_entry_override (
+          session_id TEXT NOT NULL, day TEXT NOT NULL, description TEXT, issue_key TEXT,
+          duration_ms INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (session_id, day),
+          FOREIGN KEY (session_id, day) REFERENCES time_session_day(session_id, day)
+        );
+      `)
+    }
   }
 ]
 

@@ -1,3 +1,4 @@
+const WEEK = '2026-07-06'
 import { describe, expect, test, vi } from 'vitest'
 import type { RunningTimer, TimeEntry } from '@common/domain'
 import { Channel } from '@common/ipc'
@@ -7,6 +8,7 @@ import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracki
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 's1',
   source: 'auto',
+  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Session s1',
   issueKey: 'PROJ-611',
@@ -62,15 +64,15 @@ describe('timeTracking handlers', () => {
     const service = makeService()
     const h = createTimeTrackingHandlers({ service })
     const update = { description: 'Session s1', issueKey: null, durationMs: 1 }
-    expect((await h.updateEntry('auto', 's1', update)).durationMs).toBe(1)
-    expect(service.updateEntry).toHaveBeenCalledWith('auto', 's1', update)
+    expect((await h.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, update)).durationMs).toBe(1)
+    expect(service.updateEntry).toHaveBeenCalledWith({ source: 'auto', sessionId: 's1', day: WEEK }, update)
   })
 
   test('deleteEntry delegates source and id', async () => {
     const service = makeService()
     const h = createTimeTrackingHandlers({ service })
-    await h.deleteEntry('manual', 'm1')
-    expect(service.deleteEntry).toHaveBeenCalledWith('manual', 'm1')
+    await h.deleteEntry({ source: 'manual', id: 'm1' })
+    expect(service.deleteEntry).toHaveBeenCalledWith({ source: 'manual', id: 'm1' })
   })
 
   test('wraps a thrown error as a message-only Error', async () => {
@@ -81,7 +83,7 @@ describe('timeTracking handlers', () => {
     })
     const h = createTimeTrackingHandlers({ service })
     await expect(
-      h.updateEntry('auto', 'nope', { description: 'x', issueKey: null, durationMs: 1 })
+      h.updateEntry({ source: 'auto', sessionId: 'nope', day: WEEK }, { description: 'x', issueKey: null, durationMs: 1 })
     ).rejects.toThrow(/Unknown session: nope/)
   })
 
@@ -155,7 +157,7 @@ describe('timeTrackingWireRoutes', () => {
     const week = (await call(Channel.timeTrackingGetWeek, '2026-07-06')) as TimeEntry[]
     expect(week.map((e) => e.id)).toEqual(['s1'])
 
-    const updated = (await call(Channel.timeTrackingUpdateEntry, 'auto', 's1', {
+    const updated = (await call(Channel.timeTrackingUpdateEntry, { source: 'auto', sessionId: 's1', day: WEEK }, {
       description: 'Session s1',
       issueKey: null,
       durationMs: 1

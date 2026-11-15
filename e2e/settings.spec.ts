@@ -39,6 +39,7 @@ test('Settings opens from the footer rail with every category and the notificati
     'Azure DevOps',
     'PR Review',
     'Sessions',
+    'Time Tracking',
     'Klávesové zkratky',
     'Vzhled'
   ])

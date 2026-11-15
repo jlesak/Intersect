@@ -63,6 +63,7 @@ export const RENDERER_PUSH_CHANNELS: ReadonlyMap<ChannelName, 'core' | 'main'> =
   [Channel.prInboxFixWorktreeClosed, 'core'],
   [Channel.oneOnOneRunChanged, 'core'],
   [Channel.myWorkChanged, 'core'],
+  [Channel.timeTrackingChanged, 'core'],
   [Channel.usageChanged, 'core'],
   [Channel.terminalNotificationClicked, 'main'],
   [Channel.todoReminderActivated, 'main'],

@@ -1,3 +1,4 @@
+import { useTimeTrackingStore } from '@renderer/features/timeTracking'
 import { useAttentionStore } from '@renderer/features/attention'
 import { useProjectsStore } from '@renderer/features/projects'
 import { useTabsStore } from '@renderer/features/tabs'
@@ -35,6 +36,8 @@ export function wireCoreRecovery(): void {
       void useWorkspacesStore.getState().hydrate()
       void useProjectsStore.getState().load()
       void useUsageStore.getState().hydrate()
+      void useTimeTrackingStore.getState().reload()
+      void useTimeTrackingStore.getState().loadTimer()
       const workspaceId = useTabsStore.getState().workspaceId
       if (workspaceId) void useTabsStore.getState().hydrate(workspaceId)
     }

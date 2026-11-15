@@ -732,18 +732,35 @@ export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number]
 
 /**
  * One card on the weekly worklog board. An auto entry is derived from a past Claude Code session
- * (its id IS the session id) with any user edits applied on top; a manual entry is a standalone
+ * (its id combines session id and day) with any user edits applied on top; a manual entry is a standalone
  * worklog the user typed in. `day` is the local calendar day in `yyyy-mm-dd` form; `issueKey` is
  * the Jira issue the time belongs to, or null for unattributed time (e.g. a meeting).
  */
-export interface TimeEntry {
+interface TimeEntryFields {
   id: string
-  source: TimeEntrySource
   day: string
   description: string
   issueKey: string | null
   durationMs: number
 }
+
+export type TimeEntry = TimeEntryFields & (
+  | { source: 'manual' }
+  | {
+      source: 'auto'
+      sessionId: string
+      sessionTitle: string
+      cwd: string
+      folderName: string
+      gitBranch: string | null
+      firstTimestamp: number
+      lastTimestamp: number
+    }
+)
+
+export type TimeEntryRef =
+  | { source: 'auto'; sessionId: string; day: string }
+  | { source: 'manual'; id: string }
 
 /** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
 export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'>
@@ -1089,8 +1106,14 @@ export interface SessionSettings {
   autoResume: boolean
 }
 
+/** Literal absolute path prefixes hidden from the Time Tracking board. */
+export interface TimeTrackingSettings {
+  excludedPathPrefixes: string[]
+}
+
 /** All user settings fetched together, so a single call hydrates the whole section. */
 export interface AppSettings {
+  timeTracking: TimeTrackingSettings
   notifications: NotificationSettings
   /** Only what the user actually entered; a blank field defers to `adoFallback` at resolve time. */
   ado: AdoSettings

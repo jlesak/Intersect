@@ -35,6 +35,7 @@ const apiMock = vi.hoisted(() => {
     tabs: {
       listByWorkspace: vi.fn(async () => [])
     },
+    timeTracking: { getWeek: vi.fn(async () => []), getTimer: vi.fn(async () => null) },
     usage: {
       get: vi.fn(async () => null)
     }
@@ -86,6 +87,8 @@ describe('wireCoreRecovery', () => {
     expect(apiMock.api.workspaces.getState).toHaveBeenCalled()
     expect(apiMock.api.projects.list).toHaveBeenCalled()
     expect(apiMock.api.usage.get).toHaveBeenCalled()
+    expect(apiMock.api.timeTracking.getWeek).toHaveBeenCalled()
+    expect(apiMock.api.timeTracking.getTimer).toHaveBeenCalled()
     expect(apiMock.api.tabs.listByWorkspace).toHaveBeenCalledWith('w1')
   })
 

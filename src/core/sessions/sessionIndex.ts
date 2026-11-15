@@ -3,7 +3,7 @@ import { readdir, readFile as fsReadFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionSummary, SessionTranscript } from '@common/domain'
-import { parseSummary, parseTranscript } from './sessionParse'
+import { parseSession, parseTranscript, type ParsedSession } from './sessionParse'
 
 /**
  * Filesystem seams for the session index. Each is injectable so tests exercise the caching and
@@ -25,6 +25,8 @@ export interface SessionIndexOptions {
 export interface SessionIndex {
   /** Past sessions newest-activity-first; builds the cache on first call. */
   list(): Promise<SessionSummary[]>
+  /** Fresh raw activity, kept internal to the core. Concurrent scans share one build. */
+  scan(): Promise<ParsedSession[]>
   /** Re-scan from disk and return the fresh list. */
   refresh(): Promise<SessionSummary[]>
   /** The full transcript for one session id (builds the index first if needed). */
@@ -82,11 +84,11 @@ export function createSessionIndex(opts: SessionIndexOptions = {}): SessionIndex
   // one disk scan instead of each launching its own.
   let summaries: SessionSummary[] | null = null
   let byId = new Map<string, SessionSummary>()
-  let building: Promise<SessionSummary[]> | null = null
+  let building: Promise<ParsedSession[]> | null = null
 
-  async function build(): Promise<SessionSummary[]> {
+  async function build(): Promise<ParsedSession[]> {
     const files = await readDir(projectsDir)
-    const built: SessionSummary[] = []
+    const built: ParsedSession[] = []
     for (const filePath of files) {
       let content: string
       try {
@@ -95,27 +97,38 @@ export function createSessionIndex(opts: SessionIndexOptions = {}): SessionIndex
         // A file that disappears mid-scan is simply omitted from this build.
         continue
       }
-      built.push(parseSummary(filePath, content.split(/\r?\n/)))
+      built.push(parseSession(filePath, content.split(/\r?\n/)))
     }
-    built.sort((a, b) => b.lastTimestamp - a.lastTimestamp)
-    summaries = built
-    byId = new Map(built.map((s) => [s.id, s]))
+    built.sort((a, b) => b.summary.lastTimestamp - a.summary.lastTimestamp)
+    summaries = built.map(s => s.summary)
+    byId = new Map(summaries.map((s) => [s.id, s]))
     return built
   }
 
-  async function ensureBuilt(): Promise<SessionSummary[]> {
-    if (summaries) return summaries
+  function scan(): Promise<ParsedSession[]> {
     if (!building) building = build().finally(() => (building = null))
     return building
   }
 
+  async function ensureBuilt(): Promise<SessionSummary[]> {
+    if (building) {
+      await building
+      return summaries!
+    }
+    if (summaries) return summaries
+    await scan()
+    return summaries!
+  }
+
   return {
+    scan,
     async list() {
       return ensureBuilt()
     },
 
     async refresh() {
-      return build()
+      await scan()
+      return summaries!
     },
 
     async getTranscript(id) {

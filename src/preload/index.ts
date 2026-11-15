@@ -163,12 +163,17 @@ const api: IpcApi = {
     clearSuspended: (tabId) => ipcRenderer.invoke(Channel.sessionsClearSuspended, tabId)
   },
   timeTracking: {
+    onChanged: (cb) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(Channel.timeTrackingChanged, listener)
+      return () => ipcRenderer.removeListener(Channel.timeTrackingChanged, listener)
+    },
     getWeek: (weekStart) => ipcRenderer.invoke(Channel.timeTrackingGetWeek, weekStart),
     refreshWeek: (weekStart) => ipcRenderer.invoke(Channel.timeTrackingRefreshWeek, weekStart),
     addManual: (input) => ipcRenderer.invoke(Channel.timeTrackingAddManual, input),
-    updateEntry: (source, id, update) =>
-      ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, source, id, update),
-    deleteEntry: (source, id) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, source, id),
+    updateEntry: (ref, update) =>
+      ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, ref, update),
+    deleteEntry: (ref) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, ref),
     getTimer: () => ipcRenderer.invoke(Channel.timeTrackingGetTimer),
     startTimer: (description, issueKey) =>
       ipcRenderer.invoke(Channel.timeTrackingStartTimer, description, issueKey),
@@ -247,6 +252,7 @@ const api: IpcApi = {
     }
   },
   settings: {
+    setTimeTracking: (settings) => ipcRenderer.invoke(Channel.settingsSetTimeTracking, settings),
     get: () => ipcRenderer.invoke(Channel.settingsGet),
     setNotifications: (notifications) =>
       ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),

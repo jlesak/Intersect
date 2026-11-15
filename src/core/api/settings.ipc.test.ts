@@ -37,6 +37,7 @@ describe('settings handlers', () => {
       .mockResolvedValue({ ok: true, displayName: 'Jan' })
     adoSettingsChanged = vi.fn<() => Promise<void>>().mockResolvedValue()
     h = createSettingsHandlers({
+      timeTrackingChanged: () => {},
       settings,
       fallbackAdo: () => ({ ...FALLBACK_ADO }),
       testConnection,
@@ -46,6 +47,7 @@ describe('settings handlers', () => {
 
   test('get returns an empty ADO form plus the env-derived fallback as a hint when nothing is saved', async () => {
     expect(await h.get()).toEqual({
+      timeTracking: { excludedPathPrefixes: [] },
       notifications: DEFAULT_NOTIFICATION_SETTINGS,
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: FALLBACK_ADO.orgUrl, project: FALLBACK_ADO.project, hasPat: true },
@@ -69,6 +71,7 @@ describe('settings handlers', () => {
 
   test('get never leaks the fallback PAT to the renderer, only whether one exists', async () => {
     const withoutPat = createSettingsHandlers({
+      timeTrackingChanged: () => {},
       settings,
       fallbackAdo: () => ({ ...FALLBACK_ADO, pat: '' }),
       testConnection,
@@ -200,8 +203,9 @@ describe('settings handlers', () => {
 })
 
 describe('settingsWireRoutes', () => {
-  test('binds the six request/response channels to the handlers', async () => {
+  test('binds every request/response channels to the handlers', async () => {
     const h = createSettingsHandlers({
+      timeTrackingChanged: () => {},
       settings: createSettingsRepo(makeTestDb()),
       fallbackAdo: () => ({ ...FALLBACK_ADO }),
       testConnection: () => Promise.resolve({ ok: true, displayName: 'Jan' }),
@@ -214,6 +218,7 @@ describe('settingsWireRoutes', () => {
     expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.settingsGet,
+        Channel.settingsSetTimeTracking,
         Channel.settingsSetNotifications,
         Channel.settingsSetAdo,
         Channel.settingsSetTerminalFontSize,

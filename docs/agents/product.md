@@ -40,6 +40,20 @@ system status.
 - Overlapping parallel sessions are not flattened into one timeline.
 - A duration is capped to the session's active, non-suspended time.
 - Description and duration are both editable inline.
+- Auto cards are durable snapshots per session and day, in the IANA time zone saved by the first
+  scan. Weekends are stored but not displayed. Transcript cleanup never removes snapshots or edits.
+- A daily card appears at exactly five minutes of measured activity, independently of its edited
+  duration. Each inter-message gap is capped at ten minutes and credited to the earlier day;
+  the first continuation on a later day can add that final gap without moving the earlier card.
+- Intersect's own data directory is always excluded. Settings > Time Tracking accepts literal,
+  case-sensitive absolute path prefixes. Exclusions hide data and totals without deleting history.
+- Auto cards show session title, folder and optional branch separately from the work description.
+  Metadata follows the session index; it is not a history of branch changes inside a session.
+- Legacy edits and deletions belong wholly to the session's last evidenced day. Unresolved edits
+  remain stored until a readable transcript supplies that day; no date is invented from edit time.
+- Jira worklog upload requires the owner's click and confirmation of a preview. It manages only
+  worklogs created by Intersect, with no CLI upload or automatic sending. Upload is a separate
+  feature (#178), not part of daily snapshot storage (#174).
 
 ## Pull requests
 
@@ -70,7 +84,7 @@ system status.
 - A cross-repository dirty-working-tree radar.
 - Token usage attributed per work item.
 - Migration failure recovery beyond what issue #117 covers.
-- A tray icon, nested splits, headless review with permission bypass, automatic worklogs, billing
+- A tray icon, nested splits, headless review with permission bypass, uploading worklogs without the owner's click, billing
   and contracts, a notes module, an embedded Teams window, a hosted data plane, Wake-on-LAN.
 
 Postponed, not declined: undo for closing a tab.

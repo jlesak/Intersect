@@ -19,6 +19,7 @@ const CURRENT_WEEK = weekStartOf(Date.now())
 const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   id,
   source: 'auto',
+  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
   day: CURRENT_WEEK,
   description: `Entry ${id}`,
   issueKey: null,
@@ -167,7 +168,7 @@ describe('mutations reload the shown week', () => {
     await useTimeTrackingStore
       .getState()
       .updateEntry(e, { description: 'Entry s1', issueKey: 'AB-1', durationMs: 1 })
-    expect(mocked.updateEntry).toHaveBeenCalledWith('auto', 's1', {
+    expect(mocked.updateEntry).toHaveBeenCalledWith({ source: 'auto', sessionId: 's1', day: CURRENT_WEEK }, {
       description: 'Entry s1',
       issueKey: 'AB-1',
       durationMs: 1
@@ -181,7 +182,7 @@ describe('mutations reload the shown week', () => {
     mocked.deleteEntry.mockResolvedValue(undefined)
     mocked.getWeek.mockResolvedValue([])
     await useTimeTrackingStore.getState().removeEntry(e)
-    expect(mocked.deleteEntry).toHaveBeenCalledWith('manual', 'm1')
+    expect(mocked.deleteEntry).toHaveBeenCalledWith({ source: 'manual', id: 'm1' })
     expect(useTimeTrackingStore.getState().entries).toEqual([])
   })
 
@@ -397,4 +398,46 @@ describe('loadTimer', () => {
     expect(useTimeTrackingStore.getState().timer).toBeNull()
     expect(useTimeTrackingStore.getState().status).toBe('idle')
   })
+})
+
+
+test('a late same-week read cannot replace a newer response', async () => {
+  let finish!: (value: TimeEntry[]) => void
+  mocked.getWeek.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const first = useTimeTrackingStore.getState().loadWeek(CURRENT_WEEK)
+  mocked.getWeek.mockResolvedValueOnce([entry('new')])
+  await useTimeTrackingStore.getState().loadWeek(CURRENT_WEEK)
+  finish([entry('old')])
+  await first
+  expect(useTimeTrackingStore.getState().entries.map(e => e.id)).toEqual(['new'])
+})
+
+
+test('A to B to A navigation rejects a late response from the first visit', async () => {
+  let finish!: (value: TimeEntry[]) => void
+  mocked.getWeek.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const first = useTimeTrackingStore.getState().loadWeek(CURRENT_WEEK)
+  mocked.getWeek.mockResolvedValueOnce([entry('b')])
+  await useTimeTrackingStore.getState().loadWeek(addDays(CURRENT_WEEK, 7))
+  mocked.getWeek.mockResolvedValueOnce([entry('latest-a')])
+  await useTimeTrackingStore.getState().loadWeek(CURRENT_WEEK)
+  finish([entry('stale-a')])
+  await first
+  expect(useTimeTrackingStore.getState().entries.map(e => e.id)).toEqual(['latest-a'])
+})
+
+test('snapshot push reloads SQLite data without a new scan and returns subscription cleanup', async () => {
+  let changed!: () => void
+  const unsubscribe = vi.fn()
+  mocked.onChanged.mockImplementation(cb => { changed = cb; return unsubscribe })
+  mocked.getWeek.mockResolvedValue([entry('before')])
+  await useTimeTrackingStore.getState().hydrate()
+  const cleanup = useTimeTrackingStore.getState().subscribe()
+  mocked.getWeek.mockResolvedValue([entry('after')])
+  changed()
+  await Promise.resolve()
+  expect(useTimeTrackingStore.getState().entries.map(e => e.id)).toEqual(['after'])
+  expect(mocked.refreshWeek).not.toHaveBeenCalled()
+  cleanup()
+  expect(unsubscribe).toHaveBeenCalledOnce()
 })

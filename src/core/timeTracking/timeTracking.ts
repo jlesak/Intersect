@@ -2,7 +2,7 @@ import type {
   NewManualTimeEntry,
   RunningTimer,
   TimeEntry,
-  TimeEntrySource,
+  TimeEntryRef,
   TimeEntryUpdate
 } from '@common/domain'
 import { dayKeyOf, weekdayKeys } from '@common/week'
@@ -11,13 +11,18 @@ import type {
   RunningTimerRepo,
   TimeOverrideRepo
 } from '../db/timeTrackingRepo'
-import type { SessionIndex } from '../sessions/sessionIndex'
+import { basename } from 'node:path'
+import type { TimeTrackingSettings } from '@common/domain'
+import type { TimeSessionDay, TimeSessionDayRepo } from '../db/timeSessionDayRepo'
+import type { SessionSnapshots } from './sessionSnapshots'
+import { insideAppData } from './exclusions'
 import { issueKeyFromBranch } from './issueKey'
-import { autoDescription } from './worklogDescription'
 
 export interface TimeTrackingDeps {
-  /** The app-wide session index instance - the same one the Sessions slice reads. */
-  sessions: SessionIndex
+  snapshots: TimeSessionDayRepo
+  scanner: SessionSnapshots
+  settings(): TimeTrackingSettings
+  userDataDir: string
   manual: ManualTimeEntryRepo
   overrides: TimeOverrideRepo
   timer: RunningTimerRepo
@@ -32,17 +37,16 @@ export interface TimeTrackingDeps {
 
 /**
  * The weekly worklog board's read/write model. A week is the five weekdays starting at a Monday
- * day key; auto entries are Claude Code sessions bucketed by the local day of their last activity,
- * with any persisted user edits (overrides) applied on top and tombstoned sessions dropped.
- * Weekend sessions are excluded entirely - no card, no share in any total.
+ * day key; auto entries come from persisted daily snapshots with user edits applied on top.
+ * Weekend snapshots remain stored but have no card or share in the weekday totals.
  */
 export interface TimeTrackingService {
   getWeek(weekStart: string): Promise<TimeEntry[]>
   /** Force a session re-scan from disk, then return the fresh week. */
   refreshWeek(weekStart: string): Promise<TimeEntry[]>
   addManual(input: NewManualTimeEntry): TimeEntry
-  updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
-  deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+  updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
+  deleteEntry(ref: TimeEntryRef): Promise<void>
   /** The timer currently running, or null. */
   getRunningTimer(): RunningTimer | null
   /** Begin timing now. Refuses when one is already running. */
@@ -57,6 +61,8 @@ export interface TimeTrackingService {
 }
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/
+const validDay = (day: string): boolean => typeof day === 'string' && DAY_KEY.test(day) &&
+  Number.isFinite(Date.parse(day)) && new Date(day).toISOString().slice(0, 10) === day
 
 /**
  * The renderer form validates too, but persisted garbage would surface as wrong totals or as
@@ -82,101 +88,82 @@ function timedDescription(description: string, issueKey: string | null): string 
 }
 
 export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService {
-  async function findSession(id: string) {
-    const session = (await deps.sessions.list()).find((s) => s.id === id)
-    if (!session) throw new Error(`Unknown session: ${id}`)
-    return session
+  const key = (sessionId: string, day: string) => `${sessionId}:${day}`
+  const toEntry = (row: TimeSessionDay): TimeEntry => {
+    const override = deps.overrides.get(row.sessionId, row.day)
+    return { id: key(row.sessionId, row.day), source: 'auto', day: row.day,
+      sessionId: row.sessionId, sessionTitle: row.title, cwd: row.cwd,
+      folderName: row.cwd ? basename(row.cwd) : '', gitBranch: row.gitBranch,
+      firstTimestamp: row.firstTimestamp, lastTimestamp: row.lastTimestamp,
+      description: override?.description ?? row.autoDescription,
+      issueKey: override ? override.issueKey : issueKeyFromBranch(row.gitBranch),
+      durationMs: override ? override.durationMs : row.activeDurationMs }
+  }
+
+  function validateRef(ref: TimeEntryRef): void {
+    if (!ref || typeof ref !== 'object') throw new Error('Invalid entry reference')
+    if (ref.source === 'manual' && typeof ref.id === 'string' && ref.id) return
+    if (ref.source === 'auto' && typeof ref.sessionId === 'string' && ref.sessionId &&
+      validDay(ref.day)) return
+    throw new Error('Invalid entry reference')
+  }
+
+  async function findSnapshot(ref: Extract<TimeEntryRef, { source: 'auto' }>) {
+    await deps.scanner.ready()
+    const row = deps.snapshots.get(ref.sessionId, ref.day)
+    if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
+    return row
   }
 
   async function getWeek(weekStart: string): Promise<TimeEntry[]> {
+    await deps.scanner.ready()
     const days = weekdayKeys(weekStart)
-    const daySet = new Set(days)
-    const overridesById = new Map(deps.overrides.listAll().map((o) => [o.sessionId, o]))
-
-    const auto: { entry: TimeEntry; ts: number }[] = []
-    for (const session of await deps.sessions.list()) {
-      const day = dayKeyOf(session.lastTimestamp)
-      // Only the shown week's Monday-Friday qualifies; a weekend day is never in the set.
-      if (!daySet.has(day)) continue
-      const override = overridesById.get(session.id)
-      if (override?.deleted) continue
-      auto.push({
-        ts: session.lastTimestamp,
-        entry: {
-          id: session.id,
-          source: 'auto',
-          day,
-          description: override?.description ?? autoDescription(session),
-          issueKey: override ? override.issueKey : issueKeyFromBranch(session.gitBranch),
-          durationMs: override ? override.durationMs : session.activeDurationMs
-        }
-      })
-    }
-    // Within a day: sessions in chronological order, then manual entries in creation order
-    // (matching how the user appends them at the end of a column). The final day-only sort is
-    // stable, so both pre-sorted groups keep their internal order.
-    auto.sort((a, b) => a.entry.day.localeCompare(b.entry.day) || a.ts - b.ts)
-    const manual = deps.manual.listByDays(days)
-    return [...auto.map((a) => a.entry), ...manual].sort((a, b) => a.day.localeCompare(b.day))
+    const prefixes = deps.settings().excludedPathPrefixes
+    const rows = deps.snapshots.listByDays(days).filter(row =>
+      row.activeDurationMs >= 300_000 && !deps.overrides.get(row.sessionId, row.day)?.deleted &&
+      !insideAppData(row.cwd, deps.userDataDir) && !prefixes.some(prefix => row.cwd.startsWith(prefix)))
+    rows.sort((a, b) => a.day.localeCompare(b.day) || a.lastTimestamp - b.lastTimestamp ||
+      a.sessionId.localeCompare(b.sessionId))
+    return [...rows.map(toEntry), ...deps.manual.listByDays(days)]
+      .sort((a, b) => a.day.localeCompare(b.day))
   }
 
   return {
     getWeek,
 
     async refreshWeek(weekStart) {
-      const sessions = await deps.sessions.refresh()
-      // The fresh scan is the authority on which sessions still exist; overrides and tombstones
-      // of deleted transcripts have nothing left to override.
-      deps.overrides.pruneAbsent(sessions.map((s) => s.id))
+      await deps.scanner.scan()
       return getWeek(weekStart)
     },
 
     addManual(input) {
-      if (!DAY_KEY.test(input.day)) throw new Error(`Not a day: ${input.day}`)
+      if (!validDay(input.day)) throw new Error(`Not a day: ${input.day}`)
       if (!input.description.trim()) throw new Error('A description is required')
       assertDuration(input.durationMs)
       return deps.manual.create(input)
     },
 
-    async updateEntry(source, id, update) {
+    async updateEntry(ref, update) {
+      validateRef(ref)
       assertDuration(update.durationMs)
       if (!update.description.trim()) throw new Error('A description is required')
-      if (source === 'manual') return deps.manual.update(id, update)
-      const session = await findSession(id)
-      deps.overrides.upsert(id, {
-        description: update.description,
-        issueKey: update.issueKey,
-        durationMs: update.durationMs,
-        deleted: false
-      })
-      return {
-        id,
-        source: 'auto',
-        day: dayKeyOf(session.lastTimestamp),
-        description: update.description,
-        issueKey: update.issueKey,
-        durationMs: update.durationMs
-      }
+      if (ref.source === 'manual') return deps.manual.update(ref.id, update)
+      const row = await findSnapshot(ref)
+      deps.overrides.upsert(ref.sessionId, ref.day, { ...update, deleted: false })
+      return toEntry(row)
     },
 
-    async deleteEntry(source, id) {
-      if (source === 'manual') {
-        deps.manual.remove(id)
+    async deleteEntry(ref) {
+      validateRef(ref)
+      if (ref.source === 'manual') {
+        deps.manual.remove(ref.id)
         return
       }
-      // Tombstone the auto card, snapshotting whatever the card currently shows so the row
-      // satisfies its own NOT NULL fields without inventing values.
-      const existing = deps.overrides.get(id)
-      if (existing) {
-        deps.overrides.upsert(id, { ...existing, deleted: true })
-        return
-      }
-      const session = await findSession(id)
-      deps.overrides.upsert(id, {
-        description: null,
-        issueKey: issueKeyFromBranch(session.gitBranch),
-        durationMs: session.activeDurationMs,
-        deleted: true
+      const row = await findSnapshot(ref)
+      const existing = deps.overrides.get(ref.sessionId, ref.day)
+      deps.overrides.upsert(ref.sessionId, ref.day, existing ? { ...existing, deleted: true } : {
+        description: null, issueKey: issueKeyFromBranch(row.gitBranch),
+        durationMs: row.activeDurationMs, deleted: true
       })
     },
 
@@ -204,7 +191,7 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
         deps.timer.clear()
         if (durationMs < MIN_TIMED_MS) return null
         // Attributed to the day it was stopped, so a span crossing midnight lands on one day rather
-        // than being split across two - the same whole-session rule the auto entries follow.
+        // than being split across two - manual entries and timers retain their single-day behavior.
         return deps.manual.create({
           day: dayKeyOf(stoppedAt),
           description: timedDescription(running.description, running.issueKey),

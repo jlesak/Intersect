@@ -4,6 +4,7 @@ import {
   type AdoFallback,
   type AdoSettings,
   type NotificationSettings,
+  type TimeTrackingSettings,
   type ReviewSettings
 } from '@common/domain'
 import { debounce } from '@common/debounce'
@@ -26,6 +27,8 @@ export type AdoTestState =
 const EMPTY_ADO_FALLBACK: AdoFallback = { orgUrl: '', project: '', hasPat: false }
 
 interface SettingsState {
+  timeTracking: TimeTrackingSettings
+  saveTimeTracking(value: TimeTrackingSettings): Promise<void>
   status: Status
   error: string | null
   notifications: NotificationSettings
@@ -95,6 +98,11 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
   }, FONT_SIZE_PERSIST_DELAY_MS)
 
   return {
+    timeTracking: { excludedPathPrefixes: [] },
+    async saveTimeTracking(value) {
+      const saved = await api.setTimeTracking(value)
+      set({ timeTracking: saved.timeTracking })
+    },
     status: 'idle',
     error: null,
     notifications: INITIAL_NOTIFICATIONS,
@@ -112,6 +120,7 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
         set({
           status: 'ready',
           error: null,
+          timeTracking: settings.timeTracking,
           notifications: settings.notifications,
           ado: settings.ado,
           adoFallback: settings.adoFallback,

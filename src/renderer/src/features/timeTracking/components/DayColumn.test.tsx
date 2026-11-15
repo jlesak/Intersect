@@ -8,6 +8,7 @@ function entry(over: Partial<TimeEntry> = {}): TimeEntry {
   return {
     id: 'e1',
     source: 'auto',
+  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
     day: '2026-07-06',
     description: 'Session e1',
     issueKey: null,

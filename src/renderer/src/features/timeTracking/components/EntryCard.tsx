@@ -55,9 +55,27 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
   // A ref (not state) so the Escape keydown is already visible to the blur it triggers.
   const discardRef = useRef(false)
 
-  useEffect(() => setKey(entry.issueKey ?? ''), [entry.issueKey])
-  useEffect(() => setDesc(entry.description), [entry.description])
-  useEffect(() => setTime(formatDuration(entry.durationMs)), [entry.durationMs])
+  const editing = useRef({ key: false, desc: false, time: false })
+  const pending = useRef({ key: false, desc: false, time: false })
+  const dirty = useRef({ key: false, desc: false, time: false })
+  useEffect(() => {
+    if (!editing.current.key && !dirty.current.key) {
+      pending.current.key = false
+      setKey(entry.issueKey ?? '')
+    }
+  }, [entry.issueKey])
+  useEffect(() => {
+    if (!editing.current.desc && !dirty.current.desc) {
+      pending.current.desc = false
+      setDesc(entry.description)
+    }
+  }, [entry.description])
+  useEffect(() => {
+    if (!editing.current.time && !dirty.current.time) {
+      pending.current.time = false
+      setTime(formatDuration(entry.durationMs))
+    }
+  }, [entry.durationMs])
 
   const takeDiscard = (): boolean => {
     const discarded = discardRef.current
@@ -65,19 +83,26 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
     return discarded
   }
 
-  // Assemble the whole payload from the live drafts of all three fields, never from the entry prop.
+  // Edited or pending fields come from drafts; untouched fields keep the exact current measurement.
   // updateEntry is fire-and-forget and the board reloads only after it resolves, so committing one
   // field while another already holds an uncommitted edit must carry that pending edit too, or the
   // stale prop would silently revert it.
   const draftPayload = () => ({
-    description: desc.trim() || entry.description,
-    issueKey: normalizeIssueKey(key),
-    durationMs: parseDuration(time) ?? entry.durationMs
+    description: dirty.current.desc || pending.current.desc ? desc.trim() || entry.description : entry.description,
+    issueKey: dirty.current.key || pending.current.key ? normalizeIssueKey(key) : entry.issueKey,
+    durationMs: dirty.current.time || pending.current.time ? parseDuration(time) ?? entry.durationMs : entry.durationMs
   })
 
   const commitKey = (): void => {
+    editing.current.key = false
+
     if (takeDiscard()) {
+      pending.current.key = false
       setKey(entry.issueKey ?? '')
+      return
+    }
+    if (!dirty.current.key) {
+      if (!pending.current.key) setKey(entry.issueKey ?? '')
       return
     }
     const issueKey = normalizeIssueKey(key)
@@ -85,12 +110,20 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       setKey(issueKey ?? '')
       return
     }
+    pending.current.key = true
     void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   const commitDesc = (): void => {
+    editing.current.desc = false
+
     if (takeDiscard()) {
+      pending.current.desc = false
       setDesc(entry.description)
+      return
+    }
+    if (!dirty.current.desc) {
+      if (!pending.current.desc) setDesc(entry.description)
       return
     }
     const description = desc.trim()
@@ -98,12 +131,20 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       setDesc(entry.description)
       return
     }
+    pending.current.desc = true
     void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   const commitTime = (): void => {
+    editing.current.time = false
+
     if (takeDiscard()) {
+      pending.current.time = false
       setTime(formatDuration(entry.durationMs))
+      return
+    }
+    if (!dirty.current.time) {
+      if (!pending.current.time) setTime(formatDuration(entry.durationMs))
       return
     }
     // Untouched text is not an edit. The displayed format floors to whole minutes, so parsing it
@@ -115,6 +156,7 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       setTime(formatDuration(entry.durationMs))
       return
     }
+    pending.current.time = true
     void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
@@ -127,9 +169,16 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           value={key}
           placeholder="no issue"
           aria-label="Issue key"
-          onChange={(e) => setKey(e.target.value)}
+          onFocus={() => { editing.current.key = true }}
+          onChange={(e) => {
+            dirty.current.key = true
+            setKey(e.target.value)
+          }}
           onKeyDown={(e) => blurOnEnter(e, () => (discardRef.current = true))}
-          onBlur={commitKey}
+          onBlur={() => {
+            commitKey()
+            dirty.current.key = false
+          }}
         />
         <span className="ix-tt-card__actions">
           <button
@@ -146,18 +195,39 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
         className="ix-tt-card__title"
         value={desc}
         aria-label="Description"
-        onChange={(e) => setDesc(e.target.value)}
+        onFocus={() => { editing.current.desc = true }}
+          onChange={(e) => {
+            dirty.current.desc = true
+            setDesc(e.target.value)
+          }}
         onKeyDown={(e) => blurOnEnter(e, () => (discardRef.current = true))}
-        onBlur={commitDesc}
+        onBlur={() => {
+            commitDesc()
+            dirty.current.desc = false
+          }}
       />
+      {entry.source === 'auto' && (
+        <div className="ix-tt-card__metadata">
+          <span>{entry.sessionTitle}</span>
+          {entry.folderName && <> · <span title={entry.cwd}>{entry.folderName}</span></>}
+          {entry.gitBranch && <> · <span>{entry.gitBranch}</span></>}
+        </div>
+      )}
       <span className="ix-tt-card__bottom">
         <input
           className="ix-tt-card__dur"
           value={time}
           aria-label="Time spent"
-          onChange={(e) => setTime(e.target.value)}
+          onFocus={() => { editing.current.time = true }}
+          onChange={(e) => {
+            dirty.current.time = true
+            setTime(e.target.value)
+          }}
           onKeyDown={(e) => blurOnEnter(e, () => (discardRef.current = true))}
-          onBlur={commitTime}
+          onBlur={() => {
+            commitTime()
+            dirty.current.time = false
+          }}
         />
       </span>
     </div>
