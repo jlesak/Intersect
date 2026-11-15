@@ -3358,6 +3358,21 @@
   padding: 24px 24px 40px;
   overflow-y: auto;
 }
+.ix-todo__reminder-warning {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-waiting);
+  border-radius: var(--radius-sm);
+  background: var(--status-waiting-soft);
+  color: var(--text);
+}
+.ix-todo__reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 .ix-todo__head {
   display: flex;
   align-items: center;

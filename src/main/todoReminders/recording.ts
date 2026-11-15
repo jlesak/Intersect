@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import type { NativeReminders } from './native'
+import type { AuthorizationStatus, NativeReminders } from './native'
 import type { PendingReminder } from './plan'
 
 /**
@@ -8,7 +8,10 @@ import type { PendingReminder } from './plan'
  * the store to a file in the test profile after every change, so a spec can read what would be
  * waiting in macOS. It never touches the system's notification center.
  */
-export function createRecordingReminders(file: string): NativeReminders {
+export function createRecordingReminders(
+  file: string,
+  authorizationStatus: () => Promise<AuthorizationStatus> = async () => 'authorized'
+): NativeReminders {
   const pending = new Map<string, PendingReminder>()
   if (existsSync(file)) {
     for (const request of JSON.parse(readFileSync(file, 'utf8')) as PendingReminder[]) {
@@ -21,7 +24,7 @@ export function createRecordingReminders(file: string): NativeReminders {
   }
   record()
   return {
-    authorizationStatus: async () => 'authorized',
+    authorizationStatus,
     requestAuthorization: async () => true,
     async schedule(requests) {
       for (const { id, title, body, local } of requests) {

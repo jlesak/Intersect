@@ -14,6 +14,7 @@ import { useTodoStore } from '../store'
 import { TodoItem } from './TodoItem'
 import { TodoCalendar } from './TodoCalendar'
 import { TodoFilterEditor } from './TodoFilterEditor'
+import { TodoReminderWarning } from './TodoReminderWarning'
 
 /** Move one id to an insertion index, accounting for the removal shift. */
 function moveId(ids: string[], id: string, insertionIndex: number): string[] {
@@ -332,6 +333,8 @@ export function TodoView() {
             {showDone ? 'Hide done' : `Show done (${done.length})`}
           </button>
         </div>
+
+        <TodoReminderWarning />
 
         {missingTask && <div className="ix-todo__error" role="status">Task no longer exists.</div>}
         {view === 'filter' && invalidFilter && <div className="ix-todo__error" role="alert">

@@ -11,8 +11,9 @@ export interface TodoHandlerDeps {
   onChanged?: () => void
 }
 
-/** The request side of the TODO contract; the reminder click is a push from main. */
-export type TodoHandlers = Omit<IpcApi['todo'], 'onReminderActivated'>
+/** Core-owned requests; reminder permission, settings and activation belong to main. */
+export type TodoHandlers = Omit<IpcApi['todo'],
+  'onReminderActivated' | 'getReminderPermission' | 'openReminderSettings'>
 
 /**
  * Re-throw any failure as a message-only Error. Only an Error's `.message` survives the IPC

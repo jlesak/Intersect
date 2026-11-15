@@ -58,6 +58,8 @@ function makeHarness(overrides: Partial<CoreBridgeDeps> = {}): {
       }
     },
     electronOnly: {
+      [Channel.todoGetReminderPermission]: () => 'authorized',
+      [Channel.todoOpenReminderSettings]: () => undefined,
       [Channel.workspacesPickFolder]: () => '/picked',
       [Channel.oneOnOnePickVtt]: () => '/picked.vtt',
       [Channel.systemOpenExternal]: (url: string) => `opened:${url}`,

@@ -25,6 +25,8 @@ describe('bridge channel classification', () => {
   test('the Electron-only allowlist is exactly the OS-integration surface', () => {
     expect([...ELECTRON_ONLY_CHANNELS].sort()).toEqual(
       [
+        Channel.todoGetReminderPermission,
+        Channel.todoOpenReminderSettings,
         Channel.workspacesPickFolder,
         Channel.oneOnOnePickVtt,
         Channel.systemOpenExternal,

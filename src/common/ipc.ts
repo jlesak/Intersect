@@ -351,6 +351,8 @@ export interface IpcApi {
     refresh(): Promise<void>
   }
   todo: {
+    getReminderPermission(): Promise<TodoReminderPermission>
+    openReminderSettings(): Promise<void>
     /** Both TODO lists: open tasks in manual order, done most recently first. */
     list(): Promise<TodoLists>
     add(input: TodoCreateInput | string, dueDay?: string | null): Promise<TodoTask>
@@ -618,6 +620,9 @@ export interface TerminalNotificationClickEvent {
   sessionId: string
 }
 
+export type TodoReminderPermission = 'notDetermined' | 'denied' | 'authorized' | 'provisional'
+  | 'unknown' | 'unavailable' | 'error'
+
 export interface TodoReminderActivatedEvent {
   taskId: string
 }
@@ -757,6 +762,8 @@ export const Channel = {
   agentRuntimeGetForSession: 'agentRuntime:getForSession',
   agentRuntimeRefresh: 'agentRuntime:refresh',
   // todo (request/response)
+  todoGetReminderPermission: 'todo:getReminderPermission',
+  todoOpenReminderSettings: 'todo:openReminderSettings',
   todoList: 'todo:list',
   todoAdd: 'todo:add',
   todoUpdate: 'todo:update',

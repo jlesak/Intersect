@@ -16,6 +16,8 @@ import { Channel, type ChannelName } from './ipc'
  * core's own handlers for them throw.
  */
 export const ELECTRON_ONLY_CHANNELS: ReadonlySet<ChannelName> = new Set<ChannelName>([
+  Channel.todoGetReminderPermission,
+  Channel.todoOpenReminderSettings,
   Channel.workspacesPickFolder,
   Channel.oneOnOnePickVtt,
   Channel.systemOpenExternal,
