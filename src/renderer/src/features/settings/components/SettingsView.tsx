@@ -19,6 +19,7 @@ const CATEGORIES = [
   { id: 'ado', label: 'Azure DevOps' },
   { id: 'review', label: 'PR Review' },
   { id: 'sessions', label: 'Sessions' },
+  { id: 'timeTracking', label: 'Time Tracking' },
   { id: 'keys', label: 'Klávesové zkratky' },
   { id: 'appearance', label: 'Vzhled' }
 ] as const
@@ -37,6 +38,7 @@ const PANES: Record<CategoryId, ComponentType> = {
   ado: AdoPane,
   review: ReviewPane,
   sessions: SessionsPane,
+  timeTracking: TimeTrackingPane,
   keys: ShortcutsPane,
   appearance: AppearancePane
 }
@@ -397,4 +399,40 @@ function AppearancePane() {
       </div>
     </>
   )
+}
+
+
+function TimeTrackingPane() {
+  const saved = useSettingsStore(s => s.timeTracking)
+  const loaded = useSettingsStore(s => s.status === 'ready')
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const value = draft ?? saved.excludedPathPrefixes.join('\n')
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      await useSettingsStore.getState().saveTimeTracking({ excludedPathPrefixes: value.split(/\r?\n/) })
+      setDraft(null)
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setSaving(false) }
+  }
+  return <>
+    <div className="ix-settings__title">Time Tracking</div>
+    <div className="ix-set-field">
+      <label htmlFor="ix-set-time-prefixes">Excluded path prefixes</label>
+      <div id="ix-set-time-prefixes-hint" className="ix-set-row__hint">
+        One absolute path prefix per line. Literal matching: /work/project also excludes
+        /work/project-old; a trailing / narrows the match. Intersect’s own data directory
+        is always excluded. Saved history and edits are kept when hidden.
+      </div>
+      <textarea id="ix-set-time-prefixes" className="ix-input" rows={6}
+        aria-describedby="ix-set-time-prefixes-hint" disabled={!loaded || saving}
+        value={value} onChange={event => setDraft(event.target.value)} />
+    </div>
+    <button type="button" className="ix-btn ix-btn--primary" disabled={!loaded || saving}
+      onClick={() => void save()}>{saving ? 'Saving…' : 'Save exclusions'}</button>
+    {error && <div role="alert">{error}</div>}
+  </>
 }

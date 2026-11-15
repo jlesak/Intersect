@@ -106,6 +106,8 @@ import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { createWorkItemRefRepo } from './db/workItemRefRepo'
 import { canonicalizePath, projectPathDeps } from './projects/paths'
+import { createTimeSessionDayRepo } from './db/timeSessionDayRepo'
+import { createSessionSnapshots } from './timeTracking/sessionSnapshots'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createAgentRuntimeRepo } from './db/agentRuntimeRepo'
 import {
@@ -660,9 +662,18 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // The one index instance is shared with the Time Tracking slice so both read the same scan.
   const sessionIndex = createSessionIndex()
 
+  const timeSnapshots = createTimeSessionDayRepo(db, repoDeps.now)
+  const snapshotScanner = createSessionSnapshots({
+    sessions: sessionIndex, snapshots: timeSnapshots, state: appState,
+    settings: () => settings.getTimeTracking(), userDataDir, atomically: fn => tx(db, fn),
+    changed: () => emitPush(Channel.timeTrackingChanged, undefined),
+    failed: err => deps.logger.child('timeTracking').warn('snapshot scan failed', { err })
+  })
+  snapshotScanner.start()
   const timeTrackingHandlers = createTimeTrackingHandlers({
     service: createTimeTracking({
-      sessions: sessionIndex,
+      snapshots: timeSnapshots, scanner: snapshotScanner,
+      settings: () => settings.getTimeTracking(), userDataDir,
       manual: createManualTimeEntryRepo(db, repoDeps),
       overrides: createTimeOverrideRepo(db, repoDeps),
       timer: createRunningTimerRepo(db, repoDeps),
@@ -816,6 +827,9 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   }
   const settingsHandlers = createSettingsHandlers({
     settings,
+    timeTrackingChanged: () => {
+      void snapshotScanner.scan().catch(err => deps.logger.child('timeTracking').warn('settings scan failed', { err }))
+    },
     fallbackAdo,
     // E2E runs answer with a canned identity so the button never hits the network.
     testConnection: isE2e
@@ -950,6 +964,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     usageFile?.dispose()
     debouncedAdoTeardown.cancel()
     void adoClient.close()
+    snapshotScanner.dispose()
     db.close()
   }
 

@@ -51,7 +51,8 @@ import type {
   SessionTranscript,
   Tab,
   TimeEntry,
-  TimeEntrySource,
+  TimeEntryRef,
+  TimeTrackingSettings,
   TimeEntryUpdate,
   TodoLists,
   TodoCompletion,
@@ -315,6 +316,7 @@ export interface IpcApi {
     clearSuspended(tabId: string): Promise<void>
   }
   timeTracking: {
+    onChanged(cb: () => void): () => void
     /**
      * The merged worklog entries (auto from Claude Code sessions + manual) for the Monday-Friday
      * week starting at the given Monday day key (`yyyy-mm-dd`, local calendar).
@@ -323,10 +325,10 @@ export interface IpcApi {
     /** Re-scan the Claude Code session index from disk, then return the fresh week. */
     refreshWeek(weekStart: string): Promise<TimeEntry[]>
     addManual(input: NewManualTimeEntry): Promise<TimeEntry>
-    /** Edit time/issue key on any card; an auto edit persists as an override keyed by session id. */
-    updateEntry(source: TimeEntrySource, id: string, update: TimeEntryUpdate): Promise<TimeEntry>
+    /** Edit time/issue key on any card; an auto edit persists as an override keyed by session and day. */
+    updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
-    deleteEntry(source: TimeEntrySource, id: string): Promise<void>
+    deleteEntry(ref: TimeEntryRef): Promise<void>
     /** The work timer currently running, or null. Read once at boot; there is no push channel. */
     getTimer(): Promise<RunningTimer | null>
     /** Begin timing now. Rejects when a timer is already running. */
@@ -426,6 +428,7 @@ export interface IpcApi {
     recordUse(commandId: string): Promise<string[]>
   }
   settings: {
+    setTimeTracking(settings: TimeTrackingSettings): Promise<AppSettings>
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
     get(): Promise<AppSettings>
     setNotifications(notifications: NotificationSettings): Promise<AppSettings>
@@ -747,6 +750,7 @@ export const Channel = {
   sessionsListLive: 'sessions:listLive',
   sessionsClearSuspended: 'sessions:clearSuspended',
   // timeTracking (request/response)
+  timeTrackingChanged: 'timeTracking:changed',
   timeTrackingGetWeek: 'timeTracking:getWeek',
   timeTrackingRefreshWeek: 'timeTracking:refreshWeek',
   timeTrackingAddManual: 'timeTracking:addManual',
@@ -809,6 +813,7 @@ export const Channel = {
   paletteGetRecent: 'palette:getRecent',
   paletteRecordUse: 'palette:recordUse',
   // settings (request/response)
+  settingsSetTimeTracking: 'settings:setTimeTracking',
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',
   settingsSetAdo: 'settings:setAdo',

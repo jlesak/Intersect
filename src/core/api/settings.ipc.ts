@@ -7,10 +7,12 @@ import {
   type AppSettings
 } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
+import { validateTimeTrackingSettings } from '../timeTracking/exclusions'
 import type { SettingsRepo } from '../db/settingsRepo'
 
 export interface SettingsHandlerDeps {
   settings: SettingsRepo
+  timeTrackingChanged(): void
   /** The effective ADO config from `~/.claude.json`/env, shown until the user saves their own. */
   fallbackAdo(): AdoSettings
   testConnection(ado: AdoSettings): Promise<AdoConnectionResult>
@@ -46,6 +48,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
   function current(): AppSettings {
     const fallback = d.fallbackAdo()
     return {
+      timeTracking: d.settings.getTimeTracking(),
       notifications: d.settings.getNotifications(),
       // Only the values the user actually saved; a blank field defers live to the fallback (see
       // resolveAdoServerConfig), so nothing here freezes a copy of `~/.claude.json` / env.
@@ -74,6 +77,11 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 
   return {
     get: () => surface(() => current()),
+    setTimeTracking: (settings) => surface(() => {
+      d.settings.setTimeTracking(validateTimeTrackingSettings(settings))
+      d.timeTrackingChanged()
+      return current()
+    }),
 
     setNotifications: (notifications) =>
       surface(() => {
@@ -153,6 +161,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
   return {
     [Channel.settingsGet]: h.get,
+    [Channel.settingsSetTimeTracking]: h.setTimeTracking,
     [Channel.settingsSetNotifications]: h.setNotifications,
     [Channel.settingsSetAdo]: h.setAdo,
     [Channel.settingsSetTerminalFontSize]: h.setTerminalFontSize,

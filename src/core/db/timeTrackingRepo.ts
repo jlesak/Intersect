@@ -84,6 +84,7 @@ export function createManualTimeEntryRepo(db: DatabaseSync, deps: RepoDeps): Man
  */
 export interface TimeOverride {
   sessionId: string
+  day: string
   /** The user's edited description, or null when never edited (the board derives it instead). */
   description: string | null
   issueKey: string | null
@@ -93,6 +94,7 @@ export interface TimeOverride {
 
 interface OverrideRow {
   session_id: string
+  day: string
   description: string | null
   issue_key: string | null
   duration_ms: number
@@ -102,6 +104,7 @@ interface OverrideRow {
 function toOverride(row: OverrideRow): TimeOverride {
   return {
     sessionId: row.session_id,
+    day: row.day,
     description: row.description,
     issueKey: row.issue_key,
     durationMs: row.duration_ms,
@@ -110,19 +113,17 @@ function toOverride(row: OverrideRow): TimeOverride {
 }
 
 export interface TimeOverrideRepo {
-  get(sessionId: string): TimeOverride | undefined
+  get(sessionId: string, day: string): TimeOverride | undefined
   listAll(): TimeOverride[]
   /** Insert or fully replace the override for a session. */
-  upsert(sessionId: string, value: Omit<TimeOverride, 'sessionId'>): TimeOverride
-  /** Drop overrides for sessions that no longer exist (their transcript was deleted from disk). */
-  pruneAbsent(presentSessionIds: string[]): void
+  upsert(sessionId: string, day: string, value: Omit<TimeOverride, 'sessionId' | 'day'>): TimeOverride
 }
 
 export function createTimeOverrideRepo(db: DatabaseSync, deps: RepoDeps): TimeOverrideRepo {
-  const get = (sessionId: string): TimeOverride | undefined => {
-    const row = db.prepare('SELECT * FROM time_entry_override WHERE session_id = ?').get(sessionId) as
-      | OverrideRow
-      | undefined
+  const get = (sessionId: string, day: string): TimeOverride | undefined => {
+    const row = db
+      .prepare('SELECT * FROM time_entry_override WHERE session_id = ? AND day = ?')
+      .get(sessionId, day) as OverrideRow | undefined
     return row ? toOverride(row) : undefined
   }
 
@@ -136,11 +137,11 @@ export function createTimeOverrideRepo(db: DatabaseSync, deps: RepoDeps): TimeOv
       return rows.map(toOverride)
     },
 
-    upsert(sessionId, value) {
+    upsert(sessionId, day, value) {
       db.prepare(
-        `INSERT INTO time_entry_override (session_id, description, issue_key, duration_ms, deleted, updated_at)
-         VALUES (?,?,?,?,?,?)
-         ON CONFLICT(session_id) DO UPDATE SET
+        `INSERT INTO time_entry_override (session_id, day, description, issue_key, duration_ms, deleted, updated_at)
+         VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(session_id, day) DO UPDATE SET
            description = excluded.description,
            issue_key = excluded.issue_key,
            duration_ms = excluded.duration_ms,
@@ -148,24 +149,14 @@ export function createTimeOverrideRepo(db: DatabaseSync, deps: RepoDeps): TimeOv
            updated_at = excluded.updated_at`
       ).run(
         sessionId,
+        day,
         value.description,
         value.issueKey,
         value.durationMs,
         value.deleted ? 1 : 0,
         deps.now()
       )
-      return get(sessionId)!
-    },
-
-    pruneAbsent(presentSessionIds) {
-      const present = new Set(presentSessionIds)
-      const stale = (
-        db.prepare('SELECT session_id FROM time_entry_override').all() as unknown as {
-          session_id: string
-        }[]
-      ).filter((row) => !present.has(row.session_id))
-      const remove = db.prepare('DELETE FROM time_entry_override WHERE session_id = ?')
-      for (const row of stale) remove.run(row.session_id)
+      return get(sessionId, day)!
     }
   }
 }

@@ -104,9 +104,10 @@ describe('migrations', () => {
       `INSERT INTO time_entry_manual (id, day, description, issue_key, duration_ms, created_at)
        VALUES ('m1', '2026-07-06', 'Team sync', NULL, 1800000, 1)`
     ).run()
+    db.prepare(`INSERT INTO time_session_day VALUES ('s1', '2026-07-06', 'Title', '/work', NULL, 'Work', 1, 2, 300000, 1)`).run()
     db.prepare(
-      `INSERT INTO time_entry_override (session_id, issue_key, duration_ms, updated_at)
-       VALUES ('s1', 'PROJ-611', 3600000, 1)`
+      `INSERT INTO time_entry_override (session_id, day, issue_key, duration_ms, updated_at)
+       VALUES ('s1', '2026-07-06', 'PROJ-611', 3600000, 1)`
     ).run()
     expect(
       (db.prepare('SELECT deleted AS d FROM time_entry_override').get() as { d: number }).d
@@ -558,7 +559,7 @@ describe('migrations', () => {
     runMigrations(db)
 
     const row = db
-      .prepare('SELECT description AS d FROM time_entry_override WHERE session_id = ?')
+      .prepare('SELECT description AS d FROM time_entry_override_legacy WHERE session_id = ?')
       .get('s1') as { d: string | null }
     expect(row.d).toBeNull()
   })

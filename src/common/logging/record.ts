@@ -29,6 +29,7 @@ export type LogScope =
   | 'lifecycle'
   | 'attention'
   | 'agentRuntime'
+  | 'timeTracking'
   | 'oneOnOne'
   | 'settings'
   | 'todo'

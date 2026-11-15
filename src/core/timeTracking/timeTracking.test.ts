@@ -11,7 +11,9 @@ import {
   type TimeOverrideRepo
 } from '../db/timeTrackingRepo'
 import { makeTestDb, makeTestDeps } from '../db/testkit'
-import type { SessionIndex } from '../sessions/sessionIndex'
+import { dayKeyOf } from '@common/week'
+import { createTimeSessionDayRepo } from '../db/timeSessionDayRepo'
+import { autoDescription } from './worklogDescription'
 import { createTimeTracking, type TimeTrackingService } from './timeTracking'
 
 // The tested week: Monday 2026-07-06 through Friday 2026-07-10 (weekend 07-11/07-12).
@@ -36,14 +38,6 @@ const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
   userPrompts: [],
   ...over
 })
-
-function makeIndex(sessions: SessionSummary[]): SessionIndex {
-  return {
-    list: vi.fn(async () => sessions),
-    refresh: vi.fn(async () => sessions),
-    getTranscript: vi.fn()
-  }
-}
 
 describe('timeTracking service', () => {
   /** Kept in scope so the service's transactions run against the same database as the repos. */
@@ -70,15 +64,19 @@ describe('timeTracking service', () => {
   const make = (
     sessions: SessionSummary[],
     manualRepo: ManualTimeEntryRepo = manual
-  ): TimeTrackingService =>
-    createTimeTracking({
-      sessions: makeIndex(sessions),
-      manual: manualRepo,
-      overrides,
-      timer,
-      now: () => clock,
-      atomically: (fn) => tx(db, fn)
+  ): TimeTrackingService => {
+    const snapshots = createTimeSessionDayRepo(db, () => clock)
+    for (const summary of sessions) snapshots.upsert({ sessionId: summary.id,
+      day: dayKeyOf(summary.lastTimestamp), title: summary.title, cwd: summary.cwd,
+      gitBranch: summary.gitBranch, autoDescription: autoDescription(summary),
+      firstTimestamp: summary.firstTimestamp, lastTimestamp: summary.lastTimestamp,
+      activeDurationMs: summary.activeDurationMs })
+    return createTimeTracking({
+      snapshots, scanner: { ready: async () => {}, scan: async () => {}, start() {}, dispose() {} },
+      settings: () => ({ excludedPathPrefixes: [] }), userDataDir: '/synthetic/intersect',
+      manual: manualRepo, overrides, timer, now: () => clock, atomically: fn => tx(db, fn)
     })
+  }
 
   test('buckets sessions into local days of the shown week and derives issue keys', async () => {
     const svc = make([
@@ -88,7 +86,9 @@ describe('timeTracking service', () => {
     const week = await svc.getWeek(WEEK)
     expect(week).toEqual([
       {
-        id: 'mon',
+        id: 'mon:2026-07-06',
+        sessionId: 'mon', sessionTitle: 'Session mon', cwd: '/repo/mon', folderName: 'mon',
+        gitBranch: 'feature/proj-611-slug', firstTimestamp: at(6, 9), lastTimestamp: at(6, 15),
         source: 'auto',
         day: '2026-07-06',
         description: 'Session mon',
@@ -96,7 +96,9 @@ describe('timeTracking service', () => {
         durationMs: 60 * 60_000
       },
       {
-        id: 'wed',
+        id: 'wed:2026-07-08',
+        sessionId: 'wed', sessionTitle: 'Session wed', cwd: '/repo/wed', folderName: 'wed',
+        gitBranch: 'feature/time-tracking', firstTimestamp: at(6, 9), lastTimestamp: at(8, 11),
         source: 'auto',
         day: '2026-07-08',
         description: 'Session wed',
@@ -127,7 +129,7 @@ describe('timeTracking service', () => {
 
   test('an override replaces both editable fields, including a cleared issue key', async () => {
     const svc = make([session('s1', { gitBranch: 'proj-611' })])
-    overrides.upsert('s1', {
+    overrides.upsert('s1', WEEK, {
       description: 'Edited',
       issueKey: null,
       durationMs: 45 * 60_000,
@@ -140,7 +142,7 @@ describe('timeTracking service', () => {
 
   test('a tombstoned session yields no card', async () => {
     const svc = make([session('s1')])
-    overrides.upsert('s1', { description: null, issueKey: null, durationMs: 0, deleted: true })
+    overrides.upsert('s1', WEEK, { description: null, issueKey: null, durationMs: 0, deleted: true })
     expect(await svc.getWeek(WEEK)).toEqual([])
   })
 
@@ -164,16 +166,16 @@ describe('timeTracking service', () => {
     svc.addManual({ day: '2026-07-06', description: 'Meeting', issueKey: null, durationMs: 1 })
     const week = await svc.getWeek(WEEK)
     expect(week.map((e) => e.id.startsWith('id-') ? e.description : e.id)).toEqual([
-      'mon',
+      'mon:2026-07-06',
       'Meeting',
-      'tue-early',
-      'tue-late'
+      'tue-early:2026-07-07',
+      'tue-late:2026-07-07'
     ])
   })
 
   test('updateEntry on an auto card upserts the override and survives a re-read', async () => {
     const svc = make([session('s1', { gitBranch: 'proj-611' })])
-    const updated = await svc.updateEntry('auto', 's1', {
+    const updated = await svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, {
       description: 'Session s1',
       issueKey: 'PROJ-999',
       durationMs: 2 * 60 * 60_000
@@ -193,7 +195,7 @@ describe('timeTracking service', () => {
       issueKey: null,
       durationMs: 60 * 60_000
     })
-    const updated = await svc.updateEntry('manual', created.id, {
+    const updated = await svc.updateEntry({ source: 'manual', id: created.id }, {
       description: '1:1 with Marek',
       issueKey: 'PROJ-1',
       durationMs: 30 * 60_000
@@ -205,13 +207,13 @@ describe('timeTracking service', () => {
   test('updateEntry on an unknown session throws', async () => {
     const svc = make([])
     await expect(
-      svc.updateEntry('auto', 'nope', { description: 'x', issueKey: null, durationMs: 1 })
+      svc.updateEntry({ source: 'auto', sessionId: 'nope', day: WEEK }, { description: 'x', issueKey: null, durationMs: 1 })
     ).rejects.toThrow(/Unknown session/)
   })
 
   test('deleteEntry on an auto card tombstones it - the card never resurrects', async () => {
     const svc = make([session('s1')])
-    await svc.deleteEntry('auto', 's1')
+    await svc.deleteEntry({ source: 'auto', sessionId: 's1', day: WEEK })
     expect(await svc.getWeek(WEEK)).toEqual([])
     // A later "refresh" (same sessions re-scanned) still shows nothing.
     expect(await svc.refreshWeek(WEEK)).toEqual([])
@@ -221,16 +223,17 @@ describe('timeTracking service', () => {
     const svc = make([
       session('s1', { durationMs: 8 * 60 * 60_000, activeDurationMs: 20 * 60_000 })
     ])
-    await svc.deleteEntry('auto', 's1')
-    expect(overrides.get('s1')?.durationMs).toBe(20 * 60_000)
+    await svc.deleteEntry({ source: 'auto', sessionId: 's1', day: WEEK })
+    expect(overrides.get('s1', WEEK)?.durationMs).toBe(20 * 60_000)
   })
 
   test('deleting an edited auto card keeps the override snapshot but marks it deleted', async () => {
     const svc = make([session('s1')])
-    await svc.updateEntry('auto', 's1', { description: 'Edited', issueKey: 'AB-12', durationMs: 5 })
-    await svc.deleteEntry('auto', 's1')
-    expect(overrides.get('s1')).toEqual({
+    await svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, { description: 'Edited', issueKey: 'AB-12', durationMs: 5 })
+    await svc.deleteEntry({ source: 'auto', sessionId: 's1', day: WEEK })
+    expect(overrides.get('s1', WEEK)).toEqual({
       sessionId: 's1',
+      day: WEEK,
       description: 'Edited',
       issueKey: 'AB-12',
       durationMs: 5,
@@ -246,37 +249,34 @@ describe('timeTracking service', () => {
       issueKey: null,
       durationMs: 1
     })
-    await svc.deleteEntry('manual', created.id)
+    await svc.deleteEntry({ source: 'manual', id: created.id })
     expect(await svc.getWeek(WEEK)).toEqual([])
   })
 
-  test('refreshWeek forces a session re-scan', async () => {
-    const index = makeIndex([])
-    const svc = createTimeTracking({
-      sessions: index,
-      manual,
-      overrides,
-      timer,
-      now: () => clock,
-      atomically: (fn) => tx(db, fn)
-    })
+  test('refreshWeek forces a snapshot scan', async () => {
+    const scan = vi.fn(async () => {})
+    const svc = createTimeTracking({ snapshots: createTimeSessionDayRepo(db, () => clock),
+      scanner: { scan, ready: async () => {}, start() {}, dispose() {} },
+      settings: () => ({ excludedPathPrefixes: [] }), userDataDir: '/synthetic/intersect',
+      manual, overrides, timer, now: () => clock, atomically: fn => tx(db, fn) })
     await svc.refreshWeek(WEEK)
-    expect(index.refresh).toHaveBeenCalledOnce()
+    expect(scan).toHaveBeenCalledOnce()
   })
 
-  test('refreshWeek prunes overrides of sessions whose transcript is gone', async () => {
+  test('refreshWeek retains overrides of captured sessions whose transcript is gone', async () => {
     const svc = make([session('s1')])
-    await svc.updateEntry('auto', 's1', {
+    await svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, {
       description: 'Session s1',
       issueKey: 'ABC-1',
       durationMs: 5 * 60_000
     })
-    overrides.upsert('gone', { description: null, issueKey: null, durationMs: 1, deleted: true })
+    make([session('gone')])
+    overrides.upsert('gone', WEEK, { description: null, issueKey: null, durationMs: 1, deleted: true })
 
     await svc.refreshWeek(WEEK)
 
-    expect(overrides.get('s1')).toBeDefined()
-    expect(overrides.get('gone')).toBeUndefined()
+    expect(overrides.get('s1', WEEK)).toBeDefined()
+    expect(overrides.get('gone', WEEK)).toBeDefined()
   })
 
   test('addManual rejects a malformed day, an empty description, and a non-positive duration', () => {
@@ -297,10 +297,10 @@ describe('timeTracking service', () => {
       durationMs: 15 * 60_000
     })
     await expect(
-      svc.updateEntry('manual', created.id, { description: 'x', issueKey: null, durationMs: 0 })
+      svc.updateEntry({ source: 'manual', id: created.id }, { description: 'x', issueKey: null, durationMs: 0 })
     ).rejects.toThrow(/positive/)
     await expect(
-      svc.updateEntry('auto', 's1', { description: 'x', issueKey: null, durationMs: -1 })
+      svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, { description: 'x', issueKey: null, durationMs: -1 })
     ).rejects.toThrow(/positive/)
   })
 
@@ -325,12 +325,12 @@ describe('timeTracking service', () => {
 
   test('updateEntry persists an edited description for an auto card', async () => {
     const svc = make([session('s1')])
-    await svc.updateEntry('auto', 's1', {
+    await svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, {
       description: 'Pair-review with Marek',
       issueKey: 'AB-1',
       durationMs: 30 * 60_000
     })
-    expect(overrides.get('s1')?.description).toBe('Pair-review with Marek')
+    expect(overrides.get('s1', WEEK)?.description).toBe('Pair-review with Marek')
     const [e] = await svc.getWeek(WEEK)
     expect(e.description).toBe('Pair-review with Marek')
   })
@@ -339,7 +339,7 @@ describe('timeTracking service', () => {
     const svc = make([
       session('s1', { title: 'Auto label', activeDurationMs: 90 * 60_000 })
     ])
-    overrides.upsert('s1', {
+    overrides.upsert('s1', WEEK, {
       description: null,
       issueKey: 'AB-2',
       durationMs: 20 * 60_000,
@@ -360,10 +360,10 @@ describe('timeTracking service', () => {
       durationMs: 15 * 60_000
     })
     await expect(
-      svc.updateEntry('manual', created.id, { description: '  ', issueKey: null, durationMs: 1 })
+      svc.updateEntry({ source: 'manual', id: created.id }, { description: '  ', issueKey: null, durationMs: 1 })
     ).rejects.toThrow(/description/)
     await expect(
-      svc.updateEntry('auto', 's1', { description: '', issueKey: null, durationMs: 1 })
+      svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, { description: '', issueKey: null, durationMs: 1 })
     ).rejects.toThrow(/description/)
   })
 

@@ -180,7 +180,17 @@ const isNonMetaUser = (r: RawLine): boolean => isUser(r) && r.isMeta !== true
  * broken line is skipped and every missing field has a fallback, so this never throws. See the
  * field docs on {@link SessionSummary} for the meaning of each value.
  */
+export interface ParsedSession {
+  summary: SessionSummary
+  timestamps: number[]
+}
+
 export function parseSummary(filePath: string, lines: string[]): SessionSummary {
+  return parseSession(filePath, lines).summary
+}
+
+/** Shared raw pass: presentation filtering must never change activity measurement. */
+export function parseSession(filePath: string, lines: string[]): ParsedSession {
   const id = basename(filePath, '.jsonl')
   const records = parseLines(lines)
 
@@ -236,18 +246,21 @@ export function parseSummary(filePath: string, lines: string[]): SessionSummary 
   const title = aiTitle || userPrompts[0] || folderName || id
 
   return {
-    id,
-    filePath,
-    cwd,
-    folderName,
-    title,
-    gitBranch,
-    firstTimestamp,
-    lastTimestamp,
-    durationMs: Math.max(0, lastTimestamp - firstTimestamp),
-    activeDurationMs: activeSpanMs(timestamps),
-    messageCount,
-    userPrompts
+    timestamps,
+    summary: {
+      id,
+      filePath,
+      cwd,
+      folderName,
+      title,
+      gitBranch,
+      firstTimestamp,
+      lastTimestamp,
+      durationMs: Math.max(0, lastTimestamp - firstTimestamp),
+      activeDurationMs: activeSpanMs(timestamps),
+      messageCount,
+      userPrompts
+    }
   }
 }
 

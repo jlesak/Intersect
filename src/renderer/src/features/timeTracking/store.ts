@@ -2,6 +2,7 @@ import type {
   NewManualTimeEntry,
   RunningTimer,
   TimeEntry,
+  TimeEntryRef,
   TimeEntryUpdate
 } from '@common/domain'
 import { addDays, weekStartOf } from '@common/week'
@@ -32,6 +33,8 @@ interface TimeTrackingState {
   summaryOpen: boolean
   /** First-open load of the current week (no-op unless idle). */
   hydrate(): Promise<void>
+  reload(): Promise<void>
+  subscribe(): () => void
   loadWeek(weekStart: string): Promise<void>
   prevWeek(): Promise<void>
   nextWeek(): Promise<void>
@@ -64,18 +67,24 @@ interface TimeTrackingState {
   stopTimer(): Promise<void>
 }
 
+const reference = (entry: TimeEntry): TimeEntryRef => entry.source === 'auto'
+  ? { source: 'auto', sessionId: entry.sessionId, day: entry.day }
+  : { source: 'manual', id: entry.id }
+
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) => {
+  let readSequence = 0
   /** Reload the shown week; a response for a week no longer shown is dropped. */
   async function reload(): Promise<void> {
     const weekStart = get().weekStart
+    const request = ++readSequence
     try {
       const entries = await api.getWeek(weekStart)
-      if (get().weekStart !== weekStart) return
+      if (get().weekStart !== weekStart || request !== readSequence) return
       set({ status: 'ready', error: null, entries })
     } catch (e) {
-      if (get().weekStart !== weekStart) return
+      if (get().weekStart !== weekStart || request !== readSequence) return
       set({ status: 'error', error: message(e) })
     }
   }
@@ -94,6 +103,7 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
    * the mutation itself succeeded; a failure has already been reported to the user.
    */
   async function mutate(op: () => Promise<unknown>, failure: string): Promise<boolean> {
+    ++readSequence
     let ok = true
     try {
       await op()
@@ -106,6 +116,10 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
   }
 
   return {
+    reload,
+    subscribe() { return api.onChanged(() => {
+      if (get().status !== 'idle') void reload()
+    }) },
     status: 'idle',
     error: null,
     weekStart: weekStartOf(Date.now()),
@@ -182,13 +196,14 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
 
     async refresh() {
       const weekStart = get().weekStart
+      const request = ++readSequence
       set({ status: 'loading' })
       try {
         const entries = await api.refreshWeek(weekStart)
-        if (get().weekStart !== weekStart) return
+        if (get().weekStart !== weekStart || request !== readSequence) return
         set({ status: 'ready', error: null, entries })
       } catch (e) {
-        if (get().weekStart !== weekStart) return
+        if (get().weekStart !== weekStart || request !== readSequence) return
         set({ status: get().entries.length > 0 ? 'ready' : 'error', error: message(e) })
         reportError('Could not refresh time tracking', e)
       }
@@ -200,11 +215,11 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     },
 
     async updateEntry(entry, update) {
-      await mutate(() => api.updateEntry(entry.source, entry.id, update), 'Could not save the change')
+      await mutate(() => api.updateEntry(reference(entry), update), 'Could not save the change')
     },
 
     async removeEntry(entry) {
-      await mutate(() => api.deleteEntry(entry.source, entry.id), 'Could not delete the entry')
+      await mutate(() => api.deleteEntry(reference(entry)), 'Could not delete the entry')
     },
 
     async startTimer(description, issueKey) {

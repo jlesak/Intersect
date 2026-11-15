@@ -134,6 +134,8 @@ if (!safeMode) {
   // the user opens the app. Deliberately narrower than hydrate(): the week itself is pulled only by
   // the surfaces that show it.
   void useTimeTrackingStore.getState().loadTimer()
+  const unsubscribeTimeTracking = useTimeTrackingStore.getState().subscribe()
+  window.addEventListener('beforeunload', unsubscribeTimeTracking, { once: true })
   // The sidebar's dragged sizes. Safe mode keeps the defaults: a sidebar dragged to something
   // unusable is exactly the kind of state it exists to escape.
   void useSidebarLayoutStore.getState().hydrate()

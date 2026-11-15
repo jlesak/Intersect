@@ -1,3 +1,4 @@
+import { createTimeSessionDayRepo } from './timeSessionDayRepo'
 import { beforeEach, describe, expect, test } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import type { NewManualTimeEntry } from '@common/domain'
@@ -94,18 +95,23 @@ describe('timeOverrideRepo', () => {
 
   beforeEach(() => {
     db = makeTestDb()
+    const snapshots = createTimeSessionDayRepo(db, () => 1)
+    for (const sessionId of ['sess-1', 'sess-2']) for (const day of ['2026-07-06', '2026-07-07']) snapshots.upsert({
+      sessionId, day, title: 'Session', cwd: '/work', gitBranch: null, autoDescription: 'Work',
+      firstTimestamp: 1, lastTimestamp: 2, activeDurationMs: 300000 })
     repo = createTimeOverrideRepo(db, makeTestDeps())
   })
 
   test('upsert inserts a new override and get reads it back', () => {
-    repo.upsert('sess-1', {
+    repo.upsert('sess-1', '2026-07-06', {
       description: 'Edited label',
       issueKey: 'PROJ-611',
       durationMs: 90 * 60_000,
       deleted: false
     })
-    expect(repo.get('sess-1')).toEqual({
+    expect(repo.get('sess-1', '2026-07-06')).toEqual({
       sessionId: 'sess-1',
+      day: '2026-07-06',
       description: 'Edited label',
       issueKey: 'PROJ-611',
       durationMs: 90 * 60_000,
@@ -114,20 +120,21 @@ describe('timeOverrideRepo', () => {
   })
 
   test('a never-edited description round-trips as null', () => {
-    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1000, deleted: false })
-    expect(repo.get('sess-1')?.description).toBeNull()
+    repo.upsert('sess-1', '2026-07-06', { description: null, issueKey: null, durationMs: 1000, deleted: false })
+    expect(repo.get('sess-1', '2026-07-06')?.description).toBeNull()
   })
 
   test('upsert replaces an existing override whole, including clearing the issue key', () => {
-    repo.upsert('sess-1', {
+    repo.upsert('sess-1', '2026-07-06', {
       description: 'first',
       issueKey: 'PROJ-611',
       durationMs: 1000,
       deleted: false
     })
-    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 2000, deleted: false })
-    expect(repo.get('sess-1')).toEqual({
+    repo.upsert('sess-1', '2026-07-06', { description: null, issueKey: null, durationMs: 2000, deleted: false })
+    expect(repo.get('sess-1', '2026-07-06')).toEqual({
       sessionId: 'sess-1',
+      day: '2026-07-06',
       description: null,
       issueKey: null,
       durationMs: 2000,
@@ -136,32 +143,33 @@ describe('timeOverrideRepo', () => {
   })
 
   test('a tombstone survives round-trip and keeps its snapshot fields', () => {
-    repo.upsert('sess-1', {
+    repo.upsert('sess-1', '2026-07-06', {
       description: 'kept',
       issueKey: 'PROJ-611',
       durationMs: 1000,
       deleted: true
     })
-    const o = repo.get('sess-1')
+    const o = repo.get('sess-1', '2026-07-06')
     expect(o?.deleted).toBe(true)
     expect(o?.issueKey).toBe('PROJ-611')
   })
 
   test('get of an unknown session is undefined', () => {
-    expect(repo.get('nope')).toBeUndefined()
+    expect(repo.get('nope', '2026-07-06')).toBeUndefined()
   })
 
   test('listAll returns every override', () => {
-    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1, deleted: false })
-    repo.upsert('sess-2', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
+    repo.upsert('sess-1', '2026-07-06', { description: null, issueKey: null, durationMs: 1, deleted: false })
+    repo.upsert('sess-2', '2026-07-06', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
     expect(repo.listAll().map((o) => o.sessionId).sort()).toEqual(['sess-1', 'sess-2'])
   })
 
-  test('pruneAbsent drops only overrides whose session is gone', () => {
-    repo.upsert('sess-1', { description: null, issueKey: null, durationMs: 1, deleted: false })
-    repo.upsert('sess-2', { description: null, issueKey: 'AB-1', durationMs: 2, deleted: true })
-    repo.pruneAbsent(['sess-1'])
-    expect(repo.listAll().map((o) => o.sessionId)).toEqual(['sess-1'])
+  test('overrides are independent for two days of the same session', () => {
+    repo.upsert('sess-1', '2026-07-06', { description: 'Monday', issueKey: null, durationMs: 1, deleted: false })
+    repo.upsert('sess-1', '2026-07-07', { description: 'Tuesday', issueKey: 'AB-1', durationMs: 2, deleted: true })
+    expect(repo.get('sess-1', '2026-07-06')?.description).toBe('Monday')
+    expect(repo.get('sess-1', '2026-07-07')?.deleted).toBe(true)
+    expect(repo.listAll()).toHaveLength(2)
   })
 })
 

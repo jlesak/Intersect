@@ -9,6 +9,7 @@ import { EntryCard } from './EntryCard'
 const ENTRY: TimeEntry = {
   id: 's1',
   source: 'auto',
+  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Fix the login redirect',
   issueKey: 'PROJ-611',
@@ -142,4 +143,57 @@ describe('EntryCard description editing', () => {
       durationMs: 60 * 60_000
     })
   })
+})
+
+
+test('a background snapshot update preserves a dirty description draft', () => {
+  render()
+  type(field('Description'), 'My unfinished draft')
+  render({ ...ENTRY, description: 'New automatic title' })
+  expect(field('Description').value).toBe('My unfinished draft')
+})
+
+test('auto metadata stays separate from the editable description', () => {
+  render({ ...ENTRY, source: 'auto', sessionId: 's1', sessionTitle: 'Search indexing',
+    cwd: '/work/search', folderName: 'search', gitBranch: 'feature/search',
+    firstTimestamp: 1, lastTimestamp: 2 })
+  expect(host.querySelector('.ix-tt-card__metadata')?.textContent).toBe('Search indexing · search · feature/search')
+  expect(host.querySelector('[title="/work/search"]')).not.toBeNull()
+  expect(field('Description').value).toBe(ENTRY.description)
+})
+
+
+test('focused untouched duration follows new measurement on blur without creating an override', () => {
+  render()
+  const input = field('Time spent')
+  act(() => input.focus())
+  render({ ...ENTRY, durationMs: 2 * 60 * 60000 })
+  blur(input)
+  expect(updateEntry).not.toHaveBeenCalled()
+  expect(input.value).toBe('2h 0m')
+})
+
+test('editing only description preserves the exact measured milliseconds', () => {
+  render({ ...ENTRY, durationMs: 300001 })
+  type(field('Description'), 'Exact milliseconds')
+  blur(field('Description'))
+  expect(updateEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ durationMs: 300001 }))
+})
+
+
+test('manual and branchless cards have no invented branch or empty separator', () => {
+  render({ ...ENTRY, source: 'auto', gitBranch: null })
+  expect(host.querySelector('.ix-tt-card__metadata')?.textContent).toBe('Session · work')
+  render({ id: 'manual', source: 'manual', day: ENTRY.day, description: 'Meeting', issueKey: null, durationMs: 60000 })
+  expect(host.querySelector('.ix-tt-card__metadata')).toBeNull()
+})
+
+test.each(['Issue key', 'Time spent'])('background updates preserve a dirty %s until Escape', label => {
+  render()
+  type(field(label), label === 'Issue key' ? 'NEW-123' : '3h')
+  render({ ...ENTRY, issueKey: 'SERVER-1', durationMs: 120000 })
+  expect(field(label).value).toBe(label === 'Issue key' ? 'NEW-123' : '3h')
+  press(field(label), 'Escape')
+  expect(field(label).value).toBe(label === 'Issue key' ? 'SERVER-1' : '2m')
+  expect(updateEntry).not.toHaveBeenCalled()
 })

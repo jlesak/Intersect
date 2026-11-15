@@ -23,13 +23,13 @@ async function surface<T>(op: () => Promise<T>): Promise<T> {
  * merge of session-derived and manual entries. These handlers only bridge it to IPC and
  * normalize errors.
  */
-export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): IpcApi['timeTracking'] {
+export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): Omit<IpcApi['timeTracking'], 'onChanged'> {
   return {
     getWeek: (weekStart) => surface(() => deps.service.getWeek(weekStart)),
     refreshWeek: (weekStart) => surface(() => deps.service.refreshWeek(weekStart)),
     addManual: (input) => surface(async () => deps.service.addManual(input)),
-    updateEntry: (source, id, update) => surface(() => deps.service.updateEntry(source, id, update)),
-    deleteEntry: (source, id) => surface(() => deps.service.deleteEntry(source, id)),
+    updateEntry: (ref, update) => surface(() => deps.service.updateEntry(ref, update)),
+    deleteEntry: (ref) => surface(() => deps.service.deleteEntry(ref)),
     getTimer: () => surface(async () => deps.service.getRunningTimer()),
     startTimer: (description, issueKey) =>
       surface(async () => deps.service.startTimer(description, issueKey)),
@@ -39,7 +39,7 @@ export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): IpcAp
   }
 }
 
-export function timeTrackingWireRoutes(h: IpcApi['timeTracking']): WireRoutes {
+export function timeTrackingWireRoutes(h: Omit<IpcApi['timeTracking'], 'onChanged'>): WireRoutes {
   return {
     [Channel.timeTrackingGetWeek]: h.getWeek,
     [Channel.timeTrackingRefreshWeek]: h.refreshWeek,

@@ -8,6 +8,7 @@ import {
   type AppearanceSettings,
   type NotificationSettings,
   type ReviewSettings,
+  type TimeTrackingSettings,
   type SessionSettings
 } from '@common/domain'
 
@@ -49,6 +50,8 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
  * default for the missing/broken fields instead of failing.
  */
 export interface SettingsRepo {
+  getTimeTracking(): TimeTrackingSettings
+  setTimeTracking(settings: TimeTrackingSettings): void
   getNotifications(): NotificationSettings
   setNotifications(notifications: NotificationSettings): void
   getAppearance(): AppearanceSettings
@@ -86,6 +89,12 @@ export function createSettingsRepo(db: DatabaseSync): SettingsRepo {
   const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
   return {
+    getTimeTracking() {
+      const raw = read('settings.timeTracking')?.excludedPathPrefixes
+      return { excludedPathPrefixes: Array.isArray(raw) ? raw.filter((p): p is string =>
+        typeof p === 'string' && p.startsWith('/') && !/[\x00-\x1f\x7f]/.test(p)) : [] }
+    },
+    setTimeTracking(settings) { write('settings.timeTracking', settings) },
     getNotifications() {
       const raw = read(NOTIFICATIONS_KEY)
       const d = DEFAULT_NOTIFICATION_SETTINGS
