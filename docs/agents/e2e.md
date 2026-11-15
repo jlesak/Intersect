@@ -65,7 +65,10 @@ in CI. An assertion that depends on layout width or height (drag ceilings, clamp
 stacked panels, and any dialog or overlay, whose buttons can sit below a short viewport) must pin
 the window after every launch, relaunches included, with
 `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(W, H))`, and then
-assert that the pane really got that size so a clamping screen fails loudly. A spec that clicks
+assert that the window's `getSize()` equals `[W, H]` exactly and the renderer's
+`[innerWidth, innerHeight]` equals the window's `getContentSize()`, so a clamping screen fails
+loudly. Native titlebar metrics vary across macOS versions: never hardcode their height or loosen
+clamping/layout assertions (see `pinSize` in `e2e/todoReminderPermission.spec.ts`). A spec that clicks
 inside a dialog pins the app's minimum window, 940x600, and asserts the dialog and its buttons
 lie inside the viewport before clicking. `e2e/usage.spec.ts`, `e2e/prInbox.spec.ts` and
 `e2e/coreRecovery.spec.ts` use this pattern.
