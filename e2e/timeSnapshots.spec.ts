@@ -17,7 +17,11 @@ async function pin(app: ElectronApplication, win: Page) {
 async function refresh(app: ElectronApplication, win: Page) {
   await invokeMenu(app, 'palette.open')
   await win.locator('.ix-palette__input').fill('Refresh Time Tracking')
+  // On a slow runner the palette's open effect can clear the query after the fill, and Enter then
+  // runs whichever command is first in the full list.
+  await expect(win.locator('.ix-palette__item--active .ix-palette__title')).toHaveText('Refresh Time Tracking')
   await win.keyboard.press('Enter')
+  await expect(win.locator('.ix-palette')).toHaveCount(0)
 }
 
 test('daily cards retain edits after resume, cleanup and restart; settings hide and restore history', async () => {
