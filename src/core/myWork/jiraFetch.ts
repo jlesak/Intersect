@@ -9,12 +9,15 @@ import { toIssues } from './jiraMapping'
 import { probeJiraSession, type JiraProbeResult } from './jiraProbe'
 import { parseJiraReport } from './jiraReport'
 import { buildJiraSpawnSpec, JIRA_FETCH_SCRIPT } from './jiraSpawn'
+import { mcpServerLaunch } from '../standaloneServerLaunch'
 
 export interface JiraFetcherDeps {
   spawn: SpawnFn
   claudePath: string
   /** Absolute path to the built jira report MCP server (out/main/jiraReportServer.js). */
   reportServerPath: string
+  /** Intersect's own binary; the report server runs under it with ELECTRON_RUN_AS_NODE=1. */
+  execPath: string
   /** How long the hidden session may run before it is killed and the fetch fails. */
   timeoutMs?: number
   /** Override for tests: the fast saved-session check run before spawning anything. */
@@ -160,11 +163,10 @@ export function createJiraFetcher(d: JiraFetcherDeps): JiraFetcher {
 
       const mcpConfig = {
         mcpServers: {
-          intersectJira: {
-            command: 'node',
-            args: [d.reportServerPath],
-            env: { INTERSECT_JIRA_SOCK: socketPath, INTERSECT_JIRA_SESSION: sessionId }
-          }
+          intersectJira: mcpServerLaunch(d.execPath, d.reportServerPath, {
+            INTERSECT_JIRA_SOCK: socketPath,
+            INTERSECT_JIRA_SESSION: sessionId
+          })
         }
       }
       await writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 })

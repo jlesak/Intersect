@@ -7,6 +7,7 @@ import type { PullRequest, ReviewSession, ReviewStatus } from '@common/domain'
 import type { DraftCommentRepo } from '../db/draftCommentRepo'
 import type { PrCacheRepo } from '../db/prCacheRepo'
 import type { ReviewSessionRepo } from '../db/reviewSessionRepo'
+import type { McpProbeResult } from '../standaloneServerLaunch'
 import type { PtyProcess, SpawnRequest } from '../pty/sessionManager'
 import { createReviewManager, MAX_CONCURRENT_REVIEWS, type ReviewWorktrees } from './reviewManager'
 import type { CreateWorktreeInput } from './worktreeManager'
@@ -134,6 +135,8 @@ async function harness() {
     pruneStale: vi.fn(async () => {})
   }
 
+  const probeServer = vi.fn(async (): Promise<McpProbeResult> => ({ ok: true }))
+
   const manager = createReviewManager({
     reviewSessions,
     drafts: {} as DraftCommentRepo,
@@ -152,11 +155,14 @@ async function harness() {
     reviewPrompt: () => reviewPrompt,
     reviewModel: () => reviewModel,
     draftServerPath: '/Applications/Intersect/draft server.js',
+    execPath: '/Applications/Intersect.app/Contents/MacOS/Intersect',
+    probeServer: probeServer,
     createSocketServer: vi.fn(() => fakeSocketServer) as unknown as typeof import('node:net').createServer
   })
 
   return {
     root,
+    probeServer,
     manager,
     worktrees,
     reviewSessions,
@@ -263,9 +269,13 @@ describe('reviewManager', () => {
       mcpServers: { intersectReview: { command: string; args: string[]; env: Record<string, string> } }
     }
     expect(config.mcpServers.intersectReview).toMatchObject({
-      command: 'node',
+      command: '/Applications/Intersect.app/Contents/MacOS/Intersect',
       args: ['/Applications/Intersect/draft server.js'],
-      env: { INTERSECT_REVIEW_SESSION: session.id, INTERSECT_DRAFT_SOCK: expect.any(String) }
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        INTERSECT_REVIEW_SESSION: session.id,
+        INTERSECT_DRAFT_SOCK: expect.any(String)
+      }
     })
 
     h.ptys[0].emitExit(0)
@@ -378,6 +388,17 @@ describe('reviewManager', () => {
     const failed = [...h.rows.values()].find((r) => r.prId === 34)
     expect(failed?.status).toBe('failed')
     expect(h.statusesOf(running.id)).toEqual([])
+  })
+
+  test('a draft server that cannot start fails the start with its error and launches no Claude', async () => {
+    h.probeServer.mockResolvedValueOnce({ ok: false, message: "Cannot find module 'ajv'" })
+
+    await expect(h.manager.start(pr, '# ctx', 80, 24)).rejects.toThrow(/cannot start.*Cannot find module 'ajv'/)
+
+    expect(h.spawned).toHaveLength(0)
+    const row = [...h.rows.values()].find((r) => r.prId === pr.prId)
+    expect(row?.status).toBe('failed')
+    expect(h.removedWorktrees).toHaveLength(1)
   })
 
   test(`refuses the review past ${MAX_CONCURRENT_REVIEWS} without creating a worktree or a row`, async () => {

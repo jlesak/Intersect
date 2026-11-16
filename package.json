@@ -19,7 +19,8 @@
     "e2e:nobuild": "playwright test",
     "lint": "eslint .",
     "build:native": "node-gyp rebuild --directory=native/todo-reminders --arch=arm64 --dist-url=https://electronjs.org/headers --target=$(node -p \"require('electron/package.json').version\") && mkdir -p out/native && cp native/todo-reminders/build/Release/todo_reminders.node out/native/todo_reminders.node",
-    "pack:mac": "npm run build && npm run build:native && electron-builder --mac"
+    "pack:mac": "npm run build && npm run build:native && electron-builder --mac",
+    "smoke:packaged": "vitest run -c vitest.smoke.config.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
