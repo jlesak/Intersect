@@ -1,7 +1,6 @@
-import { chmodSync, existsSync, statSync } from 'node:fs'
-import { join, sep } from 'node:path'
 import * as pty from 'node-pty'
 import type { PtyProcess, SpawnFn, SpawnRequest } from './sessionManager'
+import { makeSpawnHelperExecutable } from './spawnHelper'
 
 /** The one place node-pty is imported. Adapts its IPty to the PtyProcess the manager expects. */
 export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
@@ -28,31 +27,13 @@ export const nodePtySpawn: SpawnFn = (req: SpawnRequest): PtyProcess => {
   }
 }
 
-function spawnHelperPath(): string | null {
-  if (process.platform === 'win32') return null
-  try {
-    const entry = require.resolve('node-pty')
-    const marker = `${sep}node-pty${sep}`
-    const idx = entry.lastIndexOf(marker)
-    if (idx === -1) return null
-    const pkgDir = entry.slice(0, idx + marker.length - 1)
-    return join(pkgDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper')
-  } catch {
-    return null
-  }
-}
-
-/**
- * node-pty's prebuilt `spawn-helper` sometimes arrives without its execute bit after a clean
- * npm install, which makes posix_spawnp fail. Restore it at startup (best-effort, idempotent).
- */
+/** Restore the execute bit on the spawn-helper this node-pty runs, before any spawn. */
 export function ensureSpawnHelperExecutable(): void {
-  const helper = spawnHelperPath()
-  if (!helper || !existsSync(helper)) return
+  let entry: string
   try {
-    const mode = statSync(helper).mode
-    if ((mode & 0o111) === 0) chmodSync(helper, mode | 0o755)
+    entry = require.resolve('node-pty')
   } catch {
-    // best-effort; spawn will surface a clear error if it truly cannot execute
+    return
   }
+  makeSpawnHelperExecutable(entry)
 }
