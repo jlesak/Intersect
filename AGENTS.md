@@ -18,7 +18,10 @@ The app is an Electron app built with electron-vite; there is no browser dev ser
 - `npm run e2e` - builds, then runs Playwright against the built app, off screen.
   `npm run e2e -- e2e/<name>.spec.ts` builds and runs one spec.
 - `npm run pack:mac` - packaged build in `dist/mac*/`. Only the owner installs a build into
-  `/Applications`.
+  `/Applications`. Packing needs a real `node_modules` in the worktree: with the symlink,
+  electron-builder leaves dependencies out of `app.asar`.
+- `npm run smoke:packaged` - after `pack:mac`, starts the three standalone MCP servers from the
+  packaged app with no `node` on PATH and runs the MCP handshake. Not part of CI or `npm test`.
 
 The gate before any PR is typecheck, lint, test and e2e, all green. CI (GitHub Actions on
 macos-15) runs the same checks in two jobs. Branch protection on `main` requires both to pass

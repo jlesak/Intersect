@@ -9,12 +9,15 @@ import type { OtoRunRepo } from '../db/otoRunRepo'
 import type { PtyProcess, SpawnFn } from '../pty/sessionManager'
 import { parseOtoReport, type OtoReportPayload } from './otoReport'
 import { buildOtoSpawnSpec } from './otoSpawn'
+import { mcpServerLaunch } from '../standaloneServerLaunch'
 
 export interface OtoManagerDeps {
   spawn: SpawnFn
   claudePath: string
   /** Absolute path to the built 1:1 report MCP server (out/main/otoReportServer.js). */
   reportServerPath: string
+  /** Intersect's own binary; the report server runs under it with ELECTRON_RUN_AS_NODE=1. */
+  execPath: string
   runs: OtoRunRepo
   /** Broadcast a finished run to the renderer so the history refreshes live. */
   onRunChanged: (run: OtoRun) => void
@@ -232,11 +235,10 @@ export function createOtoManager(d: OtoManagerDeps): OtoManager {
 
       const mcpConfig = {
         mcpServers: {
-          intersectOneOnOne: {
-            command: 'node',
-            args: [d.reportServerPath],
-            env: { INTERSECT_OTO_SOCK: socketPath, INTERSECT_OTO_SESSION: sessionId }
-          }
+          intersectOneOnOne: mcpServerLaunch(d.execPath, d.reportServerPath, {
+            INTERSECT_OTO_SOCK: socketPath,
+            INTERSECT_OTO_SESSION: sessionId
+          })
         }
       }
       await writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 })

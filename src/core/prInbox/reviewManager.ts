@@ -12,6 +12,7 @@ import { handleDraftMessage, parseDraftPayload, type DraftContext } from './draf
 import { REVIEW_GUIDE } from './reviewGuide'
 import { buildReviewSpawnSpec } from './reviewSpawn'
 import type { WorktreeManager } from './worktreeManager'
+import { mcpServerLaunch, probeMcpServer, type McpProbeResult } from '../standaloneServerLaunch'
 
 /** The part of the worktree manager a review uses: detached review worktrees only. */
 export type ReviewWorktrees = Pick<
@@ -36,6 +37,10 @@ export interface ReviewManagerDeps {
   reviewModel: () => string
   /** Absolute path to the built draft MCP server (out/main/draftServer.js). */
   draftServerPath: string
+  /** Intersect's own binary; the draft server runs under it with ELECTRON_RUN_AS_NODE=1. */
+  execPath: string
+  /** Test seam; production starts the server once and sends `initialize` before Claude launches. */
+  probeServer?: (launch: ReturnType<typeof mcpServerLaunch>) => Promise<McpProbeResult>
   /** Test seam; production uses node:net createServer. */
   createSocketServer?: typeof createServer
 }
@@ -198,15 +203,17 @@ export function createReviewManager(d: ReviewManagerDeps): ReviewManager {
         await chmod(socketPath, 0o600).catch(() => {})
 
         const mcpConfigPath = join(worktreePath, '.intersect-review-mcp.json')
-        const mcpConfig = {
-          mcpServers: {
-            intersectReview: {
-              command: 'node',
-              args: [d.draftServerPath],
-              env: { INTERSECT_DRAFT_SOCK: socketPath, INTERSECT_REVIEW_SESSION: session.id }
-            }
-          }
+        const draftServer = mcpServerLaunch(d.execPath, d.draftServerPath, {
+          INTERSECT_DRAFT_SOCK: socketPath,
+          INTERSECT_REVIEW_SESSION: session.id
+        })
+        // Fail the start here, with the server's own error, instead of letting Claude show only
+        // "CONNECTION_CLOSED" for a draft server that cannot run.
+        const health = await (d.probeServer ?? probeMcpServer)(draftServer)
+        if (!health.ok) {
+          throw new Error(`The draft comment server cannot start. ${health.message}`)
         }
+        const mcpConfig = { mcpServers: { intersectReview: draftServer } }
         await writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 })
 
         const spec = buildReviewSpawnSpec({

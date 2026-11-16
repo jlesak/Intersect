@@ -33,23 +33,12 @@ files:
 asarUnpack:
   - node_modules/node-pty/**
   - out/native/**
-  # Claude launches these three MCP servers as `node <path>`, outside Electron. Plain Node cannot
-  # read inside app.asar, so the bundles and the chunks they share must also exist as ordinary
-  # files. hookHelper.js is deliberately absent: it runs under the Electron binary with
-  # ELECTRON_RUN_AS_NODE=1, which keeps Electron's asar-aware fs and reads straight from the archive.
-  - out/main/draftServer.js
-  - out/main/jiraReportServer.js
-  - out/main/otoReportServer.js
-  - out/main/chunks/**
-  # The MCP SDK is bundled into those outputs, but `require("ajv-formats")` survives bundling, and
-  # resolving it walks out of the unpacked tree into node_modules. ajv-formats carries its own ajv 8
-  # and json-schema-traverse; ajv 8's other three dependencies are hoisted to the top level and are
-  # named here. Verified by loading ajv-formats and compiling a format-using schema from a copy of
-  # this exact set, with nothing else above it.
-  - node_modules/ajv-formats/**
-  - node_modules/fast-deep-equal/**
-  - node_modules/fast-uri/**
-  - node_modules/require-from-string/**
+  # The three standalone MCP servers (draftServer.js, jiraReportServer.js, otoReportServer.js)
+  # are deliberately absent. Claude starts them with this app's own binary and
+  # ELECTRON_RUN_AS_NODE=1 (src/core/standaloneServerLaunch.ts), whose asar-aware fs reads the
+  # bundles and every module they require, ajv included, straight from the archive. Starting them
+  # with the system `node` failed with MODULE_NOT_FOUND 'ajv' and needed a hand-kept list of
+  # unpacked modules. `npm run smoke:packaged` starts each server from the packaged app.
 
 # node-pty ships ABI-stable N-API prebuilds, and the reminder addon is compiled by
 # `npm run build:native` before electron-builder runs; there is nothing for it to rebuild.

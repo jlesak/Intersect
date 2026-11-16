@@ -77,6 +77,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/out/jiraReportServer.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 5_000
     })
@@ -107,6 +108,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 5_000
     })
@@ -128,6 +130,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 150
     })
@@ -146,6 +149,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 5_000
     })
@@ -160,6 +164,7 @@ describe('createJiraFetcher', () => {
       spawn: vi.fn(() => pty),
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 30
     })
@@ -181,6 +186,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 5_000
     })
@@ -196,6 +202,7 @@ describe('createJiraFetcher', () => {
       }),
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: probeOk,
       timeoutMs: 1_000
     })
@@ -210,6 +217,7 @@ describe('createJiraFetcher', () => {
       spawn,
       claudePath: 'claude',
       reportServerPath: '/x.js',
+      execPath: '/Intersect',
       probe: async () => 'auth',
       timeoutMs: 5_000
     })
