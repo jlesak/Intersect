@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, rm } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { canonicalizePath } from '../projects/paths'
-import { parseWorktreeList } from '../projects/worktrees'
+import { containsFolder, parseWorktreeList } from '../projects/worktrees'
 import type { RepoQueue } from '../projects/gitMenu'
 import { git, gitWithLockRetry } from './git'
 import { remoteMatchesRepoName } from './worktreeMatch'
@@ -201,8 +201,8 @@ export function createWorktreeManager(
       await git(repoDir, ['worktree', 'remove', '--force', worktreePath])
     } catch {
       if (existsSync(worktreePath)) await rm(worktreePath, { recursive: true, force: true })
-    } finally {
-      await git(repoDir, ['worktree', 'prune']).catch(() => {})
+      // The fallback may leave only this registration stale. Do not prune unrelated entries.
+      await git(repoDir, ['worktree', 'remove', worktreePath]).catch(() => {})
     }
   }
 
@@ -222,18 +222,21 @@ export function createWorktreeManager(
       throw new Error(`Could not fetch ${branch} from origin: ${gitMessage(err)}`)
     }
 
-    // A worktree whose folder was deleted by hand stays registered, holding its branch, until it
-    // is pruned. Pruning first means such a folder is checked out afresh instead of "reused".
-    await git(repoDir, ['worktree', 'prune']).catch(() => {})
-
     // A branch can be checked out in one worktree only. Elsewhere (often the main clone) means the
     // user has to free it; here means an earlier start made this worktree and it is reused.
     const target = canonicalizePath(path)
     const listed = parseWorktreeList(await git(repoDir, ['worktree', 'list', '--porcelain']))
+    const missingOwnEntry = listed.find((wt) =>
+      canonicalizePath(wt.path) === target && wt.prunableReason !== null
+    )
+    if (missingOwnEntry) {
+      await git(repoDir, ['worktree', 'remove', missingOwnEntry.path])
+    }
     let reuse = false
     for (const wt of listed) {
       if (wt.branch !== branch) continue
       const at = canonicalizePath(wt.path)
+      if (wt === missingOwnEntry) continue
       if (at !== target) {
         throw new Error(
           `Branch ${branch} is checked out in ${at}. Switch that checkout to another branch, then try again.`
@@ -319,7 +322,6 @@ export function createWorktreeManager(
       await viaRepo(['worktree', 'remove', path])
       return { outcome: 'removed', detail: null }
     } catch (err) {
-      await viaRepo(['worktree', 'prune']).catch(() => {})
       return { outcome: 'failed', detail: gitMessage(err) }
     }
   }
@@ -376,16 +378,14 @@ export function createWorktreeManager(
       const rootDir = root()
       for (const repoDir of repoDirs) {
         await onClone(repoDir, async () => {
-          const listed = await git(repoDir, ['worktree', 'list', '--porcelain']).catch(() => '')
-          for (const line of listed.split('\n')) {
-            if (line.startsWith('worktree ')) {
-              const p = line.slice('worktree '.length).trim()
-              if (p.startsWith(rootDir)) {
-                await git(repoDir, ['worktree', 'remove', '--force', p]).catch(() => {})
-              }
-            }
+          const listed = parseWorktreeList(
+            await git(repoDir, ['worktree', 'list', '--porcelain']).catch(() => '')
+          )
+          for (const wt of listed) {
+            if (!containsFolder(rootDir, wt.path)) continue
+            const flags = wt.prunableReason === null ? ['--force'] : []
+            await git(repoDir, ['worktree', 'remove', ...flags, wt.path]).catch(() => {})
           }
-          await git(repoDir, ['worktree', 'prune']).catch(() => {})
         })
       }
       // Belt and suspenders: nuke any orphan directories left under the managed root.

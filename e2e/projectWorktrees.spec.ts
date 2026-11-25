@@ -76,7 +76,18 @@ test('project worktrees show state and safely delete a linked checkout at minimu
   const deleteClean = cleanRow.getByRole('button', { name: `Delete worktree ${cleanBranch}` })
   await cleanRow.hover()
   await expect(deleteClean).toHaveCSS('opacity', '1')
-  await deleteClean.focus()
+  await win.locator('.ix-ctx__toolbar').hover()
+  await win.getByRole('button', { name: 'Refresh' }).focus()
+  let reachedByTab = false
+  const actions = await table.locator('tbody button').count()
+  for (let i = 0; i < actions; i++) {
+    await win.keyboard.press('Tab')
+    if (await deleteClean.evaluate((button) => button === document.activeElement)) {
+      reachedByTab = true
+      break
+    }
+  }
+  expect(reachedByTab).toBe(true)
   await expect(deleteClean).toHaveCSS('opacity', '1')
   await deleteClean.click()
   await expect(dialog.getByLabel(`Also delete branch ${cleanBranch}`)).toBeChecked()

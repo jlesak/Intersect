@@ -35,10 +35,6 @@ function absoluteDate(value: number | null): string | undefined {
   return `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
 }
 
-function folderLabel(path: string): string {
-  return path.replace(/^\/Users\/[^/]+(?=\/|$)/, '~')
-}
-
 function tags(wt: WorktreeInfo): string[] {
   const out: string[] = []
   if (wt.main) out.push('main checkout')
@@ -164,7 +160,7 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
                   <td><span className="ix-worktrees__truncate" title={item.branch ?? `detached @ ${item.head.slice(0, 8)}`}>
                     <IconBranch /> {item.branch ?? `detached @ ${item.head.slice(0, 8)}`}
                   </span></td>
-                  <td><span className="ix-worktrees__truncate" title={item.path}>{folderLabel(item.displayPath)}</span></td>
+                  <td><span className="ix-worktrees__truncate" title={item.path}>{item.displayPath}</span></td>
                   <td title={absoluteDate(item.createdAt)}>{dateLabel(item.createdAt)}</td>
                   <td><span className="ix-worktrees__states">{tags(item).map((tag) =>
                     <span key={tag} title={tag === 'locked' ? item.lockedReason ?? undefined : undefined}>{tag}</span>
@@ -191,7 +187,7 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
             disabled={busy} onClick={() => void confirm()}>{deleteButtonLabel(openTabs, danger)}</button>
         </>}
       >
-        <p>Removes the folder {folderLabel(wt.displayPath)} and its git entry.
+        <p>Removes the folder {wt.displayPath} and its git entry.
           {wt.createdAt !== null && ` Created ${absoluteDate(wt.createdAt)}.`}</p>
         {wt.workspaces.filter((ws) => ws.tabs > 0).map((ws) =>
           <p key={ws.id}>Workspace {ws.name} has {ws.tabs} tabs open here,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { parseWorktreeList } from './worktrees'
+import { displayWorktreePath, parseWorktreeList } from './worktrees'
 
 describe('parseWorktreeList', () => {
   test('parses NUL porcelain including spaces, detached, bare, lock and missing folder', () => {
@@ -19,4 +19,13 @@ describe('parseWorktreeList', () => {
     expect(parseWorktreeList('worktree /bare\0bare\0\0worktree /linked\0HEAD abc\0locked\0\0'))
       .toMatchObject([{ path: '/bare', bare: true }, { path: '/linked', lockedReason: '' }])
   })
+})
+
+test('shortens only the actual home directory in external worktree paths', () => {
+  expect(displayWorktreePath('/repos/project', '/Users/me/worktree', '/Users/me'))
+    .toBe('~/worktree')
+  expect(displayWorktreePath('/repos/project', '/Users/other/worktree', '/Users/me'))
+    .toBe('/Users/other/worktree')
+  expect(displayWorktreePath('/repos/project', '/repos/project/.claude/worktrees/one', '/Users/me'))
+    .toBe('.claude/worktrees/one')
 })

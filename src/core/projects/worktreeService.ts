@@ -9,6 +9,7 @@ import type { TabRepo } from '../db/tabRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import type { SessionManager } from '../pty/sessionManager'
 import { git } from '../prInbox/git'
+import { canonicalizePath } from './paths'
 import { containsFolder, listProjectWorktrees } from './worktrees'
 
 export interface WorktreeGuard {
@@ -73,7 +74,10 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
   }
   const bindingFor = (projectId: string, repoPath: string): Project => {
     const project = projectFor(projectId)
-    if (!project.repoPaths.includes(repoPath)) throw new Error('Repository is not bound to this project')
+    const requested = canonicalizePath(repoPath)
+    if (!project.repoPaths.some((path) => canonicalizePath(path) === requested)) {
+      throw new Error('Repository is not bound to this project')
+    }
     return project
   }
   const enrich = (wt: WorktreeInfo): WorktreeInfo => {
@@ -129,9 +133,11 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
       })
     },
     async delete(request) {
-      const project = bindingFor(request.projectId, request.repoPath)
+      bindingFor(request.projectId, request.repoPath)
       return d.onRepo(request.repoPath, async () => {
-        const wt = await target(project, request.repoPath, request.path, false)
+        const wt = await target(
+          bindingFor(request.projectId, request.repoPath), request.repoPath, request.path, false
+        )
         if (!sameSnapshot(request.snapshot, snapshotOf(wt))) return changed()
         if (wt.changed.length > 0 && !request.discardChanges) return changed()
         if (wt.lockedReason !== null && !request.overrideLock) return changed()
@@ -151,7 +157,9 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
           if (exits.includes('timeout')) {
             return { outcome: 'timeout', detail: 'A session did not exit within 10 seconds. Nothing was deleted.' }
           }
-          const fresh = await target(project, request.repoPath, request.path, false)
+          const fresh = await target(
+            bindingFor(request.projectId, request.repoPath), request.repoPath, request.path, false
+          )
           if (!sameSnapshot(request.snapshot, snapshotOf(fresh))) return changed()
           const flags = fresh.lockedReason !== null
             ? ['--force', '--force']
@@ -163,10 +171,12 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
           ])
           const viaCommon = (args: string[]): Promise<string> =>
             (d.runGit ?? git)(commonDir, [`--git-dir=${commonDir}`, ...args])
+          bindingFor(request.projectId, request.repoPath)
           await viaCommon(['worktree', 'remove', ...flags, fresh.path])
           const removed = removeWorkspaceRows(fresh)
           if (request.deleteBranch && fresh.branch) {
             try {
+              bindingFor(request.projectId, request.repoPath)
               await viaCommon(['branch', '-D', '--', fresh.branch])
             } catch (err) {
               return {
@@ -186,9 +196,10 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
       })
     },
     async removeEntry(projectId, repoPath, path) {
-      const project = bindingFor(projectId, repoPath)
+      bindingFor(projectId, repoPath)
       await d.onRepo(repoPath, async () => {
-        const wt = await target(project, repoPath, path, true)
+        const wt = await target(bindingFor(projectId, repoPath), repoPath, path, true)
+        bindingFor(projectId, repoPath)
         await git(repoPath, ['worktree', 'remove', wt.path])
       })
     }

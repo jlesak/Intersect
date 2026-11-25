@@ -38,6 +38,12 @@ async function fixture() {
     appState: ctx.appState, sessions: ctx.sessions, userDataDir: join(root, 'profile'),
     onRepo: async (_path, job) => job(), guard: createWorktreeGuard()
   })
+  const queuedService = (onRepo: ReturnType<typeof createRepoQueue>) =>
+    createProjectWorktreeService({
+      projects: ctx.projects, workspaces: ctx.workspaces, tabs: ctx.tabs,
+      appState: ctx.appState, sessions: ctx.sessions, userDataDir: join(root, 'profile'),
+      onRepo, guard: createWorktreeGuard()
+    })
   const add = async (name: string, branch = name): Promise<string> => {
     const path = join(root, name)
     await command(repo, 'worktree', 'add', '-b', branch, path)
@@ -56,7 +62,18 @@ async function fixture() {
     overrideLock: options.overrideLock ?? false,
     deleteBranch: options.deleteBranch ?? false
   })
-  return { root, repo, project, ctx, service, add, list, request }
+  return { root, repo, project, ctx, service, queuedService, add, list, request }
+}
+
+async function holdRepositoryQueue(repo: string) {
+  const queue = createRepoQueue()
+  let entered: () => void = () => {}
+  let release: () => void = () => {}
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const pending = queue(repo, async () => { entered(); await held })
+  await started
+  return { queue, release, pending }
 }
 
 afterEach(async () => {
@@ -291,5 +308,68 @@ describe('project worktree deletion with real Git', () => {
     expect(result).toMatchObject({ outcome: 'deleted', branchDeleted: true })
     expect(existsSync(bound)).toBe(false)
     expect(await command(f.repo, 'branch', '--list', 'bound')).toBe('')
+  })
+
+  test('queued delete refuses a repository unbound while another Git job runs', async () => {
+    const f = await fixture()
+    const target = await f.add('queued-target')
+    const spare = await f.add('spare-binding')
+    f.ctx.projects.addRepoPath(f.project.id, spare)
+    const request = await f.request(target)
+    const held = await holdRepositoryQueue(f.repo)
+    const pending = f.queuedService(held.queue).delete(request)
+    f.ctx.projects.removeRepoPath(f.project.id, f.repo)
+    held.release()
+    await expect(pending).rejects.toThrow('not bound')
+    await held.pending
+    expect(existsSync(target)).toBe(true)
+    expect(await command(spare, 'branch', '--list', 'queued-target')).toContain('queued-target')
+  })
+
+  test('queued delete refuses a project removed while another Git job runs', async () => {
+    const f = await fixture()
+    const target = await f.add('queued-project')
+    const request = await f.request(target)
+    const held = await holdRepositoryQueue(f.repo)
+    const pending = f.queuedService(held.queue).delete(request)
+    f.ctx.projects.remove(f.project.id)
+    held.release()
+    await expect(pending).rejects.toThrow('Project not found')
+    await held.pending
+    expect(existsSync(target)).toBe(true)
+  })
+
+  test('queued missing-entry removal refuses an unbound repository', async () => {
+    const f = await fixture()
+    const missing = await f.add('missing-unbound')
+    const spare = await f.add('spare-binding')
+    f.ctx.projects.addRepoPath(f.project.id, spare)
+    await rm(missing, { recursive: true })
+    const held = await holdRepositoryQueue(f.repo)
+    const pending = f.queuedService(held.queue).removeEntry(f.project.id, f.repo, missing)
+    f.ctx.projects.removeRepoPath(f.project.id, f.repo)
+    held.release()
+    await expect(pending).rejects.toThrow('not bound')
+    await held.pending
+    expect(await command(spare, 'worktree', 'list', '--porcelain')).toContain(missing)
+  })
+
+  test('unbind during session exit keeps the folder and branch after the wait', async () => {
+    const f = await fixture()
+    const target = await f.add('waiting-unbind')
+    const spare = await f.add('spare-binding')
+    f.ctx.projects.addRepoPath(f.project.id, spare)
+    const request = await f.request(target, { deleteBranch: true })
+    const ws = f.ctx.workspaces.create(target)
+    let release: (outcome: 'exited') => void = () => {}
+    f.ctx.sessions.whenWorkspaceExited = () => new Promise((resolve) => { release = resolve })
+    const pending = f.service.delete(request)
+    await vi.waitFor(() => expect(f.ctx.calls.killWorkspace).toContain(ws.id))
+    f.ctx.projects.removeRepoPath(f.project.id, f.repo)
+    release('exited')
+    await expect(pending).rejects.toThrow('not bound')
+    expect(existsSync(target)).toBe(true)
+    expect(f.ctx.workspaces.getById(ws.id)).toBeDefined()
+    expect(await command(spare, 'branch', '--list', 'waiting-unbind')).toContain('waiting-unbind')
   })
 })

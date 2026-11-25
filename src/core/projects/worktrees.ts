@@ -1,4 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import type { Project, RepoWorktrees, WorktreeInfo } from '@common/domain'
 import { git, gitRaw } from '../prInbox/git'
@@ -156,8 +157,15 @@ export async function listProjectWorktrees(
   }))
 }
 
-/** Relative inside the bound repository, otherwise a full path. */
-export function displayWorktreePath(repoPath: string, worktreePath: string): string {
-  const rel = relative(canonicalizePath(repoPath), canonicalizePath(worktreePath))
-  return rel && !rel.startsWith('..') && !rel.startsWith(sep) ? rel : worktreePath
+/** Relative inside the bound repository; abbreviate only this user's actual home elsewhere. */
+export function displayWorktreePath(
+  repoPath: string, worktreePath: string, homePath = homedir()
+): string {
+  const target = canonicalizePath(worktreePath)
+  const rel = relative(canonicalizePath(repoPath), target)
+  if (rel && !rel.startsWith('..') && !rel.startsWith(sep)) return rel
+  const home = canonicalizePath(homePath)
+  if (target === home) return '~'
+  if (target.startsWith(`${home}${sep}`)) return `~${target.slice(home.length)}`
+  return worktreePath
 }
