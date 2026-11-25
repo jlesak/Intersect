@@ -1,6 +1,6 @@
-import type { SessionSummary, Workspace } from '@common/domain'
-import { useSessionsStore } from '@renderer/features/sessions'
-import { useTabsStore } from '@renderer/features/tabs'
+import type { Workspace } from '@common/domain'
+import { useSessionsStore, type ResumeRequest } from '@renderer/features/sessions'
+import { listTabsByWorkspace, useTabsStore } from '@renderer/features/tabs'
 import { selectWorkspaceList, useWorkspacesStore } from '@renderer/features/workspaces'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
 import { revealWorkspaceContext } from './attentionWiring'
@@ -18,14 +18,27 @@ async function findOrCreateWorkspace(cwd: string): Promise<Workspace | null> {
 }
 
 /**
- * Resume a past Claude Code session: reveal the terminal context of the workspace owning the
- * session's folder (its project, or Other), ensure that workspace is selected and its tabs are
- * loaded, then open a Claude tab that launches `claude --resume <id>`. The tab persists its
- * resume id, so the conversation is restored on the next launch too, and carries the session's
- * own title so it stays recognizable in the tab bar rather than reading as a generic "Claude"
- * tab.
+ * A card request first selects an Intersect Claude tab already carrying this session id. Other
+ * requests, and cards with no match, use the existing cwd workspace and new-tab resume path.
+ * Newly created tabs persist the resume id and use the request's title.
  */
-async function resume(summary: SessionSummary): Promise<boolean> {
+async function resume(summary: ResumeRequest): Promise<boolean> {
+  if (summary.origin === 'card') {
+    for (const existing of selectWorkspaceList(useWorkspacesStore.getState())) {
+      const match = (await listTabsByWorkspace(existing.id)).find(tab =>
+        tab.preset === 'claude' && tab.resumeSessionId === summary.id)
+      if (!match) continue
+      revealWorkspaceContext(existing.id)
+      if (useWorkspacesStore.getState().selectedWorkspaceId !== existing.id) {
+        await useWorkspacesStore.getState().select(existing.id)
+      }
+      await waitForTabsReady(existing.id)
+      if (useTabsStore.getState().workspaceId !== existing.id) return false
+      await useTabsStore.getState().setActiveTab(match.id)
+      useTabsStore.getState().requestReveal(match.id)
+      return true
+    }
+  }
   const ws = await findOrCreateWorkspace(summary.cwd)
   if (!ws) return false
   revealWorkspaceContext(ws.id)

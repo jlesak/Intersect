@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ProjectGitAction, ProjectGitBranch, ProjectGitPreview, ProjectGitStatus } from '@common/domain'
 import { Dialog } from '@renderer/shared/ui/Dialog'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
+import { useGitBusyStore } from '../gitBusyStore'
 import * as api from '../ipc'
 
 function label(status: ProjectGitStatus): string {
@@ -27,6 +28,7 @@ function errorText(error: unknown): string {
 }
 
 const folderName = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+const repoKey = (status: ProjectGitStatus): string => status.commonDir ?? status.repoPath
 
 export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; repoPaths: string[] }) {
   const [statuses, setStatuses] = useState<ProjectGitStatus[]>([])
@@ -34,7 +36,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const [branches, setBranches] = useState<ProjectGitBranch[]>([])
   const [filter, setFilter] = useState('')
   const [active, setActive] = useState(0)
-  const [busyByPath, setBusyByPath] = useState<Record<string, string>>({})
+  const busyByRepo = useGitBusyStore((state) => state.byRepo)
   const [dialog, setDialog] = useState<'commit' | 'branch' | null>(null)
   const [preview, setPreview] = useState<ProjectGitPreview | null>(null)
   const [message, setMessage] = useState('')
@@ -46,19 +48,17 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const [focused, setFocused] = useState(true)
   const filterRef = useRef<HTMLInputElement>(null)
   const previewPath = useRef<string | null>(null)
+  const dialogRepoKey = useRef<string | null>(null)
+  const branchExpected = useRef<Pick<ProjectGitStatus, 'branch' | 'head'> | null>(null)
+  const interaction = useRef(0)
   const generation = useRef(0)
   const polling = useRef(false)
   const alive = useRef(true)
   const status = statuses.find((s) => s.repoPath === open)
-  const busy = !!(open && busyByPath[open])
-  const dialogBusy = !!busyByPath[previewPath.current ?? '']
-  const begin = (path: string, verb: string): void =>
-    setBusyByPath((current) => ({ ...current, [path]: verb }))
-  const end = (path: string): void => setBusyByPath((current) => {
-    const next = { ...current }
-    delete next[path]
-    return next
-  })
+  const busy = !!(status && busyByRepo[repoKey(status)])
+  const dialogBusy = !!busyByRepo[dialogRepoKey.current ?? '']
+  const begin = useGitBusyStore.getState().begin
+  const end = useGitBusyStore.getState().end
 
   const refresh = useCallback(async () => {
     if (polling.current) return
@@ -85,6 +85,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     window.addEventListener('blur', onBlur)
     return () => {
       alive.current = false
+      interaction.current++
       generation.current++
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('blur', onBlur)
@@ -118,6 +119,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   }, [dialog, name, projectId])
 
   function showMenu(path: string, button: HTMLButtonElement): void {
+    interaction.current++
     if (open === path) { setOpen(null); return }
     const box = button.getBoundingClientRect()
     setMenuAt({ left: Math.min(box.left, window.innerWidth - 430), top: Math.min(box.bottom + 4, window.innerHeight - 500) })
@@ -126,36 +128,58 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     setActive(0)
   }
 
+  function closeMenu(): void {
+    interaction.current++
+    setOpen(null)
+  }
+
+  function closeDialog(): void {
+    if (dialogBusy) return
+    interaction.current++
+    setDialog(null)
+  }
+
   async function execute(action: ProjectGitAction): Promise<void> {
-    if (!open || busy) return
+    if (!open || !status || busy) return
     const path = open
-    begin(path, ({ pull: 'Pulling…', push: 'Pushing…', fetch: 'Fetching…', switch: 'Switching…', 'new-branch': 'Creating branch…' } as const)[action.kind])
+    const key = repoKey(status)
+    const request = interaction.current
+    const job = begin(key, ({ pull: 'Pulling…', push: 'Pushing…', fetch: 'Fetching…', switch: 'Switching…', 'new-branch': 'Creating branch…' } as const)[action.kind])
     try {
       useToastStore.getState().push(await api.gitAction(projectId, path, action))
-      setOpen(null)
+      if (request === interaction.current) closeMenu()
     } catch (error) {
       reportError('Git operation failed', error)
     } finally {
-      end(path)
-      void refresh()
+      end(key, job)
+      if (alive.current) void refresh()
     }
   }
 
   async function openCommit(): Promise<void> {
-    if (!open) return
+    if (!open || !status || busy) return
+    const path = open
+    const request = ++interaction.current
+    previewPath.current = path
+    dialogRepoKey.current = repoKey(status)
     try {
-      setPreview(await api.gitPreview(projectId, open))
+      const next = await api.gitPreview(projectId, path)
+      if (request !== interaction.current || !alive.current) return
+      setPreview(next)
       setMessage('')
       setOutput('')
       setDialog('commit')
       setOpen(null)
-    } catch (error) { reportError('Could not preview commit', error) }
+    } catch (error) {
+      if (request === interaction.current) reportError('Could not preview commit', error)
+    }
   }
 
   async function submitCommit(push: boolean): Promise<void> {
     const path = previewPath.current
-    if (!path || !preview || !message.trim() || dialogBusy) return
-    begin(path, 'Committing…')
+    const key = dialogRepoKey.current
+    if (!path || !key || !preview || !message.trim() || dialogBusy) return
+    const job = begin(key, 'Committing…')
     setOutput('')
     try {
       const result = await api.gitCommit(projectId, path, preview.token, message, push)
@@ -173,15 +197,22 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
         else useToastStore.getState().push(`Committed ${result.commit}`)
       }
     } catch (error) { setOutput(errorText(error)); reportError('Commit failed', error) }
-    finally { end(path); void refresh() }
+    finally { end(key, job); if (alive.current) void refresh() }
   }
 
   function openBranch(initial = ''): void {
-    previewPath.current = open
-    if (open) {
-      void api.gitBranches(projectId, open, true).then(setBranches)
-        .catch((error) => reportError('Could not list branches', error))
-    }
+    if (!open || disabled || !status) return
+    const path = open
+    const request = ++interaction.current
+    previewPath.current = path
+    dialogRepoKey.current = repoKey(status)
+    branchExpected.current = { branch: status.branch, head: status.head }
+    setBranches([])
+    void api.gitBranches(projectId, path, true).then((value) => {
+      if (request === interaction.current && previewPath.current === path) setBranches(value)
+    }).catch((error) => {
+      if (request === interaction.current) reportError('Could not list branches', error)
+    })
     setName(initial)
     setStart('HEAD')
     setNameError(initial ? null : 'Branch name is required')
@@ -191,13 +222,16 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
 
   async function createBranch(): Promise<void> {
     const path = previewPath.current
-    if (!path || dialogBusy || nameError || !name) return
-    begin(path, 'Creating branch…')
+    const key = dialogRepoKey.current
+    if (!path || !key || !branchExpected.current || dialogBusy || nameError || !name) return
+    const job = begin(key, 'Creating branch…')
     try {
-      useToastStore.getState().push(await api.gitAction(projectId, path, { kind: 'new-branch', name, start }))
+      useToastStore.getState().push(await api.gitAction(projectId, path, {
+        kind: 'new-branch', name, start, expected: branchExpected.current
+      }))
       setDialog(null)
     } catch (error) { reportError('Could not create branch', error) }
-    finally { end(path); void refresh() }
+    finally { end(key, job); if (alive.current) void refresh() }
   }
 
   const filtered = branches.filter((b) => b.name.toLowerCase().includes(filter.toLowerCase()))
@@ -206,6 +240,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const select = (branch: ProjectGitBranch) => { void execute({ kind: 'switch', branch: branch.name, remote: branch.kind === 'remote' }) }
   const inProgress = !!status?.progress
   const disabled = !!busy || inProgress || !!status?.error
+  const expected = { branch: status?.branch ?? null, head: status?.head ?? '' }
   const canPush = !!status?.branch && (!status.upstream || status.ahead > 0)
   const at = Math.max(0, Math.min(active, choices.length - 1))
 
@@ -213,6 +248,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     <div className="ix-git__chips">
       {repoPaths.map((path) => {
         const item = statuses.find((s) => s.repoPath === path)
+        const verb = item && busyByRepo[repoKey(item)]?.verb
         return <button key={path} type="button"
           className={`ix-git__chip${item?.error ? ' ix-git__chip--error' : ''}`}
           title={item ? hint(item) : path}
@@ -220,27 +256,28 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
           aria-label={`Git ${folderName(path)}: ${item ? label(item) : 'Loading'}`}
         >
           {repoPaths.length > 1 && <span className="ix-git__folder">{folderName(path)}</span>}
-          {busyByPath[path] && <span className="ix-git__spinner" aria-hidden="true">◌</span>}
-          <span className="ix-git__branch">⎇ {busyByPath[path] ?? (item ? label(item) : 'Loading…')}</span>
+          {verb && <span className="ix-git__spinner" aria-hidden="true">◌</span>}
+          <span className="ix-git__branch">⎇ {verb ?? (item ? label(item) : 'Loading…')}</span>
           <span aria-hidden="true">▾</span>
         </button>
       })}
     </div>
     {open && status && createPortal(<>
-      <div className="ix-git__backdrop" onMouseDown={() => setOpen(null)} />
+      <div className="ix-git__backdrop" onMouseDown={closeMenu} />
       <div className="ix-git__menu" role="menu" style={{
         left: Math.max(6, menuAt.left),
         top: Math.max(6, menuAt.top),
         maxHeight: Math.max(100, window.innerHeight - Math.max(6, menuAt.top) - 6)
       }}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') { e.preventDefault(); setOpen(null) }
+          if (e.key === 'Escape') { e.preventDefault(); closeMenu() }
           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             setActive((n) => (n + (e.key === 'ArrowDown' ? 1 : choices.length - 1)) % Math.max(choices.length, 1))
           }
           if (e.key === 'Enter' && document.activeElement === filterRef.current) {
             e.preventDefault()
+            if (disabled) return
             if (noMatch) openBranch(filter.trim())
             else if (choices[at]) select(choices[at])
           }
@@ -251,9 +288,9 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
           {inProgress && <div>Finish {status.progress} in a terminal.</div>}
         </div>
         <div className="ix-git__actions">
-          <button disabled={disabled || !status.branch || !status.upstream} onClick={() => void execute({ kind: 'pull' })}>Pull <small>{status.behind ? `${status.behind} commits` : 'up to date'}</small></button>
-          <button disabled={disabled || !canPush} onClick={() => void execute({ kind: 'push' })}>Push <small>{!status.upstream ? 'sets upstream' : status.ahead ? `${status.ahead} commits` : 'nothing to push'}</small></button>
-          <button disabled={disabled || !status.branch || !status.files.length} onClick={() => { previewPath.current = open; void openCommit() }}>Commit… <small>{status.files.length} files</small></button>
+          <button disabled={disabled || !status.branch || !status.upstream} onClick={() => void execute({ kind: 'pull', expected })}>Pull <small>{status.behind ? `${status.behind} commits` : 'up to date'}</small></button>
+          <button disabled={disabled || !canPush} onClick={() => void execute({ kind: 'push', expected })}>Push <small>{!status.upstream ? 'sets upstream' : status.ahead ? `${status.ahead} commits` : 'nothing to push'}</small></button>
+          <button disabled={disabled || !status.branch || !status.files.length} onClick={() => void openCommit()}>Commit… <small>{status.files.length} files</small></button>
           <button disabled={disabled} onClick={() => openBranch()}>New branch…</button>
           <button disabled={!!busy || !!status.error} onClick={() => void execute({ kind: 'fetch' })}>Fetch <small>updates ↑↓ counts</small></button>
         </div>
@@ -276,10 +313,10 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
       </div>
     </>, document.body)}
     {dialog === 'commit' && preview && <Dialog title={`Commit to ${statuses.find((s) => s.repoPath === previewPath.current)?.branch ?? ''}`}
-      onClose={() => { if (!dialogBusy) setDialog(null) }}
-      actions={<><button className="ix-btn" onClick={() => setDialog(null)} disabled={dialogBusy}>Cancel</button>
-        <button className="ix-btn" disabled={dialogBusy || !message.trim()} onClick={() => void submitCommit(false)}>Commit</button>
-        <button className="ix-btn ix-btn--primary" disabled={dialogBusy || !message.trim()} onClick={() => void submitCommit(true)}>Commit and push</button></>}>
+      onClose={closeDialog}
+      actions={<><button className="ix-btn" onClick={closeDialog} disabled={dialogBusy}>Cancel</button>
+        <button className="ix-btn" disabled={dialogBusy || !preview.files.length || !message.trim()} onClick={() => void submitCommit(false)}>Commit</button>
+        <button className="ix-btn ix-btn--primary" disabled={dialogBusy || !preview.files.length || !message.trim()} onClick={() => void submitCommit(true)}>Commit and push</button></>}>
       <p>{preview.mode === 'all' ? 'All changes go into the commit, new files too.' :
         `Only the ${preview.files.length} staged files go in. ${preview.otherCount} other changes stay uncommitted.`}</p>
       <ul className="ix-git__preview">{preview.files.map((file) => <li key={file.path}>{file.code} {file.path}</li>)}</ul>
@@ -287,8 +324,8 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
         onKeyDown={(e) => { if (e.metaKey && e.key === 'Enter') { e.preventDefault(); void submitCommit(false) } }} /></label>
       {output && <pre className="ix-git__output">{output}</pre>}
     </Dialog>}
-    {dialog === 'branch' && <Dialog title="New branch" onClose={() => { if (!dialogBusy) setDialog(null) }}
-      actions={<><button className="ix-btn" onClick={() => setDialog(null)} disabled={dialogBusy}>Cancel</button>
+    {dialog === 'branch' && <Dialog title="New branch" onClose={closeDialog}
+      actions={<><button className="ix-btn" onClick={closeDialog} disabled={dialogBusy}>Cancel</button>
         <button className="ix-btn ix-btn--primary" disabled={dialogBusy || !!nameError || !name} onClick={() => void createBranch()}>Create and switch</button></>}>
       <label className="ix-git__field">Name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
       {nameError && <p className="ix-ctx__error">{nameError}</p>}

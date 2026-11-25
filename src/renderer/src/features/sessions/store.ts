@@ -5,6 +5,7 @@ import * as api from './ipc'
 import { scoreSession } from './search'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
+export type ResumeRequest = Pick<SessionSummary, 'id' | 'cwd' | 'title'> & { origin?: 'card' }
 
 interface SessionsState {
   status: Status
@@ -27,7 +28,7 @@ interface SessionsState {
    * workspace/tab coordination. This slice only records the intent; it never imports the
    * workspaces/tabs/shell stores itself.
    */
-  pendingResume: SessionSummary | null
+  pendingResume: ResumeRequest | null
   /**
    * The session whose resume is under way, set by the app layer that performs it. Resuming spans a
    * workspace, its tabs and a terminal launch, so the action that started it needs to say it is
@@ -40,7 +41,7 @@ interface SessionsState {
   setRange(from: number | null, to: number | null): void
   setFolders(folders: string[] | null): void
   select(id: string): Promise<void>
-  requestResume(summary: SessionSummary): void
+  requestResume(summary: Pick<SessionSummary, 'id' | 'cwd' | 'title'>, origin?: 'card'): void
   clearResume(): void
   markResuming(id: string | null): void
 }
@@ -157,8 +158,8 @@ export const useSessionsStore = createStore<SessionsState>()((set, get) => ({
     }
   },
 
-  requestResume(summary) {
-    set({ pendingResume: summary })
+  requestResume(summary, origin) {
+    set({ pendingResume: origin ? { ...summary, origin } : summary })
   },
 
   clearResume() {

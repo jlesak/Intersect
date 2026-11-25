@@ -23,7 +23,8 @@ function setup(content: string, cwd = '/synthetic/intersect', database?: Databas
   if (!dbs.includes(db)) dbs.push(db)
   const deps = makeTestDeps()
   const files = new Map([['/synthetic/project/session.jsonl', content]])
-  const sessions = createSessionIndex({ readDir: async () => [...files.keys()], readFile: async p => files.get(p)! })
+  const sessions = createSessionIndex({ readDir: async () => [...files.keys()], readFile: async p => files.get(p)!,
+    canReadFile: async p => files.has(p) })
   const snapshots = createTimeSessionDayRepo(db, deps.now)
   const settingsRepo = createSettingsRepo(db)
   if (!database) settingsRepo.setTimeTracking({ excludedPathPrefixes: ['/excluded'] })
@@ -31,7 +32,8 @@ function setup(content: string, cwd = '/synthetic/intersect', database?: Databas
   const changed = vi.fn()
   const scanner = createSessionSnapshots({ sessions, snapshots, state: createAppStateRepo(db), settings,
     userDataDir: cwd, atomically: fn => tx(db, fn), changed, failed: () => {} })
-  const service = createTimeTracking({ snapshots, scanner, settings, userDataDir: cwd, manual: createManualTimeEntryRepo(db, deps),
+  const service = createTimeTracking({ snapshots, scanner, isResumable: id => sessions.isResumable(id),
+    settings, userDataDir: cwd, manual: createManualTimeEntryRepo(db, deps),
     overrides: createTimeOverrideRepo(db, deps), timer: createRunningTimerRepo(db, deps),
     now: deps.now, atomically: fn => tx(db, fn)
   })
@@ -64,7 +66,8 @@ test('a deleted source transcript cannot erase a previously captured card', asyn
   const before = await service.refreshWeek(WEEK)
   expect(before).toHaveLength(1)
   files.clear()
-  expect(await service.refreshWeek(WEEK)).toEqual(before)
+  expect(await service.refreshWeek(WEEK)).toEqual(before.map(entry => entry.source === 'auto'
+    ? { ...entry, resumable: false } : entry))
 })
 
 test('migration keeps every legacy field without guessing a work day', () => {
@@ -104,12 +107,15 @@ test('edited one-minute auto card and one-minute manual entry survive source del
   await t.service.updateEntry(ref(), edit)
   t.service.addManual({ ...edit, day: WEEK })
   const before = await t.service.getWeek(WEEK)
+  expect(before.filter(e => e.source === 'auto').every(e => e.resumable)).toBe(true)
   t.files.clear()
-  expect(await t.service.refreshWeek(WEEK)).toEqual(before)
+  const withoutTranscript = before.map(entry => entry.source === 'auto'
+    ? { ...entry, resumable: false } : entry)
+  expect(await t.service.refreshWeek(WEEK)).toEqual(withoutTranscript)
   t.scanner.dispose()
   const restarted = setup('', '/synthetic/intersect', t.db)
   restarted.files.clear()
-  expect(await restarted.service.refreshWeek(WEEK)).toEqual(before)
+  expect(await restarted.service.refreshWeek(WEEK)).toEqual(withoutTranscript)
   await restarted.service.updateEntry(ref(), { ...edit, description: 'After deletion' })
   expect((await restarted.service.getWeek(WEEK))[0].description).toBe('After deletion')
   await restarted.service.deleteEntry(ref())
@@ -125,6 +131,8 @@ test('settings handler hides and restores persisted edited cards even without tr
   await t.service.updateEntry(ref(), edit)
   const expected = await t.service.getWeek(WEEK)
   t.files.clear()
+  const withoutTranscript = expected.map(entry => entry.source === 'auto'
+    ? { ...entry, resumable: false } : entry)
   const handler = createSettingsHandlers({ settings: t.settingsRepo,
     fallbackAdo: () => ({ orgUrl: '', project: '', repository: '', pat: '' }),
     testConnection: vi.fn(), adoSettingsChanged: async () => {},
@@ -133,9 +141,9 @@ test('settings handler hides and restores persisted edited cards even without tr
   expect(t.settingsRepo.getTimeTracking()).toEqual({ excludedPathPrefixes: ['/work/proj'] })
   expect(await t.service.refreshWeek(WEEK)).toEqual([])
   await handler.setTimeTracking({ excludedPathPrefixes: [] })
-  expect(await t.service.refreshWeek(WEEK)).toEqual(expected)
+  expect(await t.service.refreshWeek(WEEK)).toEqual(withoutTranscript)
   await handler.setTimeTracking({ excludedPathPrefixes: ['/work/project/'] })
-  expect(await t.service.refreshWeek(WEEK)).toEqual(expected)
+  expect(await t.service.refreshWeek(WEEK)).toEqual(withoutTranscript)
   for (const invalid of [null, {}, { excludedPathPrefixes: 'x' }, { excludedPathPrefixes: [2] },
     { excludedPathPrefixes: ['relative'] }, { excludedPathPrefixes: ['/a\u0000b'] }]) {
     await expect(handler.setTimeTracking(invalid as never)).rejects.toThrow()
@@ -259,6 +267,10 @@ test('new session title updates metadata while owner description wins and missin
   await t.service.updateEntry(ref(), edit)
   t.files.set('/synthetic/project/session.jsonl', JSON.stringify({ type: 'ai-title', aiTitle: 'New title' }) + '\n' + twoDays.replaceAll('feature/ABC-12', ''))
   const rows = await t.service.refreshWeek(WEEK)
-  expect(rows[0]).toMatchObject({ source: 'auto', sessionTitle: 'New title', description: 'Owner text', gitBranch: null })
-  expect(rows[1]).toMatchObject({ source: 'auto', sessionTitle: 'New title', description: 'New title', gitBranch: null })
+  expect(rows[0]).toMatchObject({ source: 'auto', description: 'Owner text', resumable: true })
+  expect(rows[1]).toMatchObject({ source: 'auto', description: 'New title', resumable: true })
+  expect(rows[0]).not.toHaveProperty('sessionTitle')
+  expect(rows[0]).not.toHaveProperty('gitBranch')
+  expect(t.snapshots.get('session', WEEK)).toMatchObject({ title: 'New title', gitBranch: null,
+    cwd: '/work/project' })
 })

@@ -3,13 +3,14 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TimeEntry } from '@common/domain'
+import { useSessionsStore } from '@renderer/features/sessions'
 import { useTimeTrackingStore } from '../store'
 import { EntryCard } from './EntryCard'
 
 const ENTRY: TimeEntry = {
   id: 's1',
   source: 'auto',
-  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Fix the login redirect',
   issueKey: 'PROJ-611',
@@ -24,6 +25,7 @@ beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   vi.clearAllMocks()
   useTimeTrackingStore.setState({ updateEntry })
+  useSessionsStore.setState({ pendingResume: null })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -153,12 +155,14 @@ test('a background snapshot update preserves a dirty description draft', () => {
   expect(field('Description').value).toBe('My unfinished draft')
 })
 
-test('auto metadata stays separate from the editable description', () => {
-  render({ ...ENTRY, source: 'auto', sessionId: 's1', sessionTitle: 'Search indexing',
-    cwd: '/work/search', folderName: 'search', gitBranch: 'feature/search',
-    firstTimestamp: 1, lastTimestamp: 2 })
-  expect(host.querySelector('.ix-tt-card__metadata')?.textContent).toBe('Search indexing · search · feature/search')
-  expect(host.querySelector('[title="/work/search"]')).not.toBeNull()
+test('auto cards show no session metadata or source marker', () => {
+  const legacyMetadata = { ...ENTRY, sessionTitle: 'Private session title',
+    folderName: 'private-folder', gitBranch: 'feature/private-branch', cwd: '/work/search' }
+  render(legacyMetadata)
+  for (const detail of ['Private session title', 'private-folder', 'feature/private-branch',
+    '/work/search']) expect(host.outerHTML).not.toContain(detail)
+  expect(host.querySelector('.ix-tt-card__metadata')).toBeNull()
+  expect(host.querySelector('[title="Automatic from Claude Code"]')).toBeNull()
   expect(field('Description').value).toBe(ENTRY.description)
 })
 
@@ -181,11 +185,24 @@ test('editing only description preserves the exact measured milliseconds', () =>
 })
 
 
-test('manual and branchless cards have no invented branch or empty separator', () => {
-  render({ ...ENTRY, source: 'auto', gitBranch: null })
-  expect(host.querySelector('.ix-tt-card__metadata')?.textContent).toBe('Session · work')
+test('only resumable auto cards offer Resume', () => {
+  render(ENTRY)
+  expect(host.querySelector('button[title="Resume"]')).not.toBeNull()
+  render({ ...ENTRY, resumable: false })
+  expect(host.querySelector('button[title="Resume"]')).toBeNull()
   render({ id: 'manual', source: 'manual', day: ENTRY.day, description: 'Meeting', issueKey: null, durationMs: 60000 })
-  expect(host.querySelector('.ix-tt-card__metadata')).toBeNull()
+  expect(host.querySelector('button[title="Resume"]')).toBeNull()
+})
+
+test('Resume immediately after a description edit uses the current draft', () => {
+  render()
+  const description = field('Description')
+  type(description, 'Fresh card title')
+  blur(description)
+  act(() => (host.querySelector('button[title="Resume"]') as HTMLButtonElement).click())
+  expect(useSessionsStore.getState().pendingResume).toEqual({
+    id: 's1', cwd: '/work', title: 'Fresh card title', origin: 'card'
+  })
 })
 
 test.each(['Issue key', 'Time spent'])('background updates preserve a dirty %s until Escape', label => {

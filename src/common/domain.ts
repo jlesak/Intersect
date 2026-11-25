@@ -221,11 +221,11 @@ export interface ProjectGitPreview {
 }
 
 export type ProjectGitAction =
-  | { kind: 'pull' }
-  | { kind: 'push' }
+  | { kind: 'pull'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+  | { kind: 'push'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
   | { kind: 'fetch' }
   | { kind: 'switch'; branch: string; remote: boolean }
-  | { kind: 'new-branch'; name: string; start: string }
+  | { kind: 'new-branch'; name: string; start: string; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
 
 export type ProjectGitCommitResult =
   | { outcome: 'committed'; commit: string }
@@ -837,10 +837,8 @@ export type TimeEntry = TimeEntryFields & (
   | {
       source: 'auto'
       sessionId: string
-      sessionTitle: string
       cwd: string
-      folderName: string
-      gitBranch: string | null
+      resumable: boolean
       firstTimestamp: number
       lastTimestamp: number
     }
