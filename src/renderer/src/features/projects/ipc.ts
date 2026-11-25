@@ -4,6 +4,8 @@ import type {
   ProjectOverrideKind,
   ProjectPatch,
   RepoWorktrees,
+  WorktreeDeleteRequest,
+  WorktreeDeleteResult,
   ProjectGitStatus,
   ProjectGitBranch,
   ProjectGitPreview,
@@ -39,6 +41,11 @@ export const clearOverride = (kind: ProjectOverrideKind, key: string): Promise<v
   ipc().projects.clearOverride(kind, key)
 export const listWorktrees = (id: string): Promise<RepoWorktrees[]> =>
   ipc().projects.listWorktrees(id)
+export const deleteWorktree = (request: WorktreeDeleteRequest): Promise<WorktreeDeleteResult> =>
+  ipc().projects.deleteWorktree(request)
+export const removeWorktreeEntry = (
+  projectId: string, repoPath: string, path: string
+): Promise<void> => ipc().projects.removeWorktreeEntry(projectId, repoPath, path)
 export const gitStatuses = (id: string): Promise<ProjectGitStatus[]> => ipc().projects.gitStatuses(id)
 export const gitBranches = (id: string, path: string, discoverDefault = false): Promise<ProjectGitBranch[]> => ipc().projects.gitBranches(id, path, discoverDefault)
 export const gitPreview = (id: string, path: string): Promise<ProjectGitPreview> => ipc().projects.gitPreview(id, path)

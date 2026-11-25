@@ -7,6 +7,7 @@ import type { WorkItemRefRepo } from '../db/workItemRefRepo'
 import type { WorkspaceRepo } from '../db/workspaceRepo'
 import { tx } from '../db/tx'
 import type { SessionManager } from '../pty/sessionManager'
+import type { WorktreeGuard } from '../projects/worktreeService'
 
 export interface TabHandlerDeps {
   db: DatabaseSync
@@ -14,6 +15,7 @@ export interface TabHandlerDeps {
   tabs: TabRepo
   workItems: WorkItemRefRepo
   sessions: SessionManager
+  worktreeGuard?: WorktreeGuard
   /**
    * Called after a close left its workspace without a tab. Only schedules work (a fix worktree's
    * cleanup); it is never awaited, so closing a tab never waits on git.
@@ -28,6 +30,9 @@ export function createTabHandlers(d: TabHandlerDeps): IpcApi['tabs'] {
     },
 
     async create(workspaceId, preset, paneSlot, resumeSessionId, primaryWorkItem) {
+      if (d.worktreeGuard?.isWorkspaceBlocked(workspaceId)) {
+        throw new Error('This worktree is being deleted')
+      }
       // Tab, primary work item and focus land in one transaction, so a card launch can never
       // leave a session without its ref (or a ref without its session). The item also supplies
       // the default title; renaming later never touches the ref. The activation stamp is what

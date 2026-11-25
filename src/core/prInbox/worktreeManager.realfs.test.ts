@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { git } from './git'
 import { createRepoQueue } from '../projects/gitMenu'
+import { canonicalizePath } from '../projects/paths'
+import { parseWorktreeList } from '../projects/worktrees'
 import {
   createWorktreeManager,
   fixWorktreePath,
@@ -87,6 +89,24 @@ describe('creating review worktrees in one clone', () => {
     expect(await git(repoDir, ['worktree', 'list', '--porcelain'])).toContain(second)
   })
 
+  test('removing a review worktree preserves an unrelated missing registration', async () => {
+    const worktrees = createWorktreeManager(userDataDir)
+    const review = await worktrees.createWorktree({
+      repoDir, dirName: 'review', sourceCommit: commit,
+      sourceRefName: 'refs/heads/main', prId: 1
+    })
+    const ordinary = join(root, 'ordinary-missing')
+    await git(repoDir, ['worktree', 'add', '-b', 'ordinary-missing', ordinary])
+    await rm(ordinary, { recursive: true })
+
+    await worktrees.removeWorktree(repoDir, review)
+
+    const paths = parseWorktreeList(await git(repoDir, ['worktree', 'list', '--porcelain']))
+      .map((entry) => canonicalizePath(entry.path))
+    expect(paths).toContain(canonicalizePath(ordinary))
+    expect(paths).not.toContain(canonicalizePath(review))
+  })
+
   test('the boot sweep of review worktrees leaves fix worktrees alone', async () => {
     const worktrees = createWorktreeManager(userDataDir)
     await git(repoDir, ['branch', 'feature/fix'])
@@ -99,6 +119,35 @@ describe('creating review worktrees in one clone', () => {
 
     expect(existsSync(join(fixPath, 'kept.txt'))).toBe(true)
     expect(await git(repoDir, ['worktree', 'list', '--porcelain'])).toContain(fixPath)
+  })
+
+  test('the boot sweep removes managed review entries but preserves ordinary missing entries', async () => {
+    const worktrees = createWorktreeManager(userDataDir, { onClone: createRepoQueue() })
+    const missingA = join(root, 'ordinary-missing-a')
+    const missingB = join(root, 'ordinary-missing-b')
+    await git(repoDir, ['worktree', 'add', '-b', 'missing-a', missingA])
+    await git(repoDir, ['worktree', 'add', '-b', 'missing-b', missingB])
+    await rm(missingA, { recursive: true })
+    await rm(missingB, { recursive: true })
+    const managed = await worktrees.createWorktree({
+      repoDir, dirName: 'review', sourceCommit: commit,
+      sourceRefName: 'refs/heads/main', prId: 1
+    })
+    const managedMissing = await worktrees.createWorktree({
+      repoDir, dirName: 'missing-review', sourceCommit: commit,
+      sourceRefName: 'refs/heads/main', prId: 2
+    })
+    await rm(managedMissing, { recursive: true })
+
+    await worktrees.pruneStale([repoDir])
+
+    const paths = parseWorktreeList(await git(repoDir, ['worktree', 'list', '--porcelain']))
+      .map((entry) => canonicalizePath(entry.path))
+    expect(paths).toContain(canonicalizePath(missingA))
+    expect(paths).toContain(canonicalizePath(missingB))
+    expect(paths).not.toContain(canonicalizePath(managed))
+    expect(paths).not.toContain(canonicalizePath(managedMissing))
+    expect(existsSync(managed)).toBe(false)
   })
 })
 
@@ -242,6 +291,18 @@ describe('fix worktrees on the pull request branch', () => {
     expect(await branchOf(fixPath)).toBe(BRANCH)
   })
 
+  test('starting a fix preserves an unrelated missing worktree entry', async () => {
+    const ordinary = join(root, 'ordinary-missing')
+    await git(repoDir, ['worktree', 'add', '-b', 'ordinary-missing', ordinary])
+    await rm(ordinary, { recursive: true })
+
+    await create()
+
+    const paths = parseWorktreeList(await listed()).map((entry) => canonicalizePath(entry.path))
+    expect(paths).toContain(canonicalizePath(ordinary))
+    expect(paths).toContain(canonicalizePath(fixPath))
+  })
+
   test('a folder left over at the worktree path is refused rather than reused', async () => {
     await mkdir(fixPath, { recursive: true })
     await writeFile(join(fixPath, 'stray.txt'), 'left behind\n')
@@ -263,6 +324,21 @@ describe('fix worktrees on the pull request branch', () => {
     expect(existsSync(fixPath)).toBe(false)
     expect(await git(repoDir, ['rev-parse', BRANCH])).toBe(fixSha)
     expect(await listed()).not.toContain('pr-fix-worktrees')
+  })
+
+  test('a failed clean fix removal preserves an unrelated missing registration', async () => {
+    const worktrees = createWorktreeManager(userDataDir)
+    await create(worktrees)
+    await git(repoDir, ['worktree', 'lock', fixPath])
+    const ordinary = join(root, 'ordinary-missing')
+    await git(repoDir, ['worktree', 'add', '-b', 'ordinary-missing', ordinary])
+    await rm(ordinary, { recursive: true })
+
+    await expect(worktrees.removeCleanWorktree(fixPath)).resolves.toMatchObject({ outcome: 'failed' })
+
+    const paths = parseWorktreeList(await listed()).map((entry) => canonicalizePath(entry.path))
+    expect(paths).toContain(canonicalizePath(ordinary))
+    expect(existsSync(fixPath)).toBe(true)
   })
 
   test('uncommitted or untracked files keep the worktree', async () => {

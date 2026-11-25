@@ -47,6 +47,8 @@ import type {
   ProjectGitAction,
   ProjectGitCommitResult,
   RepoWorktrees,
+  WorktreeDeleteRequest,
+  WorktreeDeleteResult,
   PrThread,
   PrVote,
   PullRequest,
@@ -151,6 +153,8 @@ export interface IpcApi {
     clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
+    deleteWorktree(request: WorktreeDeleteRequest): Promise<WorktreeDeleteResult>
+    removeWorktreeEntry(projectId: string, repoPath: string, path: string): Promise<void>
     gitStatuses(id: string): Promise<ProjectGitStatus[]>
     gitBranches(id: string, repoPath: string, discoverDefault?: boolean): Promise<ProjectGitBranch[]>
     gitPreview(id: string, repoPath: string): Promise<ProjectGitPreview>
@@ -721,6 +725,8 @@ export const Channel = {
   projectsSetOverride: 'projects:setOverride',
   projectsClearOverride: 'projects:clearOverride',
   projectsListWorktrees: 'projects:listWorktrees',
+  projectsDeleteWorktree: 'projects:deleteWorktree',
+  projectsRemoveWorktreeEntry: 'projects:removeWorktreeEntry',
   projectsGitStatuses: 'projects:gitStatuses',
   projectsGitBranches: 'projects:gitBranches',
   projectsGitPreview: 'projects:gitPreview',

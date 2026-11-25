@@ -1,39 +1,31 @@
 import { describe, expect, test } from 'vitest'
-import { parseWorktreeList } from './worktrees'
+import { displayWorktreePath, parseWorktreeList } from './worktrees'
 
 describe('parseWorktreeList', () => {
-  test('parses the main checkout plus linked worktrees', () => {
+  test('parses NUL porcelain including spaces, detached, bare, lock and missing folder', () => {
     const porcelain = [
-      'worktree /repos/orders',
-      'HEAD 1111111111111111111111111111111111111111',
-      'branch refs/heads/main',
-      '',
-      'worktree /wt/orders-feature',
-      'HEAD 2222222222222222222222222222222222222222',
-      'branch refs/heads/feature/rail',
-      ''
-    ].join('\n')
-
-    expect(parseWorktreeList(porcelain)).toEqual([
-      { path: '/repos/orders', head: '1111111111111111111111111111111111111111', branch: 'main' },
-      {
-        path: '/wt/orders-feature',
-        head: '2222222222222222222222222222222222222222',
-        branch: 'feature/rail'
-      }
+      'worktree /repo with spaces', 'HEAD 1111', 'branch refs/heads/main', '',
+      'worktree /wt/locked folder', 'HEAD 2222', 'detached', 'locked maintenance', '',
+      'worktree /wt/missing', 'HEAD 3333', 'branch refs/heads/old', 'prunable gitdir file points to non-existent location', ''
+    ].join('\0')
+    expect(parseWorktreeList(porcelain)).toMatchObject([
+      { path: '/repo with spaces', head: '1111', branch: 'main', lockedReason: null, prunableReason: null },
+      { path: '/wt/locked folder', head: '2222', branch: null, lockedReason: 'maintenance' },
+      { path: '/wt/missing', head: '3333', branch: 'old', prunableReason: 'gitdir file points to non-existent location' }
     ])
   })
 
-  test('a detached worktree reports a null branch', () => {
-    const porcelain = ['worktree /wt/detached', 'HEAD 3333', 'detached', ''].join('\n')
-    expect(parseWorktreeList(porcelain)).toEqual([
-      { path: '/wt/detached', head: '3333', branch: null }
-    ])
+  test('parses a bare root and empty lock reason', () => {
+    expect(parseWorktreeList('worktree /bare\0bare\0\0worktree /linked\0HEAD abc\0locked\0\0'))
+      .toMatchObject([{ path: '/bare', bare: true }, { path: '/linked', lockedReason: '' }])
   })
+})
 
-  test('unknown attribute lines and empty input are tolerated', () => {
-    expect(parseWorktreeList('')).toEqual([])
-    const porcelain = ['worktree /a', 'HEAD 4444', 'locked reason', 'prunable gone', ''].join('\n')
-    expect(parseWorktreeList(porcelain)).toHaveLength(1)
-  })
+test('shortens only the actual home directory in external worktree paths', () => {
+  expect(displayWorktreePath('/repos/project', '/Users/me/worktree', '/Users/me'))
+    .toBe('~/worktree')
+  expect(displayWorktreePath('/repos/project', '/Users/other/worktree', '/Users/me'))
+    .toBe('/Users/other/worktree')
+  expect(displayWorktreePath('/repos/project', '/repos/project/.claude/worktrees/one', '/Users/me'))
+    .toBe('.claude/worktrees/one')
 })
