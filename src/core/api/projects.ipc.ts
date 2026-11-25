@@ -89,7 +89,7 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
       if (!project) throw new Error(`Project not found: ${id}`)
       return d.gitMenu!.statuses(project)
     }),
-    gitBranches: (id, repoPath) => surface(() => d.gitMenu!.branches(id, repoPath)),
+    gitBranches: (id, repoPath, discoverDefault) => surface(() => d.gitMenu!.branches(id, repoPath, discoverDefault)),
     gitPreview: (id, repoPath) => surface(() => d.gitMenu!.preview(id, repoPath)),
     gitValidateName: (id, repoPath, name) => surface(() => d.gitMenu!.validateName(id, repoPath, name)),
     gitAction: (id, repoPath, action) => surface(() => d.gitMenu!.action(id, repoPath, action)),

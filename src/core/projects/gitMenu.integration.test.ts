@@ -145,6 +145,15 @@ describe('project Git menu with real repositories', () => {
     expect(branches[0]).toMatchObject({ name: 'main', kind: 'local', current: true, defaultRemote: true })
   })
 
+  test('New branch discovers origin HEAD when no local origin/HEAD exists', async () => {
+    const { main, bare, service } = fixture()
+    git(bare, 'symbolic-ref', 'HEAD', 'refs/heads/main')
+    expect((await service.branches('p', main)).some((branch) => branch.defaultRemote)).toBe(false)
+    expect((await service.branches('p', main, true))[0]).toMatchObject({
+      name: 'main', defaultRemote: true
+    })
+  })
+
   test('invalid and existing names reject; dirty conflicting switch keeps files and HEAD', async () => {
     const { main, service } = fixture()
     expect(await service.validateName('p', main, 'bad name')).not.toBeNull()

@@ -179,7 +179,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   function openBranch(initial = ''): void {
     previewPath.current = open
     if (open) {
-      void api.gitBranches(projectId, open).then(setBranches)
+      void api.gitBranches(projectId, open, true).then(setBranches)
         .catch((error) => reportError('Could not list branches', error))
     }
     setName(initial)

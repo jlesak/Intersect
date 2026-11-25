@@ -157,7 +157,7 @@ function commitWithStdin(cwd: string, message: string): Promise<void> {
 
 export interface GitMenuService {
   statuses(project: Project): Promise<ProjectGitStatus[]>
-  branches(projectId: string, repoPath: string): Promise<ProjectGitBranch[]>
+  branches(projectId: string, repoPath: string, discoverDefault?: boolean): Promise<ProjectGitBranch[]>
   preview(projectId: string, repoPath: string): Promise<ProjectGitPreview>
   action(projectId: string, repoPath: string, action: ProjectGitAction): Promise<string>
   commit(projectId: string, repoPath: string, token: string, message: string, push: boolean): Promise<ProjectGitCommitResult>
@@ -199,12 +199,20 @@ export function createGitMenuService(getProject: (id: string) => Project | null 
       const status = await readStatus(path)
       return status.mainPath && warningCounts ? { ...status, ...warningCounts(status.mainPath) } : status
     })),
-    branches: async (projectId, repoPath) => {
+    branches: async (projectId, repoPath, discoverDefault = false) => {
       const status = await binding(projectId, repoPath)
       const main = status.mainPath!
       const raw = await runGit(main, ['for-each-ref', '--format=%(refname)%00%(committerdate:unix)', 'refs/heads', 'refs/remotes/origin'])
-      const defaultRemote = await runGit(main, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+      let defaultRemote = await runGit(main, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
         .then((value) => value.trim(), () => '')
+      if (!defaultRemote && discoverDefault) {
+        // A remote added to an existing checkout does not create origin/HEAD. The explicit New
+        // branch dialog can ask origin which branch HEAD names without fetching any objects.
+        const advertised = await runGit(main, ['ls-remote', '--symref', 'origin', 'HEAD'], NETWORK_TIMEOUT)
+          .catch(() => '')
+        const match = advertised.match(/^ref: refs\/heads\/([^\t\n]+)\tHEAD$/m)
+        if (match) defaultRemote = `origin/${match[1]}`
+      }
       const held = new Set(parseWorktreeList(await runGit(main, ['worktree', 'list', '--porcelain']))
         .filter((wt) => canon(wt.path) !== main && wt.branch).map((wt) => wt.branch))
       const local: ProjectGitBranch[] = []
@@ -219,6 +227,9 @@ export function createGitMenuService(getProject: (id: string) => Project | null 
         } else if (ref.startsWith('refs/remotes/origin/') && ref !== 'refs/remotes/origin/HEAD') {
           remote.push({ name: ref.slice(13), kind: 'remote', current: false, inWorktree: false, timestamp: Number(date) || 0, defaultRemote: ref.slice(13) === defaultRemote })
         }
+      }
+      if (defaultRemote && !localNames.has(defaultRemote.slice(7)) && !remote.some((b) => b.name === defaultRemote)) {
+        remote.push({ name: defaultRemote, kind: 'remote', current: false, inWorktree: false, timestamp: 0, defaultRemote: true })
       }
       local.sort((a, b) => Number(b.current) - Number(a.current) || b.timestamp - a.timestamp || a.name.localeCompare(b.name))
       return [...local, ...remote.filter((r) => !localNames.has(r.name.slice(7))).sort((a, b) => b.timestamp - a.timestamp || a.name.localeCompare(b.name))]

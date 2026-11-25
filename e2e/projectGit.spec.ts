@@ -20,6 +20,7 @@ test('project Git chip refreshes external changes and drives commit and new bran
   git(repo, 'commit', '-m', 'initial')
   git(repo, 'remote', 'add', 'origin', origin)
   git(repo, 'push', '-u', 'origin', 'main')
+  git(origin, 'symbolic-ref', 'HEAD', 'refs/heads/main')
 
   const profile = userDataDir()
   const { app, win, errors } = await launch(profile, { env: unconfiguredAdo() })
@@ -63,6 +64,8 @@ test('project Git chip refreshes external changes and drives commit and new bran
   await expect(chip).toContainText('↑1')
   await chip.click()
   await win.getByRole('button', { name: 'New branch…' }).click()
+  await expect(win.getByRole('dialog').locator('option[value="origin/main"]')).toHaveCount(1)
+  await win.getByRole('dialog').locator('select').selectOption('origin/main')
   await win.getByRole('dialog').filter({ hasText: 'New branch' }).locator('input').fill('feature/e2e')
   await win.getByRole('button', { name: 'Create and switch' }).click()
   await expect(chip).toContainText('feature/e2e')

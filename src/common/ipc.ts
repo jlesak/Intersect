@@ -146,7 +146,7 @@ export interface IpcApi {
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
     gitStatuses(id: string): Promise<ProjectGitStatus[]>
-    gitBranches(id: string, repoPath: string): Promise<ProjectGitBranch[]>
+    gitBranches(id: string, repoPath: string, discoverDefault?: boolean): Promise<ProjectGitBranch[]>
     gitPreview(id: string, repoPath: string): Promise<ProjectGitPreview>
     gitValidateName(id: string, repoPath: string, name: string): Promise<string | null>
     gitAction(id: string, repoPath: string, action: ProjectGitAction): Promise<string>
