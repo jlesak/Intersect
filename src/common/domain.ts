@@ -260,6 +260,7 @@ export interface ProjectOverride {
 /** One git worktree discovered under a project's repository binding. */
 export interface WorktreeInfo {
   path: string
+  displayPath: string
   /** Checked-out branch ref short name, or null for a detached HEAD. */
   branch: string | null
   head: string

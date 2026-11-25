@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { makeHandlerContext } from '../api/handlerTestkit'
+import { git as realGit } from '../prInbox/git'
+import { createWorktreeManager } from '../prInbox/worktreeManager'
+import { createRepoQueue } from './gitMenu'
 import { createProjectWorktreeService, createWorktreeGuard, snapshotOf } from './worktreeService'
 
 const exec = promisify(execFile)
@@ -132,5 +135,161 @@ describe('project worktree deletion with real Git', () => {
     await expect(f.service.delete(main)).rejects.toThrow('eligible linked')
     await expect(f.service.delete({ ...main, path: join(f.root, 'forged') })).rejects.toThrow('eligible linked')
     expect(existsSync(f.repo)).toBe(true)
+  })
+
+  test('creation date follows the matching admin folder birth time, not its mtime', async () => {
+    const f = await fixture()
+    const older = await f.add('older')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const newer = await f.add('newer')
+    const adminNames = await readdir(join(f.repo, '.git', 'worktrees'))
+    const admin = join(f.repo, '.git', 'worktrees', adminNames.find((name) => name === 'older')!)
+    const birth = (await stat(admin)).birthtimeMs
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await writeFile(join(admin, 'fixture-marker'), 'changes admin mtime')
+    expect((await stat(admin)).mtimeMs).toBeGreaterThan(birth)
+    expect((await f.list(older)).createdAt).toBe(birth)
+    const rows = (await f.service.list(f.project.id))[0].worktrees
+    expect(rows.map((row) => row.path)).toEqual([f.repo, newer, older])
+    expect(rows[0].createdAt).toBeNull()
+  })
+
+  test('gone upstream, unpushed and managed states come from Git and the managed root', async () => {
+    const f = await fixture()
+    const gone = await f.add('gone')
+    await command(gone, 'push', '-u', 'origin', 'gone')
+    await command(gone, 'push', 'origin', '--delete', 'gone')
+    await command(gone, 'fetch', '--prune')
+    expect((await f.list(gone)).goneOnOrigin).toBe(true)
+    const managed = join(f.root, 'profile', 'pr-fix-worktrees', 'one')
+    await mkdir(join(f.root, 'profile', 'pr-fix-worktrees'), { recursive: true })
+    await command(f.repo, 'worktree', 'add', '-b', 'managed', managed)
+    expect((await f.list(managed)).managed).toBe('fix')
+    await expect(f.service.delete(await f.request(managed))).rejects.toThrow('eligible linked')
+    expect(existsSync(managed)).toBe(true)
+  })
+
+  test('session timeout leaves folder, branch, workspaces and tabs intact', async () => {
+    const f = await fixture()
+    const path = await f.add('busy')
+    const ws = f.ctx.workspaces.create(path)
+    const tab = f.ctx.tabs.create(ws.id, 'claude')
+    f.ctx.sessions.has = () => true
+    f.ctx.sessions.whenWorkspaceExited = async () => 'timeout'
+    expect((await f.list(path)).workspaces).toMatchObject([
+      { id: ws.id, tabs: 1, runningClaude: 1 }
+    ])
+    expect(await f.service.delete(await f.request(path))).toMatchObject({ outcome: 'timeout' })
+    expect(f.ctx.calls.killWorkspace).toContain(ws.id)
+    expect(existsSync(path)).toBe(true)
+    expect(f.ctx.workspaces.getById(ws.id)).toBeDefined()
+    expect(f.ctx.tabs.getById(tab.id)).toBeDefined()
+    expect(await command(f.repo, 'branch', '--list', 'busy')).toContain('busy')
+  })
+
+  test('a new file during session exit stops a confirmed dirty deletion', async () => {
+    const f = await fixture()
+    const path = await f.add('waiting')
+    const ws = f.ctx.workspaces.create(path)
+    f.ctx.tabs.create(ws.id, 'claude')
+    await writeFile(join(path, 'a.txt'), 'a')
+    const request = await f.request(path, { discardChanges: true })
+    let release: (outcome: 'exited') => void = () => {}
+    const exit = new Promise<'exited'>((resolve) => { release = resolve })
+    f.ctx.sessions.whenWorkspaceExited = () => exit
+    const pending = f.service.delete(request)
+    await vi.waitFor(() => expect(f.ctx.calls.killWorkspace).toContain(ws.id))
+    await writeFile(join(path, 'b.txt'), 'b')
+    release('exited')
+    expect(await pending).toMatchObject({ outcome: 'changed' })
+    expect(existsSync(path)).toBe(true)
+    expect(f.ctx.workspaces.getById(ws.id)).toBeDefined()
+  })
+
+  test('a changed file status or newly acquired lock invalidates the dialog snapshot', async () => {
+    const f = await fixture()
+    const path = await f.add('changing')
+    await writeFile(join(path, 'a.txt'), 'a')
+    const beforeStage = await f.request(path, { discardChanges: true })
+    await command(path, 'add', 'a.txt')
+    expect((await f.service.delete(beforeStage)).outcome).toBe('changed')
+    const beforeLock = await f.request(path, { discardChanges: true })
+    await command(f.repo, 'worktree', 'lock', '--reason', 'keep', path)
+    expect((await f.service.delete(beforeLock)).outcome).toBe('changed')
+    expect(existsSync(path)).toBe(true)
+  })
+
+  test('branch deletion failure reports partial success and removes the orphaned workspace', async () => {
+    const f = await fixture()
+    const path = await f.add('branch-fails')
+    const ws = f.ctx.workspaces.create(path)
+    const tab = f.ctx.tabs.create(ws.id, 'shell')
+    const service = createProjectWorktreeService({
+      projects: f.ctx.projects, workspaces: f.ctx.workspaces, tabs: f.ctx.tabs,
+      appState: f.ctx.appState, sessions: f.ctx.sessions,
+      userDataDir: join(f.root, 'profile'), guard: createWorktreeGuard(),
+      onRepo: async (_path, job) => job(),
+      runGit: async (repo, args) => {
+        if (args.includes('branch')) throw new Error('branch lock refused')
+        return realGit(repo, args)
+      }
+    })
+    expect(await service.delete(await f.request(path, { deleteBranch: true }))).toMatchObject({
+      outcome: 'partial', detail: 'branch lock refused', workspaceIds: [ws.id], closedTabs: 1
+    })
+    expect(existsSync(path)).toBe(false)
+    expect(f.ctx.workspaces.getById(ws.id)).toBeUndefined()
+    expect(f.ctx.tabs.getById(tab.id)).toBeUndefined()
+    expect(await command(f.repo, 'branch', '--list', 'branch-fails')).toContain('branch-fails')
+  })
+
+  test('project deletion holds PR cleanup and prune on the same repository queue', async () => {
+    const f = await fixture()
+    const target = await f.add('target')
+    const ws = f.ctx.workspaces.create(target)
+    const profile = join(f.root, 'profile')
+    const fixPath = join(profile, 'pr-fix-worktrees', 'fix')
+    const reviewPath = join(profile, 'pr-review-worktrees', 'review')
+    await mkdir(join(profile, 'pr-fix-worktrees'), { recursive: true })
+    await mkdir(join(profile, 'pr-review-worktrees'), { recursive: true })
+    await command(f.repo, 'worktree', 'add', '-b', 'pr-fix', fixPath)
+    await command(f.repo, 'worktree', 'add', '-b', 'pr-review', reviewPath)
+    const queue = createRepoQueue()
+    const manager = createWorktreeManager(profile, { onClone: queue })
+    const service = createProjectWorktreeService({
+      projects: f.ctx.projects, workspaces: f.ctx.workspaces, tabs: f.ctx.tabs,
+      appState: f.ctx.appState, sessions: f.ctx.sessions, userDataDir: profile,
+      onRepo: queue, guard: createWorktreeGuard()
+    })
+    let release: (outcome: 'exited') => void = () => {}
+    f.ctx.sessions.whenWorkspaceExited = () => new Promise((resolve) => { release = resolve })
+    const deletion = service.delete(await f.request(target))
+    await vi.waitFor(() => expect(f.ctx.calls.killWorkspace).toContain(ws.id))
+    const clean = manager.removeCleanWorktree(fixPath)
+    const prune = manager.pruneStale([f.repo])
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(existsSync(fixPath)).toBe(true)
+    expect(existsSync(reviewPath)).toBe(true)
+    release('exited')
+    expect((await deletion).outcome).toBe('deleted')
+    expect((await clean).outcome).toBe('removed')
+    await prune
+    expect(existsSync(fixPath)).toBe(false)
+    expect(existsSync(reviewPath)).toBe(false)
+  })
+
+  test('a linked repository binding can be deleted with its branch', async () => {
+    const f = await fixture()
+    const bound = await f.add('bound')
+    f.ctx.projects.addRepoPath(f.project.id, bound)
+    const group = (await f.service.list(f.project.id)).find((repo) => repo.repoPath === bound)!
+    const wt = group.worktrees.find((entry) => entry.path === bound)!
+    const result = await f.service.delete({
+      projectId: f.project.id, repoPath: bound, path: bound, snapshot: snapshotOf(wt),
+      discardChanges: false, overrideLock: false, deleteBranch: true
+    })
+    expect(result).toMatchObject({ outcome: 'deleted', branchDeleted: true })
+    expect(existsSync(bound)).toBe(false)
+    expect(await command(f.repo, 'branch', '--list', 'bound')).toBe('')
   })
 })

@@ -38,6 +38,7 @@ export interface WorktreeServiceDeps {
   userDataDir: string
   onRepo: <T>(repoPath: string, job: () => Promise<T>) => Promise<T>
   guard: WorktreeGuard
+  runGit?: typeof git
 }
 
 export interface ProjectWorktreeService {
@@ -135,9 +136,16 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
         if (wt.changed.length > 0 && !request.discardChanges) return changed()
         if (wt.lockedReason !== null && !request.overrideLock) return changed()
         if (request.deleteBranch && !wt.branch) return changed()
-        const ids = wt.workspaces.map((ws) => ws.id)
+        let ids = wt.workspaces.map((ws) => ws.id)
         d.guard.block(wt.path, ids)
         try {
+          // The path guard closes the small gap between the listing and this read. A workspace
+          // created just before the guard was set must also have its sessions stopped and awaited.
+          const currentIds = d.workspaces.list()
+            .filter((ws) => containsFolder(wt.path, ws.folderPath))
+            .map((ws) => ws.id)
+          d.guard.block(wt.path, currentIds)
+          ids = [...new Set([...ids, ...currentIds])]
           for (const id of ids) d.sessions.killWorkspace(id)
           const exits = await Promise.all(ids.map((id) => d.sessions.whenWorkspaceExited(id, 10_000)))
           if (exits.includes('timeout')) {
@@ -148,11 +156,18 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
           const flags = fresh.lockedReason !== null
             ? ['--force', '--force']
             : fresh.changed.length > 0 ? ['--force'] : []
-          await git(request.repoPath, ['worktree', 'remove', ...flags, fresh.path])
+          // A project can bind a linked worktree itself. Its folder disappears at this point,
+          // so branch deletion must address the stable common Git directory.
+          const commonDir = await git(request.repoPath, [
+            'rev-parse', '--path-format=absolute', '--git-common-dir'
+          ])
+          const viaCommon = (args: string[]): Promise<string> =>
+            (d.runGit ?? git)(commonDir, [`--git-dir=${commonDir}`, ...args])
+          await viaCommon(['worktree', 'remove', ...flags, fresh.path])
           const removed = removeWorkspaceRows(fresh)
           if (request.deleteBranch && fresh.branch) {
             try {
-              await git(request.repoPath, ['branch', '-D', '--', fresh.branch])
+              await viaCommon(['branch', '-D', '--', fresh.branch])
             } catch (err) {
               return {
                 outcome: 'partial',

@@ -20,22 +20,22 @@ function dateLabel(value: number | null): string {
   const date = new Date(value)
   const now = new Date()
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
   const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
   const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   if (day === midnight) return `today ${time}`
-  if (day === midnight - 86_400_000) return `yesterday ${time}`
+  if (day === yesterday) return `yesterday ${time}`
   const days = Math.round((midnight - day) / 86_400_000)
   return `${days} days ago`
 }
 
 function absoluteDate(value: number | null): string | undefined {
-  return value === null ? undefined : new Date(value).toLocaleString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  })
+  if (value === null) return undefined
+  const date = new Date(value)
+  return `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
 }
 
-function folderLabel(repoPath: string, path: string): string {
-  if (path.startsWith(`${repoPath}/`)) return path.slice(repoPath.length + 1)
+function folderLabel(path: string): string {
   return path.replace(/^\/Users\/[^/]+(?=\/|$)/, '~')
 }
 
@@ -158,13 +158,13 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
           {!repo.error && repo.worktrees.length === 0 && <p className="ix-ctx__hint">No worktrees.</p>}
           {!repo.error && repo.worktrees.length > 0 && (
             <table className="ix-worktrees__table">
-              <thead><tr><th>Branch</th><th>Folder</th><th>Created</th><th>State</th><th><span className="sr-only">Action</span></th></tr></thead>
+              <thead><tr><th>Branch</th><th>Folder</th><th>Created</th><th>State</th><th aria-label="Action" /></tr></thead>
               <tbody>{repo.worktrees.map((item) => (
                 <tr key={item.path}>
                   <td><span className="ix-worktrees__truncate" title={item.branch ?? `detached @ ${item.head.slice(0, 8)}`}>
                     <IconBranch /> {item.branch ?? `detached @ ${item.head.slice(0, 8)}`}
                   </span></td>
-                  <td><span className="ix-worktrees__truncate" title={item.path}>{folderLabel(repo.repoPath, item.path)}</span></td>
+                  <td><span className="ix-worktrees__truncate" title={item.path}>{folderLabel(item.displayPath)}</span></td>
                   <td title={absoluteDate(item.createdAt)}>{dateLabel(item.createdAt)}</td>
                   <td><span className="ix-worktrees__states">{tags(item).map((tag) =>
                     <span key={tag} title={tag === 'locked' ? item.lockedReason ?? undefined : undefined}>{tag}</span>
@@ -191,7 +191,7 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
             disabled={busy} onClick={() => void confirm()}>{deleteButtonLabel(openTabs, danger)}</button>
         </>}
       >
-        <p>Removes the folder {folderLabel(selected.repoPath, wt.path)} and its git entry.
+        <p>Removes the folder {folderLabel(wt.displayPath)} and its git entry.
           {wt.createdAt !== null && ` Created ${absoluteDate(wt.createdAt)}.`}</p>
         {wt.workspaces.filter((ws) => ws.tabs > 0).map((ws) =>
           <p key={ws.id}>Workspace {ws.name} has {ws.tabs} tabs open here,

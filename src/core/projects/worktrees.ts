@@ -43,8 +43,13 @@ export function parseChangedFiles(porcelain: string): WorktreeInfo['changed'] {
     const field = fields[i]
     if (!field || field.length < 4) continue
     const code = field.slice(0, 2)
-    changed.push({ code, path: field.slice(3) })
-    if (code.includes('R') || code.includes('C')) i++ // -z follows a rename with its old path
+    const path = field.slice(3)
+    if (code.includes('R') || code.includes('C')) {
+      const oldPath = fields[++i]
+      changed.push({ code, path: `${oldPath} -> ${path}` })
+    } else {
+      changed.push({ code, path })
+    }
   }
   return changed.sort((a, b) => a.path.localeCompare(b.path) || a.code.localeCompare(b.code))
 }
@@ -100,9 +105,9 @@ async function inspectEntry(
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no',
       '--ignore-submodules=none'
     ]))
-  const unpushed = entry.branch && !missing ?
+  const unpushed = entry.branch ?
     Number(await git(repoPath, ['rev-list', '--count', `refs/heads/${entry.branch}`, '--not', '--remotes'])) : 0
-  const goneOnOrigin = entry.branch && !missing ?
+  const goneOnOrigin = entry.branch ?
     (await git(repoPath, ['for-each-ref', '--format=%(upstream:track)',
       `refs/heads/${entry.branch}`])).includes('[gone]') : false
   const canonical = canonicalizePath(entry.path)
@@ -112,6 +117,7 @@ async function inspectEntry(
     : null
   return {
     ...entry,
+    displayPath: displayWorktreePath(repoPath, entry.path),
     main,
     createdAt: main ? null : await worktreeCreatedAt(commonDir, entry.path),
     changed,
@@ -152,6 +158,6 @@ export async function listProjectWorktrees(
 
 /** Relative inside the bound repository, otherwise a full path. */
 export function displayWorktreePath(repoPath: string, worktreePath: string): string {
-  const rel = relative(repoPath, worktreePath)
+  const rel = relative(canonicalizePath(repoPath), canonicalizePath(worktreePath))
   return rel && !rel.startsWith('..') && !rel.startsWith(sep) ? rel : worktreePath
 }

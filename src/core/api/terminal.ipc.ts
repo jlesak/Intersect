@@ -1,6 +1,6 @@
 import type { Preset } from '@common/domain'
 import { type WireRoutes } from '@common/coreBridge'
-import { Channel, type TerminalAttachResult } from '@common/ipc'
+import { Channel, parseSessionId, type TerminalAttachResult } from '@common/ipc'
 import type { SessionManager } from '../pty/sessionManager'
 import type { WorktreeGuard } from '../projects/worktreeService'
 
@@ -30,7 +30,9 @@ export function createTerminalHandlers(
 ): TerminalHandlers {
   return {
     spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
-      if (worktreeGuard?.isFolderBlocked(cwd)) {
+      const workspaceId = parseSessionId(id)?.workspaceId
+      if (worktreeGuard?.isFolderBlocked(cwd) ||
+        (workspaceId && worktreeGuard?.isWorkspaceBlocked(workspaceId))) {
         throw new Error('This worktree is being deleted')
       }
       return sessions.spawn(id, preset, cwd, cols, rows, resumeSessionId)
