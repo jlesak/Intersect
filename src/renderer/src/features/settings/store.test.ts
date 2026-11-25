@@ -14,6 +14,7 @@ const mocked = vi.mocked(api)
 
 const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   timeTracking: { excludedPathPrefixes: [] },
+  meetingRouting: { rules: [], defaultTarget: { kind: 'unassigned' } },
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
   ado: { orgUrl: 'https://devops.example.com', project: 'Example', repository: 'app', pat: 'pat-1' },
   adoFallback: { orgUrl: 'https://fallback', project: 'FB', hasPat: true },

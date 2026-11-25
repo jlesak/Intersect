@@ -5,7 +5,7 @@ import { liveSessions, useAttentionStore } from '@renderer/features/attention'
 import { useMyWorkStore } from '@renderer/features/myWork'
 import { selectPrList, usePrInboxStore } from '@renderer/features/prInbox'
 import { useSettingsStore } from '@renderer/features/settings'
-import { useTimeTrackingStore } from '@renderer/features/timeTracking'
+import { useMeetingsStore, useTimeTrackingStore } from '@renderer/features/timeTracking'
 import { useTodoStore } from '@renderer/features/todo'
 import { useUsageStore } from '@renderer/features/usage'
 import { useWorkspacesStore } from '@renderer/features/workspaces'
@@ -46,6 +46,8 @@ export function DashboardView() {
   const attention = useAttentionStore((s) => s.status)
   const workspacesById = useWorkspacesStore((s) => s.byId)
   const entries = useTimeTrackingStore((s) => s.entries)
+  const meetingSnapshot = useMeetingsStore((s) => s.snapshot)
+  const meetingsLoading = useMeetingsStore((s) => s.loading)
   const weekStart = useTimeTrackingStore((s) => s.weekStart)
   const timeStatus = useTimeTrackingStore((s) => s.status)
   const usage = useUsageStore((s) => s.usage)
@@ -63,6 +65,8 @@ export function DashboardView() {
     if (store.status === 'idle') void store.hydrate()
     else if (store.status === 'error') void store.loadWeek(store.weekStart)
   }, [])
+
+  useEffect(() => { void useMeetingsStore.getState().load(today) }, [today])
 
   const prRows = useMemo(() => actionPrs(prs), [prs])
   const deadlines = useMemo(() => deadlineTodos(openTasks, today), [openTasks, today])
@@ -91,6 +95,8 @@ export function DashboardView() {
             deadlineState={emptyState(todoStatus)}
             today={today}
             now={now}
+            meetingSnapshot={meetingSnapshot}
+            meetingsLoading={meetingsLoading}
           />
           <div className="ix-dash__stack">
             <ZoneSessions sessions={sessions} workspacesById={workspacesById} now={now} />

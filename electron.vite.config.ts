@@ -47,6 +47,7 @@ export default defineConfig({
           draftServer: resolve('src/core/prInbox/draftServer.ts'),
           jiraReportServer: resolve('src/core/myWork/jiraReportServer.ts'),
           otoReportServer: resolve('src/core/oneOnOne/otoReportServer.ts'),
+          meetingsReportServer: resolve('src/core/meetings/reportServer.ts'),
           hookHelper: resolve('src/core/hooks/intersectHook.ts')
         }
       }

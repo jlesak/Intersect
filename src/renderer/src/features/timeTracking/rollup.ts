@@ -81,7 +81,7 @@ export function rollupByProject(
   for (const e of entries) {
     const projectId =
       e.issueKey === null
-        ? null
+        ? (e.source === 'manual' ? e.projectId ?? null : null)
         : effectiveProject('jira', e.issueKey, resolveJiraProject(e.issueKey, projects), index)
     // An id with no project behind it is an override left by a deleted project, which claims
     // nothing any more and belongs with the rest of the unclaimed time.

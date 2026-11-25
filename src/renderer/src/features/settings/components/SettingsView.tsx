@@ -11,6 +11,7 @@ import { ProjectsPane } from '@renderer/features/projects'
 import { AgentToolingPane, selectHasRawDraft, useAgentToolingStore } from '@renderer/features/agentTooling'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { useSettingsStore } from '../store'
+import { MeetingRoutingEditor } from './MeetingRoutingEditor'
 
 const CATEGORIES = [
   { id: 'projects', label: 'Projekty' },
@@ -434,5 +435,6 @@ function TimeTrackingPane() {
     <button type="button" className="ix-btn ix-btn--primary" disabled={!loaded || saving}
       onClick={() => void save()}>{saving ? 'Saving…' : 'Save exclusions'}</button>
     {error && <div role="alert">{error}</div>}
+    <MeetingRoutingEditor />
   </>
 }

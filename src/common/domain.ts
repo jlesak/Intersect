@@ -742,6 +742,7 @@ interface TimeEntryFields {
   description: string
   issueKey: string | null
   durationMs: number
+  projectId?: string | null
 }
 
 export type TimeEntry = TimeEntryFields & (
@@ -761,7 +762,49 @@ export type TimeEntryRef =
   | { source: 'manual'; id: string }
 
 /** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
-export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'>
+export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'> & { projectId?: string | null }
+
+/** One validated calendar event. All timestamps are epoch milliseconds in the user's local day. */
+export interface CalendarMeeting {
+  source: 'microsoft365'
+  externalId: string
+  day: string
+  subject: string
+  startAt: number
+  endAt: number
+  joinUrl: string | null
+  cancelled: boolean
+  declined: boolean
+  allDay: boolean
+}
+
+export type MeetingRouteTarget =
+  | { kind: 'unassigned' }
+  | { kind: 'issue'; issueKey: string }
+  | { kind: 'project'; projectId: string }
+
+export interface MeetingRoutingSettings {
+  rules: { pattern: string; target: MeetingRouteTarget }[]
+  defaultTarget: MeetingRouteTarget
+}
+
+export interface MeetingProposal {
+  source: CalendarMeeting['source']
+  externalId: string
+  day: string
+  description: string
+  startAt: number
+  durationMs: number
+  issueKey: string | null
+  projectId: string | null
+}
+
+export interface MeetingSnapshot {
+  day: string
+  syncedAt: number | null
+  meetings: CalendarMeeting[]
+  error: string | null
+}
 
 /** The three fields editable in place on any card, auto or manual. */
 export type TimeEntryUpdate = Pick<TimeEntry, 'description' | 'issueKey' | 'durationMs'>
@@ -1112,6 +1155,7 @@ export interface TimeTrackingSettings {
 /** All user settings fetched together, so a single call hydrates the whole section. */
 export interface AppSettings {
   timeTracking: TimeTrackingSettings
+  meetingRouting: MeetingRoutingSettings
   notifications: NotificationSettings
   /** Only what the user actually entered; a blank field defers to `adoFallback` at resolve time. */
   ado: AdoSettings

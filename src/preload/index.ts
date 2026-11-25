@@ -162,6 +162,15 @@ const api: IpcApi = {
     listLive: () => ipcRenderer.invoke(Channel.sessionsListLive),
     clearSuspended: (tabId) => ipcRenderer.invoke(Channel.sessionsClearSuspended, tabId)
   },
+  meetings: {
+    get: (day) => ipcRenderer.invoke(Channel.meetingsGet, day),
+    open: (day) => ipcRenderer.invoke(Channel.meetingsOpen, day),
+    refresh: (day) => ipcRenderer.invoke(Channel.meetingsRefresh, day),
+    listProposals: (day) => ipcRenderer.invoke(Channel.meetingsListProposals, day),
+    accept: (source, externalId) => ipcRenderer.invoke(Channel.meetingsAccept, source, externalId),
+    acceptAll: (day) => ipcRenderer.invoke(Channel.meetingsAcceptAll, day),
+    decline: (source, externalId) => ipcRenderer.invoke(Channel.meetingsDecline, source, externalId)
+  },
   timeTracking: {
     onChanged: (cb) => {
       const listener = (): void => cb()
@@ -253,6 +262,7 @@ const api: IpcApi = {
   },
   settings: {
     setTimeTracking: (settings) => ipcRenderer.invoke(Channel.settingsSetTimeTracking, settings),
+    setMeetingRouting: (settings) => ipcRenderer.invoke(Channel.settingsSetMeetingRouting, settings),
     get: () => ipcRenderer.invoke(Channel.settingsGet),
     setNotifications: (notifications) =>
       ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),

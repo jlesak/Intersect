@@ -1,9 +1,11 @@
+import type { MeetingSnapshot } from '@common/domain'
 import { formatRelativeTime } from '@renderer/features/myWork'
 import { usePrInboxStore } from '@renderer/features/prInbox'
 import { formatDueDay, useTodoStore } from '@renderer/features/todo'
 import { useDashboardNavStore } from '../store'
 import type { ActionPr, DeadlineTodo, EmptyState } from '../zones'
 import { ZoneNote, type NoteAction } from './ZoneNote'
+import { ZoneMeetings } from './ZoneMeetings'
 
 /** What an empty pull-request subgroup means, per how the read that produced it went. */
 const PR_NOTE: Record<EmptyState, string> = {
@@ -58,7 +60,9 @@ export function ZoneNeedsAction({
   deadlines,
   deadlineState,
   today,
-  now
+  now,
+  meetingSnapshot,
+  meetingsLoading
 }: {
   prs: ActionPr[]
   prState: EmptyState
@@ -66,6 +70,8 @@ export function ZoneNeedsAction({
   deadlineState: EmptyState
   today: string
   now: number
+  meetingSnapshot: MeetingSnapshot | null
+  meetingsLoading: boolean
 }) {
   return (
     <section className="ix-dash-zone ix-dash-zone--wide">
@@ -144,6 +150,7 @@ export function ZoneNeedsAction({
           ))
         )}
       </div>
+      <ZoneMeetings snapshot={meetingSnapshot} today={today} now={now} loading={meetingsLoading} />
     </section>
   )
 }

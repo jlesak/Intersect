@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { TimeEntry } from '@common/domain'
 import { formatDuration, useSessionsStore } from '@renderer/features/sessions'
+import { useProjectsStore } from '@renderer/features/projects'
 import { IconPlay, IconTrash } from '@renderer/shared/ui/icons'
 import { useTimeTrackingStore } from '../store'
 import { normalizeIssueKey, parseDuration } from '../time'
@@ -32,6 +33,8 @@ function blurOnEnter(e: KeyboardEvent<HTMLInputElement>, discard?: () => void): 
  * commits on blur, so Enter simply blurs.
  */
 export function EntryCard({ entry }: { entry: TimeEntry }) {
+  const projectName = useProjectsStore((s) => entry.source === 'manual' && entry.projectId
+    ? s.projects.find((p) => p.id === entry.projectId)?.name ?? 'Other' : null)
   const [key, setKey] = useState(entry.issueKey ?? '')
   const [desc, setDesc] = useState(entry.description)
   const [time, setTime] = useState(formatDuration(entry.durationMs))
@@ -183,6 +186,7 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           </button>
         </span>
       </span>
+      {projectName && <span className="ix-tt-card__project">{projectName}</span>}
       <input
         className="ix-tt-card__title"
         value={desc}

@@ -25,7 +25,7 @@ test('a fresh profile lands on the Dashboard with all four zones in their empty 
 
   // An empty zone shrinks to a one-line state; it never disappears and never moves.
   await expect(win.locator('.ix-dash-zone')).toHaveCount(4)
-  await expect(win.locator('.ix-dash-group__label')).toHaveText(['Pull requests', 'Deadlines'])
+  await expect(win.locator('.ix-dash-group__label')).toHaveText(['Pull requests', 'Deadlines', 'Meetings'])
   // The launch declares an unconnected machine, so there is exactly one right answer here rather
   // than the two readings this had to accept while the suite inherited whatever credentials the
   // developer's laptop happened to hold.

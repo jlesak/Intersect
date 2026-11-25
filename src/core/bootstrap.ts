@@ -77,6 +77,9 @@ import {
 import { createPrInboxHandlers, prInboxWireRoutes } from './api/prInbox.ipc'
 import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
+import { createMeetingsHandlers, meetingsWireRoutes } from './api/meetings.ipc'
+import { createMeetings } from './meetings/meetings'
+import { createMeetingProposals } from './timeTracking/meetingProposals'
 import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentRuntime.ipc'
 import { createPaletteHandlers, paletteWireRoutes } from './api/palette.ipc'
 import { createSystemCoreHandlers, systemWireRoutes } from './api/system.ipc'
@@ -670,12 +673,41 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     failed: err => deps.logger.child('timeTracking').warn('snapshot scan failed', { err })
   })
   snapshotScanner.start()
+  const manualEntries = createManualTimeEntryRepo(db, repoDeps)
+  const meetingProposals = createMeetingProposals(db, manualEntries, repoDeps.now)
+  const meetings = createMeetings({
+    state: appState, proposals: meetingProposals, routing: () => settings.getMeetingRouting(),
+    now: () => Date.now(), atomically: fn => tx(db, fn),
+    fetch: async (day) => {
+      if (process.env.INTERSECT_E2E === '1' && process.env.INTERSECT_E2E_MEETINGS === '1') {
+        const [year, month, date] = day.split('-').map(Number)
+        return [
+          { id: 'synthetic-plan', subject: 'Synthetic planning meeting',
+            start: new Date(year, month - 1, date, 9).toISOString(),
+            end: new Date(year, month - 1, date, 9, 30).toISOString(),
+            onlineMeeting: { joinUrl: 'https://teams.microsoft.com/l/meetup-join/synthetic' } },
+          { id: 'synthetic-review', subject: 'Synthetic review',
+            start: new Date(year, month - 1, date, 10).toISOString(),
+            end: new Date(year, month - 1, date, 10, 45).toISOString(),
+            onlineMeeting: { joinUrl: 'https://untrusted.example/join' } },
+          { id: 'synthetic-sync', subject: 'Synthetic sync',
+            start: new Date(year, month - 1, date, 11).toISOString(),
+            end: new Date(year, month - 1, date, 11, 15).toISOString() }
+        ]
+      }
+      throw new Error('Calendar connector is not available in a proven isolated session')
+    }
+  })
+  const meetingsHandlers = createMeetingsHandlers({
+    meetings, proposals: meetingProposals,
+    changed: () => emitPush(Channel.timeTrackingChanged, undefined)
+  })
   const timeTrackingHandlers = createTimeTrackingHandlers({
     service: createTimeTracking({
       snapshots: timeSnapshots, scanner: snapshotScanner,
       isResumable: id => sessionIndex.isResumable(id),
       settings: () => settings.getTimeTracking(), userDataDir,
-      manual: createManualTimeEntryRepo(db, repoDeps),
+      manual: manualEntries,
       overrides: createTimeOverrideRepo(db, repoDeps),
       timer: createRunningTimerRepo(db, repoDeps),
       now: () => Date.now(),
@@ -906,6 +938,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       createSessionHandlers({ index: sessionIndex, lifecycle, tabs, workspaces, db })
     ),
     timeTrackingWireRoutes(timeTrackingHandlers),
+    meetingsWireRoutes(meetingsHandlers),
     agentRuntimeWireRoutes(agentRuntimeHandlers),
     todoWireRoutes(todoHandlers),
     notesWireRoutes(notesHandlers),

@@ -1,3 +1,4 @@
+export { useMeetingsStore } from './meetingsStore'
 export { useTimeTrackingStore, type WeekExportFormat } from './store'
 export {
   formatDayDate,

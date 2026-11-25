@@ -97,6 +97,22 @@ describe('migrations', () => {
     ).toBeNull()
   })
 
+  test('upgrading from the prior schema preserves manual entries and adds meeting decisions', () => {
+    const db = new DatabaseSync(':memory:')
+    runMigrations(db, 31)
+    db.prepare(`INSERT INTO time_entry_manual
+      (id, day, description, issue_key, duration_ms, created_at)
+      VALUES ('old', '2026-11-25', 'Existing work', NULL, 1800000, 1)`).run()
+    runMigrations(db)
+    expect(db.prepare('SELECT description, project_id FROM time_entry_manual WHERE id = ?')
+      .get('old')).toEqual({ description: 'Existing work', project_id: null })
+    db.prepare(`INSERT INTO meeting_proposal (source, external_id, day, description, start_at,
+      duration_ms, status) VALUES ('microsoft365', 'evt', '2026-11-25', 'Sync', 1, 2, 'declined')`).run()
+    expect(() => db.prepare(`INSERT INTO meeting_proposal (source, external_id, day, description,
+      start_at, duration_ms, status) VALUES ('microsoft365', 'evt', '2026-11-25', 'Sync', 1, 2,
+      'pending')`).run()).toThrow()
+  })
+
   test('the time tracking tables accept manual entries and session overrides', () => {
     const db = new DatabaseSync(':memory:')
     runMigrations(db)

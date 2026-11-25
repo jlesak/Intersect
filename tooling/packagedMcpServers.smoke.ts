@@ -17,7 +17,8 @@ const mainDir = join(appDir, 'Contents/Resources/app.asar/out/main')
 const servers = [
   { file: 'draftServer.js', tool: 'record_draft_comment', prefix: 'INTERSECT_DRAFT', session: 'REVIEW' },
   { file: 'jiraReportServer.js', tool: undefined, prefix: 'INTERSECT_JIRA', session: 'JIRA' },
-  { file: 'otoReportServer.js', tool: undefined, prefix: 'INTERSECT_OTO', session: 'OTO' }
+  { file: 'otoReportServer.js', tool: undefined, prefix: 'INTERSECT_OTO', session: 'OTO' },
+  { file: 'meetingsReportServer.js', tool: 'report_meetings', prefix: 'INTERSECT_MEETINGS', session: 'MEETINGS' }
 ]
 
 describe('packaged MCP servers', () => {

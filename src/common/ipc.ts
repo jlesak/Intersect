@@ -53,6 +53,9 @@ import type {
   TimeEntry,
   TimeEntryRef,
   TimeTrackingSettings,
+  MeetingRoutingSettings,
+  MeetingSnapshot,
+  MeetingProposal,
   TimeEntryUpdate,
   TodoLists,
   TodoCompletion,
@@ -315,6 +318,15 @@ export interface IpcApi {
     /** Clear a tab's suspend marker once the renderer has respawned it (audited as a resume). */
     clearSuspended(tabId: string): Promise<void>
   }
+  meetings: {
+    get(day: string): Promise<MeetingSnapshot>
+    open(day: string): Promise<MeetingSnapshot>
+    refresh(day: string): Promise<MeetingSnapshot>
+    listProposals(day: string): Promise<MeetingProposal[]>
+    accept(source: 'microsoft365', externalId: string): Promise<TimeEntry | null>
+    acceptAll(day: string): Promise<TimeEntry[]>
+    decline(source: 'microsoft365', externalId: string): Promise<void>
+  }
   timeTracking: {
     onChanged(cb: () => void): () => void
     /**
@@ -429,6 +441,7 @@ export interface IpcApi {
   }
   settings: {
     setTimeTracking(settings: TimeTrackingSettings): Promise<AppSettings>
+    setMeetingRouting(settings: MeetingRoutingSettings): Promise<AppSettings>
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
     get(): Promise<AppSettings>
     setNotifications(notifications: NotificationSettings): Promise<AppSettings>
@@ -749,6 +762,14 @@ export const Channel = {
   sessionsGetTranscript: 'sessions:getTranscript',
   sessionsListLive: 'sessions:listLive',
   sessionsClearSuspended: 'sessions:clearSuspended',
+  // meetings (request/response)
+  meetingsGet: 'meetings:get',
+  meetingsOpen: 'meetings:open',
+  meetingsRefresh: 'meetings:refresh',
+  meetingsListProposals: 'meetings:listProposals',
+  meetingsAccept: 'meetings:accept',
+  meetingsAcceptAll: 'meetings:acceptAll',
+  meetingsDecline: 'meetings:decline',
   // timeTracking (request/response)
   timeTrackingChanged: 'timeTracking:changed',
   timeTrackingGetWeek: 'timeTracking:getWeek',
@@ -814,6 +835,7 @@ export const Channel = {
   paletteRecordUse: 'palette:recordUse',
   // settings (request/response)
   settingsSetTimeTracking: 'settings:setTimeTracking',
+  settingsSetMeetingRouting: 'settings:setMeetingRouting',
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',
   settingsSetAdo: 'settings:setAdo',

@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { dayKeyOf, weekdayKeys } from '@common/week'
 import { IconChevronLeft, IconChevronRight } from '@renderer/shared/ui/icons'
 import { useTimeTrackingStore } from '../store'
+import { useMeetingsStore } from '../meetingsStore'
+import { useNow } from '@renderer/shared/ui/useNow'
 import { useAgentRuntimeStore } from '../agentRuntimeStore'
 import { formatTotal, formatWeekRange, groupByDay, totalMs } from '../time'
 import { DayColumn } from './DayColumn'
@@ -16,6 +18,9 @@ const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
  * SessionsView hydrates.
  */
 export function TimeTrackingView() {
+  const now = useNow(60_000)
+  const today = dayKeyOf(now)
+  const proposals = useMeetingsStore((s) => s.proposals)
   const weekStart = useTimeTrackingStore((s) => s.weekStart)
   const entries = useTimeTrackingStore((s) => s.entries)
   const status = useTimeTrackingStore((s) => s.status)
@@ -33,7 +38,7 @@ export function TimeTrackingView() {
 
   const days = weekdayKeys(weekStart)
   const byDay = groupByDay(entries)
-  const today = dayKeyOf(Date.now())
+  useEffect(() => { void useMeetingsStore.getState().loadProposals(today) }, [today])
 
   return (
     <div className="ix-main">
@@ -94,6 +99,7 @@ export function TimeTrackingView() {
               entries={byDay.get(day) ?? []}
               isToday={day === today}
               runtime={runtimeByDay[day]}
+              proposals={day === today ? proposals.filter((p) => p.day === today) : []}
             />
           ))}
         </div>
