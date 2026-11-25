@@ -137,8 +137,10 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
       let buffer = ''
       const send = (message: string): void => {
         if (!child.stdin.writable) { fail('Calendar connector session closed before reporting'); return }
-        child.stdin.write(userMessage(message))
+        try { child.stdin.write(userMessage(message)) }
+        catch { fail('Calendar connector session closed before reporting') }
       }
+      child.stdin.on('error', () => fail('Calendar connector session closed before reporting'))
       child.stdout.on('data', (chunk: Buffer) => {
         // Process output can contain calendar subjects. Parse in memory; never log or persist it.
         buffer += chunk.toString('utf8')

@@ -81,4 +81,17 @@ describe('calendar fetcher', () => {
       execPath: '/Intersect', cwd: '/synthetic/intersect', timeoutMs: 30 })
     await expect(fetcher.fetch('2026-11-25')).rejects.toThrow(/connect|auth|time/i)
   })
+
+  test('rejects and cleans up when the child stdin breaks', async () => {
+    const child = fakeChild()
+    const launch = vi.fn(() => child) as unknown as typeof spawn
+    const fetcher = createCalendarFetcher({ launch,
+      claudePath: 'claude', reportServerPath: '/out/meetingsReportServer.js',
+      execPath: '/Intersect', cwd: '/synthetic/intersect', timeoutMs: 1000 })
+    const pending = fetcher.fetch('2026-11-25')
+    await vi.waitFor(() => expect(launch).toHaveBeenCalled())
+    child.stdin.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' }))
+    await expect(pending).rejects.toThrow(/closed|start|connector/i)
+    expect(child.kill).toHaveBeenCalled()
+  })
 })
