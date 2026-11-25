@@ -24,6 +24,15 @@ describe('Haiku result validation', () => {
     accepted('Oprava souboru /tmp/secret.txt'),
     accepted('Oprava klíče ghp_12345678901234567890'),
     accepted('Oprava klíče sk-short'),
+    accepted('Oprava klíče xoxc-FAKE_PLACEHOLDER'),
+    accepted('Oprava klíče xoxd-FAKE_PLACEHOLDER'),
+    accepted('Oprava souboru:/synthetic/private.txt'),
+    accepted('Oprava souboru:src/core/file.ts'),
+    accepted('Oprava src/core/file.ts'),
+    accepted('Oprava ./src/core/file.ts'),
+    accepted('Oprava ../src/core/file.ts'),
+    accepted('Viz ftp://example.invalid/item'),
+    accepted('Viz file:///synthetic/private.txt'),
     accepted('Oprava -----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----'),
     accepted('Oprava\ntestů'),
     accepted('Oprava testů. Doplnění validace.'),
@@ -59,3 +68,16 @@ test('redacts secrets before the complete input is capped and excludes tools and
   expect(redactSecrets('-----BEGIN PRIVATE KEY-----\nshort\n-----END PRIVATE KEY-----'))
     .toBe('[redacted]')
 })
+
+test.each(['xoxc-FAKE_PLACEHOLDER', 'xoxd-FAKE_PLACEHOLDER'])(
+  'redacts synthetic %s token from model input', token => {
+    const timestamp = Date.parse('2026-07-06T09:00:00Z')
+    const input = buildSummaryInput({ title: 'Validace', cwd: '/synthetic/project',
+      gitBranch: null, day: '2026-07-06', lastTimestamp: timestamp }, {
+      id: 's1', title: 'Validace', cwd: '/synthetic/project',
+      entries: [{ role: 'user', timestamp, text: `Oprava validace ${token}`, tools: [] }]
+    }, 'UTC')
+    expect(input).toContain('[redacted]')
+    expect(input).not.toContain(token)
+  }
+)
