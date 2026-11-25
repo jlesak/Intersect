@@ -27,6 +27,7 @@ import {
   type LastUndo
 } from '../store'
 import * as api from '../ipc'
+import { MemorySection } from './MemorySection'
 
 // Monaco is heavy; it must never load until an editor is actually opened, so both editor
 // components are reached through lazy imports (the diff opens only with a pending preview, the
@@ -48,6 +49,7 @@ const AT_TABS = [
   'mcp',
   'skills',
   'agents',
+  'memory',
   'advanced'
 ] as const
 type AtTab = (typeof AT_TABS)[number]
@@ -59,6 +61,7 @@ const TAB_LABELS: Record<AtTab, string> = {
   mcp: 'MCP',
   skills: 'Skills',
   agents: 'Agents',
+  memory: 'Memory',
   advanced: 'Advanced'
 }
 
@@ -298,11 +301,12 @@ export function AgentToolingPaneBody({
       </div>
 
       <div className="ix-at-body" role="tabpanel" aria-label={TAB_LABELS[tab]}>
-        {status === 'loading' && <EmptyState title="Loading…" />}
-        {status === 'error' && (
+        {tab === 'memory' && <MemorySection />}
+        {tab !== 'memory' && status === 'loading' && <EmptyState title="Loading…" />}
+        {tab !== 'memory' && status === 'error' && (
           <EmptyState title="Could not read the configuration" hint={error ?? undefined} />
         )}
-        {status === 'ready' && config && (
+        {tab !== 'memory' && status === 'ready' && config && (
           <>
             {tab === 'overview' && (
               <OverviewSection config={config} skillCount={skills.length} agentCount={agents.length} />

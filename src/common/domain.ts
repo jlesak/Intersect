@@ -1253,6 +1253,28 @@ export type AgentAdapter = (typeof AGENT_ADAPTERS)[number]
  */
 export type AgentToolingScope = { kind: 'global' } | { kind: 'project'; projectId: string }
 
+export interface ClaudeMemoryProject {
+  slug: string
+  name: string
+  count: number
+}
+
+export type ClaudeMemoryType = 'user' | 'feedback' | 'project' | 'reference' | 'index' | 'unknown'
+
+export interface ClaudeMemorySummary {
+  slug: string
+  filename: string
+  name: string
+  description: string
+  type: ClaudeMemoryType
+  mtime: number | null
+  error: string | null
+}
+
+export interface ClaudeMemoryDetail extends ClaudeMemorySummary {
+  body: string
+}
+
 /**
  * Where an effective value came from, so the UI can label provenance on every row:
  *   - `global`        - `~/.claude/settings.json`
