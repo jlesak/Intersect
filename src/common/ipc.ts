@@ -38,6 +38,11 @@ import type {
   ProjectOverride,
   ProjectOverrideKind,
   ProjectPatch,
+  ProjectGitStatus,
+  ProjectGitBranch,
+  ProjectGitPreview,
+  ProjectGitAction,
+  ProjectGitCommitResult,
   RepoWorktrees,
   PrThread,
   PrVote,
@@ -140,6 +145,12 @@ export interface IpcApi {
     clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
+    gitStatuses(id: string): Promise<ProjectGitStatus[]>
+    gitBranches(id: string, repoPath: string): Promise<ProjectGitBranch[]>
+    gitPreview(id: string, repoPath: string): Promise<ProjectGitPreview>
+    gitValidateName(id: string, repoPath: string, name: string): Promise<string | null>
+    gitAction(id: string, repoPath: string, action: ProjectGitAction): Promise<string>
+    gitCommit(id: string, repoPath: string, token: string, message: string, push: boolean): Promise<ProjectGitCommitResult>
     /**
      * Every persisted terminal pane-share value for the project key (a project id, or the
      * literal 'other' for the virtual bucket of unassigned workspaces). Absent layouts mean
@@ -684,6 +695,12 @@ export const Channel = {
   projectsSetOverride: 'projects:setOverride',
   projectsClearOverride: 'projects:clearOverride',
   projectsListWorktrees: 'projects:listWorktrees',
+  projectsGitStatuses: 'projects:gitStatuses',
+  projectsGitBranches: 'projects:gitBranches',
+  projectsGitPreview: 'projects:gitPreview',
+  projectsGitValidateName: 'projects:gitValidateName',
+  projectsGitAction: 'projects:gitAction',
+  projectsGitCommit: 'projects:gitCommit',
   projectsGetTerminalLayouts: 'projects:getTerminalLayouts',
   projectsSetTerminalLayout: 'projects:setTerminalLayout',
   // tabs (request/response)

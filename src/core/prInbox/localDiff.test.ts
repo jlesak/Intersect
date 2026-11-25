@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { PullRequest } from '@common/domain'
 import { git } from './git'
+import { createRepoQueue, type RepoQueue } from '../projects/gitMenu'
 import {
   createLocalDiffService,
   localChanges,
@@ -491,6 +492,18 @@ describe('createLocalDiffService', () => {
     // A second call reuses the cached repo resolution rather than probing folders again.
     await svc.getChanges(prFor(), ['/some/folder'])
     expect(resolveRepoDir).toHaveBeenCalledTimes(1)
+  })
+
+  test('prepares PR commits through the injected shared repository queue', async () => {
+    const queue = createRepoQueue()
+    const paths: string[] = []
+    const onRepo: RepoQueue = (path, job) => {
+      paths.push(path)
+      return queue(path, job)
+    }
+    const svc = createLocalDiffService({ resolveRepoDir: async () => repo.dir, onRepo })
+    await svc.getChanges(prFor(), ['/some/folder'])
+    expect(paths).toEqual([repo.dir])
   })
 
   test('getFileDiff returns both sides for a changed file', async () => {

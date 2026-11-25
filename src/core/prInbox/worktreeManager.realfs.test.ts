@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { git } from './git'
+import { createRepoQueue } from '../projects/gitMenu'
 import {
-  createCloneQueue,
   createWorktreeManager,
   fixWorktreePath,
   fixWorktreesRoot,
@@ -344,18 +344,27 @@ describe('fix worktrees on the pull request branch', () => {
     expect(existsSync(join(plain, 'x.txt'))).toBe(true)
   })
 
-  test('removal does not wait behind work queued on the same clone', async () => {
-    const onClone = createCloneQueue()
+  test('removal waits behind work queued on the same clone, including its linked worktree path', async () => {
+    const onClone = createRepoQueue()
     const worktrees = createWorktreeManager(userDataDir, { onClone })
     await create(worktrees)
     let release = (): void => {}
-    const held = onClone(repoDir, () => new Promise<void>((resolve) => (release = resolve)))
-
-    await expect(worktrees.removeCleanWorktree(fixPath)).resolves.toMatchObject({
-      outcome: 'removed'
+    let signalStarted = (): void => {}
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    const held = onClone(repoDir, () => new Promise<void>((resolve) => {
+      release = resolve
+      signalStarted()
+    }))
+    await started
+    let settled = false
+    const removal = worktrees.removeCleanWorktree(fixPath).then((result) => {
+      settled = true
+      return result
     })
-
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(settled).toBe(false)
     release()
     await held
+    await expect(removal).resolves.toMatchObject({ outcome: 'removed' })
   })
 })

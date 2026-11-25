@@ -8,6 +8,7 @@ import type { WorkspaceRepo } from '../db/workspaceRepo'
 import type { ProjectPathDeps } from '../projects/resolveProject'
 import { resolveProjectForPath } from '../projects/resolveProject'
 import { listProjectWorktrees } from '../projects/worktrees'
+import type { GitMenuService } from '../projects/gitMenu'
 
 export interface ProjectHandlerDeps {
   projects: ProjectRepo
@@ -15,6 +16,7 @@ export interface ProjectHandlerDeps {
   workspaces: WorkspaceRepo
   overrides: ProjectOverrideRepo
   terminalLayouts: TerminalLayoutRepo
+  gitMenu?: GitMenuService
 }
 
 /**
@@ -82,6 +84,16 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
         if (!project) throw new Error(`Project not found: ${id}`)
         return listProjectWorktrees(project)
       }),
+    gitStatuses: (id) => surface(() => {
+      const project = d.projects.getById(id)
+      if (!project) throw new Error(`Project not found: ${id}`)
+      return d.gitMenu!.statuses(project)
+    }),
+    gitBranches: (id, repoPath) => surface(() => d.gitMenu!.branches(id, repoPath)),
+    gitPreview: (id, repoPath) => surface(() => d.gitMenu!.preview(id, repoPath)),
+    gitValidateName: (id, repoPath, name) => surface(() => d.gitMenu!.validateName(id, repoPath, name)),
+    gitAction: (id, repoPath, action) => surface(() => d.gitMenu!.action(id, repoPath, action)),
+    gitCommit: (id, repoPath, token, message, push) => surface(() => d.gitMenu!.commit(id, repoPath, token, message, push)),
     getTerminalLayouts: (projectKey) => surface(() => d.terminalLayouts.getAll(projectKey)),
     setTerminalLayout: (projectKey, layout, shares) =>
       surface(() => {
@@ -106,6 +118,12 @@ export function projectsWireRoutes(h: IpcApi['projects']): WireRoutes {
     [Channel.projectsSetOverride]: h.setOverride,
     [Channel.projectsClearOverride]: h.clearOverride,
     [Channel.projectsListWorktrees]: h.listWorktrees,
+    [Channel.projectsGitStatuses]: h.gitStatuses,
+    [Channel.projectsGitBranches]: h.gitBranches,
+    [Channel.projectsGitPreview]: h.gitPreview,
+    [Channel.projectsGitValidateName]: h.gitValidateName,
+    [Channel.projectsGitAction]: h.gitAction,
+    [Channel.projectsGitCommit]: h.gitCommit,
     [Channel.projectsGetTerminalLayouts]: h.getTerminalLayouts,
     [Channel.projectsSetTerminalLayout]: h.setTerminalLayout
   }

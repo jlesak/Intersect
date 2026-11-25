@@ -179,6 +179,60 @@ export interface Project {
   adoRepositories: string[]
 }
 
+export interface GitChangedFile {
+  path: string
+  staged: boolean
+  unstaged: boolean
+  code: string
+}
+
+export type GitProgress = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
+
+export interface ProjectGitStatus {
+  repoPath: string
+  mainPath: string | null
+  commonDir: string | null
+  branch: string | null
+  head: string
+  upstream: string | null
+  ahead: number
+  behind: number
+  files: GitChangedFile[]
+  progress: GitProgress
+  error: string | null
+  claudeSessions: number
+  terminalSessions: number
+}
+
+export interface ProjectGitBranch {
+  name: string
+  kind: 'local' | 'remote'
+  current: boolean
+  inWorktree: boolean
+  timestamp: number
+  defaultRemote?: boolean
+}
+
+export interface ProjectGitPreview {
+  mode: 'all' | 'staged'
+  files: GitChangedFile[]
+  otherCount: number
+  token: string
+}
+
+export type ProjectGitAction =
+  | { kind: 'pull' }
+  | { kind: 'push' }
+  | { kind: 'fetch' }
+  | { kind: 'switch'; branch: string; remote: boolean }
+  | { kind: 'new-branch'; name: string; start: string }
+
+export type ProjectGitCommitResult =
+  | { outcome: 'committed'; commit: string }
+  | { outcome: 'committed-push-failed'; commit: string; error: string }
+  | { outcome: 'preview-changed'; preview: ProjectGitPreview }
+  | { outcome: 'failed'; error: string; preview: ProjectGitPreview }
+
 /** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
 export interface ProjectPatch {
   name?: string

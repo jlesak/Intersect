@@ -3,7 +3,12 @@ import type {
   ProjectOverride,
   ProjectOverrideKind,
   ProjectPatch,
-  RepoWorktrees
+  RepoWorktrees,
+  ProjectGitStatus,
+  ProjectGitBranch,
+  ProjectGitPreview,
+  ProjectGitAction,
+  ProjectGitCommitResult
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
@@ -34,3 +39,9 @@ export const clearOverride = (kind: ProjectOverrideKind, key: string): Promise<v
   ipc().projects.clearOverride(kind, key)
 export const listWorktrees = (id: string): Promise<RepoWorktrees[]> =>
   ipc().projects.listWorktrees(id)
+export const gitStatuses = (id: string): Promise<ProjectGitStatus[]> => ipc().projects.gitStatuses(id)
+export const gitBranches = (id: string, path: string): Promise<ProjectGitBranch[]> => ipc().projects.gitBranches(id, path)
+export const gitPreview = (id: string, path: string): Promise<ProjectGitPreview> => ipc().projects.gitPreview(id, path)
+export const gitValidateName = (id: string, path: string, name: string): Promise<string | null> => ipc().projects.gitValidateName(id, path, name)
+export const gitAction = (id: string, path: string, action: ProjectGitAction): Promise<string> => ipc().projects.gitAction(id, path, action)
+export const gitCommit = (id: string, path: string, token: string, message: string, push: boolean): Promise<ProjectGitCommitResult> => ipc().projects.gitCommit(id, path, token, message, push)
