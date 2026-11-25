@@ -806,6 +806,20 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    version: 32,
+    up(db) {
+      db.exec(`
+        ALTER TABLE time_session_day ADD COLUMN summary TEXT;
+        ALTER TABLE time_session_day ADD COLUMN summary_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (summary_status IN ('pending', 'done', 'failed'));
+        ALTER TABLE time_session_day ADD COLUMN summarized_through INTEGER;
+        ALTER TABLE time_session_day ADD COLUMN is_work INTEGER CHECK (is_work IN (0, 1));
+        ALTER TABLE time_session_day ADD COLUMN work_confirmed INTEGER NOT NULL DEFAULT 0
+          CHECK (work_confirmed IN (0, 1));
+      `)
+    }
   }
 ]
 

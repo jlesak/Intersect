@@ -8,7 +8,7 @@ function entry(over: Partial<TimeEntry> = {}): TimeEntry {
   return {
     id: 'e1',
     source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2,
     day: '2026-07-06',
     description: 'Session e1',
     issueKey: null,

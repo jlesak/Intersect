@@ -94,8 +94,9 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
     const resumable = await deps.isResumable(row.sessionId)
     return { id: key(row.sessionId, row.day), source: 'auto', day: row.day,
       sessionId: row.sessionId, cwd: row.cwd, resumable,
+      isWork: row.isWork, workConfirmed: row.workConfirmed,
       firstTimestamp: row.firstTimestamp, lastTimestamp: row.lastTimestamp,
-      description: override?.description ?? row.autoDescription,
+      description: override?.description ?? row.summary ?? row.autoDescription,
       issueKey: override ? override.issueKey : issueKeyFromBranch(row.gitBranch),
       durationMs: override ? override.durationMs : row.activeDurationMs }
   }
@@ -149,7 +150,13 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
       if (!update.description.trim()) throw new Error('A description is required')
       if (ref.source === 'manual') return deps.manual.update(ref.id, update)
       const row = await findSnapshot(ref)
-      deps.overrides.upsert(ref.sessionId, ref.day, { ...update, deleted: false })
+      const existing = deps.overrides.get(ref.sessionId, ref.day)
+      const shownDescription = existing?.description ?? row.summary ?? row.autoDescription
+      deps.overrides.upsert(ref.sessionId, ref.day, { ...update,
+        // A time/key edit carries the displayed text in its payload. It is not an owner edit.
+        description: update.description === shownDescription ? existing?.description ?? null :
+          update.description,
+        deleted: false })
       return toEntry(row)
     },
 

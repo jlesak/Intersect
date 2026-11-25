@@ -8,7 +8,8 @@ import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracki
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 's1',
   source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false,
+  firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Session s1',
   issueKey: 'PROJ-611',
@@ -147,6 +148,8 @@ describe('timeTrackingWireRoutes', () => {
         Channel.timeTrackingAddManual,
         Channel.timeTrackingUpdateEntry,
         Channel.timeTrackingDeleteEntry,
+        Channel.timeTrackingConfirmWork,
+        Channel.timeTrackingRegenerate,
         Channel.timeTrackingGetTimer,
         Channel.timeTrackingStartTimer,
         Channel.timeTrackingUpdateTimer,

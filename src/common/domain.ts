@@ -751,6 +751,8 @@ export type TimeEntry = TimeEntryFields & (
       sessionId: string
       cwd: string
       resumable: boolean
+      isWork: boolean | null
+      workConfirmed: boolean
       firstTimestamp: number
       lastTimestamp: number
     }

@@ -1,9 +1,11 @@
 import { type WireRoutes } from '@common/coreBridge'
 import { Channel, type IpcApi } from '@common/ipc'
 import type { TimeTrackingService } from '../timeTracking/timeTracking'
+import type { TimeSummaryScheduler } from '../timeTracking/timeSummaryScheduler'
 
 export interface TimeTrackingHandlerDeps {
   service: TimeTrackingService
+  summary?: Pick<TimeSummaryScheduler, 'confirmWork' | 'regenerate'>
 }
 
 /**
@@ -30,6 +32,14 @@ export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): Omit<
     addManual: (input) => surface(async () => deps.service.addManual(input)),
     updateEntry: (ref, update) => surface(() => deps.service.updateEntry(ref, update)),
     deleteEntry: (ref) => surface(() => deps.service.deleteEntry(ref)),
+    confirmWork: (ref) => surface(() => {
+      if (!deps.summary) throw new Error('Summary service unavailable')
+      return deps.summary.confirmWork(ref)
+    }),
+    regenerate: (ref) => surface(() => {
+      if (!deps.summary) throw new Error('Summary service unavailable')
+      return deps.summary.regenerate(ref)
+    }),
     getTimer: () => surface(async () => deps.service.getRunningTimer()),
     startTimer: (description, issueKey) =>
       surface(async () => deps.service.startTimer(description, issueKey)),
@@ -46,6 +56,8 @@ export function timeTrackingWireRoutes(h: Omit<IpcApi['timeTracking'], 'onChange
     [Channel.timeTrackingAddManual]: h.addManual,
     [Channel.timeTrackingUpdateEntry]: h.updateEntry,
     [Channel.timeTrackingDeleteEntry]: h.deleteEntry,
+    [Channel.timeTrackingConfirmWork]: h.confirmWork,
+    [Channel.timeTrackingRegenerate]: h.regenerate,
     [Channel.timeTrackingGetTimer]: h.getTimer,
     [Channel.timeTrackingStartTimer]: h.startTimer,
     [Channel.timeTrackingUpdateTimer]: h.updateTimer,

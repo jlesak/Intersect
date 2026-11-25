@@ -88,7 +88,7 @@ describe('timeTracking service', () => {
     expect(week).toEqual([
       {
         id: 'mon:2026-07-06',
-        sessionId: 'mon', cwd: '/repo/mon', resumable: true,
+        sessionId: 'mon', cwd: '/repo/mon', resumable: true, isWork: null, workConfirmed: false,
         firstTimestamp: at(6, 9), lastTimestamp: at(6, 15),
         source: 'auto',
         day: '2026-07-06',
@@ -98,7 +98,7 @@ describe('timeTracking service', () => {
       },
       {
         id: 'wed:2026-07-08',
-        sessionId: 'wed', cwd: '/repo/wed', resumable: true,
+        sessionId: 'wed', cwd: '/repo/wed', resumable: true, isWork: null, workConfirmed: false,
         firstTimestamp: at(6, 9), lastTimestamp: at(8, 11),
         source: 'auto',
         day: '2026-07-08',

@@ -89,6 +89,18 @@ const twoDays = [line('2026-07-06T09:00:00'), line('2026-07-06T09:05:00'),
 const ref = (day = WEEK) => ({ source: 'auto' as const, sessionId: 'session', day })
 const edit = { description: 'Owner text', issueKey: null, durationMs: 60000 }
 
+test('editing only time or issue key leaves description free for a later summary', async () => {
+  const t = setup(twoDays)
+  const [before] = await t.service.refreshWeek(WEEK)
+  await t.service.updateEntry(ref(), { description: before.description,
+    issueKey: 'ABC-12', durationMs: 60000 })
+  expect(t.db.prepare(`SELECT description FROM time_entry_override WHERE session_id = 'session'
+    AND day = '2026-07-06'`).get()).toEqual({ description: null })
+  t.snapshots.saveSummary('session', WEEK, before.source === 'auto' ? before.lastTimestamp : 0,
+    { summary: 'Nový popis práce.', isWork: true })
+  expect((await t.service.getWeek(WEEK))[0].description).toBe('Nový popis práce.')
+})
+
 test('first continuation adds the capped gap to Monday, later Tuesday activity never changes Monday', async () => {
   const t = setup(twoDays.split('\n').slice(0, 2).join('\n'))
   expect((await t.service.refreshWeek(WEEK))[0].durationMs).toBe(300000)

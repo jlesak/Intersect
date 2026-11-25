@@ -3120,6 +3120,14 @@
   border-radius: 3px;
   color: var(--text-faint);
 }
+.ix-tt-card__nonwork {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel-3);
+  color: var(--text-dim);
+  font-size: 10px;
+}
 /* The issue key is an input styled as the chip, editable in place on every card. Its hover/focus
    background echoes .ix-tt-card__dur; the placeholder is the italic "no issue" state. */
 .ix-tt-card__key {

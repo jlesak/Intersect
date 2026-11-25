@@ -174,6 +174,8 @@ const api: IpcApi = {
     updateEntry: (ref, update) =>
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, ref, update),
     deleteEntry: (ref) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, ref),
+    confirmWork: (ref) => ipcRenderer.invoke(Channel.timeTrackingConfirmWork, ref),
+    regenerate: (ref) => ipcRenderer.invoke(Channel.timeTrackingRegenerate, ref),
     getTimer: () => ipcRenderer.invoke(Channel.timeTrackingGetTimer),
     startTimer: (description, issueKey) =>
       ipcRenderer.invoke(Channel.timeTrackingStartTimer, description, issueKey),

@@ -7,7 +7,7 @@ const MIN = 60_000
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 'e1',
   source: 'manual',
-  ...{ sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2 },
+  ...{ sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2 },
   day: '2026-08-17',
   description: 'Refactor validators',
   issueKey: 'PROJ-611',
