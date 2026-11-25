@@ -93,4 +93,67 @@ describe('shared meetings cache', () => {
     service.rerouteCached(DEFAULT_MEETING_ROUTING)
     expect(proposals.list(DAY)).toEqual([])
   })
+
+  test('a moved event stays on the newest day after old fetch completion and routing edit', async () => {
+    let finishOld!: (events: unknown[]) => void
+    const fetch = vi.fn((day: string) => day === DAY
+      ? new Promise<unknown[]>((resolve) => { finishOld = resolve })
+      : Promise.resolve([raw({ start: '2026-11-26T09:00:00+01:00',
+        end: '2026-11-26T09:30:00+01:00' })]))
+    const { service, proposals } = setup(fetch)
+    const old = service.open(DAY)
+    await service.open('2026-11-26')
+    finishOld([raw()])
+    await old
+    expect(proposals.list(DAY)).toEqual([])
+    expect(proposals.list('2026-11-26')).toMatchObject([{ externalId: 'event-1' }])
+    service.rerouteCached({ rules: [{ pattern: 'meeting', target: {
+      kind: 'issue', issueKey: 'APP-17' } }], defaultTarget: { kind: 'unassigned' } })
+    expect(proposals.list(DAY)).toEqual([])
+    expect(proposals.list('2026-11-26')).toMatchObject([{
+      externalId: 'event-1', issueKey: 'APP-17'
+    }])
+  })
+
+  test('a moved then cancelled event cannot reappear from an old day cache or late response', async () => {
+    let finishOld!: (events: unknown[]) => void
+    let oldDelayed = false
+    let newCancelled = false
+    const fetch = vi.fn((day: string) => {
+      if (day === DAY && oldDelayed) return new Promise<unknown[]>((resolve) => { finishOld = resolve })
+      if (day === DAY) return Promise.resolve([raw()])
+      return Promise.resolve(newCancelled ? [] : [raw({
+        start: '2026-11-26T09:00:00+01:00', end: '2026-11-26T09:30:00+01:00'
+      })])
+    })
+    const { service, proposals } = setup(fetch)
+    await service.open(DAY)
+    await service.open('2026-11-26')
+    newCancelled = true
+    await service.refresh('2026-11-26')
+    expect(proposals.list(DAY)).toEqual([])
+    expect(proposals.list('2026-11-26')).toEqual([])
+    oldDelayed = true
+    const lateOld = service.refresh(DAY)
+    // A later old-day request is a genuinely new observation; this would be allowed. Instead,
+    // the late response case below starts before the new-day observation in a fresh service.
+    finishOld([raw()])
+    await lateOld
+    expect(proposals.list(DAY)).toHaveLength(1)
+
+    const raced = setup(vi.fn((day: string) => day === DAY
+      ? new Promise<unknown[]>((resolve) => { finishOld = resolve })
+      : Promise.resolve(newCancelled ? [] : [raw({
+        start: '2026-11-26T09:00:00+01:00', end: '2026-11-26T09:30:00+01:00'
+      })])))
+    newCancelled = false
+    const pendingOld = raced.service.open(DAY)
+    await raced.service.open('2026-11-26')
+    newCancelled = true
+    await raced.service.refresh('2026-11-26')
+    finishOld([raw()])
+    await pendingOld
+    expect(raced.proposals.list(DAY)).toEqual([])
+    expect(raced.proposals.list('2026-11-26')).toEqual([])
+  })
 })

@@ -7,6 +7,22 @@ import type { MeetingProposals } from '../timeTracking/meetingProposals'
 const CACHE_KEY = 'meetings.today.cache'
 const FETCH_TIMEOUT_MS = 45_000
 const CACHED_DAYS = 2
+const MAX_REMEMBERED_EVENTS = 2_000
+
+interface CachedDay {
+  syncedAt: number
+  meetings: CalendarMeeting[]
+  observation: number
+}
+
+interface CacheState {
+  days: Record<string, CachedDay>
+  /** Latest request that saw or removed an event; stops older late responses reviving it. */
+  latest: Record<string, { day: string; observation: number }>
+}
+
+const eventKey = (meeting: CalendarMeeting): string =>
+  `${meeting.source}\u0000${meeting.externalId}`
 
 /** Validate the one report from the hidden calendar session before it reaches cache or UI. */
 export function normalizeCalendarReport(input: unknown, day: string): CalendarMeeting[] {
@@ -59,24 +75,32 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
   const attemptedDays = new Set<string>()
   const inFlight = new Map<string, Promise<MeetingSnapshot>>()
   const errors = new Map<string, string>()
+  let observation = 0
 
-  function cachedDays(): Record<string, unknown> {
+  function cacheState(): CacheState {
     try {
       const saved = deps.state.get(CACHE_KEY)
       const value: unknown = saved ? JSON.parse(saved) : null
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        return value as Record<string, unknown>
+        const record = value as Record<string, unknown>
+        if (record.days && typeof record.days === 'object' && !Array.isArray(record.days)) {
+          return { days: record.days as CacheState['days'],
+            latest: record.latest && typeof record.latest === 'object' &&
+              !Array.isArray(record.latest) ? record.latest as CacheState['latest'] : {} }
+        }
+        // Local caches written by the first meeting build contained only day keys.
+        return { days: record as CacheState['days'], latest: {} }
       }
     } catch {
       // A corrupt local cache is equivalent to no cache. The next refresh replaces it.
     }
-    return {}
+    return { days: {}, latest: {} }
   }
 
   function get(day: string): MeetingSnapshot {
-    const value = cachedDays()[day]
+    const value = cacheState().days[day]
     if (value && typeof value === 'object') {
-      const snapshot = value as Record<string, unknown>
+      const snapshot = value
       if (typeof snapshot.syncedAt === 'number' && Number.isFinite(snapshot.syncedAt) &&
         Array.isArray(snapshot.meetings)) {
         return { day, syncedAt: snapshot.syncedAt,
@@ -86,6 +110,19 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
       }
     }
     return { day, syncedAt: null, meetings: [], error: errors.get(day) ?? null }
+  }
+
+  function reconcileCached(routing: MeetingRoutingSettings): void {
+    const days = cacheState().days
+    const ordered = Object.keys(days).sort((a, b) => {
+      const left = days[a] as { observation?: number } | undefined
+      const right = days[b] as { observation?: number } | undefined
+      return (left?.observation ?? 0) - (right?.observation ?? 0) || a.localeCompare(b)
+    })
+    for (const day of ordered) {
+      const snapshot = get(day)
+      if (snapshot.syncedAt !== null) deps.proposals.reconcile(day, snapshot.meetings, routing)
+    }
   }
 
   async function fetchWithTimeout(day: string): Promise<unknown> {
@@ -110,17 +147,48 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
     const current = inFlight.get(day)
     if (current) return current
     attemptedDays.add(day)
+    observation = Math.max(observation, ...Object.values(cacheState().days).map((value) => {
+      const n = (value as { observation?: unknown } | null)?.observation
+      return typeof n === 'number' && Number.isFinite(n) ? n : 0
+    })) + 1
+    const thisObservation = observation
     const request = (async () => {
       try {
-        const meetings = normalizeCalendarReport(await fetchWithTimeout(day), day)
+        const reported = normalizeCalendarReport(await fetchWithTimeout(day), day)
         const syncedAt = deps.now()
         deps.atomically(() => {
-          const days = { ...cachedDays(), [day]: { syncedAt, meetings } }
+          const prior = cacheState()
+          const latest = { ...prior.latest }
+          const meetings = reported.filter((meeting) =>
+            (latest[eventKey(meeting)]?.observation ?? 0) <= thisObservation)
+          // An event that disappeared from this day's latest search is a removal observation.
+          // Remember it even if a slower, older-day request has yet to complete.
+          const currentIds = new Set(meetings.map(eventKey))
+          for (const previous of prior.days[day]?.meetings ?? []) {
+            const key = eventKey(previous)
+            if (!currentIds.has(key) &&
+              (latest[key]?.observation ?? 0) <= thisObservation) {
+              latest[key] = { day, observation: thisObservation }
+            }
+          }
+          const days = { ...prior.days, [day]: { syncedAt, meetings,
+            observation: thisObservation } }
+          for (const meeting of meetings) {
+            const key = eventKey(meeting)
+            latest[key] = { day, observation: thisObservation }
+            for (const [otherDay, snapshot] of Object.entries(days)) {
+              if (otherDay === day) continue
+              snapshot.meetings = snapshot.meetings.filter((event) => eventKey(event) !== key)
+            }
+          }
           const newest = Object.keys(days).sort().reverse().slice(0, CACHED_DAYS)
-          deps.state.set(CACHE_KEY, JSON.stringify(Object.fromEntries(
-            newest.map((key) => [key, days[key]])
-          )))
-          deps.proposals.reconcile(day, meetings, deps.routing())
+          const kept = Object.fromEntries(newest.map((key) => [key, days[key]]))
+          const remembered = Object.fromEntries(Object.entries(latest)
+            .filter(([, seen]) => newest.includes(seen.day))
+            .sort((a, b) => b[1].observation - a[1].observation)
+            .slice(0, MAX_REMEMBERED_EVENTS))
+          deps.state.set(CACHE_KEY, JSON.stringify({ days: kept, latest: remembered }))
+          reconcileCached(deps.routing())
         })
         errors.delete(day)
       } catch (error) {
@@ -138,12 +206,7 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
     open(day) { return attemptedDays.has(day) ? inFlight.get(day) ?? Promise.resolve(get(day)) : refresh(day) },
     refresh,
     rerouteCached(routing) {
-      deps.atomically(() => {
-        for (const day of Object.keys(cachedDays())) {
-          const snapshot = get(day)
-          if (snapshot.syncedAt !== null) deps.proposals.reconcile(day, snapshot.meetings, routing)
-        }
-      })
+      deps.atomically(() => reconcileCached(routing))
     }
   }
 }
