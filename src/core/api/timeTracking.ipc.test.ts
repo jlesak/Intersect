@@ -26,10 +26,13 @@ const TIMER: RunningTimer = {
 function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingService {
   return {
     getWeek: vi.fn(async () => [entry()]),
+    getDay: vi.fn(async () => [entry()]),
     refreshWeek: vi.fn(async () => [entry({ id: 's2' })]),
     addManual: vi.fn(() => entry({ id: 'm1', source: 'manual' })),
     updateEntry: vi.fn(async () => entry({ durationMs: 1 })),
     deleteEntry: vi.fn(async () => {}),
+    updateEntryPrepared: vi.fn(() => {}),
+    deleteEntryPrepared: vi.fn(() => {}),
     groupEntries: vi.fn(() => 'g1'),
     groupDayByIssue: vi.fn(() => []),
     updateGroup: vi.fn(() => {}),

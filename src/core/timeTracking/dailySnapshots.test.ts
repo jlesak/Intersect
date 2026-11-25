@@ -146,6 +146,7 @@ test('settings handler hides and restores persisted edited cards even without tr
   const withoutTranscript = expected.map(entry => entry.source === 'auto'
     ? { ...entry, resumable: false } : entry)
   const handler = createSettingsHandlers({ settings: t.settingsRepo,
+    installTimeCli: () => '/tmp/intersect-time',
     fallbackAdo: () => ({ orgUrl: '', project: '', repository: '', pat: '' }),
     testConnection: vi.fn(), adoSettingsChanged: async () => {},
     timeTrackingChanged: () => { void t.scanner.scan() } })
