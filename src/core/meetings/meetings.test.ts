@@ -13,7 +13,7 @@ const raw = (patch: Record<string, unknown> = {}) => ({
   ...patch
 })
 
-function setup(fetch = vi.fn(async () => [raw()])) {
+function setup(fetch = vi.fn<(day: string) => Promise<unknown>>(async () => [raw()])) {
   const db = makeTestDb()
   const state = createAppStateRepo(db)
   const deps = makeTestDeps()
@@ -64,5 +64,33 @@ describe('shared meetings cache', () => {
     expect(stale.meetings).toHaveLength(1)
     expect(stale.error).toMatch(/permission required/)
     expect(service.get('2026-11-26')).toMatchObject({ meetings: [], syncedAt: null })
+  })
+
+  test('an older day finishing last cannot replace the newer day cache', async () => {
+    let finishOld!: (events: unknown[]) => void
+    const fetch = vi.fn((day: string) => day === '2026-11-25'
+      ? new Promise<unknown[]>((resolve) => { finishOld = resolve })
+      : Promise.resolve([raw({ id: 'new-day', start: '2026-11-26T09:00:00+01:00',
+        end: '2026-11-26T09:30:00+01:00' })]))
+    const { service } = setup(fetch)
+    const old = service.open('2026-11-25')
+    await service.open('2026-11-26')
+    finishOld([raw()])
+    await old
+    expect(service.get('2026-11-26').meetings).toMatchObject([{ externalId: 'new-day' }])
+    expect(service.get('2026-11-25').meetings).toMatchObject([{ externalId: 'event-1' }])
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  test('changing routing reassigns cached pending proposals without another calendar fetch', async () => {
+    const { service, fetch, proposals } = setup()
+    await service.open(DAY)
+    service.rerouteCached({ rules: [{ pattern: 'meeting', target: {
+      kind: 'issue', issueKey: 'APP-17' } }], defaultTarget: { kind: 'unassigned' } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(proposals.list(DAY)).toMatchObject([{ issueKey: 'APP-17' }])
+    proposals.accept('microsoft365', 'event-1')
+    service.rerouteCached(DEFAULT_MEETING_ROUTING)
+    expect(proposals.list(DAY)).toEqual([])
   })
 })

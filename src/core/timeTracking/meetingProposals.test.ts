@@ -55,6 +55,24 @@ describe('meeting proposal ledger', () => {
     expect(proposals.accept('microsoft365', 'event-1')).toBeNull()
   })
 
+  test('a pending event rescheduled across days moves, while a decided event stays decided', () => {
+    const { proposals } = setup()
+    proposals.reconcile('2026-11-25', [meeting(),
+      meeting({ externalId: 'decided', subject: 'Planning' })], rules)
+    proposals.decline('microsoft365', 'decided')
+    const nextDay = (patch: Partial<CalendarMeeting> = {}): CalendarMeeting => meeting({
+      day: '2026-11-26', startAt: Date.parse('2026-11-26T09:00:00+01:00'),
+      endAt: Date.parse('2026-11-26T10:00:00+01:00'),
+      subject: 'Planning moved', ...patch
+    })
+    proposals.reconcile('2026-11-26', [nextDay(), nextDay({ externalId: 'decided' })], rules)
+    expect(proposals.list('2026-11-25')).toEqual([])
+    expect(proposals.list('2026-11-26')).toMatchObject([{
+      externalId: 'event-1', description: 'Planning moved', durationMs: 3_600_000,
+      projectId: 'project-1'
+    }])
+  })
+
   test('accept all writes each entry and decision atomically; a second call writes nothing', () => {
     const { proposals, manual } = setup()
     proposals.reconcile('2026-11-25', [meeting(), meeting({ externalId: 'event-2', subject: 'Planning' })], rules)

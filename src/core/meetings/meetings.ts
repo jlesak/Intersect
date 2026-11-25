@@ -6,6 +6,7 @@ import type { MeetingProposals } from '../timeTracking/meetingProposals'
 
 const CACHE_KEY = 'meetings.today.cache'
 const FETCH_TIMEOUT_MS = 45_000
+const CACHED_DAYS = 2
 
 /** Validate the one report from the hidden calendar session before it reaches cache or UI. */
 export function normalizeCalendarReport(input: unknown, day: string): CalendarMeeting[] {
@@ -51,6 +52,7 @@ export interface MeetingsService {
   get(day: string): MeetingSnapshot
   open(day: string): Promise<MeetingSnapshot>
   refresh(day: string): Promise<MeetingSnapshot>
+  rerouteCached(routing: MeetingRoutingSettings): void
 }
 
 export function createMeetings(deps: MeetingsDeps): MeetingsService {
@@ -58,24 +60,30 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
   const inFlight = new Map<string, Promise<MeetingSnapshot>>()
   const errors = new Map<string, string>()
 
-  function get(day: string): MeetingSnapshot {
+  function cachedDays(): Record<string, unknown> {
     try {
       const saved = deps.state.get(CACHE_KEY)
-      if (saved) {
-        const cache: unknown = JSON.parse(saved)
-        if (cache && typeof cache === 'object') {
-          const value = cache as Record<string, unknown>
-          if (value.day === day && typeof value.syncedAt === 'number' &&
-            Number.isFinite(value.syncedAt) && Array.isArray(value.meetings)) {
-            return { day, syncedAt: value.syncedAt,
-              meetings: (value.meetings as CalendarMeeting[]).filter((meeting) =>
-                meeting?.day === day && dayKeyOf(meeting.startAt) === day),
-              error: errors.get(day) ?? null }
-          }
-        }
+      const value: unknown = saved ? JSON.parse(saved) : null
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>
       }
     } catch {
       // A corrupt local cache is equivalent to no cache. The next refresh replaces it.
+    }
+    return {}
+  }
+
+  function get(day: string): MeetingSnapshot {
+    const value = cachedDays()[day]
+    if (value && typeof value === 'object') {
+      const snapshot = value as Record<string, unknown>
+      if (typeof snapshot.syncedAt === 'number' && Number.isFinite(snapshot.syncedAt) &&
+        Array.isArray(snapshot.meetings)) {
+        return { day, syncedAt: snapshot.syncedAt,
+          meetings: (snapshot.meetings as CalendarMeeting[]).filter((meeting) =>
+            meeting?.day === day && dayKeyOf(meeting.startAt) === day),
+          error: errors.get(day) ?? null }
+      }
     }
     return { day, syncedAt: null, meetings: [], error: errors.get(day) ?? null }
   }
@@ -107,7 +115,11 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
         const meetings = normalizeCalendarReport(await fetchWithTimeout(day), day)
         const syncedAt = deps.now()
         deps.atomically(() => {
-          deps.state.set(CACHE_KEY, JSON.stringify({ day, syncedAt, meetings }))
+          const days = { ...cachedDays(), [day]: { syncedAt, meetings } }
+          const newest = Object.keys(days).sort().reverse().slice(0, CACHED_DAYS)
+          deps.state.set(CACHE_KEY, JSON.stringify(Object.fromEntries(
+            newest.map((key) => [key, days[key]])
+          )))
           deps.proposals.reconcile(day, meetings, deps.routing())
         })
         errors.delete(day)
@@ -124,6 +136,14 @@ export function createMeetings(deps: MeetingsDeps): MeetingsService {
   return {
     get,
     open(day) { return attemptedDays.has(day) ? inFlight.get(day) ?? Promise.resolve(get(day)) : refresh(day) },
-    refresh
+    refresh,
+    rerouteCached(routing) {
+      deps.atomically(() => {
+        for (const day of Object.keys(cachedDays())) {
+          const snapshot = get(day)
+          if (snapshot.syncedAt !== null) deps.proposals.reconcile(day, snapshot.meetings, routing)
+        }
+      })
+    }
   }
 }

@@ -14,6 +14,8 @@ import type { SettingsRepo } from '../db/settingsRepo'
 export interface SettingsHandlerDeps {
   settings: SettingsRepo
   timeTrackingChanged(): void
+  /** Persist routing and reconcile cached undecided proposals as one database transaction. */
+  saveMeetingRouting?(routing: AppSettings['meetingRouting']): void
   /** The effective ADO config from `~/.claude.json`/env, shown until the user saves their own. */
   fallbackAdo(): AdoSettings
   testConnection(ado: AdoSettings): Promise<AdoConnectionResult>
@@ -86,7 +88,9 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
     }),
 
     setMeetingRouting: (routing) => surface(() => {
-      d.settings.setMeetingRouting(validateMeetingRouting(routing))
+      const validated = validateMeetingRouting(routing)
+      if (d.saveMeetingRouting) d.saveMeetingRouting(validated)
+      else d.settings.setMeetingRouting(validated)
       return current()
     }),
 

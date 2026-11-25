@@ -66,6 +66,40 @@ describe('packaged MCP servers', () => {
     }
   })
 
+  test('the packaged meeting report forwards a synthetic day through the real MCP tool', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'intersect-meetings-sock-'))
+    const sock = join(dir, 'meetings.sock')
+    const lines: string[] = []
+    const listener = createServer((conn) => {
+      let buffer = ''
+      conn.on('data', (chunk) => {
+        buffer += String(chunk)
+        for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
+          lines.push(buffer.slice(0, i))
+          buffer = buffer.slice(i + 1)
+        }
+      })
+    })
+    await new Promise<void>((resolve) => listener.listen(sock, resolve))
+    const launch = mcpServerLaunch(execPath, join(mainDir, 'meetingsReportServer.js'), {
+      INTERSECT_MEETINGS_SOCK: sock, INTERSECT_MEETINGS_SESSION: 'synthetic-session'
+    })
+    const client = new Client({ name: 'smoke', version: '0' })
+    try {
+      await client.connect(new StdioClientTransport({ ...launch, env: { ...launch.env, PATH: dir } }))
+      await client.callTool({ name: 'report_meetings', arguments: {
+        day: '2026-11-25', events: [{ id: 'synthetic', subject: 'Test meeting',
+          start: '2026-11-25T09:00:00+01:00', end: '2026-11-25T09:30:00+01:00' }]
+      } })
+      await vi.waitFor(() => expect(lines).toHaveLength(1))
+      expect(JSON.parse(lines[0])).toMatchObject({ sessionId: 'synthetic-session',
+        day: '2026-11-25', events: [{ id: 'synthetic', subject: 'Test meeting' }] })
+    } finally {
+      await client.close().catch(() => {})
+      listener.close()
+    }
+  })
+
   test.each(servers)('$file starts and lists its tools', async ({ file, tool, prefix, session }) => {
     const emptyPath = mkdtempSync(join(tmpdir(), 'intersect-nopath-'))
     const launch = mcpServerLaunch(execPath, join(mainDir, file), {

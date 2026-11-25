@@ -79,6 +79,7 @@ import { createSessionHandlers, sessionsWireRoutes } from './api/sessions.ipc'
 import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './api/timeTracking.ipc'
 import { createMeetingsHandlers, meetingsWireRoutes } from './api/meetings.ipc'
 import { createMeetings } from './meetings/meetings'
+import { createCalendarFetcher } from './meetings/calendarFetcher'
 import { createMeetingProposals } from './timeTracking/meetingProposals'
 import { createAgentRuntimeHandlers, agentRuntimeWireRoutes } from './api/agentRuntime.ipc'
 import { createPaletteHandlers, paletteWireRoutes } from './api/palette.ipc'
@@ -675,10 +676,14 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   snapshotScanner.start()
   const manualEntries = createManualTimeEntryRepo(db, repoDeps)
   const meetingProposals = createMeetingProposals(db, manualEntries, repoDeps.now)
+  const calendarFetcher = isE2e ? null : createCalendarFetcher({
+    spawn, claudePath: resolveClaudePath(env),
+    reportServerPath: join(__dirname, 'meetingsReportServer.js'), execPath, cwd: userDataDir
+  })
   const meetings = createMeetings({
     state: appState, proposals: meetingProposals, routing: () => settings.getMeetingRouting(),
     now: () => Date.now(), atomically: fn => tx(db, fn),
-    fetch: async (day) => {
+    fetch: async (day, signal) => {
       if (process.env.INTERSECT_E2E === '1' && process.env.INTERSECT_E2E_MEETINGS === '1') {
         const [year, month, date] = day.split('-').map(Number)
         return [
@@ -695,7 +700,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
             end: new Date(year, month - 1, date, 11, 15).toISOString() }
         ]
       }
-      throw new Error('Calendar connector is not available in a proven isolated session')
+      if (!calendarFetcher) throw new Error('Synthetic calendar is unavailable')
+      return calendarFetcher.fetch(day, signal)
     }
   })
   const meetingsHandlers = createMeetingsHandlers({
@@ -861,6 +867,10 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   }
   const settingsHandlers = createSettingsHandlers({
     settings,
+    saveMeetingRouting: (routing) => tx(db, () => {
+      settings.setMeetingRouting(routing)
+      meetings.rerouteCached(routing)
+    }),
     timeTrackingChanged: () => {
       void snapshotScanner.scan().catch(err => deps.logger.child('timeTracking').warn('settings scan failed', { err }))
     },
@@ -995,6 +1005,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     terminalStream.disposeAll()
     review.shutdown()
     hiddenJiraFetcher?.dispose()
+    calendarFetcher?.dispose()
     jiraLogin.dispose()
     oto.dispose()
     usageFile?.dispose()

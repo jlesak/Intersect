@@ -46,8 +46,6 @@ test('Settings rule edits route an untouched meeting proposal', async () => {
   await win.getByLabel('Pattern 1').fill('review')
   await win.getByLabel('Issue key 1').fill('APP-12')
   await win.getByRole('button', { name: 'Save routing' }).click()
-  await openRailSection(win, 'Dashboard', '.ix-dash')
-  await win.locator('.ix-dash-meetings button', { hasText: 'Refresh' }).click()
   await openRailSection(win, 'Time Tracking', '.ix-tt')
   await expect(win.locator('[data-proposal-id="synthetic-review"]')).toContainText('APP-12')
   expect(errors).toEqual([])

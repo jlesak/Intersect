@@ -126,7 +126,14 @@ export function createMeetingProposals(
           (source, external_id, day, description, start_at, duration_ms,
            issue_key, project_id, status)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-          ON CONFLICT(source, external_id) DO NOTHING`)
+          ON CONFLICT(source, external_id) DO UPDATE SET
+            day = excluded.day,
+            description = excluded.description,
+            start_at = excluded.start_at,
+            duration_ms = excluded.duration_ms,
+            issue_key = excluded.issue_key,
+            project_id = excluded.project_id
+          WHERE meeting_proposal.status = 'pending'`)
         for (const event of events) {
           if (!eligible(event, day)) continue
           const route = routeMeeting(event.subject, routing)

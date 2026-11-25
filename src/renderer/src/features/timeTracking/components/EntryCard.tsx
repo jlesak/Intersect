@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { TimeEntry } from '@common/domain'
+import { effectiveProject, indexOverrides, resolveJiraProject } from '@common/projectAssign'
 import { formatDuration, useSessionsStore } from '@renderer/features/sessions'
 import { useProjectsStore } from '@renderer/features/projects'
 import { IconPlay, IconTrash } from '@renderer/shared/ui/icons'
@@ -34,7 +35,10 @@ function blurOnEnter(e: KeyboardEvent<HTMLInputElement>, discard?: () => void): 
  */
 export function EntryCard({ entry }: { entry: TimeEntry }) {
   const projectName = useProjectsStore((s) => entry.source === 'manual' && entry.projectId
-    ? s.projects.find((p) => p.id === entry.projectId)?.name ?? 'Other' : null)
+    ? s.projects.find((p) => p.id === (entry.issueKey
+      ? effectiveProject('jira', entry.issueKey,
+        resolveJiraProject(entry.issueKey, s.projects), indexOverrides(s.overrides))
+      : entry.projectId))?.name ?? 'Other' : null)
   const [key, setKey] = useState(entry.issueKey ?? '')
   const [desc, setDesc] = useState(entry.description)
   const [time, setTime] = useState(formatDuration(entry.durationMs))
