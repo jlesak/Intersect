@@ -44,6 +44,9 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
     clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
     listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id),
+    deleteWorktree: (request) => ipcRenderer.invoke(Channel.projectsDeleteWorktree, request),
+    removeWorktreeEntry: (projectId, repoPath, path) =>
+      ipcRenderer.invoke(Channel.projectsRemoveWorktreeEntry, projectId, repoPath, path),
     getTerminalLayouts: (projectKey) =>
       ipcRenderer.invoke(Channel.projectsGetTerminalLayouts, projectKey),
     setTerminalLayout: (projectKey, layout, shares) =>

@@ -8,6 +8,7 @@ import type { WorkspaceRepo } from '../db/workspaceRepo'
 import type { ProjectPathDeps } from '../projects/resolveProject'
 import { resolveProjectForPath } from '../projects/resolveProject'
 import { listProjectWorktrees } from '../projects/worktrees'
+import type { ProjectWorktreeService } from '../projects/worktreeService'
 
 export interface ProjectHandlerDeps {
   projects: ProjectRepo
@@ -15,6 +16,7 @@ export interface ProjectHandlerDeps {
   workspaces: WorkspaceRepo
   overrides: ProjectOverrideRepo
   terminalLayouts: TerminalLayoutRepo
+  worktreeService?: ProjectWorktreeService
 }
 
 /**
@@ -80,8 +82,16 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
       surface(() => {
         const project = d.projects.getById(id)
         if (!project) throw new Error(`Project not found: ${id}`)
-        return listProjectWorktrees(project)
+        return d.worktreeService ? d.worktreeService.list(id) : listProjectWorktrees(project)
       }),
+    deleteWorktree: (request) => surface(() => {
+      if (!d.worktreeService) throw new Error('Worktree deletion is unavailable')
+      return d.worktreeService.delete(request)
+    }),
+    removeWorktreeEntry: (projectId, repoPath, path) => surface(() => {
+      if (!d.worktreeService) throw new Error('Worktree entry removal is unavailable')
+      return d.worktreeService.removeEntry(projectId, repoPath, path)
+    }),
     getTerminalLayouts: (projectKey) => surface(() => d.terminalLayouts.getAll(projectKey)),
     setTerminalLayout: (projectKey, layout, shares) =>
       surface(() => {
@@ -106,6 +116,8 @@ export function projectsWireRoutes(h: IpcApi['projects']): WireRoutes {
     [Channel.projectsSetOverride]: h.setOverride,
     [Channel.projectsClearOverride]: h.clearOverride,
     [Channel.projectsListWorktrees]: h.listWorktrees,
+    [Channel.projectsDeleteWorktree]: h.deleteWorktree,
+    [Channel.projectsRemoveWorktreeEntry]: h.removeWorktreeEntry,
     [Channel.projectsGetTerminalLayouts]: h.getTerminalLayouts,
     [Channel.projectsSetTerminalLayout]: h.setTerminalLayout
   }

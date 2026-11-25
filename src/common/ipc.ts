@@ -39,6 +39,8 @@ import type {
   ProjectOverrideKind,
   ProjectPatch,
   RepoWorktrees,
+  WorktreeDeleteRequest,
+  WorktreeDeleteResult,
   PrThread,
   PrVote,
   PullRequest,
@@ -140,6 +142,8 @@ export interface IpcApi {
     clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
+    deleteWorktree(request: WorktreeDeleteRequest): Promise<WorktreeDeleteResult>
+    removeWorktreeEntry(projectId: string, repoPath: string, path: string): Promise<void>
     /**
      * Every persisted terminal pane-share value for the project key (a project id, or the
      * literal 'other' for the virtual bucket of unassigned workspaces). Absent layouts mean
@@ -684,6 +688,8 @@ export const Channel = {
   projectsSetOverride: 'projects:setOverride',
   projectsClearOverride: 'projects:clearOverride',
   projectsListWorktrees: 'projects:listWorktrees',
+  projectsDeleteWorktree: 'projects:deleteWorktree',
+  projectsRemoveWorktreeEntry: 'projects:removeWorktreeEntry',
   projectsGetTerminalLayouts: 'projects:getTerminalLayouts',
   projectsSetTerminalLayout: 'projects:setTerminalLayout',
   // tabs (request/response)

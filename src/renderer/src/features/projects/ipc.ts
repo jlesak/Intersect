@@ -3,7 +3,9 @@ import type {
   ProjectOverride,
   ProjectOverrideKind,
   ProjectPatch,
-  RepoWorktrees
+  RepoWorktrees,
+  WorktreeDeleteRequest,
+  WorktreeDeleteResult
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
@@ -34,3 +36,8 @@ export const clearOverride = (kind: ProjectOverrideKind, key: string): Promise<v
   ipc().projects.clearOverride(kind, key)
 export const listWorktrees = (id: string): Promise<RepoWorktrees[]> =>
   ipc().projects.listWorktrees(id)
+export const deleteWorktree = (request: WorktreeDeleteRequest): Promise<WorktreeDeleteResult> =>
+  ipc().projects.deleteWorktree(request)
+export const removeWorktreeEntry = (
+  projectId: string, repoPath: string, path: string
+): Promise<void> => ipc().projects.removeWorktreeEntry(projectId, repoPath, path)

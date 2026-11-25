@@ -9,8 +9,10 @@ import { tx } from '../db/tx'
 import type { ProjectPathDeps } from '../projects/resolveProject'
 import { resolveProjectForPath } from '../projects/resolveProject'
 import type { SessionManager } from '../pty/sessionManager'
+import type { WorktreeGuard } from '../projects/worktreeService'
 
 export interface WorkspaceHandlerDeps {
+  worktreeGuard?: WorktreeGuard
   db: DatabaseSync
   workspaces: WorkspaceRepo
   tabs: TabRepo
@@ -56,6 +58,9 @@ export function createWorkspaceHandlers(d: WorkspaceHandlerDeps): IpcApi['worksp
     },
 
     async create(folderPath, name) {
+      if (d.worktreeGuard?.isFolderBlocked(folderPath)) {
+        throw new Error('This worktree is being deleted')
+      }
       // Creating a workspace switches to it - the user just added it to use it. The folder decides
       // which project it lands in; no match means the virtual Other bucket.
       const projectId = resolveProjectForPath(folderPath, d.projects.list(), d.pathDeps)
