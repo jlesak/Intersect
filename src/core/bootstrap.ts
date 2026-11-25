@@ -104,7 +104,7 @@ import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { createWorkItemRefRepo } from './db/workItemRefRepo'
-import { canonicalizePath, projectPathDeps } from './projects/paths'
+import { canonicalizePath, projectPathDeps, worktreeParentRoot } from './projects/paths'
 import { createTimeSessionDayRepo } from './db/timeSessionDayRepo'
 import { createSessionSnapshots } from './timeTracking/sessionSnapshots'
 import { createTimeTracking } from './timeTracking/timeTracking'
@@ -132,8 +132,10 @@ import { createLocalDiffService } from './prInbox/localDiff'
 import { createFixManager, type FixManager } from './prInbox/fixManager'
 import { decorateTerminalSpec } from './prInbox/fixSpawn'
 import { createReviewManager } from './prInbox/reviewManager'
-import { createCloneQueue, createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
+import { createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
 import { createProjectWorktreeService, createWorktreeGuard } from './projects/worktreeService'
+import { createGitMenuService, createRepoQueue } from './projects/gitMenu'
+import { gitSessionWarning } from './projects/gitSessionWarning'
 import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
 
 /**
@@ -490,7 +492,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   })
 
   const worktreeGuard = createWorktreeGuard()
-  const repoQueue = createCloneQueue()
+  const repoQueue = createRepoQueue()
   const workspaceHandlers = createWorkspaceHandlers({
     worktreeGuard,
     db,
@@ -606,7 +608,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   const localDiff = isE2e
     ? createLocalDiffE2eStub(env)
     : createLocalDiffService({
-        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders)
+        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders),
+        onRepo: repoQueue
       })
 
   const review = createReviewManager({
@@ -713,6 +716,12 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
 
   const projectHandlers = createProjectHandlers({
     projects,
+    gitMenu: createGitMenuService((id) => projects.getById(id), repoQueue, (mainPath) =>
+      gitSessionWarning(
+        mainPath, workspaces.list(), (id) => tabs.listByWorkspace(id),
+        (id) => sessions.has(id), canonicalizePath, worktreeParentRoot
+      )
+    ),
     pathDeps: projectPathDeps,
     workspaces,
     overrides: projectOverrides,

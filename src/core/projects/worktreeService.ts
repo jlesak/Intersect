@@ -85,7 +85,7 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
           name: ws.name,
           tabs: tabs.length,
           runningClaude: tabs.filter((tab) =>
-            tab.preset === 'claude' && d.sessions.isRunning(`${ws.id}:${tab.id}`)).length
+            tab.preset === 'claude' && d.sessions.has(`${ws.id}:${tab.id}`)).length
         }
       })
     return { ...wt, workspaces }

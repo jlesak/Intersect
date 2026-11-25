@@ -5,7 +5,12 @@ import type {
   ProjectPatch,
   RepoWorktrees,
   WorktreeDeleteRequest,
-  WorktreeDeleteResult
+  WorktreeDeleteResult,
+  ProjectGitStatus,
+  ProjectGitBranch,
+  ProjectGitPreview,
+  ProjectGitAction,
+  ProjectGitCommitResult
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
 
@@ -41,3 +46,9 @@ export const deleteWorktree = (request: WorktreeDeleteRequest): Promise<Worktree
 export const removeWorktreeEntry = (
   projectId: string, repoPath: string, path: string
 ): Promise<void> => ipc().projects.removeWorktreeEntry(projectId, repoPath, path)
+export const gitStatuses = (id: string): Promise<ProjectGitStatus[]> => ipc().projects.gitStatuses(id)
+export const gitBranches = (id: string, path: string, discoverDefault = false): Promise<ProjectGitBranch[]> => ipc().projects.gitBranches(id, path, discoverDefault)
+export const gitPreview = (id: string, path: string): Promise<ProjectGitPreview> => ipc().projects.gitPreview(id, path)
+export const gitValidateName = (id: string, path: string, name: string): Promise<string | null> => ipc().projects.gitValidateName(id, path, name)
+export const gitAction = (id: string, path: string, action: ProjectGitAction): Promise<string> => ipc().projects.gitAction(id, path, action)
+export const gitCommit = (id: string, path: string, token: string, message: string, push: boolean): Promise<ProjectGitCommitResult> => ipc().projects.gitCommit(id, path, token, message, push)

@@ -9,6 +9,7 @@ import type { ProjectPathDeps } from '../projects/resolveProject'
 import { resolveProjectForPath } from '../projects/resolveProject'
 import { listProjectWorktrees } from '../projects/worktrees'
 import type { ProjectWorktreeService } from '../projects/worktreeService'
+import type { GitMenuService } from '../projects/gitMenu'
 
 export interface ProjectHandlerDeps {
   projects: ProjectRepo
@@ -17,6 +18,7 @@ export interface ProjectHandlerDeps {
   overrides: ProjectOverrideRepo
   terminalLayouts: TerminalLayoutRepo
   worktreeService?: ProjectWorktreeService
+  gitMenu?: GitMenuService
 }
 
 /**
@@ -92,6 +94,16 @@ export function createProjectHandlers(d: ProjectHandlerDeps): IpcApi['projects']
       if (!d.worktreeService) throw new Error('Worktree entry removal is unavailable')
       return d.worktreeService.removeEntry(projectId, repoPath, path)
     }),
+    gitStatuses: (id) => surface(() => {
+      const project = d.projects.getById(id)
+      if (!project) throw new Error(`Project not found: ${id}`)
+      return d.gitMenu!.statuses(project)
+    }),
+    gitBranches: (id, repoPath, discoverDefault) => surface(() => d.gitMenu!.branches(id, repoPath, discoverDefault)),
+    gitPreview: (id, repoPath) => surface(() => d.gitMenu!.preview(id, repoPath)),
+    gitValidateName: (id, repoPath, name) => surface(() => d.gitMenu!.validateName(id, repoPath, name)),
+    gitAction: (id, repoPath, action) => surface(() => d.gitMenu!.action(id, repoPath, action)),
+    gitCommit: (id, repoPath, token, message, push) => surface(() => d.gitMenu!.commit(id, repoPath, token, message, push)),
     getTerminalLayouts: (projectKey) => surface(() => d.terminalLayouts.getAll(projectKey)),
     setTerminalLayout: (projectKey, layout, shares) =>
       surface(() => {
@@ -118,6 +130,12 @@ export function projectsWireRoutes(h: IpcApi['projects']): WireRoutes {
     [Channel.projectsListWorktrees]: h.listWorktrees,
     [Channel.projectsDeleteWorktree]: h.deleteWorktree,
     [Channel.projectsRemoveWorktreeEntry]: h.removeWorktreeEntry,
+    [Channel.projectsGitStatuses]: h.gitStatuses,
+    [Channel.projectsGitBranches]: h.gitBranches,
+    [Channel.projectsGitPreview]: h.gitPreview,
+    [Channel.projectsGitValidateName]: h.gitValidateName,
+    [Channel.projectsGitAction]: h.gitAction,
+    [Channel.projectsGitCommit]: h.gitCommit,
     [Channel.projectsGetTerminalLayouts]: h.getTerminalLayouts,
     [Channel.projectsSetTerminalLayout]: h.setTerminalLayout
   }

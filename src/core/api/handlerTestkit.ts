@@ -22,7 +22,7 @@ export interface FakeSessions {
 export function makeFakeSessions(): FakeSessions {
   const calls = { spawn: [] as string[], kill: [] as string[], killWorkspace: [] as string[], killAll: 0 }
   const sessions: SessionManager = {
-    isRunning: () => false,
+    has: () => false,
     spawn: (id) => {
       calls.spawn.push(id)
       return { ok: true }
