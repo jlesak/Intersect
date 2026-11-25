@@ -3101,7 +3101,8 @@
 .ix-tt-card:hover {
   border-color: var(--border-strong);
 }
-.ix-tt-card:hover .ix-tt-card__actions {
+.ix-tt-card:hover .ix-tt-card__actions,
+.ix-tt-card:focus-within .ix-tt-card__actions {
   opacity: 1;
 }
 .ix-tt-card__top {
@@ -3118,9 +3119,6 @@
   justify-content: center;
   border-radius: 3px;
   color: var(--text-faint);
-}
-.ix-tt-card__source--auto {
-  color: var(--status-working);
 }
 /* The issue key is an input styled as the chip, editable in place on every card. Its hover/focus
    background echoes .ix-tt-card__dur; the placeholder is the italic "no issue" state. */
@@ -5877,10 +5875,3 @@ body.ix-resizing--vertical * {
   font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ix-todo-calendar__expanded { background: var(--panel-2); padding: 8px; margin: 8px 0; }
 .ix-todo-calendar__expanded-list { max-height: 220px; overflow-y: auto; }
-
-.ix-tt-card__metadata {
-  font-size: 11px;
-  color: var(--text-dim);
-  overflow-wrap: anywhere;
-  min-width: 0;
-}

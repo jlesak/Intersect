@@ -1,11 +1,13 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import {
   expect,
+  addWorkspace,
   launch,
   openRailSection,
   RAIL_LABELS,
+  stubQuitConfirm,
   tempDir,
   test,
   userDataDir
@@ -73,7 +75,8 @@ function session(
   day: string,
   startHour: number,
   gapMinutes: number[],
-  gitBranch: string
+  gitBranch: string,
+  cwd = '/tmp/proj'
 ): object[] {
   const records: object[] = [
     { type: 'ai-title', aiTitle: title },
@@ -81,7 +84,7 @@ function session(
       type: 'user',
       message: { role: 'user', content: 'do the work' },
       timestamp: isoAt(day, startHour),
-      cwd: '/tmp/proj',
+      cwd,
       gitBranch,
       isMeta: false
     }
@@ -96,13 +99,13 @@ function session(
             type: 'assistant',
             message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
             timestamp,
-            cwd: '/tmp/proj'
+            cwd
           }
         : {
             type: 'user',
             message: { role: 'user', content: 'keep going' },
             timestamp,
-            cwd: '/tmp/proj',
+            cwd,
             isMeta: false
           }
     )
@@ -244,6 +247,70 @@ test('the rail lists every section and the board shows the week with auto cards 
   await expect(win.locator('.ix-tt__total')).toHaveText('1h 25m total')
 })
 
+test('a card resumes in its workspace, reuses its open tab, and hides Resume after transcript deletion', async () => {
+  const profileDir = userDataDir()
+  const initialDir = tempDir('tt-initial-')
+  const sessionDir = tempDir('tt-session-')
+  const projectsDir = tempDir('tt-resume-')
+  const id = 'ffffffff-1111-2222-3333-444444444444'
+  const title = `<pasted_content id="x">Fix the card resume. ${'long prompt '.repeat(300)}</pasted_content id="x">`
+  writeSession(projectsDir, 'session', id, session(title, MONDAY, 9, [5], 'feature/proj-611', sessionDir))
+  const { app, win } = await launch(profileDir, {
+    openOther: true,
+    env: { INTERSECT_CLAUDE_PROJECTS_DIR: projectsDir }
+  })
+  await stubQuitConfirm(app)
+  await addWorkspace(win, app, initialDir)
+  await win.locator('.ix-iconbtn[title="New terminal"]').click()
+  await win.locator('.ix-preset', { hasText: 'Claude Code' }).click()
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(940, 600))
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getSize())).toEqual([940, 600])
+  const contentSize = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getContentSize())
+  await expect.poll(() => win.evaluate(() => [innerWidth, innerHeight])).toEqual(contentSize)
+
+  await openTimeTracking(win)
+  const card = dayColumn(win, MONDAY).locator('.ix-tt-card')
+  await expect(card.locator('.ix-tt-card__title')).toHaveValue('Fix the card resume.')
+  await expect(card.locator('.ix-tt-card__key')).toHaveValue('PROJ-611')
+  await expect(card.locator('.ix-tt-card__dur')).toHaveValue('5m')
+  expect(await card.locator('.ix-tt-card__title').evaluate(el => el.getBoundingClientRect().height))
+    .toBeLessThan(30)
+  await expect(card.locator('.ix-tt-card__metadata')).toHaveCount(0)
+  await expect(card.locator('[title="Automatic from Claude Code"]')).toHaveCount(0)
+  expect(await card.evaluate(el => el.outerHTML)).not.toContain(sessionDir)
+
+  await win.mouse.move(0, 0)
+  await card.locator('.ix-tt-card__key').focus()
+  await expect.poll(() => card.locator('.ix-tt-card__actions').evaluate(el =>
+    getComputedStyle(el).opacity)).toBe('1')
+  await win.keyboard.press('Tab')
+  await expect(card.getByRole('button', { name: 'Resume' })).toBeFocused()
+  await card.locator('.ix-tt-card__title').fill('Edited card description')
+  await card.getByRole('button', { name: 'Resume' }).click()
+  await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(sessionDir))
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-tab__title')).toHaveText('Edited card description')
+
+  await win.locator('.ix-ws', { hasText: basename(initialDir) }).click()
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await openTimeTracking(win)
+  await card.getByRole('button', { name: 'Resume' }).click()
+  await expect(win.locator('.ix-ws--active .ix-ws__name')).toHaveText(basename(sessionDir))
+  await expect(win.locator('.ix-tab')).toHaveCount(1)
+  await expect(win.locator('.ix-tab__title')).toHaveText('Edited card description')
+
+  unlinkSync(join(projectsDir, 'session', `${id}.jsonl`))
+  await openTimeTracking(win)
+  await win.locator('.ix-sidebar__section').getByRole('button', { name: 'Refresh' }).click()
+  await expect(card.locator('.ix-tt-card__title')).toHaveValue('Edited card description')
+  await expect(card.getByRole('button', { name: 'Resume' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Delete' })).toHaveCount(1)
+})
+
 test('manual add, inline edits and delete update the cards and totals', async () => {
   const { win } = await launchWithFixture(userDataDir(), buildProjectsFixture())
   await openTimeTracking(win)
@@ -257,6 +324,7 @@ test('manual add, inline edits and delete update the cards and totals', async ()
   await wednesday.locator('.ix-tt-form__actions .ix-btn--primary', { hasText: 'Save' }).click()
 
   await expect(wednesday.locator('.ix-tt-card__title')).toHaveValue('Team sync meeting')
+  await expect(wednesday.locator('.ix-tt-card [title="Resume"]')).toHaveCount(0)
   await expect(wednesday.locator('.ix-tt-card__key')).toHaveValue('')
   await expect(wednesday.locator('.ix-tt__day-total')).toHaveText('30m')
   await expect(win.locator('.ix-tt__total')).toHaveText('1h 55m total')

@@ -9,16 +9,22 @@ import type { SessionSummary, Tab, Workspace } from '@common/domain'
 const workspaces = {
   selectedWorkspaceId: null as string | null,
   create: vi.fn((): Promise<Workspace | null> => Promise.resolve(null)),
-  select: vi.fn((): Promise<void> => Promise.resolve())
+  select: vi.fn((id: string): Promise<void> => { void id; return Promise.resolve() })
 }
 const tabs = {
   workspaceId: null as string | null,
+  listByWorkspace: vi.fn(async (id: string): Promise<Tab[]> => { void id; return [] }),
   createTab: vi.fn(async (): Promise<Tab | null> => null),
-  renameTab: vi.fn(async () => {})
+  renameTab: vi.fn(async () => {}),
+  setActiveTab: vi.fn(async () => {}),
+  requestReveal: vi.fn()
 }
 let workspaceList: Workspace[] = []
 
-vi.mock('@renderer/features/tabs', () => ({ useTabsStore: { getState: () => tabs } }))
+vi.mock('@renderer/features/tabs', () => ({
+  useTabsStore: { getState: () => tabs },
+  listTabsByWorkspace: (id: string) => tabs.listByWorkspace(id)
+}))
 vi.mock('@renderer/features/workspaces', () => ({
   useWorkspacesStore: { getState: () => workspaces },
   selectWorkspaceList: () => workspaceList
@@ -63,8 +69,8 @@ const summary = (over: Partial<SessionSummary> = {}): SessionSummary =>
 const messages = (): string[] => useToastStore.getState().toasts.map((t) => t.message)
 
 /** Ask for a resume and let the wiring's promise chain settle. */
-async function resume(s = summary()): Promise<void> {
-  useSessionsStore.getState().requestResume(s)
+async function resume(s = summary(), origin?: 'card'): Promise<void> {
+  useSessionsStore.getState().requestResume(s, origin)
   await vi.waitFor(() => expect(useSessionsStore.getState().resumingId).toBeNull())
 }
 
@@ -78,12 +84,49 @@ beforeEach(() => {
   workspaces.create.mockResolvedValue(null)
   tabs.workspaceId = 'ws1'
   tabs.createTab.mockResolvedValue(TAB)
+  tabs.listByWorkspace.mockResolvedValue([])
   useSessionsStore.setState({ pendingResume: null, resumingId: null })
   useToastStore.setState({ toasts: [] })
   unwire = wireSessionResume()
 })
 
 describe('wireSessionResume', () => {
+  test('a card activates a matching tab in the selected workspace', async () => {
+    tabs.listByWorkspace.mockResolvedValue([
+      { id: 'matching', preset: 'claude', resumeSessionId: 's1' } as Tab
+    ])
+    await resume(summary(), 'card')
+    expect(workspaces.select).not.toHaveBeenCalled()
+    expect(tabs.setActiveTab).toHaveBeenCalledWith('matching')
+    expect(tabs.createTab).not.toHaveBeenCalled()
+  })
+
+  test('a card finds a matching Claude tab in another workspace and activates it', async () => {
+    const other = { ...WORKSPACE, id: 'ws2', folderPath: '/repos/other' }
+    workspaceList = [WORKSPACE, other]
+    tabs.listByWorkspace.mockImplementation(async id => id === 'ws2'
+      ? [{ id: 'matching', preset: 'claude', resumeSessionId: 's1' } as Tab]
+      : [])
+    workspaces.select.mockImplementation(async id => { tabs.workspaceId = id })
+    await resume(summary(), 'card')
+    expect(workspaces.select).toHaveBeenCalledWith('ws2')
+    expect(tabs.setActiveTab).toHaveBeenCalledWith('matching')
+    expect(tabs.requestReveal).toHaveBeenCalledWith('matching')
+    expect(tabs.createTab).not.toHaveBeenCalled()
+  })
+
+  test('a card with no match creates a named tab in its cwd workspace', async () => {
+    await resume(summary({ title: 'Edited card description' }), 'card')
+    expect(tabs.createTab).toHaveBeenCalledWith('claude', 's1')
+    expect(tabs.renameTab).toHaveBeenCalledWith('tab1', 'Edited card description')
+  })
+
+  test('a Session Search request still creates a tab when the session is open', async () => {
+    tabs.listByWorkspace.mockResolvedValue([{ id: 'matching', preset: 'claude', resumeSessionId: 's1' } as Tab])
+    await resume()
+    expect(tabs.listByWorkspace).not.toHaveBeenCalled()
+    expect(tabs.createTab).toHaveBeenCalledWith('claude', 's1')
+  })
   test('opens a tab for the session and names it in the confirmation', async () => {
     await resume()
     expect(tabs.createTab).toHaveBeenCalledWith('claude', 's1')

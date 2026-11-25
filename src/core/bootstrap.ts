@@ -677,6 +677,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   const timeTrackingHandlers = createTimeTrackingHandlers({
     service: createTimeTracking({
       snapshots: timeSnapshots, scanner: snapshotScanner,
+      isResumable: id => sessionIndex.isResumable(id),
       settings: () => settings.getTimeTracking(), userDataDir,
       manual: createManualTimeEntryRepo(db, repoDeps),
       overrides: createTimeOverrideRepo(db, repoDeps),
