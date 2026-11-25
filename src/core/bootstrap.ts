@@ -695,7 +695,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   const manualEntries = createManualTimeEntryRepo(db, repoDeps)
   const meetingProposals = createMeetingProposals(db, manualEntries, repoDeps.now)
   const calendarFetcher = isE2e ? null : createCalendarFetcher({
-    spawn, claudePath: resolveClaudePath(env),
+    claudePath: resolveClaudePath(env),
     reportServerPath: join(__dirname, 'meetingsReportServer.js'), execPath, cwd: userDataDir
   })
   const meetings = createMeetings({
