@@ -100,8 +100,15 @@ async function inspectEntry(
   userDataDir?: string
 ): Promise<WorktreeInfo> {
   const main = canonicalizePath(entry.path) === canonicalizePath(mainPath)
-  const missing = entry.prunableReason !== null
-  const changed = entry.bare || missing ? [] :
+  let folderMissing = false
+  try {
+    await stat(entry.path)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT' &&
+      (err as NodeJS.ErrnoException).code !== 'ENOTDIR') throw err
+    folderMissing = true
+  }
+  const changed = entry.bare || folderMissing || entry.prunableReason !== null ? [] :
     parseChangedFiles(await gitRaw(entry.path, [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no',
       '--ignore-submodules=none'
@@ -120,6 +127,7 @@ async function inspectEntry(
     ...entry,
     displayPath: displayWorktreePath(repoPath, entry.path),
     main,
+    folderMissing,
     createdAt: main ? null : await worktreeCreatedAt(commonDir, entry.path),
     changed,
     unpushed,

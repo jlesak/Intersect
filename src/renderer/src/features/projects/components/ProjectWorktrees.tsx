@@ -42,9 +42,9 @@ function tags(wt: WorktreeInfo): string[] {
   if (wt.unpushed) out.push(`${wt.unpushed} unpushed`)
   if (wt.goneOnOrigin) out.push('gone on origin')
   const tabs = wt.workspaces.reduce((n, ws) => n + ws.tabs, 0)
-  if (tabs) out.push(`${tabs} tabs open`)
+  if (tabs) out.push(`${tabs} ${tabs === 1 ? 'tab' : 'tabs'} open`)
   if (wt.lockedReason !== null) out.push('locked')
-  if (wt.prunableReason !== null) out.push('folder missing')
+  if (wt.folderMissing) out.push('folder missing')
   if (wt.managed) out.push(wt.managed === 'review' ? 'PR review' : 'PR fix')
   return out.length ? out : ['clean']
 }
@@ -52,7 +52,7 @@ function tags(wt: WorktreeInfo): string[] {
 function snapshot(wt: WorktreeInfo): WorktreeSnapshot {
   return {
     changed: wt.changed, lockedReason: wt.lockedReason,
-    branch: wt.branch, head: wt.head, unpushed: wt.unpushed
+    branch: wt.branch, head: wt.head, unpushed: wt.unpushed, folderMissing: wt.folderMissing
   }
 }
 
@@ -80,7 +80,7 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
   }, [load])
 
   const open = (repoPath: string, wt: WorktreeInfo): void => {
-    setDeleteBranch(Boolean(wt.branch) && wt.unpushed === 0)
+    setDeleteBranch(!wt.folderMissing && Boolean(wt.branch) && wt.unpushed === 0)
     setSelected({ repoPath, wt })
   }
 
@@ -106,15 +106,17 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
         projectId, repoPath, path: wt.path, snapshot: snapshot(wt),
         discardChanges: wt.changed.length > 0,
         overrideLock: wt.lockedReason !== null,
-        deleteBranch
+        deleteBranch: !wt.folderMissing && deleteBranch
       })
       if (result.outcome === 'deleted' || result.outcome === 'partial') {
         for (const id of result.workspaceIds) useWorkspacesStore.getState().forget(id)
       }
       if (result.outcome === 'deleted') {
         useToastStore.getState().push(
-          `Deleted worktree ${wt.path.split('/').pop()}${result.branchDeleted ? ` and branch ${wt.branch}` : ''}. Closed ${result.closedTabs} tabs.`
+          `Deleted worktree ${wt.path.split('/').pop()}${result.branchDeleted ? ` and branch ${wt.branch}` : ''}. Closed ${result.closedTabs} ${result.closedTabs === 1 ? 'tab' : 'tabs'}.`
         )
+      } else if (result.outcome === 'entryRemoved') {
+        useToastStore.getState().push('Removed the locked worktree entry. Branch and workspaces were kept.')
       } else if (result.outcome === 'partial') {
         useToastStore.getState().push(`Removed the worktree, but could not delete the branch: ${result.detail}`)
       } else {
@@ -166,7 +168,7 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
                     <span key={tag} title={tag === 'locked' ? item.lockedReason ?? undefined : undefined}>{tag}</span>
                   )}</span></td>
                   <td className="ix-worktrees__action">
-                    {!item.main && !item.managed && (item.prunableReason !== null
+                    {!item.main && !item.managed && (item.folderMissing && item.lockedReason === null
                       ? <button type="button" disabled={busy} onClick={() => void removeEntry(repo.repoPath, item.path)}>Remove entry</button>
                       : <button type="button" className="ix-worktrees__delete" aria-label={`Delete worktree ${item.branch ?? item.path}`}
                           onClick={() => open(repo.repoPath, item)}><IconTrash /></button>)}
@@ -178,19 +180,23 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
         </div>
       ))}
       {wt && selected && <Dialog
-        title={`Delete worktree ${wt.branch ?? `detached @ ${wt.head.slice(0, 8)}`}?`}
+        title={`${wt.folderMissing ? 'Remove entry for' : 'Delete worktree'} ${wt.branch ?? `detached @ ${wt.head.slice(0, 8)}`}?`}
         onClose={() => !busy && setSelected(null)}
         overlayClass="ix-worktrees__overlay"
         actions={<>
           <button type="button" className="ix-btn" autoFocus disabled={busy} onClick={() => setSelected(null)}>Cancel</button>
           <button type="button" className={danger ? 'ix-btn ix-btn--danger' : 'ix-btn ix-btn--primary'}
-            disabled={busy} onClick={() => void confirm()}>{deleteButtonLabel(openTabs, danger)}</button>
+            disabled={busy} onClick={() => void confirm()}>{wt.folderMissing
+              ? 'Override lock and remove entry' : deleteButtonLabel(openTabs, danger)}</button>
         </>}
       >
-        <p>Removes the folder {wt.displayPath} and its git entry.
-          {wt.createdAt !== null && ` Created ${absoluteDate(wt.createdAt)}.`}</p>
-        {wt.workspaces.filter((ws) => ws.tabs > 0).map((ws) =>
-          <p key={ws.id}>Workspace {ws.name} has {ws.tabs} tabs open here,
+        {wt.folderMissing
+          ? <p>The folder {wt.displayPath} is unavailable. This removes only its git entry.
+            The branch and workspaces are kept.</p>
+          : <p>Removes the folder {wt.displayPath} and its git entry.
+            {wt.createdAt !== null && ` Created ${absoluteDate(wt.createdAt)}.`}</p>}
+        {!wt.folderMissing && wt.workspaces.filter((ws) => ws.tabs > 0).map((ws) =>
+          <p key={ws.id}>Workspace {ws.name} has {ws.tabs} {ws.tabs === 1 ? 'tab' : 'tabs'} open here,
             {ws.runningClaude} with a running Claude session. Intersect closes them first.</p>
         )}
         {wt.changed.length > 0 && <div className="ix-worktrees__warning">
@@ -203,12 +209,12 @@ export function ProjectWorktrees({ projectId }: { projectId: string }) {
         {wt.lockedReason !== null && <p className="ix-worktrees__warning">
           This worktree is locked{wt.lockedReason ? `: ${wt.lockedReason}` : ''}. The lock will be overridden.
         </p>}
-        {wt.branch && <label className="ix-worktrees__branch-option">
+        {!wt.folderMissing && wt.branch && <label className="ix-worktrees__branch-option">
           <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} />
           Also delete branch {wt.branch}
         </label>}
         {deleteBranch && wt.unpushed > 0 && <p className="ix-worktrees__warning">
-          {wt.unpushed} commits are on no remote. Deleting the branch loses them.
+          {wt.unpushed} {wt.unpushed === 1 ? 'commit is' : 'commits are'} on no remote. Deleting the branch loses them.
         </p>}
       </Dialog>}
     </div>

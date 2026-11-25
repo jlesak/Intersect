@@ -267,6 +267,8 @@ export interface WorktreeInfo {
   bare: boolean
   lockedReason: string | null
   prunableReason: string | null
+  /** Folder is currently inaccessible, independently of Git's prunable flag (locks suppress it). */
+  folderMissing: boolean
   createdAt: number | null
   changed: { code: string; path: string }[]
   unpushed: number
@@ -282,6 +284,7 @@ export interface WorktreeSnapshot {
   branch: string | null
   head: string
   unpushed: number
+  folderMissing: boolean
 }
 
 export interface WorktreeDeleteRequest {
@@ -296,6 +299,7 @@ export interface WorktreeDeleteRequest {
 
 export type WorktreeDeleteResult =
   | { outcome: 'deleted'; branchDeleted: boolean; workspaceIds: string[]; closedTabs: number }
+  | { outcome: 'entryRemoved' }
   | { outcome: 'changed' | 'timeout'; detail: string }
   | { outcome: 'partial'; detail: string; workspaceIds: string[]; closedTabs: number }
 

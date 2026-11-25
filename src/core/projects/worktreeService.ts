@@ -54,7 +54,8 @@ export function snapshotOf(wt: WorktreeInfo): WorktreeSnapshot {
     lockedReason: wt.lockedReason,
     branch: wt.branch,
     head: wt.head,
-    unpushed: wt.unpushed
+    unpushed: wt.unpushed,
+    folderMissing: wt.folderMissing
   }
 }
 
@@ -63,6 +64,7 @@ function sameSnapshot(a: WorktreeSnapshot, b: WorktreeSnapshot): boolean {
     a.branch === b.branch &&
     a.head === b.head &&
     a.unpushed === b.unpushed &&
+    a.folderMissing === b.folderMissing &&
     JSON.stringify(a.changed) === JSON.stringify(b.changed)
 }
 
@@ -107,7 +109,9 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
   ): Promise<WorktreeInfo> => {
     const entries = await listBinding(project, repoPath)
     const wt = entries.find((entry) => entry.path === path)
-    if (!wt || wt.main || wt.bare || wt.managed || (wt.prunableReason !== null) !== missing) {
+    if (!wt || wt.main || wt.bare || wt.managed ||
+      (missing ? !wt.folderMissing || wt.lockedReason !== null
+        : wt.folderMissing && wt.lockedReason === null)) {
       throw new Error('Worktree is not an eligible linked worktree of this project')
     }
     // The exact path from Git is used for every destructive command. A forged alias cannot
@@ -142,6 +146,23 @@ export function createProjectWorktreeService(d: WorktreeServiceDeps): ProjectWor
         if (wt.changed.length > 0 && !request.discardChanges) return changed()
         if (wt.lockedReason !== null && !request.overrideLock) return changed()
         if (request.deleteBranch && !wt.branch) return changed()
+        if (wt.folderMissing) {
+          // A locked path may be an offline volume. Remove only Git's registration after
+          // explicit override; never delete its branch or its Intersect workspace records.
+          if (request.deleteBranch || request.discardChanges || wt.lockedReason === null) return changed()
+          const commonDir = await git(request.repoPath, [
+            'rev-parse', '--path-format=absolute', '--git-common-dir'
+          ])
+          const fresh = await target(
+            bindingFor(request.projectId, request.repoPath), request.repoPath, request.path, false
+          )
+          if (!sameSnapshot(request.snapshot, snapshotOf(fresh))) return changed()
+          bindingFor(request.projectId, request.repoPath)
+          await (d.runGit ?? git)(commonDir, [
+            `--git-dir=${commonDir}`, 'worktree', 'remove', '--force', '--force', fresh.path
+          ])
+          return { outcome: 'entryRemoved' }
+        }
         let ids = wt.workspaces.map((ws) => ws.id)
         d.guard.block(wt.path, ids)
         try {

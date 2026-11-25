@@ -131,6 +131,30 @@ describe('project worktree deletion with real Git', () => {
     expect(await command(f.repo, 'branch', '--list', 'missing-a')).toContain('missing-a')
   })
 
+  test('locked offline registration stays visible beside healthy trees and needs danger confirmation', async () => {
+    const f = await fixture()
+    const offline = await f.add('offline')
+    const healthy = await f.add('healthy')
+    const workspace = f.ctx.workspaces.create(offline)
+    await command(f.repo, 'worktree', 'lock', '--reason', 'external drive', offline)
+    await rm(offline, { recursive: true })
+
+    const group = (await f.service.list(f.project.id))[0]
+    expect(group.error).toBeNull()
+    expect(group.worktrees.map((wt) => wt.path)).toEqual(expect.arrayContaining([f.repo, healthy, offline]))
+    const row = group.worktrees.find((wt) => wt.path === offline)!
+    expect(row).toMatchObject({ folderMissing: true, lockedReason: 'external drive', prunableReason: null })
+    await expect(f.service.removeEntry(f.project.id, f.repo, offline)).rejects.toThrow('eligible linked')
+    expect(await f.service.delete(await f.request(offline))).toMatchObject({ outcome: 'changed' })
+    expect(await f.service.delete(await f.request(offline, { overrideLock: true, deleteBranch: true })))
+      .toMatchObject({ outcome: 'changed' })
+    expect(await f.service.delete(await f.request(offline, { overrideLock: true })))
+      .toMatchObject({ outcome: 'entryRemoved' })
+    expect(await command(f.repo, 'branch', '--list', 'offline')).toContain('offline')
+    expect(f.ctx.workspaces.getById(workspace.id)).toBeDefined()
+    expect((await f.service.list(f.project.id))[0].worktrees.map((wt) => wt.path)).toContain(healthy)
+  })
+
   test('an unpushed branch tip change stops deletion even when count is unchanged', async () => {
     const f = await fixture()
     const path = await f.add('unpushed')
