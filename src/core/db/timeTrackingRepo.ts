@@ -7,6 +7,7 @@ interface ManualRow {
   day: string
   description: string
   issue_key: string | null
+  project_id: string | null
   duration_ms: number
   created_at: number
 }
@@ -18,7 +19,8 @@ function toManualEntry(row: ManualRow): TimeEntry {
     day: row.day,
     description: row.description,
     issueKey: row.issue_key,
-    durationMs: row.duration_ms
+    durationMs: row.duration_ms,
+    ...(row.project_id === null ? {} : { projectId: row.project_id })
   }
 }
 
@@ -47,9 +49,11 @@ export function createManualTimeEntryRepo(db: DatabaseSync, deps: RepoDeps): Man
     create(input) {
       const id = deps.newId()
       db.prepare(
-        `INSERT INTO time_entry_manual (id, day, description, issue_key, duration_ms, created_at)
-         VALUES (?,?,?,?,?,?)`
-      ).run(id, input.day, input.description, input.issueKey, input.durationMs, deps.now())
+        `INSERT INTO time_entry_manual
+           (id, day, description, issue_key, project_id, duration_ms, created_at)
+         VALUES (?,?,?,?,?,?,?)`
+      ).run(id, input.day, input.description, input.issueKey, input.projectId ?? null,
+        input.durationMs, deps.now())
       return mustGet(id)
     },
 

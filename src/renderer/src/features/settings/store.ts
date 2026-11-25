@@ -5,6 +5,7 @@ import {
   type AdoSettings,
   type NotificationSettings,
   type TimeTrackingSettings,
+  type MeetingRoutingSettings,
   type ReviewSettings
 } from '@common/domain'
 import { debounce } from '@common/debounce'
@@ -28,6 +29,8 @@ const EMPTY_ADO_FALLBACK: AdoFallback = { orgUrl: '', project: '', hasPat: false
 
 interface SettingsState {
   timeTracking: TimeTrackingSettings
+  meetingRouting: MeetingRoutingSettings
+  saveMeetingRouting(value: MeetingRoutingSettings): Promise<void>
   saveTimeTracking(value: TimeTrackingSettings): Promise<void>
   status: Status
   error: string | null
@@ -99,6 +102,11 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
 
   return {
     timeTracking: { excludedPathPrefixes: [] },
+    meetingRouting: { rules: [], defaultTarget: { kind: 'unassigned' } },
+    async saveMeetingRouting(value) {
+      const saved = await api.setMeetingRouting(value)
+      set({ meetingRouting: saved.meetingRouting })
+    },
     async saveTimeTracking(value) {
       const saved = await api.setTimeTracking(value)
       set({ timeTracking: saved.timeTracking })
@@ -121,6 +129,7 @@ export const useSettingsStore = createStore<SettingsState>()((set, get) => {
           status: 'ready',
           error: null,
           timeTracking: settings.timeTracking,
+          meetingRouting: settings.meetingRouting,
           notifications: settings.notifications,
           ado: settings.ado,
           adoFallback: settings.adoFallback,

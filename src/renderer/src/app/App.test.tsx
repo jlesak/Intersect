@@ -107,6 +107,7 @@ describe('App shell containment of a crashing main region', () => {
 
 const SETTINGS: AppSettings = {
   timeTracking: { excludedPathPrefixes: [] },
+  meetingRouting: { rules: [], defaultTarget: { kind: 'unassigned' } },
   notifications: { enabled: true, working: false, waiting: true, done: true, sound: true },
   ado: { orgUrl: '', project: '', repository: '', pat: '' },
   adoFallback: { orgUrl: '', project: '', hasPat: false },

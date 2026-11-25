@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import type { AgentRuntimeDay, TimeEntry } from '@common/domain'
+import type { AgentRuntimeDay, MeetingProposal, TimeEntry } from '@common/domain'
 import { IconPlus } from '@renderer/shared/ui/icons'
 import { formatAgentRuntime, formatDayDate, formatTotal, totalMs } from '../time'
 import { AddEntryForm } from './AddEntryForm'
 import { EntryCard } from './EntryCard'
+import { MeetingProposalCard } from './MeetingProposalCard'
+import { useMeetingsStore } from '../meetingsStore'
 import { useTimeTrackingStore } from '../store'
 
 /**
@@ -17,13 +19,15 @@ export function DayColumn({
   name,
   entries,
   isToday,
-  runtime
+  runtime,
+  proposals = []
 }: {
   day: string
   name: string
   entries: TimeEntry[]
   isToday: boolean
   runtime?: AgentRuntimeDay
+  proposals?: MeetingProposal[]
 }) {
   const [adding, setAdding] = useState(false)
   const total = totalMs(entries)
@@ -59,6 +63,13 @@ export function DayColumn({
         </div>
       )}
       <div className="ix-tt__day-body">
+        {isToday && proposals.length > 0 && <div className="ix-tt-proposal__all">
+          <span>{proposals.length} meeting {proposals.length === 1 ? 'suggestion' : 'suggestions'}</span>
+          <button type="button" className="ix-btn ix-btn--ghost"
+            onClick={() => void useMeetingsStore.getState().acceptAll(day)}>Accept all</button>
+        </div>}
+        {isToday && proposals.map((proposal) => <MeetingProposalCard
+          key={`${proposal.source}:${proposal.externalId}`} proposal={proposal} />)}
         {selected.length >= 2 && <button type="button" className="ix-btn ix-btn--ghost"
           onClick={() => void useTimeTrackingStore.getState().groupSelected(day)}>Seskupit</button>}
         {entries.map((entry) => (

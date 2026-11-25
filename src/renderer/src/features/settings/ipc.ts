@@ -5,6 +5,7 @@ import type {
   NotificationSettings,
   ReviewSettings,
   TimeTrackingSettings,
+  MeetingRoutingSettings,
   SessionSettings
 } from '@common/domain'
 import { ipc } from '@renderer/shared/ipc/client'
@@ -26,3 +27,6 @@ export const testAdoConnection = (ado: AdoSettings): Promise<AdoConnectionResult
 
 export const setTimeTracking = (settings: TimeTrackingSettings): Promise<AppSettings> =>
   ipc().settings.setTimeTracking(settings)
+
+export const setMeetingRouting = (settings: MeetingRoutingSettings): Promise<AppSettings> =>
+  ipc().settings.setMeetingRouting(settings)

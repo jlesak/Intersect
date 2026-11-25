@@ -8,12 +8,15 @@ import {
 } from '@common/domain'
 import { Channel, type IpcApi } from '@common/ipc'
 import { validateTimeTrackingSettings } from '../timeTracking/exclusions'
+import { validateMeetingRouting } from '../timeTracking/meetingProposals'
 import type { SettingsRepo } from '../db/settingsRepo'
 
 export interface SettingsHandlerDeps {
   settings: SettingsRepo
   installTimeCli(): string
   timeTrackingChanged(): void
+  /** Persist routing and reconcile cached undecided proposals as one database transaction. */
+  saveMeetingRouting?(routing: AppSettings['meetingRouting']): void
   /** The effective ADO config from `~/.claude.json`/env, shown until the user saves their own. */
   fallbackAdo(): AdoSettings
   testConnection(ado: AdoSettings): Promise<AdoConnectionResult>
@@ -50,6 +53,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
     const fallback = d.fallbackAdo()
     return {
       timeTracking: d.settings.getTimeTracking(),
+      meetingRouting: d.settings.getMeetingRouting(),
       notifications: d.settings.getNotifications(),
       // Only the values the user actually saved; a blank field defers live to the fallback (see
       // resolveAdoServerConfig), so nothing here freezes a copy of `~/.claude.json` / env.
@@ -82,6 +86,13 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
     setTimeTracking: (settings) => surface(() => {
       d.settings.setTimeTracking(validateTimeTrackingSettings(settings))
       d.timeTrackingChanged()
+      return current()
+    }),
+
+    setMeetingRouting: (routing) => surface(() => {
+      const validated = validateMeetingRouting(routing)
+      if (d.saveMeetingRouting) d.saveMeetingRouting(validated)
+      else d.settings.setMeetingRouting(validated)
       return current()
     }),
 
@@ -165,6 +176,7 @@ export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
     [Channel.settingsGet]: h.get,
     [Channel.settingsInstallTimeCli]: h.installTimeCli,
     [Channel.settingsSetTimeTracking]: h.setTimeTracking,
+    [Channel.settingsSetMeetingRouting]: h.setMeetingRouting,
     [Channel.settingsSetNotifications]: h.setNotifications,
     [Channel.settingsSetAdo]: h.setAdo,
     [Channel.settingsSetTerminalFontSize]: h.setTerminalFontSize,

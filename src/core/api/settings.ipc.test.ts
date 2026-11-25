@@ -49,6 +49,7 @@ describe('settings handlers', () => {
   test('get returns an empty ADO form plus the env-derived fallback as a hint when nothing is saved', async () => {
     expect(await h.get()).toEqual({
       timeTracking: { excludedPathPrefixes: [] },
+      meetingRouting: { rules: [], defaultTarget: { kind: 'unassigned' } },
       notifications: DEFAULT_NOTIFICATION_SETTINGS,
       ado: { orgUrl: '', project: '', repository: '', pat: '' },
       adoFallback: { orgUrl: FALLBACK_ADO.orgUrl, project: FALLBACK_ADO.project, hasPat: true },
@@ -56,6 +57,16 @@ describe('settings handlers', () => {
       review: DEFAULT_REVIEW_SETTINGS,
       session: DEFAULT_SESSION_SETTINGS
     })
+  })
+
+  test('meeting routing persists ordered literal rules and rejects invalid targets', async () => {
+    const routing = { rules: [{ pattern: 'review', target: { kind: 'issue' as const,
+      issueKey: 'APP-12' } }], defaultTarget: { kind: 'unassigned' as const } }
+    expect((await h.setMeetingRouting(routing)).meetingRouting).toEqual(routing)
+    expect(settings.getMeetingRouting()).toEqual(routing)
+    await expect(h.setMeetingRouting({ rules: [{ pattern: '', target: { kind: 'issue',
+      issueKey: 'APP-12' } }], defaultTarget: { kind: 'unassigned' } } as never)).rejects.toThrow()
+    expect(settings.getMeetingRouting()).toEqual(routing)
   })
 
   test('setSession persists the auto-resume toggle and returns the fresh settings', async () => {
@@ -223,6 +234,7 @@ describe('settingsWireRoutes', () => {
         Channel.settingsGet,
         Channel.settingsInstallTimeCli,
         Channel.settingsSetTimeTracking,
+        Channel.settingsSetMeetingRouting,
         Channel.settingsSetNotifications,
         Channel.settingsSetAdo,
         Channel.settingsSetTerminalFontSize,

@@ -856,6 +856,28 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    version: 35,
+    up(db) {
+      db.exec(`
+        ALTER TABLE time_entry_manual ADD COLUMN project_id TEXT;
+        CREATE TABLE meeting_proposal (
+          source TEXT NOT NULL,
+          external_id TEXT NOT NULL,
+          day TEXT NOT NULL,
+          description TEXT NOT NULL,
+          start_at INTEGER NOT NULL,
+          duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
+          issue_key TEXT,
+          project_id TEXT,
+          status TEXT NOT NULL CHECK (status IN ('pending','accepted','declined')),
+          decided_at INTEGER,
+          PRIMARY KEY (source, external_id)
+        );
+        CREATE INDEX idx_meeting_proposal_day ON meeting_proposal(day, status, start_at);
+      `)
+    }
   }
 ]
 

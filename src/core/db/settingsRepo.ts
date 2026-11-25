@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { DEFAULT_MEETING_ROUTING, validateMeetingRouting } from '../timeTracking/meetingProposals'
 import {
   DEFAULT_PR_REVIEW_MODEL,
   DEFAULT_PR_REVIEW_PROMPT,
@@ -9,6 +10,7 @@ import {
   type NotificationSettings,
   type ReviewSettings,
   type TimeTrackingSettings,
+  type MeetingRoutingSettings,
   type SessionSettings
 } from '@common/domain'
 
@@ -19,6 +21,7 @@ const ADO_KEY = 'settings.ado'
 const APPEARANCE_KEY = 'settings.appearance'
 const REVIEW_KEY = 'settings.review'
 const SESSION_KEY = 'settings.session'
+const MEETING_ROUTING_KEY = 'settings.meetingRouting'
 
 /** The pre-settings behavior: waiting/done alert with sound, working stays quiet. */
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -51,6 +54,8 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
  */
 export interface SettingsRepo {
   getTimeTracking(): TimeTrackingSettings
+  getMeetingRouting(): MeetingRoutingSettings
+  setMeetingRouting(settings: MeetingRoutingSettings): void
   setTimeTracking(settings: TimeTrackingSettings): void
   getNotifications(): NotificationSettings
   setNotifications(notifications: NotificationSettings): void
@@ -95,6 +100,11 @@ export function createSettingsRepo(db: DatabaseSync): SettingsRepo {
         typeof p === 'string' && p.startsWith('/') && !/[\x00-\x1f\x7f]/.test(p)) : [] }
     },
     setTimeTracking(settings) { write('settings.timeTracking', settings) },
+    getMeetingRouting() {
+      try { return validateMeetingRouting(read(MEETING_ROUTING_KEY)) }
+      catch { return DEFAULT_MEETING_ROUTING }
+    },
+    setMeetingRouting(settings) { write(MEETING_ROUTING_KEY, settings) },
     getNotifications() {
       const raw = read(NOTIFICATIONS_KEY)
       const d = DEFAULT_NOTIFICATION_SETTINGS

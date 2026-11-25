@@ -112,6 +112,17 @@ describe('rollupByProject', () => {
     expect(rows[1]).toMatchObject({ label: 'Other', totalMs: 35 * MIN, entries: 3, catchAll: true })
   })
 
+  test('a project-only manual entry rolls up under its project; a deleted project falls to Other', () => {
+    const routed = entry({ issueKey: null, projectId: 'p2', durationMs: 30 * MIN })
+    expect(rollupByProject([routed], projects, []).map((r) => r.key)).toEqual(['p2'])
+    expect(rollupByProject([routed], [], []).map((r) => r.key)).toEqual([OTHER_PROJECT_KEY])
+  })
+
+  test('an issue key takes precedence over explicit project attribution', () => {
+    const routed = entry({ issueKey: 'PROJ-611', projectId: 'p2' })
+    expect(rollupByProject([routed], projects, []).map((r) => r.key)).toEqual(['p1'])
+  })
+
   test('an archived project still names the time it already holds', () => {
     const rows = rollupByProject(
       [entry({ issueKey: 'PROJ-611', durationMs: 60 * MIN })],

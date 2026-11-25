@@ -223,8 +223,8 @@ describe('DashboardView', () => {
     seedPopulated()
     await mountClean()
 
-    expect(texts('.ix-dash-group__label')).toEqual(['Pull requests', 'Deadlines'])
-    expect(texts('.ix-dash-group__count')).toEqual(['2', '2'])
+    expect(texts('.ix-dash-group__label')).toEqual(['Pull requests', 'Deadlines', 'Meetings'])
+    expect(texts('.ix-dash-group__count')).toEqual(['2', '2', '0'])
     // The longest-blocked review is the most urgent, so it leads.
     expect(texts('.ix-dash-row__title')).toEqual([
       'Rework the importer',
@@ -238,10 +238,11 @@ describe('DashboardView', () => {
 
   test('an empty needs-action zone keeps both subgroups and says so', async () => {
     await mountClean()
-    expect(texts('.ix-dash-group__label')).toEqual(['Pull requests', 'Deadlines'])
+    expect(texts('.ix-dash-group__label')).toEqual(['Pull requests', 'Deadlines', 'Meetings'])
     expect(texts('.ix-dash-group__empty')).toEqual([
       'No pull request is waiting on you.',
-      'Nothing is due today.'
+      'Nothing is due today.',
+      'No meetings today.'
     ])
   })
 
@@ -341,7 +342,8 @@ describe('DashboardView', () => {
 
     expect(texts('.ix-dash-group__empty')).toEqual([
       'Reading the pull request cache…',
-      'Reading the task list…'
+      'Reading the task list…',
+      'No meetings today.'
     ])
     // A read already in flight is not something the user can usefully ask for again.
     expect(document.querySelectorAll('.ix-dash-group__empty .ix-dash-note__action')).toHaveLength(0)

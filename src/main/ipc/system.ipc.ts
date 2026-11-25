@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, sep } from 'node:path'
 import type { IpcMain } from 'electron'
 import { Channel, type IpcApi } from '@common/ipc'
+import { validJoinUrl } from '@common/meetingJoin'
 import { JIRA_HOST } from '../../core/myWork/jiraMapping'
 
 /** Hosts Intersect may hand to the system browser. Grows one entry per feature that links out. */
@@ -41,6 +42,7 @@ export function isAllowedExternalUrl(url: string, adoOrgUrl: string): boolean {
   }
   if (parsed.protocol !== 'https:') return false
   return (
+    validJoinUrl(url) !== null ||
     ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname) ||
     ALLOWED_EXTERNAL_HOST_SUFFIXES.some((suffix) => parsed.hostname.endsWith(suffix)) ||
     parsed.hostname === hostOf(adoOrgUrl)

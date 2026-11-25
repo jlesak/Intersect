@@ -5911,6 +5911,27 @@ body.ix-resizing--vertical * {
 .ix-todo-calendar__expanded { background: var(--panel-2); padding: 8px; margin: 8px 0; }
 .ix-todo-calendar__expanded-list { max-height: 220px; overflow-y: auto; }
 
+.ix-dash-meetings__sync { margin-left: auto; color: var(--text-faint); font-size: 12px; }
+.ix-dash-meetings__row { cursor: default; gap: 10px; }
+.ix-dash-meetings__row .ix-dash-row__age { white-space: nowrap; }
+.ix-dash-meetings__error { color: var(--danger); font-size: 12px; padding: 4px 0; }
+
+.ix-tt-proposal { padding: 8px 9px; border: 1px dashed var(--accent);
+  background: var(--accent-soft); border-radius: var(--radius-sm); }
+.ix-tt-proposal__label { color: var(--accent); font-size: 10px; font-family: var(--font-mono); }
+.ix-tt-proposal__title { font-size: 12px; color: var(--text); margin-top: 4px; }
+.ix-tt-proposal__target, .ix-tt-card__project { color: var(--text-dim); font-size: 10.5px; }
+.ix-tt-proposal__actions, .ix-tt-proposal__all { display: flex; align-items: center;
+  justify-content: space-between; gap: 6px; margin-top: 6px; }
+.ix-tt-proposal__all { color: var(--text-dim); font-size: 11px; }
+
+.ix-meeting-rules { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 12px; }
+.ix-meeting-rules h3 { font-size: 14px; margin: 0 0 4px; }
+.ix-meeting-rule { display: grid; grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
+  gap: 6px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ix-meeting-rule__actions { grid-column: 2; display: flex; gap: 6px; }
+.ix-meeting-rule--default { margin-bottom: 10px; }
+
 /* Project worktrees: fixed columns keep long branch and folder names inside a narrow window. */
 .ix-worktrees__table {
   width: 100%;

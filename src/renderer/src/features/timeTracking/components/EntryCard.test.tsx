@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { TimeEntry } from '@common/domain'
 import { useSessionsStore } from '@renderer/features/sessions'
+import { useProjectsStore } from '@renderer/features/projects'
 import { useTimeTrackingStore } from '../store'
 import { EntryCard } from './EntryCard'
 
@@ -28,6 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   useTimeTrackingStore.setState({ updateEntry, confirmWork, regenerate })
   useSessionsStore.setState({ pendingResume: null })
+  useProjectsStore.setState({ projects: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -242,4 +244,37 @@ test.each(['Issue key', 'Time spent'])('background updates preserve a dirty %s u
   press(field(label), 'Escape')
   expect(field(label).value).toBe(label === 'Issue key' ? 'SERVER-1' : '2m')
   expect(updateEntry).not.toHaveBeenCalled()
+})
+
+test('an accepted project-only meeting card shows the project name and falls back after deletion', () => {
+  const routed: TimeEntry = { id: 'meeting', source: 'manual', day: ENTRY.day,
+    description: 'Planning', issueKey: null, projectId: 'p1', durationMs: 1800000 }
+  useProjectsStore.setState({ projects: [{ id: 'p1', name: 'Build', sortOrder: 0,
+    archived: false, repoPaths: ['/work/build'], jiraJql: null, jiraBoardUrl: null,
+    adoRepositories: [] }] })
+  render(routed)
+  expect(host.querySelector('.ix-tt-card__project')?.textContent).toBe('Build')
+  act(() => useProjectsStore.setState({ projects: [] }))
+  expect(host.querySelector('.ix-tt-card__project')?.textContent).toBe('Other')
+})
+
+test('a project meeting card follows an edited issue key, then its stored project when cleared', () => {
+  const routed: TimeEntry = { id: 'meeting', source: 'manual', day: ENTRY.day,
+    description: 'Planning', issueKey: null, projectId: 'p1', durationMs: 1800000 }
+  useProjectsStore.setState({ projects: [
+    { id: 'p1', name: 'Build', sortOrder: 0, archived: false, repoPaths: [],
+      jiraJql: 'project = BUILD', jiraBoardUrl: null, adoRepositories: [] },
+    { id: 'p2', name: 'Platform', sortOrder: 1, archived: false, repoPaths: [],
+      jiraJql: 'project = PLAT', jiraBoardUrl: null, adoRepositories: [] }
+  ] })
+  render(routed)
+  expect(host.querySelector('.ix-tt-card__project')?.textContent).toBe('Build')
+  type(field('Issue key'), 'PLAT-7')
+  blur(field('Issue key'))
+  render({ ...routed, issueKey: 'PLAT-7' })
+  expect(host.querySelector('.ix-tt-card__project')?.textContent).toBe('Platform')
+  type(field('Issue key'), '')
+  blur(field('Issue key'))
+  render(routed)
+  expect(host.querySelector('.ix-tt-card__project')?.textContent).toBe('Build')
 })

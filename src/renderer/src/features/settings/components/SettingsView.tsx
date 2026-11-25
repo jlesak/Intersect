@@ -11,6 +11,7 @@ import { ProjectsPane } from '@renderer/features/projects'
 import { AgentToolingPane, selectHasRawDraft, useAgentToolingStore } from '@renderer/features/agentTooling'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { useSettingsStore } from '../store'
+import { MeetingRoutingEditor } from './MeetingRoutingEditor'
 import { installTimeCli } from '../ipc'
 
 const CATEGORIES = [
@@ -446,5 +447,6 @@ function TimeTrackingPane() {
       {installedPath && <div role="status">Installed at {installedPath}</div>}
     </div>
     {error && <div role="alert">{error}</div>}
+    <MeetingRoutingEditor />
   </>
 }
