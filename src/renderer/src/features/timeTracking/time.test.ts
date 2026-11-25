@@ -21,7 +21,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: null,
   durationMs: 60_000,
   ...over
-})
+}) as TimeEntry
 
 describe('parseDuration', () => {
   test.each([

@@ -24,6 +24,7 @@ interface TimeTrackingState {
   weekStart: string
   /** The shown week's merged entries, in main's day-then-time order. */
   entries: TimeEntry[]
+  selection: { day: string; ids: string[]; anchor: string } | null
   /** The work timer currently running, or null. Elapsed time is derived from it, never stored. */
   timer: RunningTimer | null
   /**
@@ -48,6 +49,11 @@ interface TimeTrackingState {
   addManual(input: NewManualTimeEntry): Promise<boolean>
   updateEntry(entry: TimeEntry, update: TimeEntryUpdate): Promise<void>
   removeEntry(entry: TimeEntry): Promise<void>
+  selectEntry(entry: TimeEntry, dayEntries: TimeEntry[], shift: boolean): void
+  groupSelected(day: string): Promise<void>
+  groupDayByIssue(day: string): Promise<void>
+  updateGroup(id: string, update: Partial<TimeEntryUpdate>): Promise<void>
+  ungroup(id: string): Promise<void>
   confirmWork(entry: TimeEntry): Promise<void>
   regenerate(entry: TimeEntry): Promise<void>
   /** Show or hide the weekly summary panel. */
@@ -71,7 +77,7 @@ interface TimeTrackingState {
 
 const reference = (entry: TimeEntry): TimeEntryRef => entry.source === 'auto'
   ? { source: 'auto', sessionId: entry.sessionId, day: entry.day }
-  : { source: 'manual', id: entry.id }
+  : { source: entry.source, id: entry.id }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -126,6 +132,7 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     error: null,
     weekStart: weekStartOf(Date.now()),
     entries: [],
+    selection: null,
     timer: null,
     summaryOpen: false,
 
@@ -180,7 +187,7 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
     },
 
     async loadWeek(weekStart) {
-      set({ weekStart, status: 'loading', error: null, entries: [] })
+      set({ weekStart, status: 'loading', error: null, entries: [], selection: null })
       await reload()
     },
 
@@ -218,6 +225,50 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
 
     async updateEntry(entry, update) {
       await mutate(() => api.updateEntry(reference(entry), update), 'Could not save the change')
+    },
+
+    selectEntry(entry, dayEntries, shift) {
+      if (entry.source === 'group') return
+      const previous = get().selection
+      const day = entry.day
+      if (shift && previous?.day === day) {
+        const from = dayEntries.findIndex(item => item.id === previous.anchor)
+        const to = dayEntries.findIndex(item => item.id === entry.id)
+        if (from >= 0 && to >= 0) {
+          set({ selection: { day, anchor: previous.anchor,
+            ids: dayEntries.slice(Math.min(from, to), Math.max(from, to) + 1)
+              .filter(item => item.source !== 'group').map(item => item.id) } })
+          return
+        }
+      }
+      set({ selection: { day, anchor: entry.id, ids: previous?.day === day &&
+        previous.ids.includes(entry.id) ? previous.ids.filter(id => id !== entry.id) :
+        [...(previous?.day === day ? previous.ids : []), entry.id] } })
+    },
+
+    async groupSelected(day) {
+      const selection = get().selection
+      if (selection?.day !== day || selection.ids.length < 2) return
+      const entries = get().entries.filter(entry => entry.day === day &&
+        selection.ids.includes(entry.id))
+      if (entries.length < 2) return
+      if (await mutate(() => api.groupEntries(entries.map(reference)), 'Could not group the entries')) {
+        set({ selection: null })
+      }
+    },
+
+    async groupDayByIssue(day) {
+      if (await mutate(() => api.groupDayByIssue(day), 'Could not group the day')) {
+        set({ selection: null })
+      }
+    },
+
+    async updateGroup(id, update) {
+      await mutate(() => api.updateGroup(id, update), 'Could not save the group')
+    },
+
+    async ungroup(id) {
+      await mutate(() => api.ungroup(id), 'Could not split the group')
     },
 
     async removeEntry(entry) {

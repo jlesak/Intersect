@@ -183,6 +183,10 @@ const api: IpcApi = {
     updateEntry: (ref, update) =>
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, ref, update),
     deleteEntry: (ref) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, ref),
+    groupEntries: (refs) => ipcRenderer.invoke(Channel.timeTrackingGroupEntries, refs),
+    groupDayByIssue: (day) => ipcRenderer.invoke(Channel.timeTrackingGroupDayByIssue, day),
+    updateGroup: (id, update) => ipcRenderer.invoke(Channel.timeTrackingUpdateGroup, id, update),
+    ungroup: (id) => ipcRenderer.invoke(Channel.timeTrackingUngroup, id),
     confirmWork: (ref) => ipcRenderer.invoke(Channel.timeTrackingConfirmWork, ref),
     regenerate: (ref) => ipcRenderer.invoke(Channel.timeTrackingRegenerate, ref),
     getTimer: () => ipcRenderer.invoke(Channel.timeTrackingGetTimer),

@@ -111,6 +111,7 @@ import { createSessionSnapshots } from './timeTracking/sessionSnapshots'
 import { createTimeSummaryScheduler } from './timeTracking/timeSummaryScheduler'
 import { runTimeSummary } from './timeTracking/timeSummaryRunner'
 import { createTimeTracking } from './timeTracking/timeTracking'
+import { createTimeEntryGroupRepo } from './db/timeEntryGroupRepo'
 import { createAgentRuntimeRepo } from './db/agentRuntimeRepo'
 import {
   createAgentRuntimeService,
@@ -705,6 +706,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       isResumable: id => sessionIndex.isResumable(id),
       settings: () => settings.getTimeTracking(), userDataDir,
       manual: createManualTimeEntryRepo(db, repoDeps),
+      groups: createTimeEntryGroupRepo(db, repoDeps),
       overrides: timeOverrides,
       timer: createRunningTimerRepo(db, repoDeps),
       now: () => Date.now(),

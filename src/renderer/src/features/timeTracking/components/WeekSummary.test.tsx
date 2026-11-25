@@ -19,7 +19,7 @@ const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: null,
   durationMs: 30 * MIN,
   ...over
-})
+}) as TimeEntry
 
 const PROJECT: Project = {
   id: 'p1',

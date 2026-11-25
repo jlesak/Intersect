@@ -13,7 +13,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: 'PROJ-611',
   durationMs: 90 * MIN,
   ...over
-})
+}) as TimeEntry
 
 /** The board's own order: day by day, in the order main returned them. */
 const WEEK: TimeEntry[] = [
@@ -88,4 +88,16 @@ test('two days of one session export as separate work rows without session metad
   expect(weekAsCsv(rows).split('\n')).toHaveLength(3)
   expect(weekAsCsv(rows)).not.toContain('Metadata only')
   expect(weekAsCsv(rows)).not.toContain('/private/synthetic')
+})
+
+test('a group exports once in text and CSV without its member rows', () => {
+  const members = [entry({ id: 'a', description: 'First', durationMs: 30 * MIN }),
+    entry({ id: 'b', description: 'Second', durationMs: 60 * MIN })]
+  const group: TimeEntry = { id: 'g', source: 'group', day: '2026-08-17',
+    description: 'Combined', issueKey: 'PROJ-611', durationMs: 90 * MIN,
+    members: members as Exclude<TimeEntry, { source: 'group' }>[] }
+  expect(weekAsText([group])).toBe('Date\tIssue\tDescription\tDuration\n' +
+    '2026-08-17\tPROJ-611\tCombined\t1h 30m\nTotal\t\t\t1h 30m')
+  expect(weekAsCsv([group])).toBe('Date,Issue,Description,Duration\n' +
+    '2026-08-17,PROJ-611,Combined,1.50')
 })
