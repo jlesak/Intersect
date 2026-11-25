@@ -48,9 +48,11 @@ failure once; a second failure is real.
 - `e2e` - Playwright specs, which launch the app only through `e2e/harness.ts`.
 - `tooling` - repository tooling outside the app: the e2e build-freshness guard, the launch
   environment and the app register.
-- `docs/DESIGN*.md`, `docs/2026-07-07-intersect-final-form-design.md` and `docs/specs/` -
-  design history and feature specs. They record intent at the time; the code and the issue are
-  the current truth.
+- `docs/DECISIONS.md` - the append-only decision history. `docs/agents/product.md` summarizes
+  current product choices; `docs/DESIGN*.md`, `docs/2026-07-07-intersect-final-form-design.md`
+  and `docs/specs/` record design intent at the time. Use the latest applicable decision to
+  interpret older designs; the current issue and code establish current implementation. Record a
+  reversal as a new decision row.
 
 ## Conventions
 
@@ -107,7 +109,7 @@ Read the topic doc before working in its area:
   change.
 - `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md` - before reading, writing or
   labelling issues.
-- `docs/agents/domain.md` - vocabulary and decision records.
+- `docs/agents/domain.md` - vocabulary and decision records in `docs/DECISIONS.md`.
 
 `renderer.md` and `e2e.md` carry `paths:` frontmatter, and Claude Code loads them automatically
 through `.claude/rules/` when it reads a matching file. Keep the frontmatter in step with the
