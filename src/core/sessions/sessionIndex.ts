@@ -1,5 +1,6 @@
 import type { Dirent } from 'node:fs'
-import { readdir, readFile as fsReadFile } from 'node:fs/promises'
+import { access, readdir, readFile as fsReadFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionSummary, SessionTranscript } from '@common/domain'
@@ -19,6 +20,8 @@ export interface SessionIndexOptions {
   readDir?: (dir: string) => Promise<string[]>
   /** Read a session file's full UTF-8 contents. */
   readFile?: (path: string) => Promise<string>
+  /** Probe current transcript readability without loading the whole file. */
+  canReadFile?: (path: string) => Promise<boolean>
 }
 
 /** The in-memory session index the IPC layer delegates to. */
@@ -31,6 +34,8 @@ export interface SessionIndex {
   refresh(): Promise<SessionSummary[]>
   /** The full transcript for one session id (builds the index first if needed). */
   getTranscript(id: string): Promise<SessionTranscript>
+  /** Whether an indexed session still has a readable transcript. */
+  isResumable(id: string): Promise<boolean>
 }
 
 /**
@@ -77,6 +82,14 @@ export function createSessionIndex(opts: SessionIndexOptions = {}): SessionIndex
   const projectsDir = opts.projectsDir ?? defaultProjectsDir()
   const readDir = opts.readDir ?? defaultReadDir
   const readFile = opts.readFile ?? defaultReadFile
+  const canReadFile = opts.canReadFile ?? (async (path: string) => {
+    try {
+      await access(path, constants.R_OK)
+      return true
+    } catch {
+      return false
+    }
+  })
 
   // Null until the first build. `byId` maps a session id to its parsed summary (which carries the
   // filePath), so transcripts re-open the exact file the summary came from. `building` memoizes the
@@ -142,6 +155,12 @@ export function createSessionIndex(opts: SessionIndexOptions = {}): SessionIndex
         throw new Error(`Session file no longer available: ${id}`)
       }
       return parseTranscript(id, summary.title, summary.cwd, content.split(/\r?\n/))
+    },
+
+    async isResumable(id) {
+      await ensureBuilt()
+      const path = byId.get(id)?.filePath
+      return path ? canReadFile(path) : false
     }
   }
 }

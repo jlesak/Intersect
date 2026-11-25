@@ -749,10 +749,8 @@ export type TimeEntry = TimeEntryFields & (
   | {
       source: 'auto'
       sessionId: string
-      sessionTitle: string
       cwd: string
-      folderName: string
-      gitBranch: string | null
+      resumable: boolean
       firstTimestamp: number
       lastTimestamp: number
     }

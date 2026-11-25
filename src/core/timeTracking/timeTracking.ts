@@ -11,7 +11,6 @@ import type {
   RunningTimerRepo,
   TimeOverrideRepo
 } from '../db/timeTrackingRepo'
-import { basename } from 'node:path'
 import type { TimeTrackingSettings } from '@common/domain'
 import type { TimeSessionDay, TimeSessionDayRepo } from '../db/timeSessionDayRepo'
 import type { SessionSnapshots } from './sessionSnapshots'
@@ -21,6 +20,7 @@ import { issueKeyFromBranch } from './issueKey'
 export interface TimeTrackingDeps {
   snapshots: TimeSessionDayRepo
   scanner: SessionSnapshots
+  isResumable(sessionId: string): Promise<boolean>
   settings(): TimeTrackingSettings
   userDataDir: string
   manual: ManualTimeEntryRepo
@@ -89,11 +89,11 @@ function timedDescription(description: string, issueKey: string | null): string 
 
 export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService {
   const key = (sessionId: string, day: string) => `${sessionId}:${day}`
-  const toEntry = (row: TimeSessionDay): TimeEntry => {
+  const toEntry = async (row: TimeSessionDay): Promise<TimeEntry> => {
     const override = deps.overrides.get(row.sessionId, row.day)
+    const resumable = await deps.isResumable(row.sessionId)
     return { id: key(row.sessionId, row.day), source: 'auto', day: row.day,
-      sessionId: row.sessionId, sessionTitle: row.title, cwd: row.cwd,
-      folderName: row.cwd ? basename(row.cwd) : '', gitBranch: row.gitBranch,
+      sessionId: row.sessionId, cwd: row.cwd, resumable,
       firstTimestamp: row.firstTimestamp, lastTimestamp: row.lastTimestamp,
       description: override?.description ?? row.autoDescription,
       issueKey: override ? override.issueKey : issueKeyFromBranch(row.gitBranch),
@@ -124,7 +124,7 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
       !insideAppData(row.cwd, deps.userDataDir) && !prefixes.some(prefix => row.cwd.startsWith(prefix)))
     rows.sort((a, b) => a.day.localeCompare(b.day) || a.lastTimestamp - b.lastTimestamp ||
       a.sessionId.localeCompare(b.sessionId))
-    return [...rows.map(toEntry), ...deps.manual.listByDays(days)]
+    return [...await Promise.all(rows.map(toEntry)), ...deps.manual.listByDays(days)]
       .sort((a, b) => a.day.localeCompare(b.day))
   }
 

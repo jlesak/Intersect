@@ -7,8 +7,9 @@ Navazuje na `docs/specs/2026-07-06-time-tracking-design.md`. Kde se liší, plat
 
 ## 1. Cíl
 
-1. Každá Claude Code session se trackuje automaticky. Karta nese název session, složku, git branch
-   a krátké shrnutí práce od modelu Haiku. Haiku také určí, jestli šlo o pracovní věc.
+1. Každá Claude Code session se trackuje automaticky. Karta ukazuje popis práce, issue klíč, čas
+   a Resume, dokud je transcript čitelný. Název session, složka a git branch zůstávají uložené pro
+   Haiku, ale na kartě se nezobrazují. Haiku doplní krátké shrnutí a určí, jestli šlo o pracovní věc.
 2. Vlastník jednoduše upraví a seskupí karty v Intersectu.
 3. Claude a Codex agenti čtou a zapisují záznamy přes CLI `intersect-time`.
 4. Tlačítko nahraje jeden den do Jiry jako worklogy.
@@ -146,8 +147,9 @@ Pravidla:
     `--no-session-persistence`, takže transcript nevznikne,
   - prefixy cest ze Settings (nový klíč `timeTracking.excludedPathPrefixes`, pole stringů).
 - Víkend: data se ukládají, board je dál nezobrazuje (beze změny pravidla Po-Pá).
-- Karta zobrazí: shrnutí (nebo `autoDescription`, dokud shrnutí není), issue klíč, čas, a v druhém
-  řádku malým písmem název session, `folderName` a branch. Plná cesta `cwd` v tooltipu.
+- Karta zobrazí: jednořádkové shrnutí (nebo `autoDescription`, dokud shrnutí není), issue klíč,
+  čas a Resume, dokud je transcript čitelný. Název session, `folderName`, branch a `cwd` zůstávají
+  uložené jako vstup pro Haiku, ale na kartě ani v tooltipu se nezobrazují.
 
 ### 5.2 Haiku shrnutí a klasifikace (issue 2)
 
@@ -350,7 +352,8 @@ Každé issue jde přes `implement-issue`. Navíc:
 ## 8. Rozdělení do issues a pořadí
 
 1. **Snapshot sessions po dnech** - `tracked_session_day`, dělení času po dnech, 5min práh,
-   vyloučení, migrace overrides, konec `pruneAbsent`, zobrazení názvu, složky a branch. Úprava
+   vyloučení, migrace overrides, konec `pruneAbsent`, Resume při čitelném transcriptu; název,
+   složka a branch zůstávají uložené pro Haiku, ale na kartě se nezobrazují. Úprava
    `docs/agents/product.md` (D1 až D16, zrušení "automatic worklogs" v zamítnutých, s výjimkou uploadu
    bez kliknutí).
 2. **Haiku shrnutí a klasifikace** - runner, fronta, validace, pill a flag, "Je pracovní",
@@ -365,7 +368,8 @@ Každé issue jde přes `implement-issue`. Navíc:
 ## 9. Akceptační kritéria
 
 1. Session z desktop app, VS Code i terminálu Intersectu se objeví jako karta do 10 min po 30 min
-   nečinnosti, se shrnutím v češtině, názvem session, složkou a branch.
+   nečinnosti, se shrnutím v češtině, bez názvu session, složky a branch na kartě. Metadata zůstávají
+   uložená pro Haiku a karta nabízí Resume, dokud je transcript čitelný.
 2. Session obnovená další den má kartu v každém dni s aktivním časem dne. Včerejší karta se nezmění.
 3. Session a den pod 5 min aktivního času nemá kartu.
 4. Sessions spuštěné Intersectem a sessions pod vyloučenými prefixy nemají kartu.

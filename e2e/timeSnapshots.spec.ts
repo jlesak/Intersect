@@ -52,10 +52,14 @@ test('daily cards retain edits after resume, cleanup and restart; settings hide 
   await expect(monday.locator('.ix-tt-card__dur')).toHaveValue('15m')
   await expect(tuesday.locator('.ix-tt__day-total')).toHaveText('11m')
   await expect(first.win.locator('.ix-tt__total')).toHaveText('26m total')
-  await expect(monday.locator('.ix-tt-card__metadata')).toHaveText('Daily history session · project · feature/ABC-12')
-  await expect(monday.getByTitle('/synthetic/work/project', { exact: true })).toHaveText('project')
-  await expect(tuesday.locator('.ix-tt-card__metadata').filter({ hasText: 'Branchless work' })).toHaveText('Branchless work · other')
-  // Real minimum window: metadata cannot widen a column or put its controls outside the card.
+  await expect(monday.locator('.ix-tt-card__metadata')).toHaveCount(0)
+  await expect(monday.locator('.ix-tt-card [title="Resume"]')).toHaveCount(1)
+  await expect(tuesday.locator('.ix-tt-card [title="Resume"]')).toHaveCount(2)
+  expect(await monday.locator('.ix-tt-card').evaluate(card => card.outerHTML))
+    .not.toContain('/synthetic/work/project')
+  expect(await monday.locator('.ix-tt-card').evaluate(card => card.outerHTML))
+    .not.toContain('feature/ABC-12')
+  // Real minimum window: the simplified card cannot widen a column or put controls outside it.
   const geometry = await monday.locator('.ix-tt-card').evaluate(card => {
     const rect = card.getBoundingClientRect()
     return { noOverflow: card.scrollWidth <= card.clientWidth,
@@ -81,6 +85,7 @@ test('daily cards retain edits after resume, cleanup and restart; settings hide 
   rmSync(path)
   await refresh(first.app, first.win)
   await expect(first.win.locator('.ix-tt__total')).toHaveText('16m total')
+  await expect(monday.locator('.ix-tt-card [title="Resume"]')).toHaveCount(0)
   expect(first.errors).toEqual([])
   await first.app.close()
 
@@ -91,6 +96,7 @@ test('daily cards retain edits after resume, cleanup and restart; settings hide 
   await expect(stored.getByLabel('Description', { exact: true })).toHaveValue('Owner Monday description')
   await expect(stored.getByLabel('Issue key')).toHaveValue('OWNER-9')
   await expect(stored.getByLabel('Time spent')).toHaveValue('1m')
+  await expect(stored.locator('.ix-tt-card [title="Resume"]')).toHaveCount(0)
   await expect(second.win.locator('.ix-tt__total')).toHaveText('16m total')
   await openRailSection(second.win, 'Settings', '.ix-settings')
   await second.win.locator('.ix-settings__nav-btn', { hasText: 'Time Tracking' }).click()

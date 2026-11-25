@@ -7,8 +7,10 @@ workflows, not by general app-design taste.
 
 The owner decides functionality and major technical direction (see `AGENTS.md`). This file records
 what they have already decided, so that plans and reviews start from it instead of reopening it.
-The fuller design record is `docs/2026-07-07-intersect-final-form-design.md`, and feature specs
-are in `docs/specs/`. Where those predate a decision below, this file wins.
+The append-only history and sources are in [`docs/DECISIONS.md`](../DECISIONS.md). This file is
+the concise statement of current product choices. The fuller historical design is
+`docs/2026-07-07-intersect-final-form-design.md`, and feature specs are in `docs/specs/`.
+Where historical designs predate a later decision, that later decision wins.
 
 ## Principles
 
@@ -47,8 +49,9 @@ system status.
   the first continuation on a later day can add that final gap without moving the earlier card.
 - Intersect's own data directory is always excluded. Settings > Time Tracking accepts literal,
   case-sensitive absolute path prefixes. Exclusions hide data and totals without deleting history.
-- Auto cards show session title, folder and optional branch separately from the work description.
-  Metadata follows the session index; it is not a history of branch changes inside a session.
+- Auto cards show the issue key, one-line editable description, duration, and Resume while their
+  transcript is readable. They show no session title, folder, branch or cwd tooltip. Snapshot
+  metadata stays stored for the later Haiku summary; cards outlive missing transcripts and edits.
 - Legacy edits and deletions belong wholly to the session's last evidenced day. Unresolved edits
   remain stored until a readable transcript supplies that day; no date is invented from edit time.
 - Jira worklog upload requires the owner's click and confirmation of a preview. It manages only
@@ -85,7 +88,9 @@ system status.
 - Token usage attributed per work item.
 - Migration failure recovery beyond what issue #117 covers.
 - A tray icon, nested splits, headless review with permission bypass, uploading worklogs without the owner's click, billing
-  and contracts, a notes module, an embedded Teams window, a hosted data plane, Wake-on-LAN.
+  and contracts, a Watchtower-style per-project Markdown notes editor, an embedded Teams window,
+  a hosted data plane, Wake-on-LAN. The separate daily capture and search flow in #156 was
+  approved later and shipped; it does not approve that editor.
 
 Postponed, not declined: undo for closing a tab.
 
@@ -94,4 +99,4 @@ Postponed, not declined: undo for closing a tab.
 The issues labelled `watchtower-review` (#132 to #140) were accepted together. Build order: #132,
 then #139 (blocked by #132), #133, #134, #135, #136, #137, and last #138 (today's meetings on the
 Dashboard) together with #140 (suggested time entries from the same meetings fetch) in one
-release. #134 creates a decision log; seed it from this file when it is built.
+release. #134 created the decision log in `docs/DECISIONS.md`.
