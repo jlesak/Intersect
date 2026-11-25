@@ -188,6 +188,24 @@ describe('timeTracking service', () => {
     expect(e.durationMs).toBe(2 * 60 * 60_000)
   })
 
+  test.each([
+    { edit: 'duration only', issueKey: null, durationMs: 45 * 60_000 },
+    { edit: 'issue only', issueKey: 'PROJ-999', durationMs: 60 * 60_000 }
+  ])('$edit leaves the description available for a later model summary', async update => {
+    const svc = make([session('s1')])
+    await svc.updateEntry({ source: 'auto', sessionId: 's1', day: WEEK }, {
+      description: 'Session s1', issueKey: update.issueKey, durationMs: update.durationMs
+    })
+    expect(overrides.get('s1', WEEK)?.description).toBeNull()
+    const snapshots = createTimeSessionDayRepo(db, () => clock)
+    expect(snapshots.saveSummary('s1', WEEK, at(6, 10), {
+      summary: 'Opravil validaci formuláře.', isWork: true
+    })).toBe(true)
+    const [entry] = await svc.getWeek(WEEK)
+    expect(entry).toMatchObject({ description: 'Opravil validaci formuláře.',
+      issueKey: update.issueKey, durationMs: update.durationMs })
+  })
+
   test('updateEntry on a manual card writes through the manual repo', async () => {
     const svc = make([])
     const created = svc.addManual({

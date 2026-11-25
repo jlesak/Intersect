@@ -1,7 +1,7 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { buildSummarySpawnSpec, runTimeSummary } from './timeSummaryRunner'
 
 const dirs: string[] = []
@@ -33,4 +33,29 @@ test('a hung child is killed at the timeout and its temporary cwd is removed', a
     timeoutMs: 20, parentEnv: { HOME: root, PATH: '/bin' } })).rejects.toThrow('model-timeout')
   const { readdirSync } = await import('node:fs')
   expect(readdirSync(root)).toEqual(['claude'])
+})
+
+test('an abort after child startup kills it and removes its temporary cwd', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'intersect-summary-runner-test-')); dirs.push(root)
+  const script = join(root, 'claude')
+  const pidFile = join(root, 'child.pid')
+  writeFileSync(script, `#!/bin/sh\nprintf '%s' "$$" > "${pidFile}"\nexec /bin/sleep 5\n`)
+  chmodSync(script, 0o700)
+  const controller = new AbortController()
+  const pending = runTimeSummary('Synthetic', { claudePath: script, tempRoot: root,
+    signal: controller.signal, timeoutMs: 10_000, parentEnv: { HOME: root, PATH: '/bin' } })
+  await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true))
+  const pid = Number(readFileSync(pidFile, 'utf8'))
+  expect(pid).toBeGreaterThan(1)
+  controller.abort()
+  await expect(pending).rejects.toThrow('model-aborted')
+  await vi.waitFor(() => {
+    let alive = true
+    try { process.kill(pid, 0) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false
+    }
+    expect(alive).toBe(false)
+  })
+  const { readdirSync } = await import('node:fs')
+  expect(readdirSync(root).sort()).toEqual(['child.pid', 'claude'])
 })

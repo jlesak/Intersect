@@ -172,6 +172,12 @@ describe('projectsWireRoutes', () => {
         Channel.projectsSetOverride,
         Channel.projectsClearOverride,
         Channel.projectsListWorktrees,
+        Channel.projectsGitStatuses,
+        Channel.projectsGitBranches,
+        Channel.projectsGitPreview,
+        Channel.projectsGitValidateName,
+        Channel.projectsGitAction,
+        Channel.projectsGitCommit,
         Channel.projectsGetTerminalLayouts,
         Channel.projectsSetTerminalLayout
       ].sort()

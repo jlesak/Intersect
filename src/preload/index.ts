@@ -44,6 +44,12 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
     clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
     listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id),
+    gitStatuses: (id) => ipcRenderer.invoke(Channel.projectsGitStatuses, id),
+    gitBranches: (id, repoPath, discoverDefault) => ipcRenderer.invoke(Channel.projectsGitBranches, id, repoPath, discoverDefault),
+    gitPreview: (id, repoPath) => ipcRenderer.invoke(Channel.projectsGitPreview, id, repoPath),
+    gitValidateName: (id, repoPath, name) => ipcRenderer.invoke(Channel.projectsGitValidateName, id, repoPath, name),
+    gitAction: (id, repoPath, action) => ipcRenderer.invoke(Channel.projectsGitAction, id, repoPath, action),
+    gitCommit: (id, repoPath, token, message, push) => ipcRenderer.invoke(Channel.projectsGitCommit, id, repoPath, token, message, push),
     getTerminalLayouts: (projectKey) =>
       ipcRenderer.invoke(Channel.projectsGetTerminalLayouts, projectKey),
     setTerminalLayout: (projectKey, layout, shares) =>
@@ -269,6 +275,9 @@ const api: IpcApi = {
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
   agentTooling: {
+    listMemoryProjects: () => ipcRenderer.invoke(Channel.agentToolingListMemoryProjects),
+    listMemories: (slug, query) => ipcRenderer.invoke(Channel.agentToolingListMemories, slug, query),
+    readMemory: (slug, filename) => ipcRenderer.invoke(Channel.agentToolingReadMemory, slug, filename),
     getEffectiveConfig: (scope) =>
       ipcRenderer.invoke(Channel.agentToolingGetEffectiveConfig, scope),
     listSkills: (scope) => ipcRenderer.invoke(Channel.agentToolingListSkills, scope),

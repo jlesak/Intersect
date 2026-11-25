@@ -89,6 +89,7 @@ import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
 import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
 import { createAgentToolingHandlers, agentToolingWireRoutes } from './api/agentTooling.ipc'
 import { createClaudeConfigReader } from './agentTooling/claudeConfigReader'
+import { createClaudeMemoryReader } from './agentTooling/claudeMemoryReader'
 import { createConfigWriter } from './agentTooling/configWriter'
 import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
@@ -104,7 +105,7 @@ import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { createWorkItemRefRepo } from './db/workItemRefRepo'
-import { canonicalizePath, projectPathDeps } from './projects/paths'
+import { canonicalizePath, projectPathDeps, worktreeParentRoot } from './projects/paths'
 import { createTimeSessionDayRepo } from './db/timeSessionDayRepo'
 import { createSessionSnapshots } from './timeTracking/sessionSnapshots'
 import { createTimeSummaryScheduler } from './timeTracking/timeSummaryScheduler'
@@ -136,6 +137,8 @@ import { createFixManager, type FixManager } from './prInbox/fixManager'
 import { decorateTerminalSpec } from './prInbox/fixSpawn'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
+import { createGitMenuService, createRepoQueue } from './projects/gitMenu'
+import { gitSessionWarning } from './projects/gitSessionWarning'
 import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
 
 /**
@@ -592,7 +595,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       logger: adoLog
     })
 
-  const worktrees = createWorktreeManager(userDataDir)
+  const repoQueue = createRepoQueue()
+  const worktrees = createWorktreeManager(userDataDir, { onClone: repoQueue })
   const allWorkspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
   // A fix worktree's origin names the same repository as its clone, so it must never be taken
   // for the clone a review, a diff or another fix works from.
@@ -602,7 +606,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   const localDiff = isE2e
     ? createLocalDiffE2eStub(env)
     : createLocalDiffService({
-        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders)
+        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders),
+        onRepo: repoQueue
       })
 
   const review = createReviewManager({
@@ -727,6 +732,12 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
 
   const projectHandlers = createProjectHandlers({
     projects,
+    gitMenu: createGitMenuService((id) => projects.getById(id), repoQueue, (mainPath) =>
+      gitSessionWarning(
+        mainPath, workspaces.list(), (id) => tabs.listByWorkspace(id),
+        (id) => sessions.has(id), canonicalizePath, worktreeParentRoot
+      )
+    ),
     pathDeps: projectPathDeps,
     workspaces,
     overrides: projectOverrides,
@@ -875,6 +886,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // gate every project-level file access against.
   const agentToolingHandlers = createAgentToolingHandlers({
     reader: createClaudeConfigReader(),
+    memoryReader: createClaudeMemoryReader(),
     writer: createConfigWriter(),
     resolveScope: (scope) => {
       if (scope.kind === 'global') return { kind: 'global' }

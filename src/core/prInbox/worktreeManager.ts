@@ -3,6 +3,7 @@ import { mkdir, readdir, rm } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { canonicalizePath } from '../projects/paths'
 import { parseWorktreeList } from '../projects/worktrees'
+import type { RepoQueue } from '../projects/gitMenu'
 import { git, gitWithLockRetry } from './git'
 import { remoteMatchesRepoName } from './worktreeMatch'
 
@@ -111,8 +112,7 @@ export interface WorktreeManager {
   createBranchWorktree(input: CreateBranchWorktreeInput): Promise<{ diverged: boolean }>
   /**
    * Remove a fix worktree only when it holds nothing uncommitted or untracked, never by force.
-   * Not queued behind the clone's fetches: it touches only the worktree's own folder and its
-   * entry under `.git/worktrees`, so it cannot contend with their ref locks.
+   * Queued with the clone's other Git work so removal cannot race a fetch or branch action.
    */
   removeCleanWorktree(path: string): Promise<RemoveCleanResult>
   /** The folders directly under the fix root, sorted; none when the root does not exist yet. */
@@ -121,7 +121,7 @@ export interface WorktreeManager {
 
 export interface WorktreeManagerOptions {
   /** Test seam: the per-clone queue, so a test can hold it and prove what bypasses it. */
-  onClone?: ReturnType<typeof createCloneQueue>
+  onClone?: RepoQueue
 }
 
 /**
@@ -352,7 +352,10 @@ export function createWorktreeManager(
     },
 
     removeCleanWorktree(path) {
-      return removeClean(path)
+      return onClone(path, () => removeClean(path)).catch((err) => ({
+        outcome: 'failed' as const,
+        detail: gitMessage(err)
+      }))
     },
 
     async listFixFolders() {

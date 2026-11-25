@@ -31,6 +31,8 @@ describe('Haiku result validation', () => {
     accepted('Oprava src/core/file.ts'),
     accepted('Oprava ./src/core/file.ts'),
     accepted('Oprava ../src/core/file.ts'),
+    accepted('Opravil soubor src/Makefile.'),
+    accepted('Upravil package/README.'),
     accepted('Viz ftp://example.invalid/item'),
     accepted('Viz file:///synthetic/private.txt'),
     accepted('Oprava -----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----'),
@@ -81,3 +83,18 @@ test.each(['xoxc-FAKE_PLACEHOLDER', 'xoxd-FAKE_PLACEHOLDER'])(
     expect(input).not.toContain(token)
   }
 )
+
+test('keeps only entries in the saved local day, even before the timestamp cutoff', () => {
+  const cutoff = Date.parse('2026-07-06T09:06:00Z')
+  const input = buildSummaryInput({ title: 'Validace', cwd: '/synthetic/project',
+    gitBranch: null, day: '2026-07-06', lastTimestamp: cutoff }, {
+    id: 's1', title: 'Validace', cwd: '/synthetic/project', entries: [
+      { role: 'user', timestamp: Date.parse('2026-07-06T06:59:00Z'),
+        text: 'Předchozí místní den', tools: [] },
+      { role: 'user', timestamp: Date.parse('2026-07-06T08:00:00Z'),
+        text: 'Tento místní den', tools: [] }
+    ]
+  }, 'America/Los_Angeles')
+  expect(input).toContain('Tento místní den')
+  expect(input).not.toContain('Předchozí místní den')
+})

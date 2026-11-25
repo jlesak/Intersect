@@ -32,7 +32,8 @@ function memFs(files: Record<string, string>, realpathMap: Record<string, string
       for (const d of dirSet) if (d !== p && dirname(d) === p) children.set(basename(d), { isFile: false, isDirectory: true })
       return [...children].map(([name, t]) => ({ name, ...t }))
     },
-    realpath: (p) => (p in realpathMap ? realpathMap[p] : exists(p) ? p : null)
+    realpath: (p) => (p in realpathMap ? realpathMap[p] : exists(p) ? p : null),
+    mtime: () => null
   }
 }
 

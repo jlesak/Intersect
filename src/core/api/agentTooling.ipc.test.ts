@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { AgentToolingScope } from '@common/domain'
 import type { ClaudeConfigReader, ResolvedScope } from '../agentTooling/claudeConfigReader'
 import type { ConfigWriter } from '../agentTooling/configWriter'
+import type { ClaudeMemoryReader } from '../agentTooling/claudeMemoryReader'
 import { createAgentToolingHandlers } from './agentTooling.ipc'
 
 function fakeReader(over: Partial<ClaudeConfigReader> = {}): ClaudeConfigReader {
@@ -54,10 +55,21 @@ const build = (over: { reader?: ClaudeConfigReader; writer?: ConfigWriter } = {}
   createAgentToolingHandlers({
     reader: over.reader ?? fakeReader(),
     writer: over.writer ?? fakeWriter(),
+    memoryReader: {
+      listProjects: vi.fn(() => []),
+      listMemories: vi.fn(() => []),
+      readMemory: vi.fn(() => null)
+    } as ClaudeMemoryReader,
     resolveScope
   })
 
 describe('createAgentToolingHandlers', () => {
+  test('exposes three independent read-only memory operations', async () => {
+    const handlers = build()
+    await expect(handlers.listMemoryProjects()).resolves.toEqual([])
+    await expect(handlers.listMemories(null, 'query')).resolves.toEqual([])
+    await expect(handlers.readMemory('slug', 'note.md')).resolves.toBeNull()
+  })
   test('getEffectiveConfig stamps the scope and adapter onto the reader result', async () => {
     const reader = fakeReader()
     const handlers = build({ reader })

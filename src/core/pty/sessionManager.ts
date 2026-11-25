@@ -50,6 +50,7 @@ export interface SessionManagerDeps {
 }
 
 export interface SessionManager {
+  has(sessionId: string): boolean
   spawn(
     sessionId: string,
     preset: Preset,
@@ -155,6 +156,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
   }
 
   return {
+    has: (sessionId) => sessions.has(sessionId),
     spawn,
     write(sessionId, data) {
       sessions.get(sessionId)?.write(data)
