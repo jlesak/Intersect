@@ -19,7 +19,7 @@ function fixture() {
   roots.push(root)
   const bare = join(root, 'origin.git')
   const main = join(root, 'main')
-  git(root, 'init', '--bare', bare)
+  git(root, 'init', '--bare', '-b', 'main', bare)
   git(root, 'init', '-b', 'main', main)
   git(main, 'config', 'user.name', 'Test')
   git(main, 'config', 'user.email', 'test@example.com')
