@@ -172,6 +172,8 @@ describe('projectsWireRoutes', () => {
         Channel.projectsSetOverride,
         Channel.projectsClearOverride,
         Channel.projectsListWorktrees,
+        Channel.projectsDeleteWorktree,
+        Channel.projectsRemoveWorktreeEntry,
         Channel.projectsGitStatuses,
         Channel.projectsGitBranches,
         Channel.projectsGitPreview,

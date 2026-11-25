@@ -136,6 +136,7 @@ import { createFixManager, type FixManager } from './prInbox/fixManager'
 import { decorateTerminalSpec } from './prInbox/fixSpawn'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
+import { createProjectWorktreeService, createWorktreeGuard } from './projects/worktreeService'
 import { createGitMenuService, createRepoQueue } from './projects/gitMenu'
 import { gitSessionWarning } from './projects/gitSessionWarning'
 import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
@@ -493,7 +494,10 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       )
   })
 
+  const worktreeGuard = createWorktreeGuard()
+  const repoQueue = createRepoQueue()
   const workspaceHandlers = createWorkspaceHandlers({
+    worktreeGuard,
     db,
     workspaces,
     tabs,
@@ -505,6 +509,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     pathDeps: projectPathDeps
   })
   const tabHandlers = createTabHandlers({
+    worktreeGuard,
     db,
     workspaces,
     tabs,
@@ -519,7 +524,9 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // a claude session 'working' the moment the user submits a prompt (Enter, i.e. '\r').
   // Resize and kill also tap the snapshot stream so it tracks the PTY's real dimensions and
   // never outlives the session.
-  const baseTerminalHandlers = createTerminalHandlers(sessions, (id) => terminalStream.attach(id))
+  const baseTerminalHandlers = createTerminalHandlers(
+    sessions, (id) => terminalStream.attach(id), worktreeGuard
+  )
   const terminalHandlers: TerminalHandlers = {
     ...baseTerminalHandlers,
     spawn: (id, preset, cwd, cols, rows, resumeSessionId) => {
@@ -594,7 +601,6 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       logger: adoLog
     })
 
-  const repoQueue = createRepoQueue()
   const worktrees = createWorktreeManager(userDataDir, { onClone: repoQueue })
   const allWorkspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
   // A fix worktree's origin names the same repository as its clone, so it must never be taken
@@ -739,7 +745,11 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     pathDeps: projectPathDeps,
     workspaces,
     overrides: projectOverrides,
-    terminalLayouts: createTerminalLayoutRepo(db, repoDeps)
+    terminalLayouts: createTerminalLayoutRepo(db, repoDeps),
+    worktreeService: createProjectWorktreeService({
+      projects, workspaces, tabs, appState, sessions, userDataDir,
+      onRepo: repoQueue, guard: worktreeGuard
+    })
   })
 
   // --- TODO list slice; the repo is shared with the 1:1 slice (read-only fulltext match) ---

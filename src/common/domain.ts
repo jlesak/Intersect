@@ -260,10 +260,48 @@ export interface ProjectOverride {
 /** One git worktree discovered under a project's repository binding. */
 export interface WorktreeInfo {
   path: string
+  displayPath: string
   /** Checked-out branch ref short name, or null for a detached HEAD. */
   branch: string | null
   head: string
+  bare: boolean
+  lockedReason: string | null
+  prunableReason: string | null
+  /** Folder is currently inaccessible, independently of Git's prunable flag (locks suppress it). */
+  folderMissing: boolean
+  createdAt: number | null
+  changed: { code: string; path: string }[]
+  unpushed: number
+  goneOnOrigin: boolean
+  main: boolean
+  managed: 'review' | 'fix' | null
+  workspaces: { id: string; name: string; tabs: number; runningClaude: number }[]
 }
+
+export interface WorktreeSnapshot {
+  changed: WorktreeInfo['changed']
+  lockedReason: string | null
+  branch: string | null
+  head: string
+  unpushed: number
+  folderMissing: boolean
+}
+
+export interface WorktreeDeleteRequest {
+  projectId: string
+  repoPath: string
+  path: string
+  snapshot: WorktreeSnapshot
+  discardChanges: boolean
+  overrideLock: boolean
+  deleteBranch: boolean
+}
+
+export type WorktreeDeleteResult =
+  | { outcome: 'deleted'; branchDeleted: boolean; workspaceIds: string[]; closedTabs: number }
+  | { outcome: 'entryRemoved' }
+  | { outcome: 'changed' | 'timeout'; detail: string }
+  | { outcome: 'partial'; detail: string; workspaceIds: string[]; closedTabs: number }
 
 /**
  * The worktrees of one repository binding of a project. A binding whose folder is not a usable

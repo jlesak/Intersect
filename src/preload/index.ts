@@ -44,6 +44,9 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
     clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
     listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id),
+    deleteWorktree: (request) => ipcRenderer.invoke(Channel.projectsDeleteWorktree, request),
+    removeWorktreeEntry: (projectId, repoPath, path) =>
+      ipcRenderer.invoke(Channel.projectsRemoveWorktreeEntry, projectId, repoPath, path),
     gitStatuses: (id) => ipcRenderer.invoke(Channel.projectsGitStatuses, id),
     gitBranches: (id, repoPath, discoverDefault) => ipcRenderer.invoke(Channel.projectsGitBranches, id, repoPath, discoverDefault),
     gitPreview: (id, repoPath) => ipcRenderer.invoke(Channel.projectsGitPreview, id, repoPath),
