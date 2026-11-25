@@ -1,6 +1,9 @@
 import type {
   AgentCatalogItem,
   AgentToolingScope,
+  ClaudeMemoryDetail,
+  ClaudeMemoryProject,
+  ClaudeMemorySummary,
   ConfigEditRequest,
   ConfigPreview,
   ConfigSaveRequest,
@@ -20,6 +23,13 @@ export const listSkills = (scope: AgentToolingScope): Promise<SkillCatalogItem[]
   ipc().agentTooling.listSkills(scope)
 export const listAgents = (scope: AgentToolingScope): Promise<AgentCatalogItem[]> =>
   ipc().agentTooling.listAgents(scope)
+export const listMemoryProjects = (): Promise<ClaudeMemoryProject[]> =>
+  ipc().agentTooling.listMemoryProjects()
+export const listMemories = (slug: string | null, query: string): Promise<ClaudeMemorySummary[]> =>
+  ipc().agentTooling.listMemories(slug, query)
+export const readMemory = (slug: string, filename: string): Promise<ClaudeMemoryDetail | null> =>
+  ipc().agentTooling.readMemory(slug, filename)
+export const openMemoryExternal = (url: string): Promise<void> => ipc().system.openExternal(url)
 /** Reveal a discovered source file in the OS file manager (guarded, Electron-only). */
 export const revealPath = (path: string): Promise<void> => ipc().system.revealPath(path)
 
