@@ -14,7 +14,7 @@ function entry(over: Partial<TimeEntry> = {}): TimeEntry {
     issueKey: null,
     durationMs: 60 * 60_000,
     ...over
-  }
+  } as TimeEntry
 }
 
 function render(over: {

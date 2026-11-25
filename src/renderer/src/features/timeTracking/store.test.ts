@@ -25,7 +25,7 @@ const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: null,
   durationMs: 60_000,
   ...over
-})
+}) as TimeEntry
 
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,

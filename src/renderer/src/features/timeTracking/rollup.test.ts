@@ -14,7 +14,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: null,
   durationMs: 30 * MIN,
   ...over
-})
+}) as TimeEntry
 
 const project = (over: Partial<Project> = {}): Project => ({
   id: 'p1',

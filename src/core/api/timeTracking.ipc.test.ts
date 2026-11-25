@@ -15,7 +15,7 @@ const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   issueKey: 'PROJ-611',
   durationMs: 60 * 60_000,
   ...over
-})
+}) as TimeEntry
 
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,
@@ -30,6 +30,10 @@ function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingServi
     addManual: vi.fn(() => entry({ id: 'm1', source: 'manual' })),
     updateEntry: vi.fn(async () => entry({ durationMs: 1 })),
     deleteEntry: vi.fn(async () => {}),
+    groupEntries: vi.fn(() => 'g1'),
+    groupDayByIssue: vi.fn(() => []),
+    updateGroup: vi.fn(() => {}),
+    ungroup: vi.fn(() => {}),
     getRunningTimer: vi.fn(() => TIMER),
     startTimer: vi.fn(() => TIMER),
     updateTimer: vi.fn(() => TIMER),
@@ -148,6 +152,10 @@ describe('timeTrackingWireRoutes', () => {
         Channel.timeTrackingAddManual,
         Channel.timeTrackingUpdateEntry,
         Channel.timeTrackingDeleteEntry,
+        Channel.timeTrackingGroupEntries,
+        Channel.timeTrackingGroupDayByIssue,
+        Channel.timeTrackingUpdateGroup,
+        Channel.timeTrackingUngroup,
         Channel.timeTrackingConfirmWork,
         Channel.timeTrackingRegenerate,
         Channel.timeTrackingGetTimer,

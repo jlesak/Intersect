@@ -24,6 +24,7 @@ function toManualEntry(row: ManualRow): TimeEntry {
 
 export interface ManualTimeEntryRepo {
   create(input: NewManualTimeEntry): TimeEntry
+  get(id: string): TimeEntry
   /** Manual entries for the given day keys, ordered by day then creation time. */
   listByDays(days: string[]): TimeEntry[]
   /** Overwrite the two editable fields (time and issue key). */
@@ -42,6 +43,7 @@ export function createManualTimeEntryRepo(db: DatabaseSync, deps: RepoDeps): Man
   }
 
   return {
+    get: mustGet,
     create(input) {
       const id = deps.newId()
       db.prepare(

@@ -820,6 +820,26 @@ const MIGRATIONS: Migration[] = [
           CHECK (work_confirmed IN (0, 1));
       `)
     }
+  },
+  {
+    version: 33,
+    up(db) {
+      db.exec(`
+        CREATE TABLE time_entry_group (
+          id TEXT PRIMARY KEY, day TEXT NOT NULL, description TEXT NOT NULL,
+          issue_key TEXT, duration_override_ms INTEGER,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_time_entry_group_day ON time_entry_group(day);
+        CREATE TABLE time_entry_group_member (
+          group_id TEXT NOT NULL REFERENCES time_entry_group(id) ON DELETE CASCADE,
+          entry_kind TEXT NOT NULL CHECK (entry_kind IN ('auto', 'manual')),
+          entry_id TEXT NOT NULL,
+          PRIMARY KEY (group_id, entry_kind, entry_id),
+          UNIQUE (entry_kind, entry_id)
+        );
+      `)
+    }
   }
 ]
 

@@ -727,7 +727,7 @@ export type JiraLoginResult = { ok: true } | { ok: false; message: string }
 // ---------------------------------------------------------------------------
 
 /** Where a worklog entry comes from: derived from a Claude Code session, or typed in by hand. */
-export const TIME_ENTRY_SOURCES = ['auto', 'manual'] as const
+export const TIME_ENTRY_SOURCES = ['auto', 'manual', 'group'] as const
 export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number]
 
 /**
@@ -746,6 +746,7 @@ interface TimeEntryFields {
 
 export type TimeEntry = TimeEntryFields & (
   | { source: 'manual' }
+  | { source: 'group'; members: Exclude<TimeEntry, { source: 'group' }>[] }
   | {
       source: 'auto'
       sessionId: string
@@ -761,6 +762,7 @@ export type TimeEntry = TimeEntryFields & (
 export type TimeEntryRef =
   | { source: 'auto'; sessionId: string; day: string }
   | { source: 'manual'; id: string }
+  | { source: 'group'; id: string }
 
 /** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
 export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'>

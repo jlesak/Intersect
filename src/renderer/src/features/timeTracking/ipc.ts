@@ -20,6 +20,13 @@ export const updateEntry = (
 ): Promise<TimeEntry> => ipc().timeTracking.updateEntry(ref, update)
 export const deleteEntry = (ref: TimeEntryRef): Promise<void> =>
   ipc().timeTracking.deleteEntry(ref)
+export const groupEntries = (refs: TimeEntryRef[]): Promise<string> =>
+  ipc().timeTracking.groupEntries(refs)
+export const groupDayByIssue = (day: string): Promise<string[]> =>
+  ipc().timeTracking.groupDayByIssue(day)
+export const updateGroup = (id: string, update: Partial<TimeEntryUpdate>): Promise<void> =>
+  ipc().timeTracking.updateGroup(id, update)
+export const ungroup = (id: string): Promise<void> => ipc().timeTracking.ungroup(id)
 export const confirmWork = (ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void> =>
   ipc().timeTracking.confirmWork(ref)
 export const regenerate = (ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void> =>

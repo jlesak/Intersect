@@ -3101,6 +3101,33 @@
 .ix-tt-card:hover {
   border-color: var(--border-strong);
 }
+.ix-tt-card--selected {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+.ix-tt__group-by-issue {
+  margin-top: 6px;
+  padding: 2px 0;
+  font-size: 10px;
+  text-align: left;
+}
+.ix-tt-card__members {
+  border-top: 1px solid var(--border);
+  padding-top: 5px;
+}
+.ix-tt-card__member {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.ix-tt-card__member span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ix-tt-card:hover .ix-tt-card__actions,
 .ix-tt-card:focus-within .ix-tt-card__actions {
   opacity: 1;

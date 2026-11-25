@@ -32,6 +32,10 @@ export function createTimeTrackingHandlers(deps: TimeTrackingHandlerDeps): Omit<
     addManual: (input) => surface(async () => deps.service.addManual(input)),
     updateEntry: (ref, update) => surface(() => deps.service.updateEntry(ref, update)),
     deleteEntry: (ref) => surface(() => deps.service.deleteEntry(ref)),
+    groupEntries: (refs) => surface(async () => deps.service.groupEntries(refs)),
+    groupDayByIssue: (day) => surface(async () => deps.service.groupDayByIssue(day)),
+    updateGroup: (id, update) => surface(async () => deps.service.updateGroup(id, update)),
+    ungroup: (id) => surface(async () => deps.service.ungroup(id)),
     confirmWork: (ref) => surface(() => {
       if (!deps.summary) throw new Error('Summary service unavailable')
       return deps.summary.confirmWork(ref)
@@ -56,6 +60,10 @@ export function timeTrackingWireRoutes(h: Omit<IpcApi['timeTracking'], 'onChange
     [Channel.timeTrackingAddManual]: h.addManual,
     [Channel.timeTrackingUpdateEntry]: h.updateEntry,
     [Channel.timeTrackingDeleteEntry]: h.deleteEntry,
+    [Channel.timeTrackingGroupEntries]: h.groupEntries,
+    [Channel.timeTrackingGroupDayByIssue]: h.groupDayByIssue,
+    [Channel.timeTrackingUpdateGroup]: h.updateGroup,
+    [Channel.timeTrackingUngroup]: h.ungroup,
     [Channel.timeTrackingConfirmWork]: h.confirmWork,
     [Channel.timeTrackingRegenerate]: h.regenerate,
     [Channel.timeTrackingGetTimer]: h.getTimer,
