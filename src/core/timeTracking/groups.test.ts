@@ -61,15 +61,28 @@ describe('time entry groups integration', () => {
     ]))
   })
 
-  test('rejects duplicate membership and cross-day grouping without partial writes', async () => {
+  test('rejects a card that already belongs to another group', () => {
     const t = setup()
     const a = t.add('A', null)
     const b = t.add('B', null)
-    const c = t.add('C', null, NEXT)
-    await t.service.groupEntries([{ source: 'manual', id: a.id }, { source: 'manual', id: b.id }])
+    const c = t.add('C', null)
+    t.service.groupEntries([{ source: 'manual', id: a.id }, { source: 'manual', id: b.id }])
     expect(() => t.service.groupEntries([{ source: 'manual', id: a.id },
-      { source: 'manual', id: c.id }])).toThrow()
-    expect(t.groups.listByDays([DAY, NEXT])).toHaveLength(1)
+      { source: 'manual', id: c.id }])).toThrow('A card is already grouped')
+    expect(t.groups.listByDays([DAY])).toHaveLength(1)
+    expect((t.db.prepare('SELECT count(*) AS n FROM time_entry_group_member').get() as { n: number }).n)
+      .toBe(2)
+  })
+
+  test('rejects ungrouped cards from different days without a partial group', () => {
+    const t = setup()
+    const a = t.add('A', null, DAY)
+    const b = t.add('B', null, NEXT)
+    expect(() => t.service.groupEntries([{ source: 'manual', id: a.id },
+      { source: 'manual', id: b.id }])).toThrow('A group cannot span days')
+    expect(t.groups.listByDays([DAY, NEXT])).toEqual([])
+    expect((t.db.prepare('SELECT count(*) AS n FROM time_entry_group_member').get() as { n: number }).n)
+      .toBe(0)
   })
 
   test('deleting one member dissolves a two-member group', async () => {
