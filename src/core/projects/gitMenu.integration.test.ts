@@ -11,6 +11,9 @@ const roots: string[] = []
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).trim()
 }
+function currentHead(main: string): { branch: string | null; head: string } {
+  return { branch: git(main, 'branch', '--show-current') || null, head: git(main, 'rev-parse', 'HEAD') }
+}
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'intersect-git-menu-'))
   roots.push(root)
@@ -65,6 +68,92 @@ describe('project Git menu with real repositories', () => {
     expect(git(main, 'status', '--porcelain')).toContain('?? new')
   })
 
+  test('staged and edited file counts the unstaged work that stays behind', async () => {
+    const { main, service } = fixture()
+    writeFileSync(join(main, 'tracked'), 'staged\n')
+    git(main, 'add', 'tracked')
+    writeFileSync(join(main, 'tracked'), 'unstaged\n')
+    const preview = await service.preview('p', main)
+    expect(preview.mode).toBe('staged')
+    expect(preview.files.map((file) => file.path)).toEqual(['tracked'])
+    expect(preview.otherCount).toBe(1)
+    expect(await service.commit('p', main, preview.token, 'staged version', false)).toMatchObject({ outcome: 'committed' })
+    expect(git(main, 'show', 'HEAD:tracked')).toBe('staged')
+    expect(git(main, 'status', '--porcelain')).toContain('M tracked')
+  })
+
+  test('preview list and token use the same status snapshot when a terminal adds a file', async () => {
+    const { root, main, service } = fixture()
+    writeFileSync(join(main, 'tracked'), 'changed\n')
+    const bin = join(root, 'bin')
+    const counter = join(root, 'status-count')
+    const gitBinary = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'git'), `#!/bin/sh
+case " $* " in
+  *" status --porcelain=v2 "*)
+    count=$(cat "${counter}" 2>/dev/null || echo 0)
+    count=$((count + 1))
+    echo "$count" > "${counter}"
+    if [ "$count" -eq 3 ]; then echo surprise > "${main}/surprise"; fi
+    ;;
+esac
+exec "${gitBinary}" "$@"
+`, { mode: 0o755 })
+    const previous = process.env.PATH
+    process.env.PATH = `${bin}:${previous ?? ''}`
+    try {
+      const preview = await service.preview('p', main)
+      expect(preview.files.map((file) => file.path)).toEqual(['tracked'])
+      const result = await service.commit('p', main, preview.token, 'do not commit surprise', false)
+      expect(result).toMatchObject({ outcome: 'preview-changed' })
+      expect(git(main, 'log', '-1', '--format=%s')).toBe('initial')
+    } finally { process.env.PATH = previous }
+  })
+
+  test('cleared changes return an empty refreshed preview before rejecting commit', async () => {
+    const { main, service } = fixture()
+    writeFileSync(join(main, 'tracked'), 'changed\n')
+    const preview = await service.preview('p', main)
+    git(main, 'restore', 'tracked')
+    expect(await service.commit('p', main, preview.token, 'stale', false)).toMatchObject({
+      outcome: 'preview-changed', preview: { files: [], mode: 'all' }
+    })
+    expect(git(main, 'log', '-1', '--format=%s')).toBe('initial')
+  })
+
+  test('branch identity from the menu guards pull, push, and HEAD branch creation', async () => {
+    const { main, service, project } = fixture()
+    const expected = (await service.statuses(project))[0]
+    git(main, 'switch', '-c', 'other')
+    for (const kind of ['pull', 'push'] as const) {
+      await expect(service.action('p', main, { kind, expected: { branch: expected.branch, head: expected.head } }))
+        .rejects.toThrow('Main checkout changed')
+    }
+    await expect(service.action('p', main, {
+      kind: 'new-branch', name: 'should-not-exist', start: 'HEAD',
+      expected: { branch: expected.branch, head: expected.head }
+    })).rejects.toThrow('Main checkout changed')
+    expect(git(main, 'branch', '--show-current')).toBe('other')
+    expect(git(main, 'branch', '--list', 'should-not-exist')).toBe('')
+  })
+
+  test('commit hook inherits PATH set after Git menu module was loaded', async () => {
+    const { root, main, service } = fixture()
+    const bin = join(root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'late-helper'), '#!/bin/sh\necho hook-ran\n', { mode: 0o755 })
+    writeFileSync(join(main, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nlate-helper >&2\n', { mode: 0o755 })
+    writeFileSync(join(main, 'tracked'), 'changed\n')
+    const previous = process.env.PATH
+    process.env.PATH = `${bin}:${previous ?? ''}`
+    try {
+      const preview = await service.preview('p', main)
+      expect(await service.commit('p', main, preview.token, 'hook path', false)).toMatchObject({ outcome: 'committed' })
+      expect(git(main, 'log', '-1', '--format=%s')).toBe('hook path')
+    } finally { process.env.PATH = previous }
+  })
+
   test('hook failure preserves index and returns refreshed preview', async () => {
     const { main, service } = fixture()
     writeFileSync(join(main, 'new'), 'new\n')
@@ -95,9 +184,9 @@ describe('project Git menu with real repositories', () => {
 
   test('no-upstream push works at zero ahead and commit plus failed push advances once', async () => {
     const { main, bare, service, project } = fixture()
-    await service.action('p', main, { kind: 'new-branch', name: 'feature/test', start: 'HEAD' })
+    await service.action('p', main, { kind: 'new-branch', name: 'feature/test', start: 'HEAD', expected: currentHead(main) })
     expect((await service.statuses(project))[0].upstream).toBeNull()
-    await service.action('p', main, { kind: 'push' })
+    await service.action('p', main, { kind: 'push', expected: currentHead(main) })
     expect(git(main, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/feature/test')
     writeFileSync(join(main, 'new'), 'new\n')
     const preview = await service.preview('p', main)
@@ -113,15 +202,15 @@ describe('project Git menu with real repositories', () => {
   test('first Push sets tracking when an equal origin branch already exists', async () => {
     const { main, service } = fixture()
     git(main, 'push', 'origin', 'main:refs/heads/feature/existing')
-    await service.action('p', main, { kind: 'new-branch', name: 'feature/existing', start: 'HEAD' })
-    const result = await service.action('p', main, { kind: 'push' })
+    await service.action('p', main, { kind: 'new-branch', name: 'feature/existing', start: 'HEAD', expected: currentHead(main) })
+    const result = await service.action('p', main, { kind: 'push', expected: currentHead(main) })
     expect(result).toContain('set upstream')
     expect(git(main, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/feature/existing')
   })
 
   test('new branch from remote has no upstream, remote-only switch tracks', async () => {
     const { root, main, bare, service, project } = fixture()
-    await service.action('p', main, { kind: 'new-branch', name: 'feature/new', start: 'origin/main' })
+    await service.action('p', main, { kind: 'new-branch', name: 'feature/new', start: 'origin/main', expected: currentHead(main) })
     expect(git(main, 'branch', '--show-current')).toBe('feature/new')
     expect((await service.statuses(project))[0].upstream).toBeNull()
     git(main, 'switch', 'main')
@@ -158,7 +247,7 @@ describe('project Git menu with real repositories', () => {
     const { main, service } = fixture()
     expect(await service.validateName('p', main, 'bad name')).not.toBeNull()
     expect(await service.validateName('p', main, 'main')).toContain('already exists')
-    await service.action('p', main, { kind: 'new-branch', name: 'other', start: 'HEAD' })
+    await service.action('p', main, { kind: 'new-branch', name: 'other', start: 'HEAD', expected: currentHead(main) })
     writeFileSync(join(main, 'tracked'), 'other branch\n')
     git(main, 'add', '-A')
     git(main, 'commit', '-m', 'other branch change')
@@ -183,7 +272,7 @@ describe('project Git menu with real repositories', () => {
     git(other, 'add', '-A')
     git(other, 'commit', '-m', 'remote one')
     git(other, 'push')
-    await service.action('p', main, { kind: 'pull' })
+    await service.action('p', main, { kind: 'pull', expected: currentHead(main) })
     expect(git(main, 'log', '-1', '--format=%s')).toBe('remote one')
     writeFileSync(join(main, 'local'), 'local\n')
     git(main, 'add', '-A')
@@ -193,7 +282,7 @@ describe('project Git menu with real repositories', () => {
     git(other, 'commit', '-m', 'remote two')
     git(other, 'push')
     const before = git(main, 'rev-parse', 'HEAD')
-    await expect(service.action('p', main, { kind: 'pull' })).rejects.toThrow('Branch has diverged')
+    await expect(service.action('p', main, { kind: 'pull', expected: currentHead(main) })).rejects.toThrow('Branch has diverged')
     expect(git(main, 'rev-parse', 'HEAD')).toBe(before)
     expect(git(main, 'show', 'HEAD:local')).toBe('local')
   })
@@ -224,7 +313,7 @@ describe('project Git menu with real repositories', () => {
     const status = (await service.statuses(project))[0]
     expect(status.branch).toBeNull()
     expect(status.head).toMatch(/^[0-9a-f]{40}$/)
-    await expect(service.action('p', main, { kind: 'push' })).rejects.toThrow('detached HEAD')
+    await expect(service.action('p', main, { kind: 'push', expected: currentHead(main) })).rejects.toThrow('detached HEAD')
   })
 
   test('the Git runner terminates a command at its injected timeout', async () => {
@@ -263,7 +352,7 @@ describe('project Git menu with real repositories', () => {
     if (marker.startsWith('rebase-')) mkdirSync(path)
     else writeFileSync(path, 'marker\n')
     expect((await service.statuses(project))[0].progress).toBe(expected)
-    await expect(service.action('p', main, { kind: 'push' })).rejects.toThrow('Finish the Git operation')
+    await expect(service.action('p', main, { kind: 'push', expected: currentHead(main) })).rejects.toThrow('Finish the Git operation')
     await expect(service.action('p', main, { kind: 'fetch' })).resolves.toContain('Fetched')
   })
 

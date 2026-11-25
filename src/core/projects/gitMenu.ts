@@ -10,7 +10,7 @@ import type {
 import { parseWorktreeList } from './worktrees'
 
 const exec = promisify(execFile)
-const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+const childEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_TERMINAL_PROMPT: '0' })
 const NETWORK_TIMEOUT = 120_000
 
 export function gitError(error: unknown): string {
@@ -22,7 +22,7 @@ export function gitError(error: unknown): string {
 /** All calls use argv, never a shell; even a credential helper cannot ask on the terminal. */
 export async function runGit(cwd: string, args: string[], timeout = 15_000): Promise<string> {
   const { stdout } = await exec('git', ['-C', cwd, ...args], {
-    env, timeout, windowsHide: true, maxBuffer: 32 * 1024 * 1024
+    env: childEnv(), timeout, windowsHide: true, maxBuffer: 32 * 1024 * 1024
   })
   return stdout
 }
@@ -125,20 +125,19 @@ async function readStatus(repoPath: string): Promise<ProjectGitStatus> {
 }
 
 async function preview(mainPath: string): Promise<ProjectGitPreview> {
-  const status = await readStatus(mainPath)
-  if (status.error) throw new Error(status.error)
+  const raw = await runGit(mainPath, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'])
+  const status = parseGitStatus(raw)
   const staged = status.files.filter((f) => f.staged)
   const mode = staged.length ? 'staged' : 'all'
   const files = mode === 'staged' ? staged : status.files
-  const raw = await runGit(mainPath, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'])
   const token = createHash('sha256').update(mainPath).update(raw).digest('hex')
-  return { mode, files, otherCount: status.files.length - files.length, token }
+  return { mode, files, otherCount: mode === 'staged' ? status.files.filter((file) => file.unstaged).length : 0, token }
 }
 
 function commitWithStdin(cwd: string, message: string): Promise<void> {
   return new Promise((done, fail) => {
     const child = spawn('git', ['-C', cwd, 'commit', '-F', '-'], {
-      env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
+      env: childEnv(), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
     })
     let stderr = ''
     let stdout = ''
@@ -239,6 +238,9 @@ export function createGitMenuService(getProject: (id: string) => Project | null 
     action: (projectId, repoPath, action) => queued(projectId, repoPath, async (status) => {
       const main = status.mainPath!
       if (action.kind !== 'fetch' && status.progress) throw new Error('Finish the Git operation in a terminal first')
+      if ('expected' in action && (action.expected.branch !== status.branch || action.expected.head !== status.head)) {
+        throw new Error('Main checkout changed; refresh and try again')
+      }
       if (action.kind === 'fetch') {
         await runGit(main, ['fetch', '--prune'], NETWORK_TIMEOUT)
         return 'Fetched remote changes'
@@ -284,10 +286,11 @@ export function createGitMenuService(getProject: (id: string) => Project | null 
     }),
     commit: (projectId, repoPath, token, message, doPush) => queued(projectId, repoPath, async (status) => {
       if (!message.trim()) throw new Error('Commit message is required')
-      if (!status.branch || status.progress || !status.files.length) throw new Error('Commit is unavailable')
+      if (!status.branch || status.progress) throw new Error('Commit is unavailable')
       const main = status.mainPath!
       const current = await preview(main)
       if (current.token !== token) return { outcome: 'preview-changed', preview: current }
+      if (!current.files.length) throw new Error('Commit is unavailable')
       try {
         if (current.mode === 'all') await runGit(main, ['add', '-A'])
         await commitWithStdin(main, message)

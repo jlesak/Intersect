@@ -46,6 +46,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const [focused, setFocused] = useState(true)
   const filterRef = useRef<HTMLInputElement>(null)
   const previewPath = useRef<string | null>(null)
+  const branchExpected = useRef<Pick<ProjectGitStatus, 'branch' | 'head'> | null>(null)
   const generation = useRef(0)
   const polling = useRef(false)
   const alive = useRef(true)
@@ -177,7 +178,9 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   }
 
   function openBranch(initial = ''): void {
+    if (!open || disabled || !status) return
     previewPath.current = open
+    branchExpected.current = { branch: status.branch, head: status.head }
     if (open) {
       void api.gitBranches(projectId, open, true).then(setBranches)
         .catch((error) => reportError('Could not list branches', error))
@@ -191,10 +194,12 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
 
   async function createBranch(): Promise<void> {
     const path = previewPath.current
-    if (!path || dialogBusy || nameError || !name) return
+    if (!path || !branchExpected.current || dialogBusy || nameError || !name) return
     begin(path, 'Creating branch…')
     try {
-      useToastStore.getState().push(await api.gitAction(projectId, path, { kind: 'new-branch', name, start }))
+      useToastStore.getState().push(await api.gitAction(projectId, path, {
+        kind: 'new-branch', name, start, expected: branchExpected.current
+      }))
       setDialog(null)
     } catch (error) { reportError('Could not create branch', error) }
     finally { end(path); void refresh() }
@@ -206,6 +211,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const select = (branch: ProjectGitBranch) => { void execute({ kind: 'switch', branch: branch.name, remote: branch.kind === 'remote' }) }
   const inProgress = !!status?.progress
   const disabled = !!busy || inProgress || !!status?.error
+  const expected = { branch: status?.branch ?? null, head: status?.head ?? '' }
   const canPush = !!status?.branch && (!status.upstream || status.ahead > 0)
   const at = Math.max(0, Math.min(active, choices.length - 1))
 
@@ -241,6 +247,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
           }
           if (e.key === 'Enter' && document.activeElement === filterRef.current) {
             e.preventDefault()
+            if (disabled) return
             if (noMatch) openBranch(filter.trim())
             else if (choices[at]) select(choices[at])
           }
@@ -251,8 +258,8 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
           {inProgress && <div>Finish {status.progress} in a terminal.</div>}
         </div>
         <div className="ix-git__actions">
-          <button disabled={disabled || !status.branch || !status.upstream} onClick={() => void execute({ kind: 'pull' })}>Pull <small>{status.behind ? `${status.behind} commits` : 'up to date'}</small></button>
-          <button disabled={disabled || !canPush} onClick={() => void execute({ kind: 'push' })}>Push <small>{!status.upstream ? 'sets upstream' : status.ahead ? `${status.ahead} commits` : 'nothing to push'}</small></button>
+          <button disabled={disabled || !status.branch || !status.upstream} onClick={() => void execute({ kind: 'pull', expected })}>Pull <small>{status.behind ? `${status.behind} commits` : 'up to date'}</small></button>
+          <button disabled={disabled || !canPush} onClick={() => void execute({ kind: 'push', expected })}>Push <small>{!status.upstream ? 'sets upstream' : status.ahead ? `${status.ahead} commits` : 'nothing to push'}</small></button>
           <button disabled={disabled || !status.branch || !status.files.length} onClick={() => { previewPath.current = open; void openCommit() }}>Commit… <small>{status.files.length} files</small></button>
           <button disabled={disabled} onClick={() => openBranch()}>New branch…</button>
           <button disabled={!!busy || !!status.error} onClick={() => void execute({ kind: 'fetch' })}>Fetch <small>updates ↑↓ counts</small></button>
@@ -278,8 +285,8 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     {dialog === 'commit' && preview && <Dialog title={`Commit to ${statuses.find((s) => s.repoPath === previewPath.current)?.branch ?? ''}`}
       onClose={() => { if (!dialogBusy) setDialog(null) }}
       actions={<><button className="ix-btn" onClick={() => setDialog(null)} disabled={dialogBusy}>Cancel</button>
-        <button className="ix-btn" disabled={dialogBusy || !message.trim()} onClick={() => void submitCommit(false)}>Commit</button>
-        <button className="ix-btn ix-btn--primary" disabled={dialogBusy || !message.trim()} onClick={() => void submitCommit(true)}>Commit and push</button></>}>
+        <button className="ix-btn" disabled={dialogBusy || !preview.files.length || !message.trim()} onClick={() => void submitCommit(false)}>Commit</button>
+        <button className="ix-btn ix-btn--primary" disabled={dialogBusy || !preview.files.length || !message.trim()} onClick={() => void submitCommit(true)}>Commit and push</button></>}>
       <p>{preview.mode === 'all' ? 'All changes go into the commit, new files too.' :
         `Only the ${preview.files.length} staged files go in. ${preview.otherCount} other changes stay uncommitted.`}</p>
       <ul className="ix-git__preview">{preview.files.map((file) => <li key={file.path}>{file.code} {file.path}</li>)}</ul>
