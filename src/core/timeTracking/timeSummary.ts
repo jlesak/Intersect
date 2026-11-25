@@ -13,8 +13,16 @@ export interface SummaryDay {
 }
 
 const MAX_INPUT = 12_000
-const SECRET = /-----BEGIN[\s\S]*?(?:-----END[^\n]*|$)|\b(?:sk-|ghp_|xox[abprs]-)[A-Za-z0-9_-]+|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b|\b[0-9a-fA-F]{32,}\b|\b[A-Za-z0-9+/]{40,}={0,2}\b/g
-const UNSAFE_OUTPUT = /https?:\/\/|www\.|(?:^|[\s("'])\/(?:[^\s]+)|[<>]/i
+const SECRET = /-----BEGIN[\s\S]*?(?:-----END[^\n]*|$)|\b(?:sk-|ghp_|xox[A-Za-z0-9_-]+)[A-Za-z0-9_-]*|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b|\b[0-9a-fA-F]{32,}\b|\b[A-Za-z0-9+/]{40,}={0,2}\b/g
+const URL = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\./i
+const ABSOLUTE_PATH = /(?:^|[^\p{L}\p{N}])\/[^\s/]+/u
+// A file may be extensionless (for example src/Makefile), so detect path components.
+const RELATIVE_PATH = /(?:^|[^\p{L}\p{N}])(?:\.\.?\/[\p{L}\p{N}_.-]+|[\p{L}\p{N}_.-]+\/[\p{L}\p{N}_.-]+)/u
+
+function unsafeOutput(summary: string): boolean {
+  return URL.test(summary) || ABSOLUTE_PATH.test(summary) || RELATIVE_PATH.test(summary) ||
+    /[<>]/.test(summary)
+}
 
 /** Match the secret families from #175 in both input and output, before input truncation. */
 export function redactSecrets(value: string): string {
@@ -72,7 +80,7 @@ export function parseSummaryEnvelope(raw: string): TimeSummaryResult {
   const summary = result.summary.trim()
   if (summary.length < 3 || summary.length > 140 || !/\p{L}/u.test(summary) ||
     /[\r\n]/.test(result.summary) || /[.!?]\s+(?=\p{L})/u.test(summary) ||
-    UNSAFE_OUTPUT.test(summary) ||
+    unsafeOutput(summary) ||
     redactSecrets(summary) !== summary) throw new Error('unsafe-summary')
   return { summary, isWork: result.isWork }
 }

@@ -60,7 +60,7 @@ describe('AgentToolingPaneBody', () => {
   test('renders the fixed sub-navigation in information-architecture order', () => {
     const host = render()
     const tabs = [...host.querySelectorAll('[role="tab"]')].map((t) => t.textContent)
-    expect(tabs).toEqual(['Overview', 'Permissions', 'Hooks', 'MCP', 'Skills', 'Agents', 'Advanced'])
+    expect(tabs).toEqual(['Overview', 'Permissions', 'Hooks', 'MCP', 'Skills', 'Agents', 'Memory', 'Advanced'])
   })
 
   test('exposes the adapter and scope selectors, with Global plus each active project', () => {

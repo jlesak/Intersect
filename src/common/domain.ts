@@ -179,6 +179,60 @@ export interface Project {
   adoRepositories: string[]
 }
 
+export interface GitChangedFile {
+  path: string
+  staged: boolean
+  unstaged: boolean
+  code: string
+}
+
+export type GitProgress = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
+
+export interface ProjectGitStatus {
+  repoPath: string
+  mainPath: string | null
+  commonDir: string | null
+  branch: string | null
+  head: string
+  upstream: string | null
+  ahead: number
+  behind: number
+  files: GitChangedFile[]
+  progress: GitProgress
+  error: string | null
+  claudeSessions: number
+  terminalSessions: number
+}
+
+export interface ProjectGitBranch {
+  name: string
+  kind: 'local' | 'remote'
+  current: boolean
+  inWorktree: boolean
+  timestamp: number
+  defaultRemote?: boolean
+}
+
+export interface ProjectGitPreview {
+  mode: 'all' | 'staged'
+  files: GitChangedFile[]
+  otherCount: number
+  token: string
+}
+
+export type ProjectGitAction =
+  | { kind: 'pull'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+  | { kind: 'push'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+  | { kind: 'fetch' }
+  | { kind: 'switch'; branch: string; remote: boolean }
+  | { kind: 'new-branch'; name: string; start: string; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+
+export type ProjectGitCommitResult =
+  | { outcome: 'committed'; commit: string }
+  | { outcome: 'committed-push-failed'; commit: string; error: string }
+  | { outcome: 'preview-changed'; preview: ProjectGitPreview }
+  | { outcome: 'failed'; error: string; preview: ProjectGitPreview }
+
 /** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
 export interface ProjectPatch {
   name?: string
@@ -1254,6 +1308,28 @@ export type AgentAdapter = (typeof AGENT_ADAPTERS)[number]
  * bound Project (whose repository roots gate every project-level file access).
  */
 export type AgentToolingScope = { kind: 'global' } | { kind: 'project'; projectId: string }
+
+export interface ClaudeMemoryProject {
+  slug: string
+  name: string
+  count: number
+}
+
+export type ClaudeMemoryType = 'user' | 'feedback' | 'project' | 'reference' | 'index' | 'unknown'
+
+export interface ClaudeMemorySummary {
+  slug: string
+  filename: string
+  name: string
+  description: string
+  type: ClaudeMemoryType
+  mtime: number | null
+  error: string | null
+}
+
+export interface ClaudeMemoryDetail extends ClaudeMemorySummary {
+  body: string
+}
 
 /**
  * Where an effective value came from, so the UI can label provenance on every row:
