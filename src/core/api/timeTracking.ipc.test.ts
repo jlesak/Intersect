@@ -8,13 +8,14 @@ import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracki
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 's1',
   source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false,
+  firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Session s1',
   issueKey: 'PROJ-611',
   durationMs: 60 * 60_000,
   ...over
-})
+}) as TimeEntry
 
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,
@@ -25,10 +26,17 @@ const TIMER: RunningTimer = {
 function makeService(over: Partial<TimeTrackingService> = {}): TimeTrackingService {
   return {
     getWeek: vi.fn(async () => [entry()]),
+    getDay: vi.fn(async () => [entry()]),
     refreshWeek: vi.fn(async () => [entry({ id: 's2' })]),
     addManual: vi.fn(() => entry({ id: 'm1', source: 'manual' })),
     updateEntry: vi.fn(async () => entry({ durationMs: 1 })),
     deleteEntry: vi.fn(async () => {}),
+    updateEntryPrepared: vi.fn(() => {}),
+    deleteEntryPrepared: vi.fn(() => {}),
+    groupEntries: vi.fn(() => 'g1'),
+    groupDayByIssue: vi.fn(() => []),
+    updateGroup: vi.fn(() => {}),
+    ungroup: vi.fn(() => {}),
     getRunningTimer: vi.fn(() => TIMER),
     startTimer: vi.fn(() => TIMER),
     updateTimer: vi.fn(() => TIMER),
@@ -147,6 +155,12 @@ describe('timeTrackingWireRoutes', () => {
         Channel.timeTrackingAddManual,
         Channel.timeTrackingUpdateEntry,
         Channel.timeTrackingDeleteEntry,
+        Channel.timeTrackingGroupEntries,
+        Channel.timeTrackingGroupDayByIssue,
+        Channel.timeTrackingUpdateGroup,
+        Channel.timeTrackingUngroup,
+        Channel.timeTrackingConfirmWork,
+        Channel.timeTrackingRegenerate,
         Channel.timeTrackingGetTimer,
         Channel.timeTrackingStartTimer,
         Channel.timeTrackingUpdateTimer,

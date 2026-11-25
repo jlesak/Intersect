@@ -7,22 +7,45 @@ export interface TimeSessionDay extends SessionDayActivity {
   cwd: string
   gitBranch: string | null
   autoDescription: string
+  summary: string | null
+  summaryStatus: 'pending' | 'done' | 'failed'
+  summarizedThrough: number | null
+  isWork: boolean | null
+  workConfirmed: boolean
 }
 const columns = `session_id AS sessionId, day, title, cwd, git_branch AS gitBranch,
   auto_description AS autoDescription, first_timestamp AS firstTimestamp,
-  last_timestamp AS lastTimestamp, active_duration_ms AS activeDurationMs`
+  last_timestamp AS lastTimestamp, active_duration_ms AS activeDurationMs,
+  summary, summary_status AS summaryStatus, summarized_through AS summarizedThrough,
+  is_work AS isWork, work_confirmed AS workConfirmed`
+
+type SnapshotInput = Omit<TimeSessionDay, 'summary' | 'summaryStatus' | 'summarizedThrough' |
+  'isWork' | 'workConfirmed'>
+type RawDay = Omit<TimeSessionDay, 'isWork' | 'workConfirmed'> & {
+  isWork: number | null; workConfirmed: number
+}
+function fromRow(row: RawDay): TimeSessionDay {
+  return { ...row, isWork: row.isWork === null ? null : row.isWork === 1,
+    workConfirmed: row.workConfirmed === 1 }
+}
 
 export function createTimeSessionDayRepo(db: DatabaseSync, now: () => number) {
   return {
     get(sessionId: string, day: string): TimeSessionDay | undefined {
-      return db.prepare(`SELECT ${columns} FROM time_session_day WHERE session_id = ? AND day = ?`)
-        .get(sessionId, day) as TimeSessionDay | undefined
+      const row = db.prepare(`SELECT ${columns} FROM time_session_day WHERE session_id = ? AND day = ?`)
+        .get(sessionId, day) as RawDay | undefined
+      return row && fromRow(row)
     },
     listByDays(days: string[]): TimeSessionDay[] {
+      if (days.length === 0) return []
       return db.prepare(`SELECT ${columns} FROM time_session_day WHERE day IN (${days.map(() => '?').join(',')})`)
-        .all(...days) as unknown as TimeSessionDay[]
+        .all(...days).map(row => fromRow(row as RawDay))
     },
-    upsert(row: TimeSessionDay): boolean {
+    listAll(): TimeSessionDay[] {
+      return db.prepare(`SELECT ${columns} FROM time_session_day`)
+        .all().map(row => fromRow(row as RawDay))
+    },
+    upsert(row: SnapshotInput): boolean {
       const result = db.prepare(`INSERT INTO time_session_day
         (session_id, day, title, cwd, git_branch, auto_description, first_timestamp, last_timestamp, active_duration_ms, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -36,6 +59,24 @@ export function createTimeSessionDayRepo(db: DatabaseSync, now: () => number) {
         .run(row.sessionId, row.day, row.title, row.cwd, row.gitBranch, row.autoDescription,
           row.firstTimestamp, row.lastTimestamp, row.activeDurationMs, now())
       return result.changes > 0
+    },
+    saveSummary(sessionId: string, day: string, through: number,
+      result: { summary: string; isWork: boolean }): boolean {
+      const changed = db.prepare(`UPDATE time_session_day SET summary = ?, summary_status = 'done',
+        summarized_through = ?, is_work = CASE WHEN work_confirmed = 1 THEN 1 ELSE ? END,
+        updated_at = ? WHERE session_id = ? AND day = ? AND last_timestamp = ?`)
+        .run(result.summary, through, result.isWork ? 1 : 0, now(), sessionId, day, through)
+      return changed.changes > 0
+    },
+    failSummary(sessionId: string, day: string): void {
+      db.prepare(`UPDATE time_session_day SET summary_status = 'failed', updated_at = ?
+        WHERE session_id = ? AND day = ?`).run(now(), sessionId, day)
+    },
+    confirmWork(sessionId: string, day: string): boolean {
+      const changed = db.prepare(`UPDATE time_session_day SET is_work = 1, work_confirmed = 1,
+        updated_at = ? WHERE session_id = ? AND day = ? AND work_confirmed = 0`)
+        .run(now(), sessionId, day)
+      return changed.changes > 0
     },
     /** Copy first, then remove. A conflict deliberately retains the unresolved legacy row. */
     adoptLegacy(sessionId: string, day: string): boolean {

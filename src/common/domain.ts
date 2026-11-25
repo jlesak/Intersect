@@ -179,6 +179,60 @@ export interface Project {
   adoRepositories: string[]
 }
 
+export interface GitChangedFile {
+  path: string
+  staged: boolean
+  unstaged: boolean
+  code: string
+}
+
+export type GitProgress = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
+
+export interface ProjectGitStatus {
+  repoPath: string
+  mainPath: string | null
+  commonDir: string | null
+  branch: string | null
+  head: string
+  upstream: string | null
+  ahead: number
+  behind: number
+  files: GitChangedFile[]
+  progress: GitProgress
+  error: string | null
+  claudeSessions: number
+  terminalSessions: number
+}
+
+export interface ProjectGitBranch {
+  name: string
+  kind: 'local' | 'remote'
+  current: boolean
+  inWorktree: boolean
+  timestamp: number
+  defaultRemote?: boolean
+}
+
+export interface ProjectGitPreview {
+  mode: 'all' | 'staged'
+  files: GitChangedFile[]
+  otherCount: number
+  token: string
+}
+
+export type ProjectGitAction =
+  | { kind: 'pull'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+  | { kind: 'push'; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+  | { kind: 'fetch' }
+  | { kind: 'switch'; branch: string; remote: boolean }
+  | { kind: 'new-branch'; name: string; start: string; expected: Pick<ProjectGitStatus, 'branch' | 'head'> }
+
+export type ProjectGitCommitResult =
+  | { outcome: 'committed'; commit: string }
+  | { outcome: 'committed-push-failed'; commit: string; error: string }
+  | { outcome: 'preview-changed'; preview: ProjectGitPreview }
+  | { outcome: 'failed'; error: string; preview: ProjectGitPreview }
+
 /** The bindings and fields editable on an existing project; an omitted field is left unchanged. */
 export interface ProjectPatch {
   name?: string
@@ -727,7 +781,7 @@ export type JiraLoginResult = { ok: true } | { ok: false; message: string }
 // ---------------------------------------------------------------------------
 
 /** Where a worklog entry comes from: derived from a Claude Code session, or typed in by hand. */
-export const TIME_ENTRY_SOURCES = ['auto', 'manual'] as const
+export const TIME_ENTRY_SOURCES = ['auto', 'manual', 'group'] as const
 export type TimeEntrySource = (typeof TIME_ENTRY_SOURCES)[number]
 
 /**
@@ -747,11 +801,14 @@ interface TimeEntryFields {
 
 export type TimeEntry = TimeEntryFields & (
   | { source: 'manual' }
+  | { source: 'group'; members: Exclude<TimeEntry, { source: 'group' }>[] }
   | {
       source: 'auto'
       sessionId: string
       cwd: string
       resumable: boolean
+      isWork: boolean | null
+      workConfirmed: boolean
       firstTimestamp: number
       lastTimestamp: number
     }
@@ -760,6 +817,7 @@ export type TimeEntry = TimeEntryFields & (
 export type TimeEntryRef =
   | { source: 'auto'; sessionId: string; day: string }
   | { source: 'manual'; id: string }
+  | { source: 'group'; id: string }
 
 /** The fields a caller supplies to create a manual worklog entry; the id is set by the repo. */
 export type NewManualTimeEntry = Pick<TimeEntry, 'day' | 'description' | 'issueKey' | 'durationMs'> & { projectId?: string | null }
@@ -1294,6 +1352,28 @@ export type AgentAdapter = (typeof AGENT_ADAPTERS)[number]
  * bound Project (whose repository roots gate every project-level file access).
  */
 export type AgentToolingScope = { kind: 'global' } | { kind: 'project'; projectId: string }
+
+export interface ClaudeMemoryProject {
+  slug: string
+  name: string
+  count: number
+}
+
+export type ClaudeMemoryType = 'user' | 'feedback' | 'project' | 'reference' | 'index' | 'unknown'
+
+export interface ClaudeMemorySummary {
+  slug: string
+  filename: string
+  name: string
+  description: string
+  type: ClaudeMemoryType
+  mtime: number | null
+  error: string | null
+}
+
+export interface ClaudeMemoryDetail extends ClaudeMemorySummary {
+  body: string
+}
 
 /**
  * Where an effective value came from, so the UI can label provenance on every row:

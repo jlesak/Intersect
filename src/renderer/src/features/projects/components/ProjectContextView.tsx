@@ -14,6 +14,7 @@ import {
 } from '../contextStore'
 import { useProjectsStore } from '../store'
 import { ProjectWorktrees } from './ProjectWorktrees'
+import { ProjectGitChips } from './ProjectGitChips'
 
 // The Kanban/PR/Overview panels transitively import the My Work and PR Inbox slices (and with
 // them monaco). Loading them lazily keeps this file - and the projects barrel every other slice
@@ -94,6 +95,7 @@ export function ProjectContextView({ context }: { context: ProjectContext }) {
         <span className="ix-ctx__title" title={title}>
           {title}
         </span>
+        {context.kind === 'project' && <ProjectGitChips projectId={context.id} repoPaths={project!.repoPaths} />}
         {context.kind === 'other' && (
           <span className="ix-ctx__hint">Unassigned content - not a project</span>
         )}

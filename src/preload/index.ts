@@ -44,6 +44,12 @@ const api: IpcApi = {
       ipcRenderer.invoke(Channel.projectsSetOverride, kind, key, projectId),
     clearOverride: (kind, key) => ipcRenderer.invoke(Channel.projectsClearOverride, kind, key),
     listWorktrees: (id) => ipcRenderer.invoke(Channel.projectsListWorktrees, id),
+    gitStatuses: (id) => ipcRenderer.invoke(Channel.projectsGitStatuses, id),
+    gitBranches: (id, repoPath, discoverDefault) => ipcRenderer.invoke(Channel.projectsGitBranches, id, repoPath, discoverDefault),
+    gitPreview: (id, repoPath) => ipcRenderer.invoke(Channel.projectsGitPreview, id, repoPath),
+    gitValidateName: (id, repoPath, name) => ipcRenderer.invoke(Channel.projectsGitValidateName, id, repoPath, name),
+    gitAction: (id, repoPath, action) => ipcRenderer.invoke(Channel.projectsGitAction, id, repoPath, action),
+    gitCommit: (id, repoPath, token, message, push) => ipcRenderer.invoke(Channel.projectsGitCommit, id, repoPath, token, message, push),
     getTerminalLayouts: (projectKey) =>
       ipcRenderer.invoke(Channel.projectsGetTerminalLayouts, projectKey),
     setTerminalLayout: (projectKey, layout, shares) =>
@@ -183,6 +189,12 @@ const api: IpcApi = {
     updateEntry: (ref, update) =>
       ipcRenderer.invoke(Channel.timeTrackingUpdateEntry, ref, update),
     deleteEntry: (ref) => ipcRenderer.invoke(Channel.timeTrackingDeleteEntry, ref),
+    groupEntries: (refs) => ipcRenderer.invoke(Channel.timeTrackingGroupEntries, refs),
+    groupDayByIssue: (day) => ipcRenderer.invoke(Channel.timeTrackingGroupDayByIssue, day),
+    updateGroup: (id, update) => ipcRenderer.invoke(Channel.timeTrackingUpdateGroup, id, update),
+    ungroup: (id) => ipcRenderer.invoke(Channel.timeTrackingUngroup, id),
+    confirmWork: (ref) => ipcRenderer.invoke(Channel.timeTrackingConfirmWork, ref),
+    regenerate: (ref) => ipcRenderer.invoke(Channel.timeTrackingRegenerate, ref),
     getTimer: () => ipcRenderer.invoke(Channel.timeTrackingGetTimer),
     startTimer: (description, issueKey) =>
       ipcRenderer.invoke(Channel.timeTrackingStartTimer, description, issueKey),
@@ -263,6 +275,7 @@ const api: IpcApi = {
   settings: {
     setTimeTracking: (settings) => ipcRenderer.invoke(Channel.settingsSetTimeTracking, settings),
     setMeetingRouting: (settings) => ipcRenderer.invoke(Channel.settingsSetMeetingRouting, settings),
+    installTimeCli: () => ipcRenderer.invoke(Channel.settingsInstallTimeCli),
     get: () => ipcRenderer.invoke(Channel.settingsGet),
     setNotifications: (notifications) =>
       ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),
@@ -273,6 +286,9 @@ const api: IpcApi = {
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
   agentTooling: {
+    listMemoryProjects: () => ipcRenderer.invoke(Channel.agentToolingListMemoryProjects),
+    listMemories: (slug, query) => ipcRenderer.invoke(Channel.agentToolingListMemories, slug, query),
+    readMemory: (slug, filename) => ipcRenderer.invoke(Channel.agentToolingReadMemory, slug, filename),
     getEffectiveConfig: (scope) =>
       ipcRenderer.invoke(Channel.agentToolingGetEffectiveConfig, scope),
     listSkills: (scope) => ipcRenderer.invoke(Channel.agentToolingListSkills, scope),

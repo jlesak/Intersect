@@ -5,6 +5,9 @@ import type {
   AgentRuntimeDay,
   AgentRuntimeEvidence,
   AgentToolingScope,
+  ClaudeMemoryDetail,
+  ClaudeMemoryProject,
+  ClaudeMemorySummary,
   AppSettings,
   BootState,
   ClaudeUsage,
@@ -38,6 +41,11 @@ import type {
   ProjectOverride,
   ProjectOverrideKind,
   ProjectPatch,
+  ProjectGitStatus,
+  ProjectGitBranch,
+  ProjectGitPreview,
+  ProjectGitAction,
+  ProjectGitCommitResult,
   RepoWorktrees,
   PrThread,
   PrVote,
@@ -143,6 +151,12 @@ export interface IpcApi {
     clearOverride(kind: ProjectOverrideKind, key: string): Promise<void>
     /** The git worktrees under each of the project's repository bindings. */
     listWorktrees(id: string): Promise<RepoWorktrees[]>
+    gitStatuses(id: string): Promise<ProjectGitStatus[]>
+    gitBranches(id: string, repoPath: string, discoverDefault?: boolean): Promise<ProjectGitBranch[]>
+    gitPreview(id: string, repoPath: string): Promise<ProjectGitPreview>
+    gitValidateName(id: string, repoPath: string, name: string): Promise<string | null>
+    gitAction(id: string, repoPath: string, action: ProjectGitAction): Promise<string>
+    gitCommit(id: string, repoPath: string, token: string, message: string, push: boolean): Promise<ProjectGitCommitResult>
     /**
      * Every persisted terminal pane-share value for the project key (a project id, or the
      * literal 'other' for the virtual bucket of unassigned workspaces). Absent layouts mean
@@ -341,6 +355,12 @@ export interface IpcApi {
     updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
     deleteEntry(ref: TimeEntryRef): Promise<void>
+    groupEntries(refs: TimeEntryRef[]): Promise<string>
+    groupDayByIssue(day: string): Promise<string[]>
+    updateGroup(id: string, update: Partial<TimeEntryUpdate>): Promise<void>
+    ungroup(id: string): Promise<void>
+    confirmWork(ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void>
+    regenerate(ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void>
     /** The work timer currently running, or null. Read once at boot; there is no push channel. */
     getTimer(): Promise<RunningTimer | null>
     /** Begin timing now. Rejects when a timer is already running. */
@@ -442,6 +462,7 @@ export interface IpcApi {
   settings: {
     setTimeTracking(settings: TimeTrackingSettings): Promise<AppSettings>
     setMeetingRouting(settings: MeetingRoutingSettings): Promise<AppSettings>
+    installTimeCli(): Promise<string>
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
     get(): Promise<AppSettings>
     setNotifications(notifications: NotificationSettings): Promise<AppSettings>
@@ -456,6 +477,9 @@ export interface IpcApi {
     testAdoConnection(ado: AdoSettings): Promise<AdoConnectionResult>
   }
   agentTooling: {
+    listMemoryProjects(): Promise<ClaudeMemoryProject[]>
+    listMemories(slug: string | null, query: string): Promise<ClaudeMemorySummary[]>
+    readMemory(slug: string, filename: string): Promise<ClaudeMemoryDetail | null>
     /**
      * The fully resolved effective Claude Code configuration for the scope, every leaf carrying
      * its provenance. Malformed layers degrade to per-file diagnostics; the rest still resolves.
@@ -697,6 +721,12 @@ export const Channel = {
   projectsSetOverride: 'projects:setOverride',
   projectsClearOverride: 'projects:clearOverride',
   projectsListWorktrees: 'projects:listWorktrees',
+  projectsGitStatuses: 'projects:gitStatuses',
+  projectsGitBranches: 'projects:gitBranches',
+  projectsGitPreview: 'projects:gitPreview',
+  projectsGitValidateName: 'projects:gitValidateName',
+  projectsGitAction: 'projects:gitAction',
+  projectsGitCommit: 'projects:gitCommit',
   projectsGetTerminalLayouts: 'projects:getTerminalLayouts',
   projectsSetTerminalLayout: 'projects:setTerminalLayout',
   // tabs (request/response)
@@ -777,6 +807,12 @@ export const Channel = {
   timeTrackingAddManual: 'timeTracking:addManual',
   timeTrackingUpdateEntry: 'timeTracking:updateEntry',
   timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
+  timeTrackingGroupEntries: 'timeTracking:groupEntries',
+  timeTrackingGroupDayByIssue: 'timeTracking:groupDayByIssue',
+  timeTrackingUpdateGroup: 'timeTracking:updateGroup',
+  timeTrackingUngroup: 'timeTracking:ungroup',
+  timeTrackingConfirmWork: 'timeTracking:confirmWork',
+  timeTrackingRegenerate: 'timeTracking:regenerate',
   timeTrackingGetTimer: 'timeTracking:getTimer',
   timeTrackingStartTimer: 'timeTracking:startTimer',
   timeTrackingUpdateTimer: 'timeTracking:updateTimer',
@@ -836,6 +872,7 @@ export const Channel = {
   // settings (request/response)
   settingsSetTimeTracking: 'settings:setTimeTracking',
   settingsSetMeetingRouting: 'settings:setMeetingRouting',
+  settingsInstallTimeCli: 'settings:installTimeCli',
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',
   settingsSetAdo: 'settings:setAdo',
@@ -845,6 +882,9 @@ export const Channel = {
   settingsTestAdoConnection: 'settings:testAdoConnection',
   // agentTooling (request/response)
   agentToolingGetEffectiveConfig: 'agentTooling:getEffectiveConfig',
+  agentToolingListMemoryProjects: 'agentTooling:listMemoryProjects',
+  agentToolingListMemories: 'agentTooling:listMemories',
+  agentToolingReadMemory: 'agentTooling:readMemory',
   agentToolingListSkills: 'agentTooling:listSkills',
   agentToolingListAgents: 'agentTooling:listAgents',
   agentToolingReadRaw: 'agentTooling:readRaw',

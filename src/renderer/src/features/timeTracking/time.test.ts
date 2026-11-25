@@ -15,13 +15,13 @@ import {
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 'e1',
   source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'work',
   issueKey: null,
   durationMs: 60_000,
   ...over
-})
+}) as TimeEntry
 
 describe('parseDuration', () => {
   test.each([

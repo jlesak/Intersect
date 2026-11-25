@@ -1,6 +1,7 @@
 import type { FileDiff, PrChangeFile, PullRequest } from '@common/domain'
 import { git, gitRaw, gitWithLockRetry } from './git'
 import { langFromPath } from './language'
+import type { RepoQueue } from '../projects/gitMenu'
 
 /** Diffs larger than this (either side) render a placeholder instead of the full text. */
 const MAX_DIFF_BYTES = 512 * 1024
@@ -244,6 +245,7 @@ export async function localFileDiff(repoDir: string, input: FileDiffInput): Prom
 export interface LocalDiffDeps {
   /** Find the local clone whose origin matches the PR's repository, or throw if none exists. */
   resolveRepoDir(repoName: string, workspaceFolders: string[]): Promise<string>
+  onRepo?: RepoQueue
 }
 
 export interface LocalDiffService {
@@ -280,21 +282,21 @@ export function createLocalDiffService(d: LocalDiffDeps): LocalDiffService {
       repoDirByPr.set(key, repoDir)
     }
 
-    if (!(await hasCommit(repoDir, pr.sourceCommitId))) {
-      await gitWithLockRetry(repoDir, ['fetch', '--no-tags', 'origin', pr.sourceRefName], 180_000).catch(
-        () =>
-          gitWithLockRetry(
-            repoDir!,
-            ['fetch', '--no-tags', 'origin', `refs/pull/${pr.prId}/merge`],
-            180_000
+    const clone = repoDir
+    await (d.onRepo ?? (async (_path, job) => job()))(clone, async () => {
+      if (!(await hasCommit(clone, pr.sourceCommitId))) {
+        await gitWithLockRetry(clone, ['fetch', '--no-tags', 'origin', pr.sourceRefName], 180_000).catch(
+          () => gitWithLockRetry(
+            clone, ['fetch', '--no-tags', 'origin', `refs/pull/${pr.prId}/merge`], 180_000
           ).catch(() => {})
-      )
-    }
-    if (!(await hasCommit(repoDir, pr.targetCommitId))) {
-      await gitWithLockRetry(repoDir, ['fetch', '--no-tags', 'origin', pr.targetRefName], 180_000).catch(
-        () => {}
-      )
-    }
+        )
+      }
+      if (!(await hasCommit(clone, pr.targetCommitId))) {
+        await gitWithLockRetry(clone, ['fetch', '--no-tags', 'origin', pr.targetRefName], 180_000).catch(
+          () => {}
+        )
+      }
+    })
     return repoDir
   }
 

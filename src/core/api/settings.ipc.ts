@@ -13,6 +13,7 @@ import type { SettingsRepo } from '../db/settingsRepo'
 
 export interface SettingsHandlerDeps {
   settings: SettingsRepo
+  installTimeCli(): string
   timeTrackingChanged(): void
   /** Persist routing and reconcile cached undecided proposals as one database transaction. */
   saveMeetingRouting?(routing: AppSettings['meetingRouting']): void
@@ -81,6 +82,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 
   return {
     get: () => surface(() => current()),
+    installTimeCli: () => surface(() => d.installTimeCli()),
     setTimeTracking: (settings) => surface(() => {
       d.settings.setTimeTracking(validateTimeTrackingSettings(settings))
       d.timeTrackingChanged()
@@ -172,6 +174,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
   return {
     [Channel.settingsGet]: h.get,
+    [Channel.settingsInstallTimeCli]: h.installTimeCli,
     [Channel.settingsSetTimeTracking]: h.setTimeTracking,
     [Channel.settingsSetMeetingRouting]: h.setMeetingRouting,
     [Channel.settingsSetNotifications]: h.setNotifications,

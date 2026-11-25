@@ -12,6 +12,7 @@ import { ipc } from '@renderer/shared/ipc/client'
 
 // Thin, mockable seam between the settings store and the preload bridge.
 export const get = (): Promise<AppSettings> => ipc().settings.get()
+export const installTimeCli = (): Promise<string> => ipc().settings.installTimeCli()
 export const setNotifications = (notifications: NotificationSettings): Promise<AppSettings> =>
   ipc().settings.setNotifications(notifications)
 export const setAdo = (ado: AdoSettings): Promise<AppSettings> => ipc().settings.setAdo(ado)

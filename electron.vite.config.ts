@@ -48,7 +48,8 @@ export default defineConfig({
           jiraReportServer: resolve('src/core/myWork/jiraReportServer.ts'),
           otoReportServer: resolve('src/core/oneOnOne/otoReportServer.ts'),
           meetingsReportServer: resolve('src/core/meetings/reportServer.ts'),
-          hookHelper: resolve('src/core/hooks/intersectHook.ts')
+          hookHelper: resolve('src/core/hooks/intersectHook.ts'),
+          timeCli: resolve('src/core/timeTracking/timeCli.ts')
         }
       }
     }

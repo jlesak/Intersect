@@ -11,7 +11,7 @@ import { EntryCard } from './EntryCard'
 const ENTRY: TimeEntry = {
   id: 's1',
   source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Fix the login redirect',
   issueKey: 'PROJ-611',
@@ -21,11 +21,13 @@ const ENTRY: TimeEntry = {
 let host: HTMLDivElement
 let root: Root
 const updateEntry = vi.fn(() => Promise.resolve())
+const confirmWork = vi.fn(() => Promise.resolve())
+const regenerate = vi.fn(() => Promise.resolve())
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   vi.clearAllMocks()
-  useTimeTrackingStore.setState({ updateEntry })
+  useTimeTrackingStore.setState({ updateEntry, confirmWork, regenerate })
   useSessionsStore.setState({ pendingResume: null })
   useProjectsStore.setState({ projects: [] })
   host = document.createElement('div')
@@ -62,6 +64,33 @@ const blur = (input: HTMLInputElement): void => {
 const press = (input: HTMLInputElement, key: string): void => {
   act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
 }
+
+test('non-work pill and context actions clear the flag; unavailable transcript disables regeneration', () => {
+  const nonWork = { ...ENTRY, isWork: false }
+  render(nonWork)
+  expect(host.querySelector('.ix-tt-card__nonwork')?.textContent).toBe('nepracovní')
+  act(() => host.querySelector('.ix-tt-card')!.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, clientX: 30, clientY: 30
+  })))
+  const work = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(button => button.textContent === 'Je pracovní')!
+  act(() => work.click())
+  expect(confirmWork).toHaveBeenCalledWith(nonWork)
+  render({ ...nonWork, isWork: true, workConfirmed: true })
+  expect(host.querySelector('.ix-tt-card__nonwork')).toBeNull()
+  act(() => host.querySelector('.ix-tt-card')!.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, clientX: 30, clientY: 30
+  })))
+  expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('Přegenerovat')
+  act(() => (document.querySelector('[role="menuitem"]') as HTMLButtonElement).click())
+  expect(regenerate).toHaveBeenCalled()
+  render({ ...nonWork, resumable: false })
+  act(() => host.querySelector('.ix-tt-card')!.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, clientX: 30, clientY: 30
+  })))
+  expect([...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(button => button.textContent?.startsWith('Přegenerovat'))?.disabled).toBe(true)
+})
 
 describe('EntryCard description editing', () => {
   test('renders the entry description in the input', () => {

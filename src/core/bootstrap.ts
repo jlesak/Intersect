@@ -93,6 +93,7 @@ import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
 import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
 import { createAgentToolingHandlers, agentToolingWireRoutes } from './api/agentTooling.ipc'
 import { createClaudeConfigReader } from './agentTooling/claudeConfigReader'
+import { createClaudeMemoryReader } from './agentTooling/claudeMemoryReader'
 import { createConfigWriter } from './agentTooling/configWriter'
 import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
@@ -108,10 +109,16 @@ import { createProjectOverrideRepo } from './db/projectOverrideRepo'
 import { createProjectRepo } from './db/projectRepo'
 import { createTerminalLayoutRepo } from './db/terminalLayoutRepo'
 import { createWorkItemRefRepo } from './db/workItemRefRepo'
-import { canonicalizePath, projectPathDeps } from './projects/paths'
+import { canonicalizePath, projectPathDeps, worktreeParentRoot } from './projects/paths'
 import { createTimeSessionDayRepo } from './db/timeSessionDayRepo'
 import { createSessionSnapshots } from './timeTracking/sessionSnapshots'
+import { createTimeSummaryScheduler } from './timeTracking/timeSummaryScheduler'
+import { runTimeSummary } from './timeTracking/timeSummaryRunner'
 import { createTimeTracking } from './timeTracking/timeTracking'
+import { createTimeEntryGroupRepo } from './db/timeEntryGroupRepo'
+import { createTimeCliDispatcher } from './timeTracking/timeCliDispatch'
+import { startTimeCliServer } from './timeTracking/timeCliServer'
+import { installTimeCliShim } from './timeTracking/timeCliInstall'
 import { createAgentRuntimeRepo } from './db/agentRuntimeRepo'
 import {
   createAgentRuntimeService,
@@ -137,6 +144,8 @@ import { createFixManager, type FixManager } from './prInbox/fixManager'
 import { decorateTerminalSpec } from './prInbox/fixSpawn'
 import { createReviewManager } from './prInbox/reviewManager'
 import { createWorktreeManager, isFixWorktreePath } from './prInbox/worktreeManager'
+import { createGitMenuService, createRepoQueue } from './projects/gitMenu'
+import { gitSessionWarning } from './projects/gitSessionWarning'
 import { mergeRoutes, createDispatch, assertRoutesCoverBridge } from './wire'
 
 /**
@@ -245,6 +254,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
 function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntime {
   const { userDataDir, execPath, env, emitPush } = deps
   const isE2e = env.INTERSECT_E2E === '1'
+  let shutdownDone = false
 
   // The subsystems this composition root reports on directly, each with its own scope so the log
   // groups by subsystem. Services that report on themselves take their own child further down.
@@ -593,7 +603,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       logger: adoLog
     })
 
-  const worktrees = createWorktreeManager(userDataDir)
+  const repoQueue = createRepoQueue()
+  const worktrees = createWorktreeManager(userDataDir, { onClone: repoQueue })
   const allWorkspaceFolders = (): string[] => workspaces.list().map((w) => w.folderPath)
   // A fix worktree's origin names the same repository as its clone, so it must never be taken
   // for the clone a review, a diff or another fix works from.
@@ -603,7 +614,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   const localDiff = isE2e
     ? createLocalDiffE2eStub(env)
     : createLocalDiffService({
-        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders)
+        resolveRepoDir: (repoName, folders) => worktrees.resolveRepoDir(repoName, folders),
+        onRepo: repoQueue
       })
 
   const review = createReviewManager({
@@ -708,18 +720,48 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     meetings, proposals: meetingProposals,
     changed: () => emitPush(Channel.timeTrackingChanged, undefined)
   })
-  const timeTrackingHandlers = createTimeTrackingHandlers({
-    service: createTimeTracking({
+  const timeOverrides = createTimeOverrideRepo(db, repoDeps)
+  const summaryE2ePath = env.INTERSECT_TIME_SUMMARY_E2E_CLAUDE_PATH
+  const summaryEnabled = env.INTERSECT_E2E !== '1' || !!summaryE2ePath
+  const summaryScheduler = createTimeSummaryScheduler({
+    snapshots: timeSnapshots, overrides: timeOverrides, sessions: sessionIndex,
+    scanner: snapshotScanner, state: appState, settings: () => settings.getTimeTracking(),
+    userDataDir, now: () => Date.now(),
+    summarize: (input, signal) => summaryEnabled
+      ? runTimeSummary(input, { claudePath: summaryE2ePath ?? resolveClaudePath(env), signal })
+      : Promise.reject(new Error('model-disabled-for-e2e')),
+    changed: () => emitPush(Channel.timeTrackingChanged, undefined),
+    failed: (code, sessionId, day) => deps.logger.child('timeTracking').warn(
+      'summary failed', { data: { code, sessionId, day } })
+  })
+  if (summaryEnabled) summaryScheduler.start()
+  const timeGroups = createTimeEntryGroupRepo(db, repoDeps)
+  const timeService = createTimeTracking({
       snapshots: timeSnapshots, scanner: snapshotScanner,
       isResumable: id => sessionIndex.isResumable(id),
       settings: () => settings.getTimeTracking(), userDataDir,
       manual: manualEntries,
-      overrides: createTimeOverrideRepo(db, repoDeps),
+      groups: timeGroups,
+      overrides: timeOverrides,
       timer: createRunningTimerRepo(db, repoDeps),
       now: () => Date.now(),
       atomically: (fn) => tx(db, fn)
     })
+  const timeTrackingHandlers = createTimeTrackingHandlers({
+    summary: summaryScheduler,
+    service: timeService
   })
+  const timeCliDispatch = createTimeCliDispatcher({ service: timeService, db, groups: timeGroups,
+    now: Date.now, zone: () => appState.get('timeTracking.timeZone') ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    scannerReady: () => snapshotScanner.ready(),
+    changed: () => emitPush(Channel.timeTrackingChanged, undefined), isSynced: () => false })
+  let timeCliServer: Awaited<ReturnType<typeof startTimeCliServer>> | undefined
+  void startTimeCliServer(userDataDir, timeCliDispatch).then(handle => {
+    if (shutdownDone) void handle.stop().catch(() => {})
+    else timeCliServer = handle
+  },
+    err => deps.logger.child('timeTracking').warn('time CLI listener failed', { err }))
 
   // --- Agent runtime evidence slice: measured agent runtime derived from hook pings (primary)
   // and historical JSONL transcripts (coarse fallback), kept strictly separate from human
@@ -745,6 +787,12 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
 
   const projectHandlers = createProjectHandlers({
     projects,
+    gitMenu: createGitMenuService((id) => projects.getById(id), repoQueue, (mainPath) =>
+      gitSessionWarning(
+        mainPath, workspaces.list(), (id) => tabs.listByWorkspace(id),
+        (id) => sessions.has(id), canonicalizePath, worktreeParentRoot
+      )
+    ),
     pathDeps: projectPathDeps,
     workspaces,
     overrides: projectOverrides,
@@ -871,6 +919,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       settings.setMeetingRouting(routing)
       meetings.rerouteCached(routing)
     }),
+    installTimeCli: () => installTimeCliShim(homedir(), execPath, join(__dirname, 'timeCli.js'),
+      userDataDir),
     timeTrackingChanged: () => {
       void snapshotScanner.scan().catch(err => deps.logger.child('timeTracking').warn('settings scan failed', { err }))
     },
@@ -897,6 +947,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // gate every project-level file access against.
   const agentToolingHandlers = createAgentToolingHandlers({
     reader: createClaudeConfigReader(),
+    memoryReader: createClaudeMemoryReader(),
     writer: createConfigWriter(),
     resolveScope: (scope) => {
       if (scope.kind === 'global') return { kind: 'global' }
@@ -967,13 +1018,13 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // synchronous and does NOT touch the DB, so closing the DB right after is safe (its async
   // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on
   // the next boot.
-  let shutdownDone = false
   const shutdown = (): void => {
     if (shutdownDone) return
     shutdownDone = true
     // Stop accepting hook posts (and the retention timer) before the DB goes away.
     hookListenerStopped = true
     void hookListenerHandle?.stop().catch(() => {})
+    void timeCliServer?.stop().catch(() => {})
     clearInterval(hookRetentionTimer)
     clearInterval(todoReminderTimer)
     // Genuine persisted suspend, committed BEFORE anything destructive: while the DB is still open
@@ -1012,6 +1063,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
     debouncedAdoTeardown.cancel()
     void adoClient.close()
     snapshotScanner.dispose()
+    summaryScheduler.dispose()
     db.close()
   }
 

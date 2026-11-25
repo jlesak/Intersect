@@ -19,13 +19,13 @@ const CURRENT_WEEK = weekStartOf(Date.now())
 const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   id,
   source: 'auto',
-  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2,
   day: CURRENT_WEEK,
   description: `Entry ${id}`,
   issueKey: null,
   durationMs: 60_000,
   ...over
-})
+}) as TimeEntry
 
 const TIMER: RunningTimer = {
   startedAt: 1_700_000_000_000,

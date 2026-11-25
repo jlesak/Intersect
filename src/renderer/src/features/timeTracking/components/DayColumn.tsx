@@ -6,6 +6,7 @@ import { AddEntryForm } from './AddEntryForm'
 import { EntryCard } from './EntryCard'
 import { MeetingProposalCard } from './MeetingProposalCard'
 import { useMeetingsStore } from '../meetingsStore'
+import { useTimeTrackingStore } from '../store'
 
 /**
  * One weekday of the board: a header with the day's name, date and total, the day's cards, and
@@ -30,6 +31,9 @@ export function DayColumn({
 }) {
   const [adding, setAdding] = useState(false)
   const total = totalMs(entries)
+  const selection = useTimeTrackingStore(state => state.selection)
+  const selected = selection?.day === day ? selection.ids.filter(id =>
+    entries.some(entry => entry.id === id && entry.source !== 'group')) : []
 
   return (
     <div className={`ix-tt__day${isToday ? ' ix-tt__day--today' : ''}`} data-day={day}>
@@ -40,6 +44,12 @@ export function DayColumn({
         </div>
         <div className="ix-tt__day-date">{formatDayDate(day)}</div>
         <div className="ix-tt__day-total">{entries.length === 0 ? '—' : formatTotal(total)}</div>
+        {entries.some(entry => entry.issueKey && entry.source !== 'group') && (
+          <button type="button" className="ix-btn ix-btn--ghost ix-tt__group-by-issue"
+            onClick={() => void useTimeTrackingStore.getState().groupDayByIssue(day)}>
+            Seskupit den podle issue
+          </button>
+        )}
       </div>
       {runtime && (
         <div className="ix-tt__day-runtime ix-ctx__hint" data-runtime-day={day}>
@@ -60,8 +70,11 @@ export function DayColumn({
         </div>}
         {isToday && proposals.map((proposal) => <MeetingProposalCard
           key={`${proposal.source}:${proposal.externalId}`} proposal={proposal} />)}
+        {selected.length >= 2 && <button type="button" className="ix-btn ix-btn--ghost"
+          onClick={() => void useTimeTrackingStore.getState().groupSelected(day)}>Seskupit</button>}
         {entries.map((entry) => (
-          <EntryCard key={entry.id} entry={entry} />
+          <EntryCard key={entry.id} entry={entry} selected={selected.includes(entry.id)}
+            onSelect={(shift) => useTimeTrackingStore.getState().selectEntry(entry, entries, shift)} />
         ))}
         {adding ? (
           <AddEntryForm day={day} onClose={() => setAdding(false)} />

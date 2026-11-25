@@ -16,6 +16,7 @@ import type { TimeSessionDay, TimeSessionDayRepo } from '../db/timeSessionDayRep
 import type { SessionSnapshots } from './sessionSnapshots'
 import { insideAppData } from './exclusions'
 import { issueKeyFromBranch } from './issueKey'
+import type { GroupMember, TimeEntryGroupRepo } from '../db/timeEntryGroupRepo'
 
 export interface TimeTrackingDeps {
   snapshots: TimeSessionDayRepo
@@ -26,6 +27,7 @@ export interface TimeTrackingDeps {
   manual: ManualTimeEntryRepo
   overrides: TimeOverrideRepo
   timer: RunningTimerRepo
+  groups?: TimeEntryGroupRepo
   /** Injected so timer tests can advance the clock instead of sleeping. */
   now: () => number
   /**
@@ -42,11 +44,18 @@ export interface TimeTrackingDeps {
  */
 export interface TimeTrackingService {
   getWeek(weekStart: string): Promise<TimeEntry[]>
+  getDay(day: string): Promise<TimeEntry[]>
   /** Force a session re-scan from disk, then return the fresh week. */
   refreshWeek(weekStart: string): Promise<TimeEntry[]>
   addManual(input: NewManualTimeEntry): TimeEntry
   updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
   deleteEntry(ref: TimeEntryRef): Promise<void>
+  updateEntryPrepared(ref: TimeEntryRef, update: TimeEntryUpdate): void
+  deleteEntryPrepared(ref: TimeEntryRef): void
+  groupEntries(refs: TimeEntryRef[]): string
+  groupDayByIssue(day: string): string[]
+  updateGroup(id: string, update: Partial<TimeEntryUpdate>): void
+  ungroup(id: string): void
   /** The timer currently running, or null. */
   getRunningTimer(): RunningTimer | null
   /** Begin timing now. Refuses when one is already running. */
@@ -94,8 +103,9 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
     const resumable = await deps.isResumable(row.sessionId)
     return { id: key(row.sessionId, row.day), source: 'auto', day: row.day,
       sessionId: row.sessionId, cwd: row.cwd, resumable,
+      isWork: row.isWork, workConfirmed: row.workConfirmed,
       firstTimestamp: row.firstTimestamp, lastTimestamp: row.lastTimestamp,
-      description: override?.description ?? row.autoDescription,
+      description: override?.description ?? row.summary ?? row.autoDescription,
       issueKey: override ? override.issueKey : issueKeyFromBranch(row.gitBranch),
       durationMs: override ? override.durationMs : row.activeDurationMs }
   }
@@ -103,33 +113,141 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
   function validateRef(ref: TimeEntryRef): void {
     if (!ref || typeof ref !== 'object') throw new Error('Invalid entry reference')
     if (ref.source === 'manual' && typeof ref.id === 'string' && ref.id) return
+    if (ref.source === 'group' && typeof ref.id === 'string' && ref.id) return
     if (ref.source === 'auto' && typeof ref.sessionId === 'string' && ref.sessionId &&
       validDay(ref.day)) return
     throw new Error('Invalid entry reference')
   }
 
-  async function findSnapshot(ref: Extract<TimeEntryRef, { source: 'auto' }>) {
+  async function getDays(days: string[]): Promise<TimeEntry[]> {
     await deps.scanner.ready()
-    const row = deps.snapshots.get(ref.sessionId, ref.day)
-    if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
-    return row
-  }
-
-  async function getWeek(weekStart: string): Promise<TimeEntry[]> {
-    await deps.scanner.ready()
-    const days = weekdayKeys(weekStart)
     const prefixes = deps.settings().excludedPathPrefixes
     const rows = deps.snapshots.listByDays(days).filter(row =>
       row.activeDurationMs >= 300_000 && !deps.overrides.get(row.sessionId, row.day)?.deleted &&
       !insideAppData(row.cwd, deps.userDataDir) && !prefixes.some(prefix => row.cwd.startsWith(prefix)))
     rows.sort((a, b) => a.day.localeCompare(b.day) || a.lastTimestamp - b.lastTimestamp ||
       a.sessionId.localeCompare(b.sessionId))
-    return [...await Promise.all(rows.map(toEntry)), ...deps.manual.listByDays(days)]
+    const singles = [...await Promise.all(rows.map(toEntry)), ...deps.manual.listByDays(days)]
       .sort((a, b) => a.day.localeCompare(b.day))
+    if (!deps.groups) return singles
+    const byIdentity = new Map(singles.map(entry => [identity(entry), entry]))
+    const hidden = new Set<string>()
+    const grouped: TimeEntry[] = []
+    for (const group of deps.groups.listByDays(days)) {
+      const members = group.members.map(member => byIdentity.get(`${member.source}:${member.id}`))
+      // An exclusion hides the whole group shell, including its stored description and totals.
+      // Visible members appear as singles while membership remains intact for restoration.
+      if (members.length < 2 || members.some(member => !member)) continue
+      for (const member of group.members) hidden.add(`${member.source}:${member.id}`)
+      grouped.push({ id: group.id, source: 'group', day: group.day,
+        description: group.description, issueKey: group.issueKey,
+        durationMs: group.durationOverrideMs ?? members.reduce((sum, member) =>
+          sum + member!.durationMs, 0),
+        members: members as Exclude<TimeEntry, { source: 'group' }>[] })
+    }
+    return [...singles.filter(entry => !hidden.has(identity(entry))), ...grouped]
+      .sort((a, b) => a.day.localeCompare(b.day))
+  }
+
+  const getWeek = (weekStart: string): Promise<TimeEntry[]> => getDays(weekdayKeys(weekStart))
+
+  function identity(entry: TimeEntry): string {
+    return `${entry.source}:${entry.id}`
+  }
+
+  function memberRef(ref: TimeEntryRef): GroupMember {
+    if (ref.source === 'group') throw new Error('A group cannot join another group')
+    return { source: ref.source, id: ref.source === 'auto' ? key(ref.sessionId, ref.day) : ref.id }
+  }
+
+  function buildGroup(entries: TimeEntry[]): string {
+    if (!deps.groups) throw new Error('Time entry groups unavailable')
+    if (entries.length < 2 || entries.some(entry => entry.source === 'group')) {
+      throw new Error('Select at least two ungrouped cards')
+    }
+    const day = entries[0].day
+    if (entries.some(entry => entry.day !== day)) throw new Error('A group cannot span days')
+    const description = [...new Set(entries.map(entry => entry.description))].join('; ').slice(0, 255)
+    const issueKey = entries.every(entry => entry.issueKey === entries[0].issueKey)
+      ? entries[0].issueKey : null
+    const row = deps.groups.create(day, description, issueKey,
+      entries.map(entry => ({ source: entry.source as 'auto' | 'manual', id: entry.id })))
+    return row.id
+  }
+
+  function visibleEntry(ref: TimeEntryRef): TimeEntry | undefined {
+    if (ref.source === 'group') throw new Error('A group cannot join another group')
+    if (deps.groups?.hasMember(memberRef(ref))) throw new Error('A card is already grouped')
+    if (ref.source === 'manual') return deps.manual.get(ref.id)
+    const row = deps.snapshots.get(ref.sessionId, ref.day)
+    const prefixes = deps.settings().excludedPathPrefixes
+    if (!row || row.activeDurationMs < 300_000 ||
+      deps.overrides.get(ref.sessionId, ref.day)?.deleted ||
+      insideAppData(row.cwd, deps.userDataDir) ||
+      prefixes.some(prefix => row.cwd.startsWith(prefix))) {
+      return undefined
+    }
+    const override = deps.overrides.get(ref.sessionId, ref.day)
+    return { id: key(ref.sessionId, ref.day), source: 'auto', day: ref.day,
+      sessionId: ref.sessionId, cwd: row.cwd, resumable: false,
+      isWork: row.isWork, workConfirmed: row.workConfirmed,
+      firstTimestamp: row.firstTimestamp, lastTimestamp: row.lastTimestamp,
+      description: override?.description ?? row.summary ?? row.autoDescription,
+      issueKey: override ? override.issueKey : issueKeyFromBranch(row.gitBranch),
+      durationMs: override ? override.durationMs : row.activeDurationMs }
   }
 
   return {
     getWeek,
+    getDay: (day) => getDays([day]),
+
+    groupEntries(refs) {
+      if (!Array.isArray(refs) || refs.length < 2) throw new Error('Select at least two cards')
+      refs.forEach(validateRef)
+      const wanted = refs.map(memberRef)
+      if (new Set(wanted.map(member => `${member.source}:${member.id}`)).size !== wanted.length) {
+        throw new Error('Duplicate group member')
+      }
+      return deps.atomically(() => {
+        const entries = refs.map(visibleEntry)
+        if (entries.some(entry => !entry)) throw new Error('A card is hidden or missing')
+        return buildGroup(entries as TimeEntry[])
+      })
+    },
+
+    groupDayByIssue(day) {
+      if (!validDay(day)) throw new Error(`Not a day: ${day}`)
+      return deps.atomically(() => {
+        const refs: TimeEntryRef[] = [
+          ...deps.snapshots.listByDays([day]).map(row => ({ source: 'auto' as const,
+            sessionId: row.sessionId, day })),
+          ...deps.manual.listByDays([day]).map(entry => ({ source: 'manual' as const,
+            id: entry.id }))
+        ]
+        const byKey = new Map<string, TimeEntry[]>()
+        for (const ref of refs) {
+          if (deps.groups?.hasMember(memberRef(ref))) continue
+          const entry = visibleEntry(ref)
+          if (!entry) continue
+          if (!entry.issueKey || entry.source === 'auto' && entry.isWork === false) continue
+          byKey.set(entry.issueKey, [...byKey.get(entry.issueKey) ?? [], entry])
+        }
+        return [...byKey.values()].filter(group => group.length >= 2).map(buildGroup)
+      })
+    },
+
+    updateGroup(id, update) {
+      if (!deps.groups) throw new Error('Time entry groups unavailable')
+      if (update.description !== undefined && !update.description.trim())
+        throw new Error('A description is required')
+      if (update.durationMs !== undefined) assertDuration(update.durationMs)
+      deps.atomically(() => deps.groups!.update(id, update))
+    },
+
+    ungroup(id) {
+      if (!deps.groups?.get(id)) throw new Error(`Time entry group not found: ${id}`)
+      deps.atomically(() => deps.groups!.remove(id))
+    },
 
     async refreshWeek(weekStart) {
       await deps.scanner.scan()
@@ -145,25 +263,52 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
 
     async updateEntry(ref, update) {
       validateRef(ref)
+      if (ref.source === 'auto') await deps.scanner.ready()
+      this.updateEntryPrepared(ref, update)
+      const day = ref.source === 'auto' ? ref.day : ref.source === 'group'
+        ? deps.groups!.get(ref.id)!.day : deps.manual.get(ref.id).day
+      return (await getDays([day])).flatMap(entry => entry.source === 'group'
+        ? [entry, ...entry.members] : [entry]).find(entry => entry.id ===
+          (ref.source === 'auto' ? key(ref.sessionId, ref.day) : ref.id))!
+    },
+
+    updateEntryPrepared(ref, update) {
+      validateRef(ref)
+      if (ref.source === 'group') { this.updateGroup(ref.id, update); return }
       assertDuration(update.durationMs)
       if (!update.description.trim()) throw new Error('A description is required')
-      if (ref.source === 'manual') return deps.manual.update(ref.id, update)
-      const row = await findSnapshot(ref)
-      deps.overrides.upsert(ref.sessionId, ref.day, { ...update, deleted: false })
-      return toEntry(row)
+      if (ref.source === 'manual') { deps.manual.update(ref.id, update); return }
+      const row = deps.snapshots.get(ref.sessionId, ref.day)
+      if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
+      const existing = deps.overrides.get(ref.sessionId, ref.day)
+      const shownDescription = existing?.description ?? row.summary ?? row.autoDescription
+      deps.overrides.upsert(ref.sessionId, ref.day, { ...update,
+        description: update.description === shownDescription ? existing?.description ?? null :
+          update.description, deleted: false })
     },
 
     async deleteEntry(ref) {
       validateRef(ref)
+      if (ref.source === 'auto') await deps.scanner.ready()
+      this.deleteEntryPrepared(ref)
+    },
+
+    deleteEntryPrepared(ref) {
+      validateRef(ref)
+      if (ref.source === 'group') { this.ungroup(ref.id); return }
       if (ref.source === 'manual') {
-        deps.manual.remove(ref.id)
+        deps.atomically(() => { deps.groups?.removeMember(memberRef(ref)); deps.manual.remove(ref.id) })
         return
       }
-      const row = await findSnapshot(ref)
+      const row = deps.snapshots.get(ref.sessionId, ref.day)
+      if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
       const existing = deps.overrides.get(ref.sessionId, ref.day)
-      deps.overrides.upsert(ref.sessionId, ref.day, existing ? { ...existing, deleted: true } : {
-        description: null, issueKey: issueKeyFromBranch(row.gitBranch),
-        durationMs: row.activeDurationMs, deleted: true
+      deps.atomically(() => {
+        deps.groups?.removeMember(memberRef(ref))
+        deps.overrides.upsert(ref.sessionId, ref.day, existing ? { ...existing, deleted: true } : {
+          description: null, issueKey: issueKeyFromBranch(row.gitBranch),
+          durationMs: row.activeDurationMs, deleted: true
+        })
       })
     },
 

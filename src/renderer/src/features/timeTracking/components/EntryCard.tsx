@@ -4,12 +4,14 @@ import { effectiveProject, indexOverrides, resolveJiraProject } from '@common/pr
 import { formatDuration, useSessionsStore } from '@renderer/features/sessions'
 import { useProjectsStore } from '@renderer/features/projects'
 import { IconPlay, IconTrash } from '@renderer/shared/ui/icons'
+import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
 import { useTimeTrackingStore } from '../store'
 import { normalizeIssueKey, parseDuration } from '../time'
 
 /** Manual entries retain their dot marker; auto cards use the Resume action instead. */
 function SourceIcon({ source }: { source: TimeEntry['source'] }) {
   if (source === 'auto') return null
+  if (source === 'group') return <span className="ix-tt-card__source" title="Group">G</span>
   return (
     <span className="ix-tt-card__source" title="Manual entry">
       <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
@@ -33,7 +35,11 @@ function blurOnEnter(e: KeyboardEvent<HTMLInputElement>, discard?: () => void): 
  * card (auto and manual alike); a failed duration parse reverts to the previous value. Every field
  * commits on blur, so Enter simply blurs.
  */
-export function EntryCard({ entry }: { entry: TimeEntry }) {
+export function EntryCard({ entry, selected = false, onSelect }: {
+  entry: TimeEntry
+  selected?: boolean
+  onSelect?: (shift: boolean) => void
+}) {
   const projectName = useProjectsStore((s) => entry.source === 'manual' && entry.projectId
     ? s.projects.find((p) => p.id === (entry.issueKey
       ? effectiveProject('jira', entry.issueKey,
@@ -42,6 +48,8 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
   const [key, setKey] = useState(entry.issueKey ?? '')
   const [desc, setDesc] = useState(entry.description)
   const [time, setTime] = useState(formatDuration(entry.durationMs))
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [expanded, setExpanded] = useState(false)
   // A ref (not state) so the Escape keydown is already visible to the blur it triggers.
   const discardRef = useRef(false)
 
@@ -101,7 +109,9 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       return
     }
     pending.current.key = true
-    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
+    if (entry.source === 'group') void useTimeTrackingStore.getState()
+      .updateGroup(entry.id, { issueKey })
+    else void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   const commitDesc = (): void => {
@@ -122,7 +132,9 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       return
     }
     pending.current.desc = true
-    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
+    if (entry.source === 'group') void useTimeTrackingStore.getState()
+      .updateGroup(entry.id, { description })
+    else void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   const commitTime = (): void => {
@@ -147,11 +159,27 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
       return
     }
     pending.current.time = true
-    void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
+    if (entry.source === 'group') void useTimeTrackingStore.getState()
+      .updateGroup(entry.id, { durationMs })
+    else void useTimeTrackingStore.getState().updateEntry(entry, draftPayload())
   }
 
   return (
-    <div className="ix-tt-card">
+    <div className={`ix-tt-card${selected ? ' ix-tt-card--selected' : ''}`}
+      onMouseDownCapture={e => {
+        if ((e.metaKey || e.shiftKey) && (e.target as HTMLElement).closest('input')) {
+          e.preventDefault()
+        }
+      }}
+      onClick={e => {
+        if (!onSelect || !(e.metaKey || e.shiftKey)) return
+        if ((e.target as HTMLElement).closest('button')) return
+        onSelect(e.shiftKey)
+      }} onContextMenu={e => {
+      if (entry.source !== 'auto') return
+      e.preventDefault()
+      setMenuAt({ x: e.clientX, y: e.clientY })
+    }}>
       <span className="ix-tt-card__top">
         <SourceIcon source={entry.source} />
         <input
@@ -170,7 +198,13 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
             dirty.current.key = false
           }}
         />
+        {entry.source === 'auto' && entry.isWork === false &&
+          <span className="ix-tt-card__nonwork" title="Nepracovní karta">nepracovní</span>}
         <span className="ix-tt-card__actions">
+          {entry.source === 'group' && <button type="button" className="ix-iconbtn"
+            title={expanded ? 'Skrýt členy' : 'Zobrazit členy'}
+            aria-label={expanded ? 'Skrýt členy' : 'Zobrazit členy'}
+            onClick={() => setExpanded(!expanded)}>{expanded ? '▴' : '▾'}</button>}
           {entry.source === 'auto' && entry.resumable && (
             <button type="button" className="ix-iconbtn" title="Resume" aria-label="Resume"
               onClick={() => useSessionsStore.getState().requestResume({
@@ -180,14 +214,15 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
               <IconPlay width={11} height={11} />
             </button>
           )}
-          <button
+          {entry.source === 'group' ? <button type="button" className="ix-btn ix-btn--ghost"
+            onClick={() => void useTimeTrackingStore.getState().ungroup(entry.id)}>Rozdělit</button> : <button
             type="button"
             className="ix-iconbtn"
             title="Delete"
             onClick={() => void useTimeTrackingStore.getState().removeEntry(entry)}
           >
             <IconTrash width={11} height={11} />
-          </button>
+          </button>}
         </span>
       </span>
       {projectName && <span className="ix-tt-card__project">{projectName}</span>}
@@ -223,6 +258,24 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           }}
         />
       </span>
+      {entry.source === 'group' && expanded && <div className="ix-tt-card__members">
+        {entry.members.map(member => <div key={`${member.source}:${member.id}`}
+          className="ix-tt-card__member">
+          <span>{member.issueKey ?? '—'} · {member.description} · {formatDuration(member.durationMs)}</span>
+          <button type="button" className="ix-iconbtn" title="Delete member"
+            onClick={() => void useTimeTrackingStore.getState().removeEntry(member)}>
+            <IconTrash width={11} height={11} />
+          </button>
+        </div>)}
+      </div>}
+      {entry.source === 'auto' && menuAt && <ContextMenu x={menuAt.x} y={menuAt.y}
+        onClose={() => setMenuAt(null)} entries={[
+          ...(entry.isWork === false && !entry.workConfirmed ? [{ label: 'Je pracovní',
+            onClick: () => { void useTimeTrackingStore.getState().confirmWork(entry) } }] : []),
+          { label: entry.resumable ? 'Přegenerovat' : 'Přegenerovat (přepis není dostupný)',
+            disabled: !entry.resumable,
+            onClick: () => { void useTimeTrackingStore.getState().regenerate(entry) } }
+        ]} />}
     </div>
   )
 }

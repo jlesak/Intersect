@@ -8,13 +8,13 @@ const MIN = 60_000
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: Math.random().toString(36).slice(2),
   source: 'manual',
-  ...{ sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2 },
+  ...{ sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2 },
   day: '2026-08-17',
   description: 'Work',
   issueKey: null,
   durationMs: 30 * MIN,
   ...over
-})
+}) as TimeEntry
 
 const project = (over: Partial<Project> = {}): Project => ({
   id: 'p1',

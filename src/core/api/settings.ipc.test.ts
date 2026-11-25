@@ -38,6 +38,7 @@ describe('settings handlers', () => {
     adoSettingsChanged = vi.fn<() => Promise<void>>().mockResolvedValue()
     h = createSettingsHandlers({
       timeTrackingChanged: () => {},
+      installTimeCli: () => '/tmp/intersect-time',
       settings,
       fallbackAdo: () => ({ ...FALLBACK_ADO }),
       testConnection,
@@ -83,6 +84,7 @@ describe('settings handlers', () => {
   test('get never leaks the fallback PAT to the renderer, only whether one exists', async () => {
     const withoutPat = createSettingsHandlers({
       timeTrackingChanged: () => {},
+      installTimeCli: () => '/tmp/intersect-time',
       settings,
       fallbackAdo: () => ({ ...FALLBACK_ADO, pat: '' }),
       testConnection,
@@ -217,6 +219,7 @@ describe('settingsWireRoutes', () => {
   test('binds every request/response channels to the handlers', async () => {
     const h = createSettingsHandlers({
       timeTrackingChanged: () => {},
+      installTimeCli: () => '/tmp/intersect-time',
       settings: createSettingsRepo(makeTestDb()),
       fallbackAdo: () => ({ ...FALLBACK_ADO }),
       testConnection: () => Promise.resolve({ ok: true, displayName: 'Jan' }),
@@ -229,6 +232,7 @@ describe('settingsWireRoutes', () => {
     expect(Object.keys(routes).sort()).toEqual(
       [
         Channel.settingsGet,
+        Channel.settingsInstallTimeCli,
         Channel.settingsSetTimeTracking,
         Channel.settingsSetMeetingRouting,
         Channel.settingsSetNotifications,

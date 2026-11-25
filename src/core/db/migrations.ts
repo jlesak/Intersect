@@ -811,6 +811,56 @@ const MIGRATIONS: Migration[] = [
     version: 32,
     up(db) {
       db.exec(`
+        ALTER TABLE time_session_day ADD COLUMN summary TEXT;
+        ALTER TABLE time_session_day ADD COLUMN summary_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (summary_status IN ('pending', 'done', 'failed'));
+        ALTER TABLE time_session_day ADD COLUMN summarized_through INTEGER;
+        ALTER TABLE time_session_day ADD COLUMN is_work INTEGER CHECK (is_work IN (0, 1));
+        ALTER TABLE time_session_day ADD COLUMN work_confirmed INTEGER NOT NULL DEFAULT 0
+          CHECK (work_confirmed IN (0, 1));
+      `)
+    }
+  },
+  {
+    version: 33,
+    up(db) {
+      db.exec(`
+        CREATE TABLE time_entry_group (
+          id TEXT PRIMARY KEY, day TEXT NOT NULL, description TEXT NOT NULL,
+          issue_key TEXT, duration_override_ms INTEGER,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_time_entry_group_day ON time_entry_group(day);
+        CREATE TABLE time_entry_group_member (
+          group_id TEXT NOT NULL REFERENCES time_entry_group(id) ON DELETE CASCADE,
+          entry_kind TEXT NOT NULL CHECK (entry_kind IN ('auto', 'manual')),
+          entry_id TEXT NOT NULL,
+          PRIMARY KEY (group_id, entry_kind, entry_id),
+          UNIQUE (entry_kind, entry_id)
+        );
+      `)
+    }
+  },
+  {
+    version: 34,
+    up(db) {
+      db.exec(`
+        CREATE TABLE time_entry_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at INTEGER NOT NULL,
+          actor TEXT NOT NULL CHECK (actor IN ('claude', 'codex', 'user')),
+          action TEXT NOT NULL CHECK (action IN ('add', 'edit', 'delete', 'delete-group', 'group', 'ungroup')),
+          ref TEXT NOT NULL,
+          before_json TEXT,
+          after_json TEXT
+        );
+      `)
+    }
+  },
+  {
+    version: 35,
+    up(db) {
+      db.exec(`
         ALTER TABLE time_entry_manual ADD COLUMN project_id TEXT;
         CREATE TABLE meeting_proposal (
           source TEXT NOT NULL,
