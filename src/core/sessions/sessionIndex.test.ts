@@ -91,6 +91,22 @@ describe('createSessionIndex', () => {
     await expect(index.getTranscript('one')).rejects.toThrow(/no longer available|one/)
   })
 
+  test('resumability probes the current file and rejects unknown historical ids', async () => {
+    let readable = true
+    const canReadFile = vi.fn(async () => readable)
+    const index = createSessionIndex({
+      projectsDir: '/projects',
+      readDir: async () => ['/projects/a/one.jsonl'],
+      readFile: async () => sessionFile(),
+      canReadFile
+    })
+    expect(await index.isResumable('one')).toBe(true)
+    readable = false
+    expect(await index.isResumable('one')).toBe(false)
+    expect(await index.isResumable('historical')).toBe(false)
+    expect(canReadFile).toHaveBeenCalledTimes(2)
+  })
+
   test('a missing projects directory yields an empty list (default readDir contract)', async () => {
     const index = createSessionIndex({
       projectsDir: '/does/not/exist',

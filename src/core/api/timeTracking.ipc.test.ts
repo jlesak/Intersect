@@ -8,7 +8,7 @@ import { createTimeTrackingHandlers, timeTrackingWireRoutes } from './timeTracki
 const entry = (over: Partial<TimeEntry> = {}): TimeEntry => ({
   id: 's1',
   source: 'auto',
-  sessionId: 's1', sessionTitle: 'Session', cwd: '/work', folderName: 'work', gitBranch: null, firstTimestamp: 1, lastTimestamp: 2,
+  sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2,
   day: '2026-07-06',
   description: 'Session s1',
   issueKey: 'PROJ-611',

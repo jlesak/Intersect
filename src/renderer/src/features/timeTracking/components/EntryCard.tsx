@@ -1,30 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { TimeEntry } from '@common/domain'
-import { formatDuration } from '@renderer/features/sessions'
-import { IconTrash } from '@renderer/shared/ui/icons'
+import { formatDuration, useSessionsStore } from '@renderer/features/sessions'
+import { IconPlay, IconTrash } from '@renderer/shared/ui/icons'
 import { useTimeTrackingStore } from '../store'
 import { normalizeIssueKey, parseDuration } from '../time'
 
-/** Triangle for an auto entry (tinted), dot for a manual one - matching the approved mockup. */
+/** Manual entries retain their dot marker; auto cards use the Resume action instead. */
 function SourceIcon({ source }: { source: TimeEntry['source'] }) {
-  if (source === 'auto') {
-    return (
-      <span className="ix-tt-card__source ix-tt-card__source--auto" title="Automatic from Claude Code">
-        <svg
-          width="11"
-          height="11"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M4 2l8 6-8 6z" />
-        </svg>
-      </span>
-    )
-  }
+  if (source === 'auto') return null
   return (
     <span className="ix-tt-card__source" title="Manual entry">
       <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
@@ -181,6 +164,15 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           }}
         />
         <span className="ix-tt-card__actions">
+          {entry.source === 'auto' && entry.resumable && (
+            <button type="button" className="ix-iconbtn" title="Resume" aria-label="Resume"
+              onClick={() => useSessionsStore.getState().requestResume({
+                id: entry.sessionId, cwd: entry.cwd,
+                title: draftPayload().description
+              }, 'card')}>
+              <IconPlay width={11} height={11} />
+            </button>
+          )}
           <button
             type="button"
             className="ix-iconbtn"
@@ -206,13 +198,6 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
             dirty.current.desc = false
           }}
       />
-      {entry.source === 'auto' && (
-        <div className="ix-tt-card__metadata">
-          <span>{entry.sessionTitle}</span>
-          {entry.folderName && <> · <span title={entry.cwd}>{entry.folderName}</span></>}
-          {entry.gitBranch && <> · <span>{entry.gitBranch}</span></>}
-        </div>
-      )}
       <span className="ix-tt-card__bottom">
         <input
           className="ix-tt-card__dur"

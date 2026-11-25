@@ -34,6 +34,7 @@ function makeIndex(over: Partial<SessionIndex> = {}): SessionIndex {
     list: vi.fn(async () => [summary()]),
     refresh: vi.fn(async () => [summary({ id: 's2' })]),
     getTranscript: vi.fn(async () => transcript),
+    isResumable: vi.fn(async () => true),
     ...over
   }
 }

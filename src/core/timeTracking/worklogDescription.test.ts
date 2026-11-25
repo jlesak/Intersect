@@ -67,6 +67,16 @@ describe('sanitizeWorklogDescription', () => {
     )
   })
 
+  test('unwraps a pasted first prompt with attributes on both tags', () => {
+    expect(sanitizeWorklogDescription('<pasted_content id="x">Text.</pasted_content id="x">'))
+      .toBe('Text.')
+  })
+
+  test('keeps the pasted prompt when its closing tag lies beyond the bounded prefix', () => {
+    expect(sanitizeWorklogDescription(`<pasted_content id="x">Text. ${'x'.repeat(3000)}</pasted_content id="x">`))
+      .toBe('Text.')
+  })
+
   test('an unterminated hyphenated service tag still truncates the human prefix', () => {
     expect(sanitizeWorklogDescription('do the thing <task-notification><task-id>abc')).toBe(
       'do the thing'

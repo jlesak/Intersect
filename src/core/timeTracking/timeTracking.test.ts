@@ -73,6 +73,7 @@ describe('timeTracking service', () => {
       activeDurationMs: summary.activeDurationMs })
     return createTimeTracking({
       snapshots, scanner: { ready: async () => {}, scan: async () => {}, start() {}, dispose() {} },
+      isResumable: async id => sessions.some(s => s.id === id),
       settings: () => ({ excludedPathPrefixes: [] }), userDataDir: '/synthetic/intersect',
       manual: manualRepo, overrides, timer, now: () => clock, atomically: fn => tx(db, fn)
     })
@@ -87,8 +88,8 @@ describe('timeTracking service', () => {
     expect(week).toEqual([
       {
         id: 'mon:2026-07-06',
-        sessionId: 'mon', sessionTitle: 'Session mon', cwd: '/repo/mon', folderName: 'mon',
-        gitBranch: 'feature/proj-611-slug', firstTimestamp: at(6, 9), lastTimestamp: at(6, 15),
+        sessionId: 'mon', cwd: '/repo/mon', resumable: true,
+        firstTimestamp: at(6, 9), lastTimestamp: at(6, 15),
         source: 'auto',
         day: '2026-07-06',
         description: 'Session mon',
@@ -97,8 +98,8 @@ describe('timeTracking service', () => {
       },
       {
         id: 'wed:2026-07-08',
-        sessionId: 'wed', sessionTitle: 'Session wed', cwd: '/repo/wed', folderName: 'wed',
-        gitBranch: 'feature/time-tracking', firstTimestamp: at(6, 9), lastTimestamp: at(8, 11),
+        sessionId: 'wed', cwd: '/repo/wed', resumable: true,
+        firstTimestamp: at(6, 9), lastTimestamp: at(8, 11),
         source: 'auto',
         day: '2026-07-08',
         description: 'Session wed',
@@ -257,6 +258,7 @@ describe('timeTracking service', () => {
     const scan = vi.fn(async () => {})
     const svc = createTimeTracking({ snapshots: createTimeSessionDayRepo(db, () => clock),
       scanner: { scan, ready: async () => {}, start() {}, dispose() {} },
+      isResumable: async () => false,
       settings: () => ({ excludedPathPrefixes: [] }), userDataDir: '/synthetic/intersect',
       manual, overrides, timer, now: () => clock, atomically: fn => tx(db, fn) })
     await svc.refreshWeek(WEEK)

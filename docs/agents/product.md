@@ -47,8 +47,9 @@ system status.
   the first continuation on a later day can add that final gap without moving the earlier card.
 - Intersect's own data directory is always excluded. Settings > Time Tracking accepts literal,
   case-sensitive absolute path prefixes. Exclusions hide data and totals without deleting history.
-- Auto cards show session title, folder and optional branch separately from the work description.
-  Metadata follows the session index; it is not a history of branch changes inside a session.
+- Auto cards show the issue key, one-line editable description, duration, and Resume while their
+  transcript is readable. They show no session title, folder, branch or cwd tooltip. Snapshot
+  metadata stays stored for the later Haiku summary; cards outlive missing transcripts and edits.
 - Legacy edits and deletions belong wholly to the session's last evidenced day. Unresolved edits
   remain stored until a readable transcript supplies that day; no date is invented from edit time.
 - Jira worklog upload requires the owner's click and confirmation of a preview. It manages only
