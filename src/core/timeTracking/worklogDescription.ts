@@ -43,6 +43,9 @@ const HAS_LETTER = /\p{L}/u
 export function sanitizeWorklogDescription(raw: string): string | null {
   let text = raw.slice(0, MAX_RAW).replace(ANSI_CSI, '').replace(//g, '')
   text = stripServiceNoise(text)
+  // Pasted content is the user's prompt, not a service block. Its close may be outside MAX_RAW.
+  text = text.replace(/<pasted_content(?:\s[^>]*)?>/g, '')
+    .replace(/<\/pasted_content(?:\s[^>]*)?>/g, '')
 
   // Peel paired blocks repeatedly so a nested structure collapses from the inside out: each pass
   // vanishes the innermost pairs, then any closing tag whose opener already went, then self-closing
