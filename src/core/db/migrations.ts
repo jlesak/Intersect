@@ -840,6 +840,22 @@ const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    version: 34,
+    up(db) {
+      db.exec(`
+        CREATE TABLE time_entry_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at INTEGER NOT NULL,
+          actor TEXT NOT NULL CHECK (actor IN ('claude', 'codex', 'user')),
+          action TEXT NOT NULL CHECK (action IN ('add', 'edit', 'delete', 'delete-group', 'group', 'ungroup')),
+          ref TEXT NOT NULL,
+          before_json TEXT,
+          after_json TEXT
+        );
+      `)
+    }
   }
 ]
 

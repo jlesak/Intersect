@@ -111,6 +111,9 @@ import { createTimeSummaryScheduler } from './timeTracking/timeSummaryScheduler'
 import { runTimeSummary } from './timeTracking/timeSummaryRunner'
 import { createTimeTracking } from './timeTracking/timeTracking'
 import { createTimeEntryGroupRepo } from './db/timeEntryGroupRepo'
+import { createTimeCliDispatcher } from './timeTracking/timeCliDispatch'
+import { startTimeCliServer } from './timeTracking/timeCliServer'
+import { installTimeCliShim } from './timeTracking/timeCliInstall'
 import { createAgentRuntimeRepo } from './db/agentRuntimeRepo'
 import {
   createAgentRuntimeService,
@@ -244,6 +247,7 @@ export function createCoreRuntime(deps: CoreRuntimeDeps): CoreRuntime {
 function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntime {
   const { userDataDir, execPath, env, emitPush } = deps
   const isE2e = env.INTERSECT_E2E === '1'
+  let shutdownDone = false
 
   // The subsystems this composition root reports on directly, each with its own scope so the log
   // groups by subsystem. Services that report on themselves take their own child further down.
@@ -688,20 +692,33 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
       'summary failed', { data: { code, sessionId, day } })
   })
   if (summaryEnabled) summaryScheduler.start()
-  const timeTrackingHandlers = createTimeTrackingHandlers({
-    summary: summaryScheduler,
-    service: createTimeTracking({
+  const timeGroups = createTimeEntryGroupRepo(db, repoDeps)
+  const timeService = createTimeTracking({
       snapshots: timeSnapshots, scanner: snapshotScanner,
       isResumable: id => sessionIndex.isResumable(id),
       settings: () => settings.getTimeTracking(), userDataDir,
       manual: createManualTimeEntryRepo(db, repoDeps),
-      groups: createTimeEntryGroupRepo(db, repoDeps),
+      groups: timeGroups,
       overrides: timeOverrides,
       timer: createRunningTimerRepo(db, repoDeps),
       now: () => Date.now(),
       atomically: (fn) => tx(db, fn)
     })
+  const timeTrackingHandlers = createTimeTrackingHandlers({
+    summary: summaryScheduler,
+    service: timeService
   })
+  const timeCliDispatch = createTimeCliDispatcher({ service: timeService, db, groups: timeGroups,
+    now: Date.now, zone: () => appState.get('timeTracking.timeZone') ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    scannerReady: () => snapshotScanner.ready(),
+    changed: () => emitPush(Channel.timeTrackingChanged, undefined), isSynced: () => false })
+  let timeCliServer: Awaited<ReturnType<typeof startTimeCliServer>> | undefined
+  void startTimeCliServer(userDataDir, timeCliDispatch).then(handle => {
+    if (shutdownDone) void handle.stop().catch(() => {})
+    else timeCliServer = handle
+  },
+    err => deps.logger.child('timeTracking').warn('time CLI listener failed', { err }))
 
   // --- Agent runtime evidence slice: measured agent runtime derived from hook pings (primary)
   // and historical JSONL transcripts (coarse fallback), kept strictly separate from human
@@ -849,6 +866,8 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   }
   const settingsHandlers = createSettingsHandlers({
     settings,
+    installTimeCli: () => installTimeCliShim(homedir(), execPath, join(__dirname, 'timeCli.js'),
+      userDataDir),
     timeTrackingChanged: () => {
       void snapshotScanner.scan().catch(err => deps.logger.child('timeTracking').warn('settings scan failed', { err }))
     },
@@ -944,13 +963,13 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // synchronous and does NOT touch the DB, so closing the DB right after is safe (its async
   // PTY-exit handler is neutered by the disposed flag); a leftover worktree is reclaimed on
   // the next boot.
-  let shutdownDone = false
   const shutdown = (): void => {
     if (shutdownDone) return
     shutdownDone = true
     // Stop accepting hook posts (and the retention timer) before the DB goes away.
     hookListenerStopped = true
     void hookListenerHandle?.stop().catch(() => {})
+    void timeCliServer?.stop().catch(() => {})
     clearInterval(hookRetentionTimer)
     clearInterval(todoReminderTimer)
     // Genuine persisted suspend, committed BEFORE anything destructive: while the DB is still open

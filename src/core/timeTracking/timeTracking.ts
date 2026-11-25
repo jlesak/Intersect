@@ -44,11 +44,14 @@ export interface TimeTrackingDeps {
  */
 export interface TimeTrackingService {
   getWeek(weekStart: string): Promise<TimeEntry[]>
+  getDay(day: string): Promise<TimeEntry[]>
   /** Force a session re-scan from disk, then return the fresh week. */
   refreshWeek(weekStart: string): Promise<TimeEntry[]>
   addManual(input: NewManualTimeEntry): TimeEntry
   updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
   deleteEntry(ref: TimeEntryRef): Promise<void>
+  updateEntryPrepared(ref: TimeEntryRef, update: TimeEntryUpdate): void
+  deleteEntryPrepared(ref: TimeEntryRef): void
   groupEntries(refs: TimeEntryRef[]): string
   groupDayByIssue(day: string): string[]
   updateGroup(id: string, update: Partial<TimeEntryUpdate>): void
@@ -114,13 +117,6 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
     if (ref.source === 'auto' && typeof ref.sessionId === 'string' && ref.sessionId &&
       validDay(ref.day)) return
     throw new Error('Invalid entry reference')
-  }
-
-  async function findSnapshot(ref: Extract<TimeEntryRef, { source: 'auto' }>) {
-    await deps.scanner.ready()
-    const row = deps.snapshots.get(ref.sessionId, ref.day)
-    if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
-    return row
   }
 
   async function getDays(days: string[]): Promise<TimeEntry[]> {
@@ -203,6 +199,7 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
 
   return {
     getWeek,
+    getDay: (day) => getDays([day]),
 
     groupEntries(refs) {
       if (!Array.isArray(refs) || refs.length < 2) throw new Error('Select at least two cards')
@@ -266,34 +263,45 @@ export function createTimeTracking(deps: TimeTrackingDeps): TimeTrackingService 
 
     async updateEntry(ref, update) {
       validateRef(ref)
-      if (ref.source === 'group') {
-        this.updateGroup(ref.id, update)
-        const row = deps.groups?.get(ref.id)
-        return (await getDays([row!.day])).find(entry => entry.source === 'group' &&
-          entry.id === ref.id)!
-      }
+      if (ref.source === 'auto') await deps.scanner.ready()
+      this.updateEntryPrepared(ref, update)
+      const day = ref.source === 'auto' ? ref.day : ref.source === 'group'
+        ? deps.groups!.get(ref.id)!.day : deps.manual.get(ref.id).day
+      return (await getDays([day])).flatMap(entry => entry.source === 'group'
+        ? [entry, ...entry.members] : [entry]).find(entry => entry.id ===
+          (ref.source === 'auto' ? key(ref.sessionId, ref.day) : ref.id))!
+    },
+
+    updateEntryPrepared(ref, update) {
+      validateRef(ref)
+      if (ref.source === 'group') { this.updateGroup(ref.id, update); return }
       assertDuration(update.durationMs)
       if (!update.description.trim()) throw new Error('A description is required')
-      if (ref.source === 'manual') return deps.manual.update(ref.id, update)
-      const row = await findSnapshot(ref)
+      if (ref.source === 'manual') { deps.manual.update(ref.id, update); return }
+      const row = deps.snapshots.get(ref.sessionId, ref.day)
+      if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
       const existing = deps.overrides.get(ref.sessionId, ref.day)
       const shownDescription = existing?.description ?? row.summary ?? row.autoDescription
       deps.overrides.upsert(ref.sessionId, ref.day, { ...update,
-        // A time/key edit carries the displayed text in its payload. It is not an owner edit.
         description: update.description === shownDescription ? existing?.description ?? null :
-          update.description,
-        deleted: false })
-      return toEntry(row)
+          update.description, deleted: false })
     },
 
     async deleteEntry(ref) {
+      validateRef(ref)
+      if (ref.source === 'auto') await deps.scanner.ready()
+      this.deleteEntryPrepared(ref)
+    },
+
+    deleteEntryPrepared(ref) {
       validateRef(ref)
       if (ref.source === 'group') { this.ungroup(ref.id); return }
       if (ref.source === 'manual') {
         deps.atomically(() => { deps.groups?.removeMember(memberRef(ref)); deps.manual.remove(ref.id) })
         return
       }
-      const row = await findSnapshot(ref)
+      const row = deps.snapshots.get(ref.sessionId, ref.day)
+      if (!row) throw new Error(`Unknown session day: ${ref.sessionId}:${ref.day}`)
       const existing = deps.overrides.get(ref.sessionId, ref.day)
       deps.atomically(() => {
         deps.groups?.removeMember(memberRef(ref))

@@ -11,6 +11,7 @@ import { ProjectsPane } from '@renderer/features/projects'
 import { AgentToolingPane, selectHasRawDraft, useAgentToolingStore } from '@renderer/features/agentTooling'
 import { ErrorBoundary } from '@renderer/shared/ui/ErrorBoundary'
 import { useSettingsStore } from '../store'
+import { installTimeCli } from '../ipc'
 
 const CATEGORIES = [
   { id: 'projects', label: 'Projekty' },
@@ -408,6 +409,7 @@ function TimeTrackingPane() {
   const [draft, setDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [installedPath, setInstalledPath] = useState<string | null>(null)
   const value = draft ?? saved.excludedPathPrefixes.join('\n')
   async function save() {
     setSaving(true)
@@ -433,6 +435,16 @@ function TimeTrackingPane() {
     </div>
     <button type="button" className="ix-btn ix-btn--primary" disabled={!loaded || saving}
       onClick={() => void save()}>{saving ? 'Saving…' : 'Save exclusions'}</button>
+    <div className="ix-set-field">
+      <div className="ix-set-row__hint">Install the CLI in ~/.local/bin for agents and terminals.
+        Intersect must be running when it is used.</div>
+      <button type="button" className="ix-btn" disabled={!loaded}
+        onClick={() => { setError(null); void installTimeCli().then(setInstalledPath,
+          err => setError(err instanceof Error ? err.message : String(err))) }}>
+        Install intersect-time CLI
+      </button>
+      {installedPath && <div role="status">Installed at {installedPath}</div>}
+    </div>
     {error && <div role="alert">{error}</div>}
   </>
 }

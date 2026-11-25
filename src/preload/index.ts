@@ -259,6 +259,7 @@ const api: IpcApi = {
   },
   settings: {
     setTimeTracking: (settings) => ipcRenderer.invoke(Channel.settingsSetTimeTracking, settings),
+    installTimeCli: () => ipcRenderer.invoke(Channel.settingsInstallTimeCli),
     get: () => ipcRenderer.invoke(Channel.settingsGet),
     setNotifications: (notifications) =>
       ipcRenderer.invoke(Channel.settingsSetNotifications, notifications),

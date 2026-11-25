@@ -435,6 +435,7 @@ export interface IpcApi {
   }
   settings: {
     setTimeTracking(settings: TimeTrackingSettings): Promise<AppSettings>
+    installTimeCli(): Promise<string>
     /** Every user setting at once; unsaved ADO fields fall back to the env/`~/.claude.json` config. */
     get(): Promise<AppSettings>
     setNotifications(notifications: NotificationSettings): Promise<AppSettings>
@@ -826,6 +827,7 @@ export const Channel = {
   paletteRecordUse: 'palette:recordUse',
   // settings (request/response)
   settingsSetTimeTracking: 'settings:setTimeTracking',
+  settingsInstallTimeCli: 'settings:installTimeCli',
   settingsGet: 'settings:get',
   settingsSetNotifications: 'settings:setNotifications',
   settingsSetAdo: 'settings:setAdo',

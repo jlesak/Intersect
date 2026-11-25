@@ -12,6 +12,7 @@ import type { SettingsRepo } from '../db/settingsRepo'
 
 export interface SettingsHandlerDeps {
   settings: SettingsRepo
+  installTimeCli(): string
   timeTrackingChanged(): void
   /** The effective ADO config from `~/.claude.json`/env, shown until the user saves their own. */
   fallbackAdo(): AdoSettings
@@ -77,6 +78,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 
   return {
     get: () => surface(() => current()),
+    installTimeCli: () => surface(() => d.installTimeCli()),
     setTimeTracking: (settings) => surface(() => {
       d.settings.setTimeTracking(validateTimeTrackingSettings(settings))
       d.timeTrackingChanged()
@@ -161,6 +163,7 @@ export function createSettingsHandlers(d: SettingsHandlerDeps): IpcApi['settings
 export function settingsWireRoutes(h: IpcApi['settings']): WireRoutes {
   return {
     [Channel.settingsGet]: h.get,
+    [Channel.settingsInstallTimeCli]: h.installTimeCli,
     [Channel.settingsSetTimeTracking]: h.setTimeTracking,
     [Channel.settingsSetNotifications]: h.setNotifications,
     [Channel.settingsSetAdo]: h.setAdo,
