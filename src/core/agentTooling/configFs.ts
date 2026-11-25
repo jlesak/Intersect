@@ -36,6 +36,8 @@ export interface ConfigFs {
   readDir(path: string): DirEntry[] | null
   /** The canonical (symlinks-resolved) absolute path, or null when the path does not exist. */
   realpath(path: string): string | null
+  /** Modification time in Unix milliseconds, or null when unreadable. */
+  mtime(path: string): number | null
 }
 
 /** The production wiring: plain `node:fs` sync reads, every failure folded to null. */
@@ -61,6 +63,13 @@ export const defaultConfigFs: ConfigFs = {
   realpath(path) {
     try {
       return realpathSync.native(path)
+    } catch {
+      return null
+    }
+  },
+  mtime(path) {
+    try {
+      return statSync(path).mtimeMs
     } catch {
       return null
     }

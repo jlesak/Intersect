@@ -52,6 +52,9 @@ export function createMemoryConfigFs(seed: Record<string, string> = {}) {
     realpath(path) {
       if (files.has(path) || isImpliedDir(path)) return path
       return null
+    },
+    mtime(path) {
+      return files.has(path) ? 0 : null
     }
   }
 

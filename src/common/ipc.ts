@@ -5,6 +5,9 @@ import type {
   AgentRuntimeDay,
   AgentRuntimeEvidence,
   AgentToolingScope,
+  ClaudeMemoryDetail,
+  ClaudeMemoryProject,
+  ClaudeMemorySummary,
   AppSettings,
   BootState,
   ClaudeUsage,
@@ -458,6 +461,9 @@ export interface IpcApi {
     testAdoConnection(ado: AdoSettings): Promise<AdoConnectionResult>
   }
   agentTooling: {
+    listMemoryProjects(): Promise<ClaudeMemoryProject[]>
+    listMemories(slug: string | null, query: string): Promise<ClaudeMemorySummary[]>
+    readMemory(slug: string, filename: string): Promise<ClaudeMemoryDetail | null>
     /**
      * The fully resolved effective Claude Code configuration for the scope, every leaf carrying
      * its provenance. Malformed layers degrade to per-file diagnostics; the rest still resolves.
@@ -846,6 +852,9 @@ export const Channel = {
   settingsTestAdoConnection: 'settings:testAdoConnection',
   // agentTooling (request/response)
   agentToolingGetEffectiveConfig: 'agentTooling:getEffectiveConfig',
+  agentToolingListMemoryProjects: 'agentTooling:listMemoryProjects',
+  agentToolingListMemories: 'agentTooling:listMemories',
+  agentToolingReadMemory: 'agentTooling:readMemory',
   agentToolingListSkills: 'agentTooling:listSkills',
   agentToolingListAgents: 'agentTooling:listAgents',
   agentToolingReadRaw: 'agentTooling:readRaw',

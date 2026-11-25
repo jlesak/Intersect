@@ -3,11 +3,13 @@ import { Channel, type IpcApi } from '@common/ipc'
 import type { AgentToolingScope } from '@common/domain'
 import type { ClaudeConfigReader, ResolvedScope } from '../agentTooling/claudeConfigReader'
 import type { ConfigWriter } from '../agentTooling/configWriter'
+import type { ClaudeMemoryReader } from '../agentTooling/claudeMemoryReader'
 
 export interface AgentToolingHandlerDeps {
   reader: ClaudeConfigReader
   /** The guarded writer serving preview / commit / undo, over its own read + write seams. */
   writer: ConfigWriter
+  memoryReader: ClaudeMemoryReader
   /**
    * Translate a renderer scope into the reader's resolved scope. Global scope passes through;
    * project scope resolves the Project id to its canonical repository roots (the containment
@@ -36,6 +38,9 @@ async function surface<T>(op: () => T | Promise<T>): Promise<T> {
  */
 export function createAgentToolingHandlers(deps: AgentToolingHandlerDeps): IpcApi['agentTooling'] {
   return {
+    listMemoryProjects: () => surface(() => deps.memoryReader.listProjects()),
+    listMemories: (slug, query) => surface(() => deps.memoryReader.listMemories(slug, query)),
+    readMemory: (slug, filename) => surface(() => deps.memoryReader.readMemory(slug, filename)),
     getEffectiveConfig: (scope) =>
       surface(() => {
         const resolved = deps.reader.getEffectiveConfig(deps.resolveScope(scope))
@@ -60,6 +65,9 @@ export function createAgentToolingHandlers(deps: AgentToolingHandlerDeps): IpcAp
 
 export function agentToolingWireRoutes(h: IpcApi['agentTooling']): WireRoutes {
   return {
+    [Channel.agentToolingListMemoryProjects]: h.listMemoryProjects,
+    [Channel.agentToolingListMemories]: h.listMemories,
+    [Channel.agentToolingReadMemory]: h.readMemory,
     [Channel.agentToolingGetEffectiveConfig]: h.getEffectiveConfig,
     [Channel.agentToolingListSkills]: h.listSkills,
     [Channel.agentToolingListAgents]: h.listAgents,

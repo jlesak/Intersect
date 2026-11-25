@@ -89,6 +89,7 @@ import { createOneOnOneHandlers, oneOnOneWireRoutes } from './api/oneOnOne.ipc'
 import { createSettingsHandlers, settingsWireRoutes } from './api/settings.ipc'
 import { createAgentToolingHandlers, agentToolingWireRoutes } from './api/agentTooling.ipc'
 import { createClaudeConfigReader } from './agentTooling/claudeConfigReader'
+import { createClaudeMemoryReader } from './agentTooling/claudeMemoryReader'
 import { createConfigWriter } from './agentTooling/configWriter'
 import { testAdoConnection } from './settings/adoTestConnection'
 import { createSessionIndex } from './sessions/sessionIndex'
@@ -875,6 +876,7 @@ function composeCoreRuntime(deps: CoreRuntimeDeps, db: DatabaseSync): CoreRuntim
   // gate every project-level file access against.
   const agentToolingHandlers = createAgentToolingHandlers({
     reader: createClaudeConfigReader(),
+    memoryReader: createClaudeMemoryReader(),
     writer: createConfigWriter(),
     resolveScope: (scope) => {
       if (scope.kind === 'global') return { kind: 'global' }
