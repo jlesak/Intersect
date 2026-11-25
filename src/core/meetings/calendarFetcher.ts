@@ -16,6 +16,7 @@ export interface CalendarFetcherDeps {
   reportServerPath: string
   execPath: string
   timeoutMs?: number
+  reportGraceMs?: number
   /** Test-only launcher and fake account connector; production uses the user's connected account. */
   launch?: Launch
   syntheticMcpServers?: Record<string, unknown>
@@ -62,6 +63,7 @@ function stop(proc: ChildProcessWithoutNullStreams): void {
 export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
   const live = new Set<ChildProcessWithoutNullStreams>()
   const timeoutMs = d.timeoutMs ?? 40_000
+  const reportGraceMs = d.reportGraceMs ?? 1_000
   let disposed = false
 
   async function fetch(day: string, signal?: AbortSignal): Promise<unknown> {
@@ -73,6 +75,7 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
     let server: NetServer | undefined
     let proc: ChildProcessWithoutNullStreams | undefined
     let timeout: NodeJS.Timeout | undefined
+    let drain: NodeJS.Timeout | undefined
     let rejectRun: ((reason: Error) => void) | undefined
     const aborted = (): void => rejectRun?.(new Error('Calendar refresh was cancelled'))
     try {
@@ -135,6 +138,9 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
       signal?.addEventListener('abort', aborted, { once: true })
       let turn = 0
       let buffer = ''
+      const awaitReport = (message: string): void => {
+        if (!drain) drain = setTimeout(() => fail(message), reportGraceMs)
+      }
       const send = (message: string): void => {
         if (!child.stdin.writable) { fail('Calendar connector session closed before reporting'); return }
         try { child.stdin.write(userMessage(message)) }
@@ -158,7 +164,7 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
             turn++
             if (turn === 1) send(spec.prompt)
             else if (turn === 2) send(`Retry the calendar request for ${day} now that tools have loaded. Report the events or authentication error once.`)
-            else fail('Calendar connector did not report (check Microsoft 365 authentication and connection)')
+            else awaitReport('Calendar connector did not report (check Microsoft 365 authentication and connection)')
           }
         }
       })
@@ -166,7 +172,7 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
       let stderr = ''
       child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-2048) })
       child.on('error', () => fail('Calendar connector could not start'))
-      child.on('exit', () => fail(/permission/i.test(stderr)
+      child.on('exit', () => awaitReport(/permission/i.test(stderr)
         ? 'Calendar connector is waiting for permission'
         : 'Calendar connector session exited before reporting (check Microsoft 365 authentication)'))
       timeout = setTimeout(() => fail(
@@ -176,6 +182,7 @@ export function createCalendarFetcher(d: CalendarFetcherDeps): CalendarFetcher {
       return await result
     } finally {
       if (timeout) clearTimeout(timeout)
+      if (drain) clearTimeout(drain)
       signal?.removeEventListener('abort', aborted)
       if (proc) { live.delete(proc); stop(proc) }
       server?.close()

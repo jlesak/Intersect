@@ -94,4 +94,22 @@ describe('calendar fetcher', () => {
     await expect(pending).rejects.toThrow(/closed|start|connector/i)
     expect(child.kill).toHaveBeenCalled()
   })
+
+  test('accepts a socket report that arrives after the final Claude result', async () => {
+    const child = fakeChild()
+    let args!: string[]
+    const launch = vi.fn((_file: string, a: string[]) => { args = a; return child }) as
+      unknown as typeof spawn
+    const fetcher = createCalendarFetcher({ launch, claudePath: 'claude',
+      reportServerPath: '/out/meetingsReportServer.js', execPath: '/Intersect',
+      cwd: '/synthetic/intersect', timeoutMs: 1000, reportGraceMs: 100 })
+    const pending = fetcher.fetch('2026-11-25')
+    await vi.waitFor(() => expect(launch).toHaveBeenCalled())
+    const configPath = args[args.indexOf('--mcp-config') + 1]
+    const stdout = child.stdout as PassThrough
+    stdout.write('{"type":"result"}\n{"type":"result"}\n{"type":"result"}\n')
+    child.emit('exit', 0)
+    await report(configPath, { events: [{ id: 'late-report' }] })
+    await expect(pending).resolves.toMatchObject([{ id: 'late-report' }])
+  })
 })
