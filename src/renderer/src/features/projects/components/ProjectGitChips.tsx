@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ProjectGitAction, ProjectGitBranch, ProjectGitPreview, ProjectGitStatus } from '@common/domain'
 import { Dialog } from '@renderer/shared/ui/Dialog'
 import { reportError, useToastStore } from '@renderer/shared/ui/toast'
+import { useGitBusyStore } from '../gitBusyStore'
 import * as api from '../ipc'
 
 function label(status: ProjectGitStatus): string {
@@ -35,7 +36,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const [branches, setBranches] = useState<ProjectGitBranch[]>([])
   const [filter, setFilter] = useState('')
   const [active, setActive] = useState(0)
-  const [busyByRepo, setBusyByRepo] = useState<Record<string, string>>({})
+  const busyByRepo = useGitBusyStore((state) => state.byRepo)
   const [dialog, setDialog] = useState<'commit' | 'branch' | null>(null)
   const [preview, setPreview] = useState<ProjectGitPreview | null>(null)
   const [message, setMessage] = useState('')
@@ -56,13 +57,8 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
   const status = statuses.find((s) => s.repoPath === open)
   const busy = !!(status && busyByRepo[repoKey(status)])
   const dialogBusy = !!busyByRepo[dialogRepoKey.current ?? '']
-  const begin = (key: string, verb: string): void =>
-    setBusyByRepo((current) => ({ ...current, [key]: verb }))
-  const end = (key: string): void => setBusyByRepo((current) => {
-    const next = { ...current }
-    delete next[key]
-    return next
-  })
+  const begin = useGitBusyStore.getState().begin
+  const end = useGitBusyStore.getState().end
 
   const refresh = useCallback(async () => {
     if (polling.current) return
@@ -148,15 +144,15 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     const path = open
     const key = repoKey(status)
     const request = interaction.current
-    begin(key, ({ pull: 'Pulling…', push: 'Pushing…', fetch: 'Fetching…', switch: 'Switching…', 'new-branch': 'Creating branch…' } as const)[action.kind])
+    const job = begin(key, ({ pull: 'Pulling…', push: 'Pushing…', fetch: 'Fetching…', switch: 'Switching…', 'new-branch': 'Creating branch…' } as const)[action.kind])
     try {
       useToastStore.getState().push(await api.gitAction(projectId, path, action))
       if (request === interaction.current) closeMenu()
     } catch (error) {
       reportError('Git operation failed', error)
     } finally {
-      end(key)
-      void refresh()
+      end(key, job)
+      if (alive.current) void refresh()
     }
   }
 
@@ -183,7 +179,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     const path = previewPath.current
     const key = dialogRepoKey.current
     if (!path || !key || !preview || !message.trim() || dialogBusy) return
-    begin(key, 'Committing…')
+    const job = begin(key, 'Committing…')
     setOutput('')
     try {
       const result = await api.gitCommit(projectId, path, preview.token, message, push)
@@ -201,7 +197,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
         else useToastStore.getState().push(`Committed ${result.commit}`)
       }
     } catch (error) { setOutput(errorText(error)); reportError('Commit failed', error) }
-    finally { end(key); void refresh() }
+    finally { end(key, job); if (alive.current) void refresh() }
   }
 
   function openBranch(initial = ''): void {
@@ -228,14 +224,14 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     const path = previewPath.current
     const key = dialogRepoKey.current
     if (!path || !key || !branchExpected.current || dialogBusy || nameError || !name) return
-    begin(key, 'Creating branch…')
+    const job = begin(key, 'Creating branch…')
     try {
       useToastStore.getState().push(await api.gitAction(projectId, path, {
         kind: 'new-branch', name, start, expected: branchExpected.current
       }))
       setDialog(null)
     } catch (error) { reportError('Could not create branch', error) }
-    finally { end(key); void refresh() }
+    finally { end(key, job); if (alive.current) void refresh() }
   }
 
   const filtered = branches.filter((b) => b.name.toLowerCase().includes(filter.toLowerCase()))
@@ -252,7 +248,7 @@ export function ProjectGitChips({ projectId, repoPaths }: { projectId: string; r
     <div className="ix-git__chips">
       {repoPaths.map((path) => {
         const item = statuses.find((s) => s.repoPath === path)
-        const verb = item && busyByRepo[repoKey(item)]
+        const verb = item && busyByRepo[repoKey(item)]?.verb
         return <button key={path} type="button"
           className={`ix-git__chip${item?.error ? ' ix-git__chip--error' : ''}`}
           title={item ? hint(item) : path}

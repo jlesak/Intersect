@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { ProjectGitBranch, ProjectGitPreview, ProjectGitStatus } from '@common/domain'
+import { useGitBusyStore } from '../gitBusyStore'
 import * as api from '../ipc'
 import { ProjectGitChips } from './ProjectGitChips'
 
@@ -34,9 +35,35 @@ function setup(statuses: ProjectGitStatus[]): void {
   render(<ProjectGitChips projectId="p" repoPaths={statuses.map((item) => item.repoPath)} />)
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  useGitBusyStore.setState({ byRepo: {} })
+})
 
 describe('ProjectGitChips async repository state', () => {
+  test('a push stays busy after project A unmounts and project B mounts its linked worktree', async () => {
+    const pending = deferred<string>()
+    const main = status('/repos/main', '/git/shared')
+    const linked = status('/repos/linked', '/git/shared')
+    vi.mocked(api.gitStatuses).mockImplementation((projectId) => Promise.resolve(projectId === 'a' ? [main] : [linked]))
+    vi.mocked(api.gitBranches).mockResolvedValue([])
+    vi.mocked(api.gitAction).mockReturnValue(pending.promise)
+    const first = render(<ProjectGitChips projectId="a" repoPaths={[main.repoPath]} />)
+    await waitFor(() => expect(first.container.querySelector('.ix-git__chip')?.textContent).toContain('main'))
+    fireEvent.click(first.container.querySelector('.ix-git__chip')!)
+    fireEvent.click(screen.getByRole('button', { name: /Push/ }))
+    first.unmount()
+
+    const second = render(<ProjectGitChips projectId="b" repoPaths={[linked.repoPath]} />)
+    await waitFor(() => expect(second.container.querySelector('.ix-git__chip')?.textContent).toContain('Pushing'))
+    fireEvent.click(second.container.querySelector('.ix-git__chip')!)
+    expect((screen.getByRole('button', { name: /New branch…/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: /Fetch/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect(api.gitAction).toHaveBeenCalledTimes(1)
+    await act(async () => pending.resolve('Pushed'))
+    await waitFor(() => expect(second.container.querySelector('.ix-git__chip')?.textContent).not.toContain('Pushing'))
+  })
+
   test('aliases of the same repository stay busy during a slow push', async () => {
     const pending = deferred<string>()
     vi.mocked(api.gitAction).mockReturnValue(pending.promise)
