@@ -13,7 +13,7 @@ const MIN = 60_000
 const entry = (id: string, over: Partial<TimeEntry> = {}): TimeEntry => ({
   id,
   source: 'manual',
-  ...{ sessionId: 's1', cwd: '/work', resumable: true, firstTimestamp: 1, lastTimestamp: 2 },
+  ...{ sessionId: 's1', cwd: '/work', resumable: true, isWork: null, workConfirmed: false, firstTimestamp: 1, lastTimestamp: 2 },
   day: '2026-08-17',
   description: 'Work',
   issueKey: null,

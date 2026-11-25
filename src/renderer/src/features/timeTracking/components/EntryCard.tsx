@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { TimeEntry } from '@common/domain'
 import { formatDuration, useSessionsStore } from '@renderer/features/sessions'
 import { IconPlay, IconTrash } from '@renderer/shared/ui/icons'
+import { ContextMenu } from '@renderer/shared/ui/ContextMenu'
 import { useTimeTrackingStore } from '../store'
 import { normalizeIssueKey, parseDuration } from '../time'
 
@@ -35,6 +36,7 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
   const [key, setKey] = useState(entry.issueKey ?? '')
   const [desc, setDesc] = useState(entry.description)
   const [time, setTime] = useState(formatDuration(entry.durationMs))
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   // A ref (not state) so the Escape keydown is already visible to the blur it triggers.
   const discardRef = useRef(false)
 
@@ -144,7 +146,11 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
   }
 
   return (
-    <div className="ix-tt-card">
+    <div className="ix-tt-card" onContextMenu={e => {
+      if (entry.source !== 'auto') return
+      e.preventDefault()
+      setMenuAt({ x: e.clientX, y: e.clientY })
+    }}>
       <span className="ix-tt-card__top">
         <SourceIcon source={entry.source} />
         <input
@@ -163,6 +169,8 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
             dirty.current.key = false
           }}
         />
+        {entry.source === 'auto' && entry.isWork === false &&
+          <span className="ix-tt-card__nonwork" title="Nepracovní karta">nepracovní</span>}
         <span className="ix-tt-card__actions">
           {entry.source === 'auto' && entry.resumable && (
             <button type="button" className="ix-iconbtn" title="Resume" aria-label="Resume"
@@ -215,6 +223,14 @@ export function EntryCard({ entry }: { entry: TimeEntry }) {
           }}
         />
       </span>
+      {entry.source === 'auto' && menuAt && <ContextMenu x={menuAt.x} y={menuAt.y}
+        onClose={() => setMenuAt(null)} entries={[
+          ...(entry.isWork === false && !entry.workConfirmed ? [{ label: 'Je pracovní',
+            onClick: () => { void useTimeTrackingStore.getState().confirmWork(entry) } }] : []),
+          { label: entry.resumable ? 'Přegenerovat' : 'Přegenerovat (přepis není dostupný)',
+            disabled: !entry.resumable,
+            onClick: () => { void useTimeTrackingStore.getState().regenerate(entry) } }
+        ]} />}
     </div>
   )
 }

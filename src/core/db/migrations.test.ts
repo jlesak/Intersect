@@ -104,7 +104,10 @@ describe('migrations', () => {
       `INSERT INTO time_entry_manual (id, day, description, issue_key, duration_ms, created_at)
        VALUES ('m1', '2026-07-06', 'Team sync', NULL, 1800000, 1)`
     ).run()
-    db.prepare(`INSERT INTO time_session_day VALUES ('s1', '2026-07-06', 'Title', '/work', NULL, 'Work', 1, 2, 300000, 1)`).run()
+    db.prepare(`INSERT INTO time_session_day
+      (session_id, day, title, cwd, git_branch, auto_description, first_timestamp,
+        last_timestamp, active_duration_ms, updated_at)
+      VALUES ('s1', '2026-07-06', 'Title', '/work', NULL, 'Work', 1, 2, 300000, 1)`).run()
     db.prepare(
       `INSERT INTO time_entry_override (session_id, day, issue_key, duration_ms, updated_at)
        VALUES ('s1', '2026-07-06', 'PROJ-611', 3600000, 1)`

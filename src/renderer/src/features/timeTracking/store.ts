@@ -48,6 +48,8 @@ interface TimeTrackingState {
   addManual(input: NewManualTimeEntry): Promise<boolean>
   updateEntry(entry: TimeEntry, update: TimeEntryUpdate): Promise<void>
   removeEntry(entry: TimeEntry): Promise<void>
+  confirmWork(entry: TimeEntry): Promise<void>
+  regenerate(entry: TimeEntry): Promise<void>
   /** Show or hide the weekly summary panel. */
   toggleSummary(): void
   /**
@@ -220,6 +222,18 @@ export const useTimeTrackingStore = createStore<TimeTrackingState>()((set, get) 
 
     async removeEntry(entry) {
       await mutate(() => api.deleteEntry(reference(entry)), 'Could not delete the entry')
+    },
+
+    async confirmWork(entry) {
+      if (entry.source !== 'auto') return
+      await mutate(() => api.confirmWork({ source: 'auto', sessionId: entry.sessionId,
+        day: entry.day }), 'Could not mark the card as work')
+    },
+
+    async regenerate(entry) {
+      if (entry.source !== 'auto') return
+      await mutate(() => api.regenerate({ source: 'auto', sessionId: entry.sessionId,
+        day: entry.day }), 'Could not queue the summary')
     },
 
     async startTimer(description, issueKey) {

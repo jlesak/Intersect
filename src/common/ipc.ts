@@ -343,6 +343,8 @@ export interface IpcApi {
     updateEntry(ref: TimeEntryRef, update: TimeEntryUpdate): Promise<TimeEntry>
     /** Delete a card. An auto card is tombstoned so it never resurrects on a later re-scan. */
     deleteEntry(ref: TimeEntryRef): Promise<void>
+    confirmWork(ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void>
+    regenerate(ref: Extract<TimeEntryRef, { source: 'auto' }>): Promise<void>
     /** The work timer currently running, or null. Read once at boot; there is no push channel. */
     getTimer(): Promise<RunningTimer | null>
     /** Begin timing now. Rejects when a timer is already running. */
@@ -779,6 +781,8 @@ export const Channel = {
   timeTrackingAddManual: 'timeTracking:addManual',
   timeTrackingUpdateEntry: 'timeTracking:updateEntry',
   timeTrackingDeleteEntry: 'timeTracking:deleteEntry',
+  timeTrackingConfirmWork: 'timeTracking:confirmWork',
+  timeTrackingRegenerate: 'timeTracking:regenerate',
   timeTrackingGetTimer: 'timeTracking:getTimer',
   timeTrackingStartTimer: 'timeTracking:startTimer',
   timeTrackingUpdateTimer: 'timeTracking:updateTimer',
