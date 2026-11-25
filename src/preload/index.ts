@@ -263,6 +263,9 @@ const api: IpcApi = {
     testAdoConnection: (ado) => ipcRenderer.invoke(Channel.settingsTestAdoConnection, ado)
   },
   agentTooling: {
+    listMemoryProjects: () => ipcRenderer.invoke(Channel.agentToolingListMemoryProjects),
+    listMemories: (slug, query) => ipcRenderer.invoke(Channel.agentToolingListMemories, slug, query),
+    readMemory: (slug, filename) => ipcRenderer.invoke(Channel.agentToolingReadMemory, slug, filename),
     getEffectiveConfig: (scope) =>
       ipcRenderer.invoke(Channel.agentToolingGetEffectiveConfig, scope),
     listSkills: (scope) => ipcRenderer.invoke(Channel.agentToolingListSkills, scope),
