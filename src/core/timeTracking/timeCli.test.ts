@@ -216,6 +216,78 @@ test('group, edit, ungroup and delete are audited once each and reject old resol
   t.db.close()
 })
 
+test('audit rows preserve before and after values for every CLI write', async () => {
+  const t = setup()
+  const add = async (description: string, duration: string) => {
+    const result = await t.dispatch({ command: 'add', actor: 'user', day: t.day,
+      duration, description })
+    expect(result.code).toBe(0)
+    return (result.value as { ref: string }).ref
+  }
+  const first = await add('First', '30m')
+  const second = await add('Second', '20m')
+  expect((await t.dispatch({ command: 'edit', actor: 'codex', ref: first,
+    duration: '45m', description: 'Edited', issue: 'abc-2' })).code).toBe(0)
+  const grouped = await t.dispatch({ command: 'group', actor: 'claude', refs: [first, second] })
+  expect(grouped.code).toBe(0)
+  const group = (grouped.value as { ref: string }).ref
+  expect((await t.dispatch({ command: 'ungroup', actor: 'user', ref: group })).code).toBe(0)
+  expect((await t.dispatch({ command: 'delete', actor: 'user', ref: first })).code).toBe(0)
+
+  const rows = t.db.prepare(`SELECT actor, action, ref, before_json, after_json
+    FROM time_entry_audit ORDER BY id`).all() as unknown as Array<{
+      actor: string; action: string; ref: string
+      before_json: string | null; after_json: string | null
+    }>
+  const card = (ref: string, description: string, durationMs: number,
+    issueKey: string | null = null) => ({ ref, source: ref.startsWith('group:') ? 'group' : 'manual',
+    day: t.day, description, issueKey, durationMs })
+  const original = card(first, 'First', 1_800_000)
+  const edited = card(first, 'Edited', 2_700_000, 'ABC-2')
+  const other = card(second, 'Second', 1_200_000)
+  const combined = card(group, 'Edited; Second', 3_900_000)
+  expect(rows.map(row => ({ actor: row.actor, action: row.action, ref: row.ref,
+    before: row.before_json === null ? null : JSON.parse(row.before_json),
+    after: row.after_json === null ? null : JSON.parse(row.after_json) }))).toEqual([
+    { actor: 'user', action: 'add', ref: first, before: null, after: original },
+    { actor: 'user', action: 'add', ref: second, before: null, after: other },
+    { actor: 'codex', action: 'edit', ref: first, before: original,
+      after: { ref: first, description: 'Edited', issueKey: 'ABC-2', durationMs: 2_700_000 } },
+    { actor: 'claude', action: 'group', ref: group, before: [edited, other], after: combined },
+    { actor: 'user', action: 'ungroup', ref: group, before: combined,
+      after: [edited, other] },
+    { actor: 'user', action: 'delete', ref: first, before: edited, after: null }
+  ])
+  t.db.close()
+})
+
+test('deleting a group audits delete-group and leaves both member entries intact', async () => {
+  const t = setup()
+  const add = async (description: string) => ((await t.dispatch({ command: 'add',
+    actor: 'user', day: t.day, duration: '15m', description })).value as { ref: string }).ref
+  const first = await add('First')
+  const second = await add('Second')
+  const group = (await t.dispatch({ command: 'group', actor: 'codex', refs: [first, second] }))
+    .value as { ref: string }
+  expect((await t.dispatch({ command: 'delete', actor: 'claude', ref: group.ref })).code).toBe(0)
+  expect((await t.dispatch({ command: 'list', day: t.day })).value).toEqual([
+    expect.objectContaining({ ref: first, description: 'First' }),
+    expect.objectContaining({ ref: second, description: 'Second' })
+  ])
+  expect(t.db.prepare('SELECT count(*) AS n FROM time_entry_group').get()).toEqual({ n: 0 })
+  expect(t.db.prepare('SELECT count(*) AS n FROM time_entry_manual').get()).toEqual({ n: 2 })
+  const deletion = t.db.prepare(`SELECT actor, action, ref, before_json, after_json
+    FROM time_entry_audit ORDER BY id DESC LIMIT 1`).get() as {
+      actor: string; action: string; ref: string
+      before_json: string | null; after_json: string | null
+    }
+  expect(deletion).toEqual({ actor: 'claude', action: 'delete-group', ref: group.ref,
+    before_json: JSON.stringify({ ref: group.ref, source: 'group', day: t.day,
+      description: 'First; Second', issueKey: null, durationMs: 1_800_000 }),
+    after_json: null })
+  t.db.close()
+})
+
 test('synced policy guards a group and its affected members before any write', async () => {
   const t = setup()
   const add = async (label: string) => ((await t.dispatch({ command: 'add', actor: 'user',
