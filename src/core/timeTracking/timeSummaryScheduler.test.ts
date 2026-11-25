@@ -3,7 +3,7 @@ import { makeTestDb } from '../db/testkit'
 import { createTimeSessionDayRepo } from '../db/timeSessionDayRepo'
 import { createTimeOverrideRepo } from '../db/timeTrackingRepo'
 import { createAppStateRepo } from '../db/appStateRepo'
-import { createTimeSummaryScheduler } from './timeSummaryScheduler'
+import { createTimeSummaryScheduler, type TimeSummarySchedulerDeps } from './timeSummaryScheduler'
 
 const DAY = '2026-07-06'
 const end = Date.parse('2026-07-06T09:06:00Z')
@@ -25,7 +25,8 @@ function setup() {
   ] }
   let resumable = true
   const sessions = { isResumable: async () => resumable, getTranscript: async () => transcript }
-  const summarize = vi.fn(async () => ({ summary: 'Oprava validace a testů.', isWork: false }))
+  const summarize = vi.fn<TimeSummarySchedulerDeps['summarize']>(async () =>
+    ({ summary: 'Oprava validace a testů.', isWork: false }))
   const changed = vi.fn(); const failed = vi.fn()
   const scheduler = createTimeSummaryScheduler({ snapshots: repo, overrides, sessions, state,
     scanner: { ready: async () => {} }, settings: () => ({ excludedPathPrefixes: [] }),
@@ -144,5 +145,23 @@ test('new activity during a model call prevents a stale result from being saved'
     firstTimestamp: end - 360_000, lastTimestamp: end + 60_000, activeDurationMs: 420_000 })
   release({ summary: 'Zastaralá oprava.', isWork: false })
   await pending
+  expect(t.repo.get('s1', DAY)?.summary).toBeNull()
+})
+
+test('disposing an active model call aborts its signal and saves no result', async () => {
+  const t = setup(); t.setNow(end + 30 * 60_000)
+  let signal!: AbortSignal
+  let release!: (result: { summary: string; isWork: boolean }) => void
+  t.summarize.mockImplementation((_, activeSignal) => {
+    signal = activeSignal
+    return new Promise(resolve => { release = resolve })
+  })
+  const pending = t.scheduler.tick()
+  await vi.waitFor(() => expect(t.summarize).toHaveBeenCalledTimes(1))
+  t.scheduler.dispose()
+  const aborted = signal.aborted
+  release({ summary: 'Oprava validace.', isWork: true })
+  await pending
+  expect(aborted).toBe(true)
   expect(t.repo.get('s1', DAY)?.summary).toBeNull()
 })

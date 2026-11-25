@@ -16,12 +16,11 @@ const MAX_INPUT = 12_000
 const SECRET = /-----BEGIN[\s\S]*?(?:-----END[^\n]*|$)|\b(?:sk-|ghp_|xox[A-Za-z0-9_-]+)[A-Za-z0-9_-]*|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b|\b[0-9a-fA-F]{32,}\b|\b[A-Za-z0-9+/]{40,}={0,2}\b/g
 const URL = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\./i
 const ABSOLUTE_PATH = /(?:^|[^\p{L}\p{N}])\/[^\s/]+/u
-const RELATIVE_FILE_PATH = /(?:^|[^\p{L}\p{N}])(?:\.\.?\/)?(?:[\w.-]+\/)+[\w.-]+\.[A-Za-z0-9]{1,10}\b/u
-const RELATIVE_DIRECTORY_PATH = /(?:^|[^\p{L}\p{N}])(?:\.\.?\/[\w.-]+|(?:[\w.-]+\/){2,}[\w.-]+)/u
+// A file may be extensionless (for example src/Makefile), so detect path components.
+const RELATIVE_PATH = /(?:^|[^\p{L}\p{N}])(?:\.\.?\/[\p{L}\p{N}_.-]+|[\p{L}\p{N}_.-]+\/[\p{L}\p{N}_.-]+)/u
 
 function unsafeOutput(summary: string): boolean {
-  return URL.test(summary) || ABSOLUTE_PATH.test(summary) ||
-    RELATIVE_FILE_PATH.test(summary) || RELATIVE_DIRECTORY_PATH.test(summary) ||
+  return URL.test(summary) || ABSOLUTE_PATH.test(summary) || RELATIVE_PATH.test(summary) ||
     /[<>]/.test(summary)
 }
 
