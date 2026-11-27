@@ -26,11 +26,30 @@ interface RepositoryRef {
 }
 
 /**
- * Azure DevOps' Git REST API returns collection responses as `{ count, value }`. The default MCP
- * server currently unwraps that to an array, but configured server implementations are allowed to
- * pass the REST payload through unchanged, so tolerate both representations at this boundary.
+ * The items of a list answer. Azure DevOps' REST API sends a collection as `{ count, value }`, and
+ * an MCP server may unwrap that to a bare array, so both count as a list.
+ *
+ * Anything else throws with the start of the server's answer. The server reports a failure as
+ * plain text with no error flag, so without this check a failure would read as an empty list: no
+ * repositories, no pull requests, no comments, and no sign that anything went wrong.
  */
-type ListRepositoriesResult = RepositoryRef[] | { value?: RepositoryRef[] }
+function listItems<T>(tool: string, result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[]
+  const value = (result as { value?: unknown } | null | undefined)?.value
+  if (Array.isArray(value)) return value as T[]
+  throw new Error(`Azure DevOps ${tool} returned no list: ${describeAnswer(result)}`)
+}
+
+/** A short, readable account of an answer that was not what the caller expected. */
+function describeAnswer(result: unknown): string {
+  if (typeof result === 'string') return result.trim().slice(0, 300) || 'an empty text'
+  if (result === undefined) return 'an empty answer'
+  if (result !== null && typeof result === 'object') {
+    const keys = Object.keys(result)
+    return keys.length ? `an object with ${keys.join(', ')}` : 'an empty object'
+  }
+  return String(result)
+}
 
 export interface AdoServiceDeps {
   client: AdoClient
@@ -103,12 +122,6 @@ export interface AdoService {
 }
 
 export function createAdoService(d: AdoServiceDeps): AdoService {
-  function repositoriesFrom(result: ListRepositoriesResult): RepositoryRef[] {
-    if (Array.isArray(result)) return result
-    if (Array.isArray(result.value)) return result.value
-    throw new Error('Azure DevOps list_repositories returned no repository list')
-  }
-
   /** Page through list_pull_requests, applying an optional identity filter, collecting all pages. */
   async function listAll(
     repositoryId: string,
@@ -126,7 +139,7 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
         skip,
         ...filter
       })
-      const batch = result.value ?? []
+      const batch = listItems<AdoRawPullRequest>('list_pull_requests', result)
       out.push(...batch)
       if (batch.length < PAGE_SIZE || result.hasMoreResults === false) break
       skip += PAGE_SIZE
@@ -136,12 +149,12 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
 
   /** One PR's comment threads, shared by getThreads and the sync's thread-count enrichment. */
   async function fetchThreads(repositoryId: string, prId: number): Promise<PrThread[]> {
-    const raw = await d.client.callTool<{ value?: RawThread[] } | RawThread[]>(
-      'get_pull_request_comments',
-      { repositoryId, pullRequestId: prId, projectId: d.projectId() }
-    )
-    const threads = Array.isArray(raw) ? raw : (raw.value ?? [])
-    return threads.map(toThread)
+    const raw = await d.client.callTool('get_pull_request_comments', {
+      repositoryId,
+      pullRequestId: prId,
+      projectId: d.projectId()
+    })
+    return listItems<RawThread>('get_pull_request_comments', raw).map(toThread)
   }
 
   /** All my PRs in one repo. Uses server-side filters when my UUID is known, else client-filters. */
@@ -169,11 +182,8 @@ export function createAdoService(d: AdoServiceDeps): AdoService {
   return {
     async syncMyPrs() {
       const identity = await d.resolveIdentity()
-      const result = await d.client.callTool<ListRepositoriesResult>(
-        'list_repositories',
-        { projectId: d.projectId() }
-      )
-      const repos = repositoriesFrom(result)
+      const result = await d.client.callTool('list_repositories', { projectId: d.projectId() })
+      const repos = listItems<RepositoryRef>('list_repositories', result)
       const settled = await Promise.allSettled(
         repos.map(async (r) => ({
           name: r.name ?? r.id ?? '?',

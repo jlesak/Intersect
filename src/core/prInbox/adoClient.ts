@@ -37,6 +37,25 @@ export function withMcpLogging(call: ToolCall, logger: Logger): ToolCall {
   }
 }
 
+/**
+ * A complete envelope: a header line `<<nonce>> [UNTRUSTED ...] <<nonce>>`, the payload, and a
+ * closing line `<</nonce>>`, all three with the same nonce.
+ */
+const UNTRUSTED_ENVELOPE =
+  /^\s*<<([0-9A-Fa-f]{8,})>> \[UNTRUSTED [^\n]*\] <<\1>>(?:\r?\n([\s\S]*?))?\r?\n<<\/\1>>\s*$/
+
+/**
+ * The payload of an answer the Azure DevOps server wrapped in an untrusted-content envelope.
+ *
+ * The server wraps every answer so that a language model reading it treats the content as data.
+ * Intersect parses the payload as data anyway, and the JSON parse fails on the wrapped text, so the
+ * envelope comes off here. Text that does not carry one complete envelope passes through unchanged.
+ */
+export function unwrapUntrustedEnvelope(text: string): string {
+  const match = UNTRUSTED_ENVELOPE.exec(text)
+  return match ? (match[2] ?? '') : text
+}
+
 /** The part of the stdio transport the child's lifecycle records need. */
 export interface McpChildLifecycleDeps {
   transport: { readonly pid: number | null; onclose?: () => void }
@@ -154,10 +173,12 @@ export function createAdoClient(
       throw new Error(`Azure DevOps call ${name} failed: ${err instanceof Error ? err.message : String(err)}`)
     }
 
-    const text = (result.content ?? [])
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('')
+    const text = unwrapUntrustedEnvelope(
+      (result.content ?? [])
+        .filter((b) => b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text)
+        .join('')
+    )
 
     if (result.isError) {
       throw new Error(`Azure DevOps call ${name} returned an error: ${text || 'unknown error'}`)

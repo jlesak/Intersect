@@ -459,3 +459,44 @@ describe('syncMyPrs activity derivation', () => {
     expect(prs[0].lastActivityAt).toBe(Date.parse(CREATED))
   })
 })
+
+/**
+ * The server reports a failure as plain text with no error flag, so the client hands the service a
+ * string where a list belongs. That must fail with the server's text, never read as an empty list.
+ */
+describe('list answers that are not a list', () => {
+  test('a repository list answered with text fails with that text', async () => {
+    const svc = createAdoService(deps(fakeClient({ list_repositories: 'Error: project not found' })))
+    await expect(svc.syncMyPrs()).rejects.toThrow('Error: project not found')
+  })
+
+  test('a repository whose pull requests are answered with text is reported as failed', async () => {
+    const svc = createAdoService(
+      deps(
+        fakeClient({
+          list_repositories: [
+            { id: 'repo-1', name: 'repo' },
+            { id: 'repo-2', name: 'broken' }
+          ],
+          list_pull_requests: (args) =>
+            args.repositoryId === 'broken'
+              ? 'Error: access denied'
+              : { value: args.reviewerId ? [rawPr] : [] },
+          get_pull_request_comments: { value: [] }
+        })
+      )
+    )
+
+    const { prs, failedRepos } = await svc.syncMyPrs()
+
+    expect(failedRepos).toEqual(['broken'])
+    expect(prs).toHaveLength(1)
+  })
+
+  test('comment threads answered with text fail with that text', async () => {
+    const svc = createAdoService(
+      deps(fakeClient({ get_pull_request_comments: 'Error: access denied' }))
+    )
+    await expect(svc.getThreads('repo', 7)).rejects.toThrow('Error: access denied')
+  })
+})
